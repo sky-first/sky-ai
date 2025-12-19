@@ -1,0 +1,41 @@
+name: 'Terraform Setup'
+description: 'Setup Terraform with version management and caching'
+inputs:
+  terraform_version:
+    description: 'Terraform version to use'
+    required: false
+    default: '1.9.0'
+  working_directory:
+    description: 'Working directory for Terraform'
+    required: false
+    default: 'infra/azure'
+outputs:
+  terraform_version:
+    description: 'Terraform version used'
+    value: ${{ steps.setup.outputs.terraform_version }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Terraform
+      id: setup
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform_version }}
+        terraform_wrapper: false
+      shell: bash
+
+    - name: Cache Terraform plugins
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.working_directory }}/.terraform
+          ${{ inputs.working_directory }}/.terraform.lock.hcl
+        key: terraform-${{ runner.os }}-${{ hashFiles(format('{0}/**/*.tf', inputs.working_directory)) }}
+        restore-keys: |
+          terraform-${{ runner.os }}-
+
+    - name: Verify Terraform installation
+      shell: bash
+      run: |
+        terraform version
+        echo "terraform_version=$(terraform version -json | jq -r '.terraform_version')" >> $GITHUB_OUTPUT

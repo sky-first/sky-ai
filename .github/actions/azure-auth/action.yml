@@ -1,0 +1,33 @@
+name: 'Azure Authentication'
+description: 'Authenticate to Azure and set subscription'
+inputs:
+  subscription_id:
+    description: 'Azure Subscription ID'
+    required: true
+outputs:
+  subscription_id:
+    description: 'Azure Subscription ID used'
+    value: ${{ inputs.subscription_id }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      shell: bash
+
+    - name: Set Azure Subscription
+      shell: bash
+      run: |
+        az account set --subscription ${{ inputs.subscription_id }}
+        az account show --output table
+
+    - name: Verify Azure Authentication
+      shell: bash
+      run: |
+        SUBSCRIPTION=$(az account show --query id -o tsv)
+        if [ "$SUBSCRIPTION" != "${{ inputs.subscription_id }}" ]; then
+          echo "Failed to set subscription"
+          exit 1
+        fi

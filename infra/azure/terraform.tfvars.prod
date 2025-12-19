@@ -1,0 +1,29 @@
+# Configurações para ambiente PROD
+# Usado com workspace: prod
+
+environment         = "prod"
+resource_group_name = "rg-ai-saas-prod"
+location            = "eastus"
+vm_name             = "ai-saas-prod"
+vm_size             = "Standard_B2ms"  # 2 vCPU, 8GB RAM
+admin_username      = "azureuser"
+
+# Chave pública SSH
+ssh_public_key = "../../keys/azure/id_rsa.pub"
+
+# Git e Deploy
+git_branch  = "main"
+github_repo = "kaiquemendonca1/poc-deploy"
+
+# Subscription ID (será injetado via variável de ambiente ou secret)
+# subscription_id será fornecido via ARM_SUBSCRIPTION_ID ou GitHub Secret
+
+# Configurações de Segurança - Network Security Group
+allowed_ssh_ips      = []
+allowed_postgres_ips = []
+
+frontend_public_access = true
+allowed_frontend_ips   = []
+
+backend_public_access = true
+allowed_backend_ips   = []

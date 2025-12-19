@@ -1,0 +1,451 @@
+name: Deploy Infrastructure
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [staging, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente para deploy'
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      allow_destroy:
+        description: 'Permitir mudanças destrutivas'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.ref }}-${{ github.event.inputs.environment || 'auto' }}
+  cancel-in-progress: false
+
+env:
+  TERRAFORM_VERSION: '1.9.0'
+  TF_WORKING_DIR: 'infra/azure'
+
+jobs:
+  detect-environment:
+    name: Detect Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      environment: ${{ steps.detect.outputs.env }}
+      tfvars_file: ${{ steps.detect.outputs.tfvars }}
+      workspace: ${{ steps.detect.outputs.workspace }}
+      branch: ${{ steps.detect.outputs.branch }}
+      allow_destroy: ${{ steps.detect.outputs.allow_destroy }}
+    steps:
+      - name: Detect Environment from Branch
+        id: detect
+        run: |
+          set -e
+          
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+            ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
+            BRANCH="manual"
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.ref }}"
+            if [[ "${BASE_REF}" == "staging" ]]; then
+              ENV="staging"
+            elif [[ "${BASE_REF}" == "main" ]]; then
+              ENV="prod"
+            else
+              echo "Branch de destino do PR não mapeada: ${BASE_REF}"
+              exit 1
+            fi
+            ALLOW_DESTROY="false"
+            BRANCH="${BASE_REF}"
+          else
+            echo "Evento não suportado ou PR não foi mergeado"
+            exit 1
+          fi
+          
+          echo "env=${ENV}" >> $GITHUB_OUTPUT
+          echo "tfvars_file=terraform.tfvars.${ENV}" >> $GITHUB_OUTPUT
+          echo "workspace=${ENV}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "allow_destroy=${ALLOW_DESTROY}" >> $GITHUB_OUTPUT
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: detect-environment
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        run: terraform init -input=false -upgrade
+
+      - name: Select/Create Workspace
+        run: |
+          terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
+          terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file=${{ needs.detect-environment.outputs.tfvars_file }} \
+            -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -out=tfplan \
+            -no-color \
+            -detailed-exitcode 2>&1 | tee plan-output.txt
+          
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          if [ $PLAN_EXIT_CODE -eq 1 ]; then
+            echo "Terraform plan failed"
+            exit 1
+          fi
+
+      - name: Validate Plan
+        uses: ./.github/actions/terraform-plan-validation
+        with:
+          plan_file: tfplan
+          environment: ${{ needs.detect-environment.outputs.environment }}
+          allow_destroy: ${{ needs.detect-environment.outputs.allow_destroy }}
+
+      - name: Check for Destructive Changes
+        if: steps.validate.outputs.has_destroy == 'true' && needs.detect-environment.outputs.allow_destroy != 'true'
+        run: |
+          echo "WARNING: Plan contains destructive changes!"
+          echo "Environment: ${{ needs.detect-environment.outputs.environment }}"
+          echo "This deployment will destroy resources."
+          echo ""
+          echo "If this is intentional, re-run the workflow with allow_destroy=true"
+          exit 1
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan
+            ${{ env.TF_WORKING_DIR }}/plan-output.txt
+          retention-days: 30
+
+      - name: Save Plan Summary
+        run: |
+          echo "Plan Summary:" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          tail -100 plan-output.txt >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [detect-environment, terraform-plan]
+    environment:
+      name: ${{ needs.detect-environment.outputs.environment == 'prod' && 'production' || 'staging' }}
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Verify Plan File
+        run: |
+          if [ ! -f "tfplan" ]; then
+            echo "Plan file not found"
+            exit 1
+          fi
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Select Workspace
+        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+
+      - name: Pre-Apply Validation
+        run: |
+          CURRENT_WORKSPACE=$(terraform workspace show)
+          if [ "$CURRENT_WORKSPACE" != "${{ needs.detect-environment.outputs.workspace }}" ]; then
+            echo "Workspace mismatch: expected ${{ needs.detect-environment.outputs.workspace }}, got $CURRENT_WORKSPACE"
+            exit 1
+          fi
+
+      - name: Terraform Apply
+        id: apply
+        run: |
+          terraform apply -auto-approve tfplan 2>&1 | tee apply-output.txt
+          APPLY_EXIT_CODE=${PIPESTATUS[0]}
+          if [ $APPLY_EXIT_CODE -ne 0 ]; then
+            echo "Terraform apply failed"
+            exit 1
+          fi
+
+      - name: Get Terraform Outputs
+        id: outputs
+        continue-on-error: true
+        run: |
+          terraform output -json > outputs.json 2>&1 || echo "{}" > outputs.json
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
+
+      - name: Post-Deploy Health Check
+        uses: ./.github/actions/post-deploy-health-check
+        with:
+          environment: ${{ needs.detect-environment.outputs.environment }}
+          vm_ip: ${{ steps.outputs.vm_ip }}
+          timeout_minutes: '10'
+
+      - name: Show Terraform Outputs
+        run: |
+          echo "Terraform Outputs:" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          terraform output -no-color >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+      - name: Save State Backup
+        continue-on-error: true
+        run: |
+          terraform state pull > terraform-state-backup-$(date +%Y%m%d-%H%M%S).json
+
+  update-vm-code:
+    name: Update VM Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [detect-environment, terraform-apply]
+    if: success()
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Select Workspace
+        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+
+      - name: Get VM Information
+        id: vm-info
+        run: |
+          VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          
+          if [[ "${{ needs.detect-environment.outputs.branch }}" == "manual" ]]; then
+            GIT_BRANCH="main"
+          else
+            GIT_BRANCH="${{ needs.detect-environment.outputs.branch }}"
+          fi
+          
+          GITHUB_REPO="${{ github.repository }}"
+          
+          echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
+          echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
+          echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
+          echo "git_branch=${GIT_BRANCH}" >> $GITHUB_OUTPUT
+          echo "github_repo=${GITHUB_REPO}" >> $GITHUB_OUTPUT
+
+      - name: Update Code on VM
+        run: |
+          az vm run-command invoke \
+            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
+            --name ${{ steps.vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -e
+              
+              echo 'Updating code on VM...'
+              
+              cd ~/projeto || mkdir -p ~/projeto && cd ~/projeto
+              
+              BRANCH='${{ steps.vm-info.outputs.git_branch }}'
+              REPO='${{ steps.vm-info.outputs.github_repo }}'
+              REPO_OWNER=$(echo \${REPO} | cut -d'/' -f1)
+              REPO_NAME=$(echo \${REPO} | cut -d'/' -f2)
+              
+              if [ -d poc-deploy ]; then
+                echo 'Updating poc-deploy repository...'
+                cd poc-deploy
+                git fetch origin || true
+                git checkout \${BRANCH} || git checkout staging || git checkout main || true
+                git pull origin \${BRANCH} || git pull origin staging || git pull origin main || true
+                cd ..
+              else
+                echo 'Cloning poc-deploy repository...'
+                git clone -b \${BRANCH} https://github.com/\${REPO}.git poc-deploy || \
+                git clone https://github.com/\${REPO}.git poc-deploy || true
+                if [ -d poc-deploy ]; then
+                  cd poc-deploy
+                  git checkout \${BRANCH} || git checkout staging || git checkout main || true
+                  cd ..
+                fi
+              fi
+              
+              BACKEND_REPO=\${REPO_NAME/poc-deploy/backend}
+              if [ -d backend ]; then
+                echo 'Updating backend repository...'
+                cd backend
+                git fetch origin || true
+                git checkout \${BRANCH} || git checkout staging || git checkout main || true
+                git pull origin \${BRANCH} || git pull origin staging || git pull origin main || true
+                cd ..
+              else
+                echo 'Cloning backend repository...'
+                git clone -b \${BRANCH} https://github.com/\${REPO_OWNER}/\${BACKEND_REPO}.git backend || true
+              fi
+              
+              FRONTEND_REPO=\${REPO_NAME/poc-deploy/frontend}
+              if [ -d frontend ]; then
+                echo 'Updating frontend repository...'
+                cd frontend
+                git fetch origin || true
+                git checkout \${BRANCH} || git checkout staging || git checkout main || true
+                git pull origin \${BRANCH} || git pull origin staging || git pull origin main || true
+                cd ..
+              else
+                echo 'Cloning frontend repository...'
+                git clone -b \${BRANCH} https://github.com/\${REPO_OWNER}/\${FRONTEND_REPO}.git frontend || true
+              fi
+              
+              IA_REPO=\${REPO_NAME/poc-deploy/ia}
+              if [ -d ia ]; then
+                echo 'Updating IA repository...'
+                cd ia
+                git fetch origin || true
+                git checkout \${BRANCH} || git checkout staging || git checkout main || true
+                git pull origin \${BRANCH} || git pull origin staging || git pull origin main || true
+                cd ..
+              else
+                echo 'Cloning IA repository...'
+                git clone -b \${BRANCH} https://github.com/\${REPO_OWNER}/\${IA_REPO}.git ia || true
+              fi
+              
+              echo 'Code updated successfully'
+            " \
+            --output json || echo "Update command completed with warnings"
+
+      - name: Restart Containers
+        continue-on-error: true
+        run: |
+          az vm run-command invoke \
+            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
+            --name ${{ steps.vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -e
+              
+              cd ~/projeto/poc-deploy || exit 0
+              
+              if [ -f docker-compose.yml ]; then
+                echo 'Restarting containers...'
+                sudo docker compose down || true
+                sudo docker compose up -d --build || true
+                echo 'Containers restarted'
+              else
+                echo 'docker-compose.yml not found, skipping container restart'
+              fi
+            " \
+            --output json || echo "Container restart completed with warnings"
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-environment, terraform-apply]
+    if: failure() && needs.detect-environment.outputs.environment == 'prod'
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Select Workspace
+        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+
+      - name: Check for Previous State Backup
+        id: check-backup
+        continue-on-error: true
+        run: |
+          echo "backup_found=false" >> $GITHUB_OUTPUT

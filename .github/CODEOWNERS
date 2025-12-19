@@ -1,0 +1,36 @@
+# Code Owners - Define quem deve aprovar mudanças em cada área
+# POC: Aprovações simplificadas - DevOps + Dono do Projeto
+
+# Infraestrutura e Terraform - Requer aprovação de DevOps
+/infra/ @devops-team
+*.tf @devops-team
+terraform.tfvars.* @devops-team
+
+# GitHub Actions e CI/CD - Requer aprovação de DevOps
+/.github/ @devops-team
+/.github/workflows/ @devops-team
+/.github/actions/ @devops-team
+
+# Docker e configurações de container
+docker-compose*.yml @devops-team
+/docker/ @devops-team
+
+# Scripts de deploy e automação
+/scripts/ @devops-team
+/scripts/azure/ @devops-team
+/scripts/postgres/ @devops-team
+
+# Configurações de segurança e secrets
+**/secrets/** @devops-team
+**/.env.example @devops-team
+env.example @devops-team
+
+# Documentação crítica
+README.md @devops-team
+.github/ENTERPRISE_DEPLOYMENT_GUIDE.md @devops-team
+
+# Chaves SSH e certificados
+/keys/ @devops-team
+
+# Nota: Em POC, todas as aprovações requerem DevOps + Dono do Projeto
+# Configurado via GitHub Environments e Branch Protection Rules

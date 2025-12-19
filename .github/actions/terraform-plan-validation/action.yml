@@ -1,0 +1,77 @@
+name: 'Terraform Plan Validation'
+description: 'Validate Terraform plan for destructive changes and security issues'
+inputs:
+  plan_file:
+    description: 'Path to Terraform plan file'
+    required: true
+    default: 'tfplan'
+  environment:
+    description: 'Target environment'
+    required: true
+  allow_destroy:
+    description: 'Allow destructive changes (true/false)'
+    required: false
+    default: 'false'
+outputs:
+  has_destroy:
+    description: 'Plan contains destroy operations'
+    value: ${{ steps.validate.outputs.has_destroy }}
+  has_changes:
+    description: 'Plan contains any changes'
+    value: ${{ steps.validate.outputs.has_changes }}
+  resource_count:
+    description: 'Number of resources to be changed'
+    value: ${{ steps.validate.outputs.resource_count }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate Plan File Exists
+      shell: bash
+      run: |
+        if [ ! -f "${{ inputs.plan_file }}" ]; then
+          echo "Plan file not found: ${{ inputs.plan_file }}"
+          exit 1
+        fi
+
+    - name: Analyze Plan for Destructive Changes
+      id: validate
+      shell: bash
+      run: |
+        PLAN_OUTPUT=$(terraform show -json ${{ inputs.plan_file }} 2>/dev/null || echo "{}")
+        
+        DESTROY_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("delete"))] | length' 2>/dev/null || echo "0")
+        CREATE_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("create"))] | length' 2>/dev/null || echo "0")
+        UPDATE_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("update"))] | length' 2>/dev/null || echo "0")
+        
+        TOTAL_CHANGES=$((DESTROY_COUNT + CREATE_COUNT + UPDATE_COUNT))
+        
+        HAS_DESTROY="false"
+        if [ "$DESTROY_COUNT" -gt 0 ]; then
+          HAS_DESTROY="true"
+        fi
+        
+        HAS_CHANGES="false"
+        if [ "$TOTAL_CHANGES" -gt 0 ]; then
+          HAS_CHANGES="true"
+        fi
+        
+        echo "has_destroy=${HAS_DESTROY}" >> $GITHUB_OUTPUT
+        echo "has_changes=${HAS_CHANGES}" >> $GITHUB_OUTPUT
+        echo "resource_count=${TOTAL_CHANGES}" >> $GITHUB_OUTPUT
+        
+        echo "Plan Analysis:"
+        echo "  - Resources to destroy: $DESTROY_COUNT"
+        echo "  - Resources to create: $CREATE_COUNT"
+        echo "  - Resources to update: $UPDATE_COUNT"
+        echo "  - Total changes: $TOTAL_CHANGES"
+
+    - name: Check for Destructive Changes
+      shell: bash
+      run: |
+        if [ "${{ steps.validate.outputs.has_destroy }}" == "true" ] && [ "${{ inputs.allow_destroy }}" != "true" ]; then
+          echo "WARNING: Plan contains destructive changes!"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "This plan will destroy resources. Review carefully before approving."
+          echo ""
+          echo "To allow destructive changes, set allow_destroy=true"
+        fi

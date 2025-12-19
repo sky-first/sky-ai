@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:14-alpine
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
     container_name: ai_saas_postgres_prod
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -11,6 +13,10 @@ services:
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 2g
+    mem_reservation: 1g
+    cpus: 2.0
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
@@ -22,12 +28,23 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ai_saas_redis_prod
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    # Configuração otimizada: maxmemory 400MB, política LRU, sem persistência em disco
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 400mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
     volumes:
       - redis_data:/data
     ports:
       - "${REDIS_PORT:-6379}:6379"
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
     healthcheck:
       test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
@@ -42,7 +59,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ai_saas_backend_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -61,14 +78,19 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 2g
+    mem_reservation: 1g
+    cpus: 2.0
     networks:
       - ai_saas_network
+    # Reduzido de 4 para 2 workers para economizar recursos e conexões
     command: >
       sh -c "
         echo 'Waiting for database...' &&
         sleep 5 &&
         alembic upgrade head &&
-        uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
+        uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 2
       "
 
   worker:
@@ -77,7 +99,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_worker_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -91,9 +113,14 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: 1.0
     networks:
       - ai_saas_network
-    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=4
+    # Reduzido de 4 para 2 concurrency para economizar recursos e conexões
+    command: celery -A src.workers.celery_app worker --loglevel=info --concurrency=2
 
   beat:
     build:
@@ -101,7 +128,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_beat_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -113,6 +140,10 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 0.5
     networks:
       - ai_saas_network
     command: celery -A src.workers.celery_app beat --loglevel=info
@@ -130,6 +161,10 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    # Limites de recursos
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: 1.0
     networks:
       - ai_saas_network
 

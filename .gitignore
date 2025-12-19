@@ -1,12 +1,48 @@
-# SSH Keys
-deploy_key
-deploy_key.pub
+# Logs
+logs/
+*.log
+
+# Backups
+backups/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+.docker/
 
 # Terraform
-.terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+.terraform/
 .terraform.lock.hcl
 
-# Environment variables
-.env
+# SSH keys (except public)
+*.pem
+*.key
+!*.pub
+# Chaves privadas SSH organizadas
+keys/**/id_rsa
+keys/**/id_ed25519
+keys/**/*_key
+keys/**/*.pem
+# Permitir chaves públicas
+!keys/**/*.pub

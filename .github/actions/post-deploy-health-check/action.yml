@@ -1,0 +1,53 @@
+name: 'Post-Deploy Health Check'
+description: 'Perform health checks after deployment'
+inputs:
+  environment:
+    description: 'Target environment'
+    required: true
+  vm_ip:
+    description: 'VM IP address for health checks'
+    required: false
+  timeout_minutes:
+    description: 'Timeout for health checks in minutes'
+    required: false
+    default: '10'
+outputs:
+  health_status:
+    description: 'Overall health status (healthy/unhealthy)'
+    value: ${{ steps.check.outputs.status }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Wait for Infrastructure to Stabilize
+      shell: bash
+      run: sleep 30
+
+    - name: Check VM Connectivity
+      id: check
+      if: inputs.vm_ip != ''
+      shell: bash
+      continue-on-error: true
+      run: |
+        TIMEOUT=$(({{ inputs.timeout_minutes }} * 60))
+        START_TIME=$(date +%s)
+        STATUS="unhealthy"
+        
+        while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
+          if ping -c 1 -W 2 ${{ inputs.vm_ip }} > /dev/null 2>&1; then
+            STATUS="healthy"
+            break
+          fi
+          sleep 10
+        done
+        
+        echo "status=${STATUS}" >> $GITHUB_OUTPUT
+        
+        if [ "$STATUS" != "healthy" ]; then
+          echo "VM health check failed"
+          exit 1
+        fi
+
+    - name: Verify Terraform Outputs
+      shell: bash
+      continue-on-error: true
+      run: terraform output -json > /dev/null 2>&1 || echo "Could not verify outputs"
