@@ -22,7 +22,6 @@ runs:
       with:
         terraform_version: ${{ inputs.terraform_version }}
         terraform_wrapper: false
-      shell: bash
 
     - name: Cache Terraform plugins
       uses: actions/cache@v4
