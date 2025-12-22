@@ -1,21 +1,19 @@
-name: CI - IA (LangGraph)
+name: Deploy - Staging (LangGraph)
 
 on:
-  pull_request:
-    branches: [ main, develop ]
   push:
-    branches: [ main, develop ]
+    branches: [ develop, staging ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-langgraph-${{ github.ref }}
+  group: deploy-staging-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  build-and-verify:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: dummy-key
@@ -45,4 +43,7 @@ jobs:
 
       - name: Unit tests (mocked LLM)
         run: pytest tests
+
+      - name: Build Docker image (no push)
+        run: docker build -t langgraph-app:${{ github.sha }} .
 
