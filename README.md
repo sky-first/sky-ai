@@ -8,12 +8,17 @@ Pipeline e mocks para LangGraph + OpenAI.
 - Nunca logue prompts, respostas ou API keys; sanitize entradas antes de enviar ao modelo; aplique rate limiting no runtime.
 
 ## CI
-- Workflow `/.github/workflows/ci.yml` roda em PRs para `main` e `develop` com `ENV=ci` e `OPENAI_API_KEY=dummy-key`.
-- Passos: instalar deps, `flake8 src tests`, `pytest tests` (LLM mockado).
+- Workflow `/.github/workflows/ci.yml` roda em PRs e pushes para `main`/`develop` (mock LLM, zero chamadas externas).
+- Passos: upgrade de `pip`, instalar deps, `flake8 src tests`, `pytest tests`.
 
-## Docker/CD
-- Imagens devem vir com `ENV=prod` e `OPENAI_API_KEY` vazio por padrão; deploy real injeta `OPENAI_API_KEY`, `OPENAI_MODEL` e `TEMPERATURE`.
-- CD apenas builda, versiona e publica a imagem; não chama OpenAI.
+## CD / Staging
+- Workflow `/.github/workflows/deploy-staging.yml` roda em push para `develop`/`staging` ou manual (`workflow_dispatch`): lint, testes (mock), build da imagem Docker (sem push).
+- Branch flow sugerido: feature → PR para `develop`/`staging` → merge dispara build de staging → depois PR/tag para `main` para produção.
+- Proteções recomendadas: proibir push direto em `develop`/`main`, exigir checks do CI e 1+ review.
+
+## Docker
+- `Dockerfile` define `ENV=prod` e `OPENAI_API_KEY` vazio por padrão; deploy real injeta `OPENAI_API_KEY`, `OPENAI_MODEL`, `TEMPERATURE`.
+- `CMD` é placeholder; ajuste para o entrypoint da aplicação quando disponível.
 
 ## Testes locais
 ```
