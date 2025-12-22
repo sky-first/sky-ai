@@ -1,0 +1,180 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - '**/*.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - 'poetry.lock'
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - '**/*.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - 'poetry.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_DEFAULT: '3.11'
+  COV_MIN: '70'
+
+jobs:
+  changes:
+    name: Detect changed Python files
+    runs-on: ubuntu-latest
+    outputs:
+      python_changed: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            python:
+              - '**/*.py'
+              - 'requirements*.txt'
+              - 'pyproject.toml'
+              - 'setup.cfg'
+              - 'poetry.lock'
+
+  lint_format:
+    name: Lint & Format
+    needs: changes
+    if: needs.changes.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install black flake8 mypy
+      - name: Black (check)
+        run: black --check .
+      - name: Flake8 (E9,F63,F7,F82)
+        run: flake8 --select=E9,F63,F7,F82 .
+      - name: MyPy (non-blocking)
+        run: mypy .
+        continue-on-error: true
+
+  tests:
+    name: Tests & Coverage
+    needs: changes
+    if: needs.changes.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-xdist coverage
+      - name: Run tests (xdist + coverage)
+        run: |
+          pytest -n auto \
+            --junitxml=junit/test-results.xml \
+            --cov=. --cov-report=xml --cov-report=html --cov-fail-under=${{ env.COV_MIN }}
+      - name: Upload JUnit
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.python-version }}
+          path: junit/test-results.xml
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: htmlcov-${{ matrix.python-version }}
+          path: htmlcov
+
+  security:
+    name: Security Scans
+    needs: changes
+    if: needs.changes.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+          cache: pip
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+      - name: Bandit (SAST)
+        run: bandit -r . -ll
+      - name: Safety (dependencies)
+        run: safety check --full-report
+      - name: Snyk (if token available)
+        if: env.SNYK_TOKEN != ''
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN || '' }}
+        run: |
+          curl -sL https://raw.githubusercontent.com/snyk/snyk-languages/master/install.sh | bash
+          snyk test || snyk test --severity-threshold=high
+      - name: TruffleHog (secrets)
+        uses: trufflesecurity/trufflehog@v3.84.0
+        with:
+          path: .
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.sha }}
+
+  dependency_review:
+    name: Dependency Review
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          comment-summary-in-pr: true
+          allow-licenses: MIT,Apache-2.0,BSD-3-Clause,BSD-2-Clause
+
+  pr_summary:
+    name: PR Summary Comment
+    needs: [lint_format, tests, security, dependency_review]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment with CI status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const summary = `Backend CI run for ${context.sha} \n\n` +
+              `Lint/Format: ${'${{ needs.lint_format.result }}'}\n` +
+              `Tests: ${'${{ needs.tests.result }}'}\n` +
+              `Security: ${'${{ needs.security.result }}'}\n` +
+              `Dependency Review: ${'${{ needs.dependency_review.result }}'}`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
