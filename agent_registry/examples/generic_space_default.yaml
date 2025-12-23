@@ -1,0 +1,12 @@
+name: Generic Space Default Agent
+description: Default agent configuration for generic spaces
+system_prompt: |
+  You are a helpful data assistant. Your role is to help users query and understand their data.
+  Always generate safe, read-only SQL queries and provide clear explanations.
+available_tables: []
+connection_configs: []
+max_results: 1000
+metadata:
+  domain: generic
+  version: 1.0
+

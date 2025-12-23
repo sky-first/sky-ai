@@ -1,0 +1,729 @@
+# core/llm/orchestrator.py
+from __future__ import annotations
+
+from typing import List, Optional
+import re
+
+from sqlalchemy.orm import Session
+
+from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
+from core.i18n.i18n import detect_language
+from core.logging_utils import log_event
+from core.rag.context_retrieval import build_retrieval_context_for_question
+from core.rag.embeddings import EmbeddingProvider
+from core.llm.providers import LLMProvider
+from core.sql.relationships import detect_relationships, find_join_path
+
+
+def _build_tables_summary(tables: List[TableSchema]) -> str:
+    """
+    Gera um pequeno resumo dos logical tables pro LLM do orquestrador.
+    """
+    parts = []
+    for t in tables:
+        col_desc = ", ".join(
+            f"{c.get('name', c.get('name', ''))} ({c.get('type', c.get('type', ''))})" 
+            if isinstance(c, dict) else f"{c.name} ({c.type})"
+            for c in (t.columns or [])[:8]
+        )
+        parts.append(
+            f"- {t.logical_name} -> physical: {t.physical_name} | columns: {col_desc}"
+        )
+    return "\n".join(parts)
+
+
+def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
+    """
+    Extrai o logical_name retornado pelo LLM.
+    Se não bater exatamente, tenta match parcial; senão, volta o primeiro.
+    """
+    text = ""
+    if isinstance(raw_llm_response, str):
+        text = raw_llm_response
+    else:
+        # LangChain/OpenAI style: objeto com .content
+        text = getattr(raw_llm_response, "content", "") or ""
+
+    text = text.strip().lower()
+    text = re.sub(r"[\"'`]", "", text)
+
+    logical_names = [t.logical_name for t in tables]
+
+    # match exato
+    for name in logical_names:
+        if text == name.lower():
+            return name
+
+    # match se o modelo colocou mais texto tipo "I choose invoices"
+    for name in logical_names:
+        if name.lower() in text:
+            return name
+
+    # fallback: primeira tabela
+    return logical_names[0]
+
+
+def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema]) -> List[str]:
+    """
+    Extrai múltiplos logical_names retornados pelo LLM.
+    Suporta formatos como: "table1, table2" ou "table1 and table2" ou lista separada por vírgulas.
+    """
+    text = ""
+    if isinstance(raw_llm_response, str):
+        text = raw_llm_response
+    else:
+        text = getattr(raw_llm_response, "content", "") or ""
+
+    text = text.strip().lower()
+    text = re.sub(r"[\"'`]", "", text)
+
+    logical_names = [t.logical_name.lower() for t in tables]
+    found_tables = []
+
+    # Tentar separar por vírgula, "and", ou nova linha
+    parts = re.split(r'[,;\n]|\sand\s', text)
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        
+        # Match exato
+        for name in logical_names:
+            if part == name:
+                table_name = next(t.logical_name for t in tables if t.logical_name.lower() == name)
+                if table_name not in found_tables:
+                    found_tables.append(table_name)
+                break
+        
+        # Match parcial
+        for name in logical_names:
+            if name in part and name not in [t.lower() for t in found_tables]:
+                table_name = next(t.logical_name for t in tables if t.logical_name.lower() == name)
+                if table_name not in found_tables:
+                    found_tables.append(table_name)
+                break
+
+    # Se não encontrou múltiplas, retorna lista com uma (compatibilidade)
+    if not found_tables:
+        return [logical_names[0].title()] if logical_names else []
+    
+    return found_tables
+
+
+# ==================== CATALOG (METADATA) MODE ====================
+
+_CATALOG_LIST_PATTERNS = [
+    # pt
+    r"\bquais\s+(dados|tabelas|datasets)\b",
+    r"\bo\s+que\s+dados\s+eu\s+tenho\s+acesso\b",
+    r"\bo\s+que\s+eu\s+posso\s+ver\b",
+    r"\btenho\s+acesso\b",
+    # en
+    r"\bwhat\s+(data|tables|datasets)\b",
+    r"\bwhat\s+data\s+can\s+i\s+access\b",
+    r"\bwhat\s+tables\s+do\s+i\s+have\s+access\s+to\b",
+    r"\bwhat\s+can\s+i\s+see\b",
+]
+
+_CATALOG_COLUMNS_PATTERNS = [
+    # pt
+    r"\bquais\s+colunas\b",
+    r"\bcolunas\s+tem\b",
+    r"\besquema\b",
+    r"\bschema\b",
+    # en
+    r"\bwhat\s+columns\b",
+    r"\bcolumns?\s+in\b",
+    r"\bshow\s+.*schema\b",
+]
+
+_CATALOG_CAPABILITIES_PATTERNS = [
+    # pt
+    r"\bo\s+que\s+voce\s+pode\b",
+    r"\bo\s+que\s+vc\s+pode\b",
+    r"\bo\s+que\s+você\s+pode\b",
+    r"\bo\s+que\s+vcs?\s+pode(m)?\b",
+    r"\bo\s+que\s+você\s+responde\b",
+    r"\bo\s+que\s+vc\s+responde\b",
+    # en
+    r"\bwhat\s+can\s+you\s+(do|answer)\b",
+    r"\bwhat\s+are\s+you\s+able\s+to\s+answer\b",
+]
+
+
+def _looks_like_catalog_question(question: str) -> Optional[str]:
+    """
+    Retorna o intent de catálogo (metadata) ou None.
+    intents:
+      - catalog.list_access
+      - catalog.describe_table
+      - catalog.capabilities
+    """
+    q = (question or "").strip().lower()
+    if not q:
+        return None
+
+    for pat in _CATALOG_CAPABILITIES_PATTERNS:
+        if re.search(pat, q, flags=re.IGNORECASE):
+            return "catalog.capabilities"
+
+    for pat in _CATALOG_COLUMNS_PATTERNS:
+        if re.search(pat, q, flags=re.IGNORECASE):
+            return "catalog.describe_table"
+
+    for pat in _CATALOG_LIST_PATTERNS:
+        if re.search(pat, q, flags=re.IGNORECASE):
+            return "catalog.list_access"
+
+    return None
+
+
+def _normalize_name(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _extract_table_name_from_question(question: str, tables: List[TableSchema]) -> Optional[str]:
+    """
+    Tenta extrair o nome da tabela da pergunta, de forma robusta:
+    - conteúdo entre aspas/backticks
+    - padrões "de X" / "da tabela X" / "table X" / "columns in X"
+    - fallback: match por substring com as tabelas disponíveis
+    """
+    q = (question or "").strip()
+    q_norm = _normalize_name(q)
+    available = [t.logical_name for t in tables]
+    available_norm = {_normalize_name(t.logical_name): t.logical_name for t in tables}
+
+    # 1) quoted/backticked
+    m = re.search(r"[`\"']([^`\"']+)[`\"']", q)
+    if m:
+        candidate = _normalize_name(m.group(1))
+        if candidate in available_norm:
+            return available_norm[candidate]
+
+    # 2) common patterns
+    patterns = [
+        r"(?:da\s+tabela|tabela|table)\s+([a-zA-Z0-9_\.]+)",
+        r"(?:colunas\s+de|columns?\s+in)\s+([a-zA-Z0-9_\.]+)",
+        r"(?:dentro\s+de)\s+([a-zA-Z0-9_\.]+)",
+    ]
+    for pat in patterns:
+        m2 = re.search(pat, q_norm, flags=re.IGNORECASE)
+        if m2:
+            candidate = _normalize_name(m2.group(1))
+            # match exact logical name
+            if candidate in available_norm:
+                return available_norm[candidate]
+            # allow user to include physical/dataset prefix; match by suffix
+            for norm_name, original in available_norm.items():
+                if candidate.endswith(norm_name):
+                    return original
+
+    # 3) fallback substring match
+    for logical in available:
+        if _normalize_name(logical) in q_norm:
+            return logical
+
+    return None
+
+
+def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
+    names = [t.logical_name for t in tables]
+    if not names:
+        return (
+            "Não encontrei tabelas disponíveis para este contexto."
+            if lang.startswith("pt")
+            else "I couldn't find any available tables for this context."
+        )
+
+    shown = names[:30]
+    more = len(names) - len(shown)
+
+    if lang.startswith("pt"):
+        lines = [f"Você tem acesso a **{len(names)}** tabela(s) nesta conexão:"]
+        lines += [f"- `{n}`" for n in shown]
+        if more > 0:
+            lines.append(f"- ... e mais **{more}**")
+        lines.append("")
+        lines.append("Quer que eu mostre as colunas de qual tabela? (ex: `quais colunas tem dentro de silver_invoices_enriquecido`)")  # noqa: E501
+        return "\n".join(lines)
+
+    lines = [f"You have access to **{len(names)}** table(s) in this connection:"]
+    lines += [f"- `{n}`" for n in shown]
+    if more > 0:
+        lines.append(f"- ... plus **{more}** more")
+    lines.append("")
+    lines.append("Which table should I describe? (e.g., `what columns are in silver_invoices_enriquecido`)")  # noqa: E501
+    return "\n".join(lines)
+
+
+def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
+    cols = table.columns or []
+
+    if lang.startswith("pt"):
+        lines = [f"Tabela: `{table.logical_name}`", f"Total de colunas: **{len(cols)}**", ""]
+        lines.append("Colunas:")
+        for c in cols[:80]:
+            if isinstance(c, dict):
+                name = c.get("name") or c.get("column_name") or ""
+                ctype = c.get("type") or c.get("data_type") or ""
+                nullable = c.get("nullable", c.get("is_nullable", True))
+                desc = c.get("description")
+            else:
+                name = getattr(c, "name", "")
+                ctype = getattr(c, "type", "")
+                nullable = getattr(c, "nullable", getattr(c, "is_nullable", True))
+                desc = getattr(c, "description", None)
+            null_txt = "NULL" if nullable else "NOT NULL"
+            if desc:
+                lines.append(f"- `{name}` ({ctype}, {null_txt}) — {desc}")
+            else:
+                lines.append(f"- `{name}` ({ctype}, {null_txt})")
+        if len(cols) > 80:
+            lines.append(f"- ... e mais **{len(cols) - 80}** colunas")
+        return "\n".join(lines)
+
+    lines = [f"Table: `{table.logical_name}`", f"Total columns: **{len(cols)}**", ""]
+    lines.append("Columns:")
+    for c in cols[:80]:
+        if isinstance(c, dict):
+            name = c.get("name") or c.get("column_name") or ""
+            ctype = c.get("type") or c.get("data_type") or ""
+            nullable = c.get("nullable", c.get("is_nullable", True))
+            desc = c.get("description")
+        else:
+            name = getattr(c, "name", "")
+            ctype = getattr(c, "type", "")
+            nullable = getattr(c, "nullable", getattr(c, "is_nullable", True))
+            desc = getattr(c, "description", None)
+        null_txt = "NULL" if nullable else "NOT NULL"
+        if desc:
+            lines.append(f"- `{name}` ({ctype}, {null_txt}) — {desc}")
+        else:
+            lines.append(f"- `{name}` ({ctype}, {null_txt})")
+    if len(cols) > 80:
+        lines.append(f"- ... plus **{len(cols) - 80}** more columns")
+    return "\n".join(lines)
+
+
+def _format_catalog_capabilities(lang: str) -> str:
+    if lang.startswith("pt"):
+        return "\n".join(
+            [
+                "Eu posso te ajudar com:",
+                "",
+                "- **Catálogo de dados**: quais tabelas você pode ver e quais colunas existem em cada tabela.",
+                "- **Consultas (SQL)**: responder perguntas gerando SQL seguro (SELECT) e explicando o resultado.",
+                "- **Ajuda de modelagem**: sugerir tabelas para um objetivo, explicar joins/relacionamentos quando existirem.",
+                "",
+                "Exemplos:",
+                "- `quais dados eu posso ver?`",
+                "- `quais colunas tem dentro de silver_invoices_enriquecido?`",
+                "- `qual o total de invoices por customer?`",
+            ]
+        )
+
+    return "\n".join(
+        [
+            "I can help you with:",
+            "",
+            "- **Data catalog**: what tables you can access and what columns exist in a table.",
+            "- **SQL queries**: answer questions by generating safe read-only SQL (SELECT) and explaining results.",
+            "- **Modeling help**: suggest which tables to use, and explain joins/relationships when available.",
+            "",
+            "Examples:",
+            "- `what data can I access?`",
+            "- `what columns are in silver_invoices_enriquecido?`",
+            "- `what is the total invoices per customer?`",
+        ]
+    )
+
+
+def run_orchestrator(
+    state: AgentState,
+    agent_config: AgentConfig,
+    llm: LLMProvider,
+    db: Optional[Session] = None,
+    embedding_provider: Optional[EmbeddingProvider] = None,
+) -> AgentState:
+    """
+    Node de orquestração:
+    - garante pergunta válida
+    - detecta idioma
+    - (opcional) chama RAG para montar retrieval_context se ainda não existir
+    - escolhe UMA logical table com base em pergunta + contexto
+    """
+    question = (state.get("question") or "").strip()
+
+    if not question:
+        state["answer"] = "Question cannot be empty."
+        log_event("orchestrator_empty_question", {})
+        return state
+
+    # 🔤 Detecção de idioma
+    try:
+        lang = detect_language(question)
+    except Exception:
+        lang = "en"
+    state["detected_language"] = lang
+
+    # 🔍 Garante que o agente tem tabelas configuradas
+    if not agent_config.tables:
+        state["answer"] = "No tables are configured for this agent."
+        log_event("orchestrator_no_tables", {"agent_id": agent_config.id})
+        return state
+
+    # ==================== CATALOG EARLY RETURN ====================
+    # Para perguntas genéricas de dados ("quais dados eu posso ver?", "quais colunas tem na tabela X?",
+    # "o que você pode responder?"), não faz sentido gerar SQL. Respondemos diretamente com base no
+    # AgentConfig (que já deve estar filtrado por permissões no nível de API/factory).
+    catalog_intent = _looks_like_catalog_question(question)
+    if catalog_intent:
+        if catalog_intent == "catalog.list_access":
+            state["answer"] = _format_catalog_list_access(agent_config.tables, lang)
+        elif catalog_intent == "catalog.describe_table":
+            tname = _extract_table_name_from_question(question, agent_config.tables)
+            if not tname:
+                if lang.startswith("pt"):
+                    state["answer"] = (
+                        "Qual tabela você quer ver? Ex: `quais colunas tem dentro de silver_invoices_enriquecido?`"
+                    )
+                else:
+                    state["answer"] = (
+                        "Which table do you want to inspect? Example: `what columns are in silver_invoices_enriquecido?`"
+                    )
+            else:
+                table_obj = next((t for t in agent_config.tables if t.logical_name == tname), None)
+                if not table_obj:
+                    # fallback: listar tabelas
+                    state["answer"] = _format_catalog_list_access(agent_config.tables, lang)
+                else:
+                    state["answer"] = _format_catalog_describe_table(table_obj, lang)
+        elif catalog_intent == "catalog.capabilities":
+            state["answer"] = _format_catalog_capabilities(lang)
+        else:
+            state["answer"] = _format_catalog_capabilities(lang)
+
+        state["catalog_intent"] = catalog_intent
+        log_event(
+            "orchestrator_catalog_answer",
+            {
+                "agent_id": agent_config.id,
+                "intent": catalog_intent,
+                "lang": lang,
+                "num_tables": len(agent_config.tables),
+            },
+        )
+        return state
+
+    # 📚 Opcional: se ainda não houver retrieval_context no state e tivermos db + embeddings,
+    #               chama diretamente o RAG aqui.
+    retrieval_context: List[str] = state.get("retrieval_context") or []
+
+    if not retrieval_context and db is not None and embedding_provider is not None:
+        try:
+            space_id = state.get("space_id")
+            crew_ids = state.get("crew_ids") or []
+
+            if space_id:
+                retrieval_context = build_retrieval_context_for_question(
+                    db=db,
+                    embedding_provider=embedding_provider,
+                    space_id=space_id,
+                    crew_ids=crew_ids,
+                    question=question,
+                    top_k=15,
+                )
+                state["retrieval_context"] = retrieval_context
+                log_event(
+                    "orchestrator_rag_context_built",
+                    {
+                        "agent_id": agent_config.id,
+                        "space_id": space_id,
+                        "num_chunks": len(retrieval_context),
+                    },
+                )
+        except Exception as e:
+            # Se der erro no RAG, não quebra o fluxo de orquestração
+            log_event(
+                "orchestrator_rag_error",
+                {
+                    "agent_id": agent_config.id,
+                    "error": str(e)[:500],
+                },
+            )
+            retrieval_context = []
+
+    # 🎯 Verificar se há datasets selecionados manualmente pelo usuário
+    selected_datasets = state.get("selected_datasets")
+    original_tables = agent_config.tables  # Guardar tabelas originais
+    
+    if selected_datasets:
+        # Validar que os datasets selecionados existem nas tabelas disponíveis
+        available_logical_names = {t.logical_name for t in agent_config.tables}
+        valid_selected = [ds for ds in selected_datasets if ds in available_logical_names]
+        
+        if not valid_selected:
+            error_msg = f"Nenhum dos datasets selecionados ({selected_datasets}) está disponível para este agente. Datasets disponíveis: {list(available_logical_names)}"
+            state["answer"] = error_msg
+            state["error"] = "INVALID_SELECTED_DATASETS"
+            log_event(
+                "orchestrator_invalid_manual_selection",
+                {"agent_id": agent_config.id, "selected": selected_datasets, "available": list(available_logical_names)},
+            )
+            return state
+        
+        # Filtrar tabelas para usar apenas as selecionadas manualmente
+        filtered_tables = [t for t in agent_config.tables if t.logical_name in valid_selected]
+        agent_config.tables = filtered_tables
+        
+        log_event(
+            "orchestrator_using_manual_selection",
+            {"agent_id": agent_config.id, "selected_datasets": valid_selected, "num_tables": len(filtered_tables)},
+        )
+        
+        # 🎯 Otimização: Se após filtrar selected_datasets restar apenas 1 tabela,
+        #                 escolher automaticamente sem consultar o LLM
+        if len(agent_config.tables) == 1:
+            table = agent_config.tables[0]
+            state["chosen_table"] = table.logical_name
+            state["chosen_table_physical"] = table.physical_name
+            state["chosen_tables"] = [table.logical_name]
+            state["chosen_tables_physical"] = [table.physical_name]
+            
+            log_event(
+                "orchestrator_auto_selected_single_table",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "chosen_logical": table.logical_name,
+                    "chosen_physical": table.physical_name,
+                    "reason": "Only one table available after manual selection",
+                },
+            )
+            return state  # ✅ Retorna imediatamente, sem consultar LLM
+
+    tables_summary = _build_tables_summary(agent_config.tables)
+
+    # 🔗 Monta bloco de contexto (limitando pra não explodir o prompt)
+    context_block = ""
+    if retrieval_context:
+        joined = "\n\n".join(retrieval_context[:5])
+        context_block = (
+            "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
+            f"{joined}\n"
+        )
+
+    # Detectar relacionamentos entre tabelas
+    relationships = detect_relationships(agent_config.tables)
+    
+    # Obter instruções personalizadas do estado
+    instructions = state.get("instructions")
+    instructions_block = ""
+    if instructions:
+        instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
+    
+    # Construir informações sobre relacionamentos disponíveis para o LLM
+    relationships_info = ""
+    if relationships and len(agent_config.tables) > 1:
+        rel_summary = []
+        for rel in relationships[:10]:  # Limitar para não explodir o prompt
+            rel_summary.append(f"- {rel.from_table}.{rel.from_column} -> {rel.to_table}.{rel.to_column}")
+        if rel_summary:
+            relationships_info = (
+                "\n\nAVAILABLE TABLE RELATIONSHIPS (for JOINs):\n"
+                + "\n".join(rel_summary)
+                + "\n- You can use these relationships to join tables when needed.\n"
+            )
+
+    # SEMPRE permitir múltiplas tabelas - deixar o LLM decidir baseado no contexto
+    # Isso melhora a capacidade de responder perguntas complexas que precisam de JOINs
+    if len(agent_config.tables) > 1:
+        # Modo inteligente: sempre permite múltiplas tabelas
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
+                "from the list to answer the user's question.\n\n"
+                "Rules:\n"
+                "- You can choose ONE or MULTIPLE logical table names from the list.\n"
+                "- If the question requires data from multiple tables (e.g., comparing data, "
+                "  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
+                "- If the question can be answered with a single table, choose ONE table.\n"
+                "- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
+                "- Example responses: 'invoices' or 'invoices, customers' or 'orders, products, customers'\n"
+                "- Use the additional semantic context and available relationships to make the best choice.\n"
+                f"{relationships_info}"
+                f"{instructions_block}"
+            ),
+        }
+
+        user_msg = {
+            "role": "user",
+            "content": (
+                f"User question:\n{question}\n\n"
+                f"Available tables:\n{tables_summary}"
+                f"{context_block}"
+                f"{relationships_info}"
+                "\nRespond with the logical table name(s) needed, separated by commas if multiple "
+                "(for example: 'invoices' or 'invoices, customers' or 'orders, products')."
+            ),
+        }
+    else:
+        # Modo tabela única (quando há apenas uma tabela disponível)
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a routing assistant. Your job is to choose the logical table "
+                "from the list to answer the user's question.\n\n"
+                "Rules:\n"
+                "- Choose the logical table name from the list.\n"
+                "- Answer with ONLY the logical table name, nothing else.\n"
+                "- Use the additional semantic context when it clearly points to the table.\n"
+                f"{instructions_block}"
+            ),
+        }
+
+        user_msg = {
+            "role": "user",
+            "content": (
+                f"User question:\n{question}\n\n"
+                f"Available tables:\n{tables_summary}"
+                f"{context_block}\n\n"
+                "Respond with ONLY the logical table name."
+            ),
+        }
+
+    try:
+        raw = llm.invoke([system_msg, user_msg])
+    except Exception as e:
+        state["answer"] = "Error consulting the AI orchestrator. Please try again later."
+        state["error"] = str(e)
+        log_event(
+            "orchestrator_llm_error",
+            {"agent_id": agent_config.id, "error": str(e)[:500]},
+        )
+        return state
+
+    # Extrair escolha(s) de tabela(s)
+    # Sempre tentar extrair múltiplas tabelas quando há mais de uma disponível
+    if len(agent_config.tables) > 1:
+        # Tentar extrair múltiplas tabelas primeiro
+        chosen_logicals = _extract_multiple_table_choices(raw, agent_config.tables)
+        
+        # Se encontrou múltiplas tabelas, tentar usar modo JOIN
+        if len(chosen_logicals) > 1:
+            # Encontrar caminho de JOIN
+            join_path = find_join_path(chosen_logicals, relationships)
+            
+            if join_path:
+                # Caminho de JOIN encontrado - usar múltiplas tabelas com JOINs
+                state["chosen_tables"] = chosen_logicals
+                state["chosen_tables_physical"] = [
+                    next((t.physical_name for t in agent_config.tables if t.logical_name == name), name)
+                    for name in chosen_logicals
+                ]
+                state["join_relationships"] = [
+                    {
+                        "from_table": rel.from_table,
+                        "from_column": rel.from_column,
+                        "to_table": rel.to_table,
+                        "to_column": rel.to_column,
+                    }
+                    for rel in join_path
+                ]
+                
+                # Manter compatibilidade com código antigo
+                state["chosen_table"] = chosen_logicals[0]
+                state["chosen_table_physical"] = next(
+                    (t.physical_name for t in agent_config.tables if t.logical_name == chosen_logicals[0]),
+                    chosen_logicals[0]
+                )
+                
+                log_event(
+                    "orchestrator_choice_multiple_with_joins",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "chosen_tables": chosen_logicals,
+                        "join_path_length": len(join_path),
+                        "join_relationships": [
+                            f"{r.from_table}.{r.from_column} -> {r.to_table}.{r.to_column}"
+                            for r in join_path
+                        ],
+                        "detected_language": lang,
+                    },
+                )
+            else:
+                # Não encontrou caminho de JOIN explícito, mas ainda pode tentar usar múltiplas tabelas
+                # O specialist pode tentar gerar JOINs mesmo sem caminho explícito
+                state["chosen_tables"] = chosen_logicals
+                state["chosen_tables_physical"] = [
+                    next((t.physical_name for t in agent_config.tables if t.logical_name == name), name)
+                    for name in chosen_logicals
+                ]
+                # Não definir join_relationships - deixar o specialist tentar inferir
+                state["join_relationships"] = None
+                
+                # Manter compatibilidade
+                state["chosen_table"] = chosen_logicals[0]
+                state["chosen_table_physical"] = next(
+                    (t.physical_name for t in agent_config.tables if t.logical_name == chosen_logicals[0]),
+                    chosen_logicals[0]
+                )
+                
+                log_event(
+                    "orchestrator_choice_multiple_no_explicit_path",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "chosen_tables": chosen_logicals,
+                        "available_relationships": len(relationships),
+                        "note": "Specialist will attempt to generate JOINs based on column names",
+                        "detected_language": lang,
+                    },
+                )
+        else:
+            # Apenas uma tabela escolhida (ou extração retornou apenas uma)
+            chosen_logical = chosen_logicals[0] if chosen_logicals else agent_config.tables[0].logical_name
+            chosen_table_obj = next(
+                (t for t in agent_config.tables if t.logical_name == chosen_logical),
+                agent_config.tables[0],
+            )
+            state["chosen_table"] = chosen_table_obj.logical_name
+            state["chosen_table_physical"] = chosen_table_obj.physical_name
+            
+            log_event(
+                "orchestrator_choice_single",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "chosen_logical": chosen_table_obj.logical_name,
+                    "chosen_physical": chosen_table_obj.physical_name,
+                    "detected_language": lang,
+                },
+            )
+    else:
+        # Modo tabela única (quando há apenas uma tabela disponível)
+        chosen_logical = _extract_table_choice(raw, agent_config.tables)
+        chosen_table_obj = next(
+            (t for t in agent_config.tables if t.logical_name == chosen_logical),
+            agent_config.tables[0],
+        )
+
+        state["chosen_table"] = chosen_table_obj.logical_name
+        state["chosen_table_physical"] = chosen_table_obj.physical_name
+
+        log_event(
+            "orchestrator_choice_single",
+            {
+                "agent_id": agent_config.id,
+                "question": question[:200],
+                "chosen_logical": chosen_table_obj.logical_name,
+                "chosen_physical": chosen_table_obj.physical_name,
+                "detected_language": lang,
+            },
+        )
+
+    return state
