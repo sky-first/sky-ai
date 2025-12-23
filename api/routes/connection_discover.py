@@ -5,15 +5,17 @@ Pode ser chamado manualmente ou automaticamente após criar uma conexão.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import text, create_engine
+from sqlalchemy import text
 import os
 import json
+from datetime import datetime, timezone
 
 from core.ingestion.db_metadata import ingest_metadata_for_connection
 from core.logging_utils import log_event
 from db.session import get_db
+from db.base import engine as db_engine
 
 router = APIRouter(prefix="/connections", tags=["connection_discover"])
 
@@ -27,7 +29,8 @@ def _discover_tables_sync(
     Função síncrona para descobrir tabelas.
     Pode ser chamada em background ou diretamente.
     """
-    engine = create_engine(os.getenv('DATABASE_URL'), future=True)
+    # Reuse the app's configured SQLAlchemy engine (it loads .env defaults safely).
+    engine = db_engine
     
     # Buscar conexão e space via SQL raw
     with engine.connect() as conn:
@@ -77,6 +80,41 @@ def _discover_tables_sync(
             space=space,
             crew_id=None
         )
+
+        # Atualizar timestamp de metadados (se a coluna existir no schema real)
+        try:
+            db.execute(
+                text(
+                    """
+                    UPDATE data_connections
+                    SET last_metadata_update = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": connection_id},
+            )
+            db.commit()
+        except Exception:
+            # Alguns ambientes podem não ter a coluna; não quebrar o fluxo.
+            db.rollback()
+
+        # Limpar erro/status quando a descoberta roda com sucesso
+        try:
+            db.execute(
+                text(
+                    """
+                    UPDATE data_connections
+                    SET status = 'active',
+                        error = NULL,
+                        updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": connection_id},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
         
         # Contar tabelas descobertas
         result = db.execute(
@@ -106,6 +144,31 @@ def _discover_tables_sync(
                 "error": str(e)[:500],
             },
         )
+        # Persistir erro na connection para a UI/backend enxergarem o motivo
+        try:
+            db.execute(
+                text(
+                    """
+                    UPDATE data_connections
+                    SET status = 'error',
+                        error = :err,
+                        updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": connection_id,
+                    "err": json.dumps(
+                        {
+                            "message": str(e)[:500],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ),
+                },
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
         raise
 
 
@@ -161,3 +224,110 @@ async def discover_tables(
             status_code=500,
             detail=f"Erro ao descobrir tabelas: {str(e)}"
         )
+
+
+@router.get("/{connection_id}/metadata-status")
+async def metadata_status(
+    connection_id: str,
+    space_id: str = Query(..., description="ID do space (obrigatório)"),
+    ttl_seconds: int = Query(
+        21600,
+        ge=0,
+        description="TTL de metadados em segundos. Se 0, nunca considera stale.",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Retorna um status simples sobre a existência/freshness dos metadados para uma conexão.
+
+    Usado pelo backend principal para evitar chamar /discover a cada pergunta.
+
+    Retorna:
+    - has_metadata: bool
+    - metadata_rows: int
+    - tables_discovered: int
+    - last_metadata_update: ISO string | None
+    - age_seconds: float | None
+    - is_stale: bool
+    - should_discover: bool (true quando não há metadados ou está stale)
+    """
+    # 1) Contagens em table_metadata (fonte de verdade do catálogo)
+    row = db.execute(
+        text(
+            """
+            SELECT
+              COUNT(*) AS metadata_rows,
+              COUNT(DISTINCT table_name) AS tables_discovered
+            FROM table_metadata
+            WHERE space_id = :space_id AND data_connection_id = :conn_id
+            """
+        ),
+        {"space_id": space_id, "conn_id": connection_id},
+    ).first()
+
+    metadata_rows = int(row[0] or 0) if row else 0
+    tables_discovered = int(row[1] or 0) if row else 0
+    has_metadata = tables_discovered > 0
+
+    # 2) last_metadata_update (se existir no schema)
+    last_update = None
+    try:
+        upd = db.execute(
+            text("SELECT last_metadata_update FROM data_connections WHERE id = :id"),
+            {"id": connection_id},
+        ).first()
+        if upd:
+            last_update = upd[0]
+    except Exception:
+        # coluna pode não existir em alguns schemas antigos
+        last_update = None
+
+    # 3) calcular stale
+    age_seconds = None
+    is_stale = False
+    if ttl_seconds == 0:
+        is_stale = False
+    else:
+        if last_update is None:
+            # se não temos timestamp, mas já tem metadados, não marca stale automaticamente
+            # (evita discover infinito em ambientes que não têm last_metadata_update).
+            is_stale = False
+        else:
+            try:
+                now = datetime.now(timezone.utc)
+                # normaliza timezone
+                if getattr(last_update, "tzinfo", None) is None:
+                    last_update = last_update.replace(tzinfo=timezone.utc)
+                age_seconds = (now - last_update).total_seconds()
+                is_stale = age_seconds >= float(ttl_seconds)
+            except Exception:
+                age_seconds = None
+                is_stale = False
+
+    should_discover = (not has_metadata) or is_stale
+
+    log_event(
+        "metadata_status",
+        {
+            "connection_id": connection_id,
+            "space_id": space_id,
+            "has_metadata": has_metadata,
+            "tables_discovered": tables_discovered,
+            "metadata_rows": metadata_rows,
+            "ttl_seconds": ttl_seconds,
+            "is_stale": is_stale,
+            "should_discover": should_discover,
+        },
+    )
+
+    return {
+        "connection_id": connection_id,
+        "space_id": space_id,
+        "has_metadata": has_metadata,
+        "metadata_rows": metadata_rows,
+        "tables_discovered": tables_discovered,
+        "last_metadata_update": last_update.isoformat() if last_update else None,
+        "age_seconds": age_seconds,
+        "is_stale": is_stale,
+        "should_discover": should_discover,
+    }

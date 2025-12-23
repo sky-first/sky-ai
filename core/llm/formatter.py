@@ -78,6 +78,24 @@ def _invoke_llm(llm: LLMProvider, system_msg: dict, user_msg: dict) -> str:
     return str(raw or "").strip()
 
 
+def _stream_llm(llm: LLMProvider, system_msg: dict, user_msg: dict):
+    """
+    Stream tokens from LLM response.
+    Yields string chunks as they are generated.
+    """
+    try:
+        for chunk in llm.stream([system_msg, user_msg]):
+            yield chunk
+    except Exception as e:
+        log_event(
+            "formatter_stream_error",
+            {
+                "error": str(e)[:500],
+            },
+        )
+        raise
+
+
 def run_formatter(
     state: AgentState,
     agent_config: AgentConfig,
@@ -204,6 +222,37 @@ def run_formatter(
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
     stats_text = _compute_basic_stats(data_sample)
 
+    # Obter configurações de formato e instruções do estado
+    response_format = state.get("response_format")
+    instructions = state.get("instructions")
+    length = state.get("length")
+    
+    # Determinar diretrizes de formato
+    format_guidance = ""
+    if response_format:
+        format_guidance = f"\n- RESPONSE FORMAT: You MUST format your response as {response_format}.\n"
+        if response_format.lower() == "json":
+            format_guidance += "- Return a valid JSON object with your analysis.\n"
+        elif response_format.lower() == "markdown":
+            format_guidance += "- Use Markdown formatting (headers, lists, etc.) in your response.\n"
+    
+    # Determinar diretrizes de comprimento
+    length_guidance = ""
+    if length is not None:
+        if length < 30:
+            length_guidance = "- Keep the answer VERY SHORT (maximum 2 sentences).\n"
+        elif length < 70:
+            length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+        else:
+            length_guidance = "- You can provide a MORE DETAILED answer (up to 8 sentences).\n"
+    else:
+        length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+    
+    # Instruções personalizadas
+    instructions_block = ""
+    if instructions:
+        instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
+
     system_msg = {
         "role": "system",
         "content": (
@@ -212,7 +261,9 @@ def run_formatter(
             "CRITICAL LANGUAGE REQUIREMENT:\n"
             f"- The user question is in language code '{lang}'.\n"
             "- You MUST answer in the same language as the question.\n"
-            "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+            f"{length_guidance}"
+            f"{format_guidance}"
+            f"{instructions_block}"
         ),
     }
 

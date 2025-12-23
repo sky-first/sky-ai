@@ -4,11 +4,13 @@ from __future__ import annotations
 from typing import Optional, List, Dict
 
 import os
+import json
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from google.cloud import bigquery
+from google.oauth2 import service_account
 
 from db.models import (
     DataConnection,
@@ -31,7 +33,35 @@ def _create_bq_client(config: dict) -> bigquery.Client:
     if not project_id:
         raise ValueError("project_id not found in DataConnection.config nor GCP_PROJECT_ID env var")
 
-    client = bigquery.Client(project=project_id)
+    # Prefer explicit credentials from config/env to avoid relying on ADC.
+    credentials_path = (
+        (config.get("credentials_path") or "").strip()
+        or os.getenv("GCP_CREDENTIALS_PATH")
+        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+
+    service_account_json = config.get("service_account_json")
+
+    if credentials_path:
+        creds = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=project_id, credentials=creds)
+    elif service_account_json:
+        # Support JSON stored by the frontend (do NOT require a filesystem path).
+        try:
+            info = (
+                json.loads(service_account_json)
+                if isinstance(service_account_json, str)
+                else service_account_json
+            )
+        except Exception as e:
+            # Not a not-found condition; treat as internal/config error.
+            raise RuntimeError(f"Invalid service_account_json: {e}")
+        creds = service_account.Credentials.from_service_account_info(info)
+        client = bigquery.Client(project=project_id, credentials=creds)
+    else:
+        # Fallback: Application Default Credentials (may not be available in all environments)
+        client = bigquery.Client(project=project_id)
+
     return client
 
 

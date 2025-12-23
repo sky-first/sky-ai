@@ -16,11 +16,45 @@ class QueryRequest(BaseModel):
         default=None,
         description="ID do thread de conversa, se quiser contexto de múltiplas perguntas.",
     )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="Indica se a query está no modo personal, concedendo acesso a todos os crews e spaces do usuário."
+    )
+    # Configurações de comportamento da IA
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Instruções gerais sobre como a IA deve se comportar."
+    )
+    creativity: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Nível de criatividade (0-100). Controla a temperatura do LLM."
+    )
+    length: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Nível de comprimento da resposta (0-100). Controla max_tokens do LLM."
+    )
+    response_format: Optional[str] = Field(
+        default=None,
+        description="Formato desejado da resposta (ex: 'text', 'json', 'markdown')."
+    )
+    sql_instructions: Optional[str] = Field(
+        default=None,
+        description="Instruções específicas para geração de SQL."
+    )
+    selected_datasets: Optional[List[str]] = Field(
+        default=None,
+        description="Lista de datasets/tabelas selecionados manualmente pelo usuário. Se fornecido, o orchestrator usará apenas essas tabelas ao invés de escolher automaticamente."
+    )
 
 
 class QueryResultMeta(BaseModel):
     detected_language: Optional[str] = None
     chosen_table: Optional[str] = None
+    chosen_datasets: Optional[List[str]] = None  # List of tables used by AI
     sql: Optional[str] = None
     num_rows: int = 0
     error: Optional[str] = None
@@ -33,6 +67,77 @@ class QueryResponse(BaseModel):
         description="Amostra dos dados retornados (máx. 15 linhas).",
     )
     meta: QueryResultMeta
+
+
+class ChatBootstrapSuggestion(BaseModel):
+    title: str = Field(..., description="Short title for the suggestion card.")
+    kind: str = Field(default="question", description="question|action")
+    question: Optional[str] = Field(default=None, description="Suggested question to send to chat.")
+    action_id: Optional[str] = Field(default=None, description="Action identifier when kind='action'.")
+    payload: Optional[Dict[str, Any]] = Field(default=None, description="Optional action payload.")
+
+
+class ChatBootstrapRequest(BaseModel):
+    user_id: str = Field(..., description="User ID (required).")
+    space_id: str = Field(..., description="Space ID (required).")
+    crew_ids: Optional[List[str]] = Field(
+        default=None, description="Crew IDs resolved by product backend (optional)."
+    )
+    language: Optional[str] = Field(
+        default=None, description="Language hint (e.g. en, pt, es)."
+    )
+    max_suggestions: int = Field(
+        default=4, ge=1, le=8, description="How many suggestion cards to generate."
+    )
+
+
+class ChatBootstrapResponse(BaseModel):
+    greeting: str
+    suggestions: List[ChatBootstrapSuggestion]
+    meta: Optional[Dict[str, Any]] = None
+
+
+# =========================
+# Dashboard generation (Davinci)
+# =========================
+
+
+class DashboardPlanWidget(BaseModel):
+    """A single widget specification for a generated dashboard."""
+
+    widget_key: str = Field(..., description="Stable key within the plan (e.g., w1, w2).")
+    type: str = Field(..., description="Widget type (chart|kpi|table|text).")
+    title: str = Field(..., description="Widget title.")
+    question: str = Field(..., description="Question that will be executed to generate query_id.")
+    viz: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Visualization spec (frontend maps this to Tremor charts).",
+    )
+
+
+class DashboardPlanRequest(BaseModel):
+    """Request to generate a dashboard plan based on accessible metadata."""
+
+    user_id: str = Field(..., description="User ID (required).")
+    space_id: str = Field(..., description="Space ID (required).")
+    crew_ids: Optional[List[str]] = Field(default=None, description="Crew IDs (optional).")
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="If True, planner can use all crews/spaces the user belongs to (personal mode).",
+    )
+    language: Optional[str] = Field(default="en", description="Language hint (e.g., en).")
+    goal: str = Field(..., description="Dashboard goal (e.g., Billing overview).")
+    # Temporarily keep dashboard creation fully automatic with a fixed cap.
+    max_widgets: int = Field(default=8, ge=1, le=8)
+
+
+class DashboardPlanResponse(BaseModel):
+    """Response containing a dashboard plan."""
+
+    dashboard_name: str
+    description: Optional[str] = None
+    widgets: List[DashboardPlanWidget]
+    meta: Optional[Dict[str, Any]] = None
 
 
 # Schemas para DataConnections (usados em outros módulos)
@@ -57,3 +162,100 @@ class IngestMetadataRequest(BaseModel):
 
 class GenerateEmbeddingsRequest(BaseModel):
     crew_id: Optional[str] = None
+
+
+# Schemas para Spaces
+class SpaceCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class SpaceUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SpaceResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True
+
+
+# Schemas para Planets
+class PlanetCreate(BaseModel):
+    space_id: str
+    name: str
+    description: Optional[str] = None
+    required_scopes: Optional[List[str]] = None
+
+
+class PlanetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    required_scopes: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class PlanetResponse(BaseModel):
+    id: str
+    space_id: str
+    name: str
+    description: Optional[str] = None
+    required_scopes: Optional[List[str]] = None
+    created_at: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True
+
+
+# Schemas para Crews
+class CrewCreate(BaseModel):
+    space_id: str
+    name: str
+    description: Optional[str] = None
+
+
+class CrewUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class CrewResponse(BaseModel):
+    id: str
+    space_id: str
+    name: str
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True
+
+
+# Schemas para Connections (CRUD)
+class ConnectionCreate(BaseModel):
+    space_id: str
+    name: str
+    connection_type: str
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectionResponse(BaseModel):
+    id: str
+    space_id: str
+    name: str
+    connection_type: str
+    config: Dict[str, Any]
+    created_at: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True

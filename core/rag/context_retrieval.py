@@ -49,16 +49,22 @@ def build_retrieval_context_for_question(
 
     contexts: List[str] = []
     for rec in records:
-        meta = rec.metadata or {}
+        # extra_metadata é o nome do atributo Python (coluna no banco é "metadata")
+        meta_raw = rec.extra_metadata
+        if not isinstance(meta_raw, dict):
+            meta = {}
+        else:
+            meta = meta_raw
+        
         kind = meta.get("kind", "unknown")
 
         # monta um cabeçalho curto por tipo
         if kind == "table_metadata":
-            header = f"[TABLE METADATA] table={meta.get('table_name')} column={meta.get('column_name')}"
+            header = f"[TABLE METADATA] table={meta.get('table_name', 'unknown')} column={meta.get('column_name', 'unknown')}"
         elif kind == "document_chunk":
-            header = f"[DOCUMENT] name={meta.get('document_name')}"
+            header = f"[DOCUMENT] name={meta.get('document_name', 'unknown')}"
         elif kind == "api_schema":
-            header = f"[API] name={meta.get('api_name')} endpoint={meta.get('endpoint')}"
+            header = f"[API] name={meta.get('api_name', 'unknown')} endpoint={meta.get('endpoint', 'unknown')}"
         else:
             header = f"[{kind.upper()}]"
 

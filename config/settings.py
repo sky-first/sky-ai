@@ -7,10 +7,21 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # Database
-    database_url: str = "postgresql://user:password@localhost:5432/ia_poc_db"
+    database_url: str = "postgresql+psycopg2://postgres:IvXyeUdrcPA6gvfp1HzjgojiDj%2B0%2BPDO1Ob4s4PviRM%3D@44.197.200.153:5433/ai_saas_db"
     
     # OpenAI
     openai_api_key: str
+    
+    # OpenAI Model Configurations
+    # LLM Models
+    llm_model_orchestrator: str = "gpt-4o-mini"
+    llm_model_specialist: str = "gpt-4o"
+    llm_model_formatter: str = "gpt-4o-mini"
+    llm_model_default: str = "gpt-4o"
+    llm_temperature: float = 0.0
+    
+    # Embedding Models
+    embedding_model: str = "text-embedding-3-large"
     
     # Celery
     celery_broker_url: str = "redis://localhost:6379/0"
@@ -35,7 +46,8 @@ class Settings(BaseSettings):
     query_timeout_seconds: int = 300
     
     class Config:
-        env_file = ".env"
+        # Allow running from both repo root and ia-do-projeto/ without duplicating secrets.
+        env_file = (".env", "../.env")
         case_sensitive = False
 
 

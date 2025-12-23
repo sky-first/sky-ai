@@ -1,9 +1,10 @@
 # core/data_sources/bigquery_source.py
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import time
 import os
+import json
 
 import google.auth
 from google.cloud import bigquery
@@ -35,6 +36,7 @@ class BigQueryDataSource:
         dataset: Optional[str] = None,
         location: Optional[str] = None,
         credentials_path: Optional[str] = None,
+        credentials_json: Optional[Union[str, Dict[str, Any]]] = None,
         label: str = "bigquery",
     ) -> None:
         if not project_id:
@@ -44,6 +46,7 @@ class BigQueryDataSource:
         self.dataset = dataset  # ex: "billing_silver" (sem project) ou "meu-projeto.billing_silver"
         self.location = location
         self.credentials_path = credentials_path
+        self.credentials_json = credentials_json
         self.label = label
 
         self._client: Optional[bigquery.Client] = None
@@ -74,6 +77,26 @@ class BigQueryDataSource:
                 location=self.location,
             )
             mode = "service_account_file"
+        elif self.credentials_json:
+            try:
+                info = (
+                    json.loads(self.credentials_json)
+                    if isinstance(self.credentials_json, str)
+                    else self.credentials_json
+                )
+            except Exception as e:
+                raise ValueError(f"Invalid credentials_json: {e}")
+
+            creds = service_account.Credentials.from_service_account_info(
+                info,
+                scopes=["https://www.googleapis.com/auth/bigquery"],
+            )
+            client = bigquery.Client(
+                project=self.project_id,
+                credentials=creds,
+                location=self.location,
+            )
+            mode = "service_account_info"
         else:
             creds, _ = google.auth.default(
                 scopes=["https://www.googleapis.com/auth/bigquery"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import List, Sequence, Optional
 import os
+import time
 
 from openai import OpenAI
 from sqlalchemy.orm import Session
@@ -79,11 +80,18 @@ def create_embeddings_for_table_metadata(
     crew_id: Optional[str] = None,
     data_connection_id: Optional[str] = None,  # filtragem por conexão
     limit: Optional[int] = None,
+    batch_size: int = 20,  # processa em lotes de 20 por padrão
+    delay_between_batches: float = 1.0,  # delay em segundos entre lotes
 ) -> int:
     """
     Cria embeddings para TableMetadata de um space (+ opcional crew + opcional data_connection).
     - Se data_connection_id for informado, filtra apenas metadados daquela conexão.
     - Usa build_metadata_text para criar o texto que será embedado.
+    - Processa em lotes menores para evitar rate limits e melhorar progresso incremental.
+    
+    Args:
+        batch_size: Número de embeddings a processar por lote (padrão: 20)
+        delay_between_batches: Delay em segundos entre lotes (padrão: 1.0s)
     """
     q = db.query(TableMetadata).filter(TableMetadata.space_id == space_id)
 
@@ -110,31 +118,78 @@ def create_embeddings_for_table_metadata(
         )
         return 0
 
-    texts = [build_metadata_text(tm) for tm in rows]
-    vectors = embedding_provider.embed(texts)
-
+    total_rows = len(rows)
     created = 0
-    for tm, vec in zip(rows, vectors):
-        rec = EmbeddingRecord(
-            space_id=space_id,
-            crew_id=crew_id,
-            user_id=None,          # metadados de schema, não específicos de usuário
-            document_id=None,
-            table_metadata_id=tm.id,
-            embedding=vec,
-            text=build_metadata_text(tm),
-            # 🔹 AQUI A MUDANÇA: agora usamos 'extra_metadata'
-            extra_metadata={
-                "kind": "table_metadata",
-                "data_connection_id": tm.data_connection_id,
-                "table_name": tm.table_name,
-                "column_name": tm.column_name,
-            },
-        )
-        db.add(rec)
-        created += 1
-
-    db.commit()
+    
+    # Processa em lotes
+    for i in range(0, total_rows, batch_size):
+        batch = rows[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_rows + batch_size - 1) // batch_size
+        
+        print(f"Processando lote {batch_num}/{total_batches} ({len(batch)} itens)...")
+        
+        # Prepara textos do lote
+        texts = [build_metadata_text(tm) for tm in batch]
+        
+        # Gera embeddings do lote
+        try:
+            vectors = embedding_provider.embed(texts)
+        except Exception as e:
+            log_event(
+                "create_embeddings_batch_error",
+                {
+                    "space_id": space_id,
+                    "batch_num": batch_num,
+                    "error": str(e)[:500],
+                },
+            )
+            print(f"Erro no lote {batch_num}: {e}")
+            # Continua para o próximo lote mesmo se um falhar
+            continue
+        
+        # Salva embeddings do lote
+        batch_created = 0
+        for tm, vec in zip(batch, vectors):
+            rec = EmbeddingRecord(
+                space_id=space_id,
+                crew_id=crew_id,
+                user_id=None,          # metadados de schema, não específicos de usuário
+                document_id=None,
+                table_metadata_id=tm.id,
+                embedding=vec,
+                text=build_metadata_text(tm),
+                extra_metadata={
+                    "kind": "table_metadata",
+                    "data_connection_id": str(tm.data_connection_id),  # UUID -> string para JSON
+                    "table_name": tm.table_name,
+                    "column_name": tm.column_name,
+                },
+            )
+            db.add(rec)
+            batch_created += 1
+        
+        # Commit incremental após cada lote
+        try:
+            db.commit()
+            created += batch_created
+            print(f"✅ Lote {batch_num}/{total_batches} concluído: {batch_created} embeddings salvos (total: {created}/{total_rows})")
+        except Exception as e:
+            db.rollback()
+            log_event(
+                "create_embeddings_batch_commit_error",
+                {
+                    "space_id": space_id,
+                    "batch_num": batch_num,
+                    "error": str(e)[:500],
+                },
+            )
+            print(f"Erro ao salvar lote {batch_num}: {e}")
+            continue
+        
+        # Delay entre lotes (exceto no último)
+        if i + batch_size < total_rows and delay_between_batches > 0:
+            time.sleep(delay_between_batches)
 
     log_event(
         "create_embeddings_metadata_done",
@@ -142,8 +197,9 @@ def create_embeddings_for_table_metadata(
             "space_id": space_id,
             "crew_id": crew_id,
             "data_connection_id": data_connection_id,
-            "num_metadata": len(rows),
+            "num_metadata": total_rows,
             "num_embeddings": created,
+            "batch_size": batch_size,
         },
     )
 

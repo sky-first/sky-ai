@@ -11,7 +11,7 @@ def seed_permissions():
     try:
         # Create a test user
         test_user = User(
-            id=uuid4(),
+            id=str(uuid4()),
             email="test@example.com",
             name="Test User",
             is_active=True
@@ -20,28 +20,24 @@ def seed_permissions():
         
         # Create a test space
         test_space = Space(
-            id=uuid4(),
-            name="Test Space",
-            description="Test space for development",
-            is_active=True
+            id=str(uuid4()),
+            name="Test Space"
         )
         db.add(test_space)
         db.flush()
         
         # Create a test crew
         test_crew = Crew(
-            id=uuid4(),
+            id=str(uuid4()),
             space_id=test_space.id,
-            name="Test Crew",
-            description="Test crew for development",
-            is_active=True
+            name="Test Crew"
         )
         db.add(test_crew)
         db.flush()
         
         # Create permission
         permission = UserPermission(
-            id=uuid4(),
+            id=str(uuid4()),
             user_id=test_user.id,
             crew_id=test_crew.id,
             permission="admin"

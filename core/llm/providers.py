@@ -1,7 +1,7 @@
 # core/llm/providers.py
 from __future__ import annotations
 
-from typing import Protocol, List, Dict, Any
+from typing import Protocol, List, Dict, Any, AsyncIterator, Iterator
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -16,6 +16,13 @@ class LLMProvider(Protocol):
     e retornar um objeto com atributo .content (string).
     """
     def invoke(self, messages: List[Dict[str, str]]) -> Any:
+        ...
+    
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """
+        Stream tokens from LLM response.
+        Returns an iterator of string chunks.
+        """
         ...
 
 
@@ -70,6 +77,34 @@ class LangChainChatOpenAIProvider:
         except Exception as e:
             log_event(
                 "llm_invoke_error",
+                {
+                    "model": getattr(self._chat, "model_name", "unknown"),
+                    "num_messages": len(messages),
+                    "error": str(e)[:500],
+                },
+            )
+            raise
+    
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        """
+        Stream tokens from LLM response.
+        Yields string chunks as they are generated.
+        """
+        lc_msgs = self._convert_messages(messages)
+        try:
+            for chunk in self._chat.stream(lc_msgs):
+                if hasattr(chunk, "content") and chunk.content:
+                    yield chunk.content
+            log_event(
+                "llm_stream_success",
+                {
+                    "model": getattr(self._chat, "model_name", "unknown"),
+                    "num_messages": len(messages),
+                },
+            )
+        except Exception as e:
+            log_event(
+                "llm_stream_error",
                 {
                     "model": getattr(self._chat, "model_name", "unknown"),
                     "num_messages": len(messages),

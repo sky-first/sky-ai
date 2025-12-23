@@ -34,6 +34,14 @@ class AgentState(TypedDict, total=False):
     # RAG
     retrieval_context: List[str]
 
+    # Configurações de comportamento da IA
+    instructions: Optional[str]  # Instruções gerais sobre como a IA deve se comportar
+    creativity: Optional[int]  # Nível de criatividade (0-100) -> temperatura
+    length: Optional[int]  # Nível de comprimento (0-100) -> max_tokens
+    response_format: Optional[str]  # Formato desejado da resposta
+    sql_instructions: Optional[str]  # Instruções específicas para SQL
+    selected_datasets: Optional[List[str]]  # Datasets/tabelas selecionados manualmente pelo usuário
+
     # Decisão do orchestrator
     chosen_table: Optional[str]            # logical_name (mantido para compatibilidade)
     chosen_table_physical: Optional[str]   # physical_name (mantido para compatibilidade)
@@ -124,16 +132,26 @@ def build_generic_sql_graph(
         Node de orquestração:
         - abre uma Session
         - chama run_orchestrator com RAG ligado (db + embedding_provider)
+        - Cria LLM dinamicamente se houver configurações no estado
         """
         # Importação tardia para evitar circular import
         from core.llm.orchestrator import run_orchestrator
+        from core.llm.factory import create_llm_orchestrator
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_orchestrator(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_orchestrator
         
         db: Session = db_session_factory()
         try:
             new_state = run_orchestrator(
                 state=state,
                 agent_config=agent_config,
-                llm=llm_orchestrator,
+                llm=dynamic_llm,
                 db=db,
                 embedding_provider=embedding_provider,
             )
@@ -147,15 +165,25 @@ def build_generic_sql_graph(
         - usa a tabela escolhida
         - gera SQL
         - executa via data_source
+        - Cria LLM dinamicamente se houver configurações no estado
         """
         # Importação tardia para evitar circular import
         from core.llm.specialist import run_specialist
+        from core.llm.factory import create_llm_specialist
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_specialist(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_specialist
         
         new_state = run_specialist(
             state=state,
             agent_config=agent_config,
             data_source=data_source,
-            llm=llm_specialist,
+            llm=dynamic_llm,
         )
         return new_state
 
@@ -163,14 +191,24 @@ def build_generic_sql_graph(
         """
         Node formatter:
         - explica os dados ou o motivo de IMPOSSIBLE em linguagem natural
+        - Cria LLM dinamicamente se houver configurações no estado
         """
         # Importação tardia para evitar circular import
         from core.llm.formatter import run_formatter
+        from core.llm.factory import create_llm_formatter
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_formatter(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_formatter
         
         new_state = run_formatter(
             state=state,
             agent_config=agent_config,
-            llm=llm_formatter,
+            llm=dynamic_llm,
         )
         return new_state
 
@@ -211,6 +249,13 @@ def run_agent_once(
     llm_specialist: LLMProvider,
     llm_formatter: LLMProvider,
     thread_id: Optional[str] = None,
+    retrieval_context: Optional[List[str]] = None,
+    instructions: Optional[str] = None,
+    creativity: Optional[int] = None,
+    length: Optional[int] = None,
+    response_format: Optional[str] = None,
+    sql_instructions: Optional[str] = None,
+    selected_datasets: Optional[List[str]] = None,
 ) -> AgentState:
     """
     Função de alto nível:
@@ -223,16 +268,37 @@ def run_agent_once(
     """
     if thread_id is None:
         # você pode usar algo do user_ctx, ou gerar uuid, etc.
-        thread_id = f"{user_ctx.user_id or 'anon'}-{agent_config.id}"
+        user_id = getattr(user_ctx, "user_id", None)
+        if not user_id and hasattr(user_ctx, "user") and user_ctx.user:
+            user_id = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
+        thread_id = f"{user_id or 'anon'}-{agent_config.id}"
+
+    # Extrair informações do user_ctx
+    user_id_str = getattr(user_ctx, "user_id", None)
+    if not user_id_str and hasattr(user_ctx, "user") and user_ctx.user:
+        user_id_str = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
+    
+    space_id_str = None
+    if hasattr(user_ctx, "space_id") and user_ctx.space_id:
+        space_id_str = str(user_ctx.space_id)
+    
+    crew_ids_list = getattr(user_ctx, "crew_ids", []) or []
 
     # Estado inicial
     state: AgentState = {
         "question": question,
-        "user_id": getattr(user_ctx, "user_id", None),
-        "space_id": getattr(user_ctx, "space_id", None),
-        "crew_ids": getattr(user_ctx, "crew_ids", []) or [],
-        # retrieval_context começa vazio – o orchestrator pode populá-lo via RAG
-        "retrieval_context": [],
+        "user_id": user_id_str,
+        "space_id": space_id_str,
+        "crew_ids": crew_ids_list,
+        # retrieval_context pode vir como parâmetro ou ser populado pelo orchestrator
+        "retrieval_context": retrieval_context or [],
+        # Configurações dinâmicas da IA
+        "instructions": instructions,
+        "creativity": creativity,
+        "length": length,
+        "response_format": response_format,
+        "sql_instructions": sql_instructions,
+        "selected_datasets": selected_datasets,
     }
 
     app = build_generic_sql_graph(

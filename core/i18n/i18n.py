@@ -54,6 +54,52 @@ def detect_language(text: str) -> str:
             detected = detect(text)
             # Normaliza códigos tipo "pt-BR" -> "pt"
             lang = detected.split("-")[0].lower()
+            # Correção: langdetect costuma confundir PT/ES em frases curtas.
+            # Aplicamos um pós-processamento simples por heurística de marcadores.
+            if lang in {"pt", "es"}:
+                tl = text.lower()
+                pt_markers = [
+                    "você",
+                    "vocês",
+                    "não",
+                    "ção",
+                    "ções",
+                    "quais",
+                    "qual",
+                    "quantos",
+                    "quanto",
+                    "tabela",
+                    "tabelas",
+                    "dados",
+                    "colunas",
+                    "dentro",
+                    "temos",
+                    "fatura",
+                    "cliente",
+                ]
+                es_markers = [
+                    "usted",
+                    "ustedes",
+                    "qué",
+                    "cuál",
+                    "cuáles",
+                    "cuánto",
+                    "cuántos",
+                    "cómo",
+                    "dónde",
+                    "factura",
+                    "facturación",
+                    "ingresos",
+                ]
+                pt_score = sum(1 for m in pt_markers if m in tl)
+                es_score = sum(1 for m in es_markers if m in tl)
+
+                # Se houver sinais fortes de PT, force PT; idem para ES.
+                if pt_score > es_score:
+                    return "pt"
+                if es_score > pt_score:
+                    return "es"
+
             return lang
         except Exception as e:
             logger.warning("langdetect failed: %s", e)

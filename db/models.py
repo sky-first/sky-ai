@@ -36,6 +36,8 @@ class Space(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
     # Pode ter mais colunas: owner_id, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -49,6 +51,8 @@ class Crew(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -66,6 +70,35 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     # No futuro: tabelas de associação user_space, user_crew, etc.
+
+
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    crew_id = Column(String, ForeignKey("crews.id"), nullable=True)
+    permission = Column(String, nullable=False)  # "read", "write", "admin"
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    user = relationship("User")
+    crew = relationship("Crew")
+
+
+class Planet(Base):
+    __tablename__ = "planets"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    required_scopes = Column(JSON, nullable=True)  # List[str] stored as JSON
+    is_active = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    space = relationship("Space")
 
 
 # ========== DATA CONNECTIONS ==========

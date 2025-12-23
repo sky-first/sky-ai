@@ -140,6 +140,14 @@ def run_specialist(
     - preenche state["sql"], state["data"] (ou state["impossible_reason"])
     """
     question = (state.get("question") or "").strip()
+
+    # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
+    if state.get("answer"):
+        log_event(
+            "specialist_skipped_due_to_preanswered_state",
+            {"agent_id": agent_config.id, "question": question[:200]},
+        )
+        return state
     
     # Verificar se há múltiplas tabelas (modo JOIN)
     chosen_tables_logical = state.get("chosen_tables")
@@ -151,10 +159,11 @@ def run_specialist(
     chosen_physical = state.get("chosen_table_physical")
     
     # Determinar modo: múltiplas tabelas ou tabela única
+    # Agora permite múltiplas tabelas mesmo sem join_relationships explícitos
+    # O LLM pode tentar inferir JOINs baseado nos nomes das colunas
     use_multiple_tables = (
         chosen_tables_logical and 
-        len(chosen_tables_logical) > 1 and 
-        join_relationships
+        len(chosen_tables_logical) > 1
     )
     
     if use_multiple_tables:
@@ -178,6 +187,16 @@ def run_specialist(
         
         schema_text = _build_multiple_schemas_text(tables, join_relationships)
         primary_table = tables[0]  # primeira tabela é a principal (FROM)
+        
+        # Se não há join_relationships explícitos, adicionar instrução para o LLM inferir
+        join_guidance = ""
+        if not join_relationships:
+            join_guidance = (
+                "\n\nIMPORTANT: No explicit JOIN relationships were provided, but you should "
+                "try to infer relationships based on column names (e.g., user_id, customer_id, "
+                "order_id typically reference id columns in other tables). "
+                "Look for columns ending in '_id' that might reference other tables."
+            )
         
     else:
         # Modo tabela única (comportamento original)
@@ -214,10 +233,29 @@ def run_specialist(
             "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
             f"{joined}\n"
         )
-
+    
+    # 🔹 INSTRUÇÕES SQL PERSONALIZADAS
+    sql_instructions = state.get("sql_instructions")
+    sql_instructions_block = ""
+    if sql_instructions:
+        sql_instructions_block = (
+            "\n\nSQL-SPECIFIC INSTRUCTIONS:\n"
+            f"{sql_instructions}\n"
+        )
+    
     if use_multiple_tables:
         # Modo JOIN: instruções para múltiplas tabelas
         physical_names = [t.physical_name for t in tables]
+        
+        # Se não há join_relationships explícitos, adicionar instrução para o LLM inferir
+        join_guidance = ""
+        if not join_relationships:
+            join_guidance = (
+                "\n\nIMPORTANT: No explicit JOIN relationships were provided, but you should "
+                "try to infer relationships based on column names (e.g., user_id, customer_id, "
+                "order_id typically reference id columns in other tables). "
+                "Look for columns ending in '_id' that might reference other tables."
+            )
         
         system_msg = {
             "role": "system",
@@ -229,8 +267,8 @@ def run_specialist(
                 "- Use ONLY the provided physical table names.\n"
                 f"- Allowed physical table names: {', '.join(physical_names)}\n"
                 f"- Main table (FROM): {physical_names[0]}\n"
-                "- Use the JOIN relationships provided to connect the tables.\n"
-                "- Use ONLY existing columns from the schemas.\n"
+                + ("- Use the JOIN relationships provided to connect the tables.\n" if join_relationships else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n")
+                + "- Use ONLY existing columns from the schemas.\n"
                 "- The query MUST be a single SELECT statement with JOINs.\n"
                 "- DO NOT modify data (no INSERT/UPDATE/DELETE/etc.).\n"
                 "- If the question cannot be answered with these tables and the provided context, "
@@ -244,7 +282,9 @@ def run_specialist(
             "content": (
                 f"User question:\n{question}\n\n"
                 f"Table schemas:\n{schema_text}\n"
-                f"{context_block}\n"
+                f"{context_block}"
+                f"{sql_instructions_block}"
+                f"{join_guidance}"
                 "Generate only the SQL query with JOINs (or IMPOSSIBLE: <reason>)."
             ),
         }
@@ -273,7 +313,8 @@ def run_specialist(
             "content": (
                 f"User question:\n{question}\n\n"
                 f"Table schema:\n{schema_text}\n"
-                f"{context_block}\n"
+                f"{context_block}"
+                f"{sql_instructions_block}"
                 "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
             ),
         }
@@ -320,7 +361,7 @@ def run_specialist(
         return state
 
     # === Extrai SQL ===
-    sql = _parse_specialist_output(raw, table)
+    sql = _parse_specialist_output(raw, primary_table)
 
     if not sql:
         state["error"] = "Specialist did not return any SQL."

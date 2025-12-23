@@ -41,11 +41,13 @@ class DataSourceFactory:
             #   "project_id": "data-mesh-gcp",
             #   "dataset": "project.dataset",
             #   "credentials_path": "/caminho/gcp-key.json",
+            #   "service_account_json": "{...json...}" (opcional; preferível quando configurado via frontend)
             #   "location": "US"  (opcional)
             # }
             project_id = cfg_dict.get("project_id")
             dataset = cfg_dict.get("dataset")  # ex: "project.dataset"
             credentials_path = cfg_dict.get("credentials_path")
+            service_account_json = cfg_dict.get("service_account_json")
             location = cfg_dict.get("location")
 
             ds_cfg = DataSourceConfig(
@@ -67,6 +69,7 @@ class DataSourceFactory:
                     "dataset": dataset,
                     "location": location,
                     "credentials_path": credentials_path,
+                    "has_service_account_json": bool(service_account_json),
                 },
             )
 
@@ -75,6 +78,7 @@ class DataSourceFactory:
                 dataset=dataset,
                 location=location,
                 credentials_path=credentials_path,
+                credentials_json=service_account_json,
                 label=f"bigquery:{conn.id}",
             )
 
