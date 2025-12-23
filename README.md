@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # IA POC - Intelligent Data Assistant
 
 Sistema de assistente de dados inteligente com suporte a múltiplas fontes de dados, RAG e geração de SQL.
@@ -63,3 +64,6 @@ Para adicionar novas fontes de dados, implemente a interface `BaseDataSource` em
 
 Para criar novos agentes, adicione definições YAML em `agent_registry/examples/`.
 
+=======
+# sky-poc-ai
+>>>>>>> origin/staging
