@@ -46,3 +46,5 @@ keys/**/*_key
 keys/**/*.pem
 # Permitir chaves públicas
 !keys/**/*.pub
+sky-poc-frontend/
+sky-poc-frontend/

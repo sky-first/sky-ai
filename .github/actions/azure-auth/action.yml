@@ -1,8 +1,14 @@
 name: 'Azure Authentication'
-description: 'Authenticate to Azure and set subscription'
+description: 'Authenticate to Azure via OIDC and set subscription'
 inputs:
   subscription_id:
     description: 'Azure Subscription ID'
+    required: true
+  tenant_id:
+    description: 'Azure Tenant ID'
+    required: true
+  client_id:
+    description: 'Azure AD Application (client) ID used for OIDC'
     required: true
 outputs:
   subscription_id:
@@ -11,17 +17,12 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Azure Login
+    - name: Azure Login (OIDC)
       uses: azure/login@v2
       with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-      shell: bash
-
-    - name: Set Azure Subscription
-      shell: bash
-      run: |
-        az account set --subscription ${{ inputs.subscription_id }}
-        az account show --output table
+        client-id: ${{ inputs.client_id }}
+        tenant-id: ${{ inputs.tenant_id }}
+        subscription-id: ${{ inputs.subscription_id }}
 
     - name: Verify Azure Authentication
       shell: bash

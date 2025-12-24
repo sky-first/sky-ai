@@ -71,15 +71,12 @@ resource "azurerm_network_security_group" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
-  # SSH - Acesso público por padrão, ou restrito por IP se configurado
-  # Se allowed_ssh_ips estiver vazio: acesso público (qualquer IP)
-  # Se allowed_ssh_ips tiver valores: acesso restrito apenas para esses IPs
-  # Segurança garantida pela autenticação forte (apenas chaves SSH, sem senha)
+  # SSH - Requer lista explícita; se vazio, porta 22 permanece fechada
   dynamic "security_rule" {
-    for_each = length(var.allowed_ssh_ips) > 0 ? var.allowed_ssh_ips : ["*"]
+    for_each = { for idx, cidr in var.allowed_ssh_ips : idx => cidr }
     content {
-      name                       = length(var.allowed_ssh_ips) > 0 ? "SSH-${replace(replace(security_rule.value, "/", "-"), ".", "-")}" : "SSH-Public"
-      priority                   = 1001 + security_rule.key
+      name                       = "SSH-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
+      priority                   = 1001 + tonumber(security_rule.key)
       direction                  = "Inbound"
       access                     = "Allow"
       protocol                   = "Tcp"
@@ -90,12 +87,12 @@ resource "azurerm_network_security_group" "main" {
     }
   }
 
-  # Frontend (Next.js) - Público ou restrito por IP
+  # Frontend (Next.js) - Público somente se explicitamente permitido
   dynamic "security_rule" {
-    for_each = var.frontend_public_access ? ["*"] : var.allowed_frontend_ips
+    for_each = var.frontend_public_access ? { 0 = "*" } : { for idx, cidr in var.allowed_frontend_ips : idx => cidr }
     content {
       name                       = var.frontend_public_access ? "Frontend-Public" : "Frontend-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
-      priority                   = 2001 + (var.frontend_public_access ? 0 : security_rule.key)
+      priority                   = 2001 + tonumber(security_rule.key)
       direction                  = "Inbound"
       access                     = "Allow"
       protocol                   = "Tcp"
@@ -106,12 +103,12 @@ resource "azurerm_network_security_group" "main" {
     }
   }
 
-  # Backend (FastAPI) - Público ou restrito por IP
+  # Backend (FastAPI) - Público somente se explicitamente permitido
   dynamic "security_rule" {
-    for_each = var.backend_public_access ? ["*"] : var.allowed_backend_ips
+    for_each = var.backend_public_access ? { 0 = "*" } : { for idx, cidr in var.allowed_backend_ips : idx => cidr }
     content {
       name                       = var.backend_public_access ? "Backend-Public" : "Backend-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
-      priority                   = 3001 + (var.backend_public_access ? 0 : security_rule.key)
+      priority                   = 3001 + tonumber(security_rule.key)
       direction                  = "Inbound"
       access                     = "Allow"
       protocol                   = "Tcp"
@@ -122,13 +119,44 @@ resource "azurerm_network_security_group" "main" {
     }
   }
 
-  # PostgreSQL - Acesso público (protegido por senha do banco)
-  # Para maior segurança, considere restringir por IP usando allowed_postgres_ips
+  # HTTP (proxy) - Aberto conforme lista (default 0.0.0.0/0)
   dynamic "security_rule" {
-    for_each = length(var.allowed_postgres_ips) > 0 ? var.allowed_postgres_ips : ["*"]
+    for_each = { for idx, cidr in var.allowed_http_ips : idx => cidr }
     content {
-      name                       = length(var.allowed_postgres_ips) > 0 ? "PostgreSQL-${replace(replace(security_rule.value, "/", "-"), ".", "-")}" : "PostgreSQL-Public"
-      priority                   = 4001 + security_rule.key
+      name                       = "HTTP-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
+      priority                   = 1501 + tonumber(security_rule.key)
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_range     = "80"
+      source_address_prefix      = security_rule.value
+      destination_address_prefix = "*"
+    }
+  }
+
+  # HTTPS (proxy) - Aberto conforme lista (default 0.0.0.0/0)
+  dynamic "security_rule" {
+    for_each = { for idx, cidr in var.allowed_https_ips : idx => cidr }
+    content {
+      name                       = "HTTPS-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
+      priority                   = 1502 + tonumber(security_rule.key)
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_range     = "443"
+      source_address_prefix      = security_rule.value
+      destination_address_prefix = "*"
+    }
+  }
+
+  # PostgreSQL - Requer lista explícita; se vazio, porta 5433 permanece fechada
+  dynamic "security_rule" {
+    for_each = { for idx, cidr in var.allowed_postgres_ips : idx => cidr }
+    content {
+      name                       = "PostgreSQL-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
+      priority                   = 4001 + tonumber(security_rule.key)
       direction                  = "Inbound"
       access                     = "Allow"
       protocol                   = "Tcp"

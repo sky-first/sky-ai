@@ -1,5 +1,9 @@
 name: Deploy Infrastructure
 
+permissions:
+  contents: read
+  id-token: write
+
 on:
   pull_request:
     types: [closed]
@@ -80,10 +84,14 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
     env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -100,10 +108,23 @@ jobs:
       - name: Azure Authentication
         uses: ./.github/actions/azure-auth
         with:
-          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+      - name: Write backend config
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
 
       - name: Terraform Init
-        run: terraform init -input=false -upgrade
+        run: terraform init -input=false -upgrade -backend-config=backend.hcl
 
       - name: Select/Create Workspace
         run: |
@@ -170,10 +191,14 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
     env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -189,7 +214,20 @@ jobs:
       - name: Azure Authentication
         uses: ./.github/actions/azure-auth
         with:
-          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+      - name: Write backend config
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
 
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
@@ -205,7 +243,7 @@ jobs:
           fi
 
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
         run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
@@ -265,10 +303,16 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
     env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      KEYVAULT_NAME: ${{ secrets.KEYVAULT_NAME }}
+      KV_POSTGRES_PASSWORD_SECRET: ${{ secrets.KV_POSTGRES_PASSWORD_SECRET }}
+      KV_REDIS_PASSWORD_SECRET: ${{ secrets.KV_REDIS_PASSWORD_SECRET }}
+      KV_JWT_SECRET_SECRET: ${{ secrets.KV_JWT_SECRET_SECRET }}
+      KV_ENCRYPTION_KEY_SECRET: ${{ secrets.KV_ENCRYPTION_KEY_SECRET }}
+      KV_SENTRY_DSN_SECRET: ${{ secrets.KV_SENTRY_DSN_SECRET }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -278,7 +322,9 @@ jobs:
       - name: Azure Authentication
         uses: ./.github/actions/azure-auth
         with:
-          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
       - name: Terraform Init
         run: terraform init -input=false
@@ -306,6 +352,69 @@ jobs:
           echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
           echo "git_branch=${GIT_BRANCH}" >> $GITHUB_OUTPUT
           echo "github_repo=${GITHUB_REPO}" >> $GITHUB_OUTPUT
+
+      - name: Fetch secrets from Key Vault (optional)
+        if: env.KEYVAULT_NAME != ''
+        id: kv-secrets
+        run: |
+          set -euo pipefail
+          KV_NAME="${KEYVAULT_NAME}"
+          fetch_secret() {
+            local name="$1"
+            if [ -z "$name" ]; then return; fi
+            az keyvault secret show --vault-name "$KV_NAME" --name "$name" --query value -o tsv 2>/dev/null || true
+          }
+
+          POSTGRES_PASSWORD=$(fetch_secret "${KV_POSTGRES_PASSWORD_SECRET}")
+          REDIS_PASSWORD=$(fetch_secret "${KV_REDIS_PASSWORD_SECRET}")
+          JWT_SECRET_KEY=$(fetch_secret "${KV_JWT_SECRET_SECRET}")
+          ENCRYPTION_KEY=$(fetch_secret "${KV_ENCRYPTION_KEY_SECRET}")
+          SENTRY_DSN=$(fetch_secret "${KV_SENTRY_DSN_SECRET}")
+
+          echo "# Generated from Key Vault ${KV_NAME}" > kv.env
+          wrote=false
+          write_if() {
+            local key="$1"; local val="$2"
+            if [ -n "$val" ]; then
+              echo "${key}=${val}" >> kv.env
+              wrote=true
+            fi
+          }
+
+          write_if "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
+          write_if "REDIS_PASSWORD" "$REDIS_PASSWORD"
+          write_if "JWT_SECRET_KEY" "$JWT_SECRET_KEY"
+          write_if "ENCRYPTION_KEY" "$ENCRYPTION_KEY"
+          write_if "SENTRY_DSN" "$SENTRY_DSN"
+
+          if $wrote; then
+            echo "has_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_secrets=false" >> $GITHUB_OUTPUT
+            rm kv.env
+          fi
+
+      - name: Write .env on VM from Key Vault
+        if: env.KEYVAULT_NAME != '' && steps.kv-secrets.outputs.has_secrets == 'true'
+        run: |
+          set -euo pipefail
+          echo "Pushing secrets to VM .env..."
+          if [ ! -f kv.env ]; then
+            echo "kv.env not found, skipping"
+            exit 0
+          fi
+          ENV_B64=$(base64 -w0 kv.env)
+          az vm run-command invoke \
+            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
+            --name ${{ steps.vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -e
+              mkdir -p ~/projeto/poc-deploy
+              echo ${ENV_B64} | base64 -d > ~/projeto/poc-deploy/.env
+              chmod 600 ~/projeto/poc-deploy/.env
+            " \
+            --output json || echo "Secret push completed with warnings"
 
       - name: Update Code on VM
         run: |
@@ -419,10 +528,14 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
     env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -436,10 +549,23 @@ jobs:
       - name: Azure Authentication
         uses: ./.github/actions/azure-auth
         with:
-          subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+      - name: Write backend config
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
 
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
         run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}

@@ -19,11 +19,15 @@ github_repo = "kaiquemendonca1/poc-deploy"
 # subscription_id será fornecido via ARM_SUBSCRIPTION_ID ou GitHub Secret
 
 # Configurações de Segurança - Network Security Group
-allowed_ssh_ips      = []
-allowed_postgres_ips = []
+allowed_ssh_ips      = ["0.0.0.0/0"]      # Aberto para o time (SSH)
+allowed_postgres_ips = ["0.0.0.0/0"]      # Aberto para o time (Postgres)
 
-frontend_public_access = true
-allowed_frontend_ips   = []
+frontend_public_access = true             # Libera frontend
+allowed_frontend_ips   = ["0.0.0.0/0"]
 
-backend_public_access = true
-allowed_backend_ips   = []
+backend_public_access = true              # Libera backend
+allowed_backend_ips   = ["0.0.0.0/0"]
+
+# Proxy / Ingress (HTTP/HTTPS) permanece aberto
+allowed_http_ips  = ["0.0.0.0/0"]
+allowed_https_ips = ["0.0.0.0/0"]

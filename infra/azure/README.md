@@ -188,39 +188,44 @@ ssh -i keys/azure/id_rsa azureuser@<IP_PUBLICO_DA_VM>
 
 ### Regras de Firewall (Network Security Group)
 
-| Porta | Protocolo | Acesso | Descrição |
-|-------|-----------|--------|-----------|
-| 22 | TCP | **Público** | SSH - Acesso público protegido por chaves SSH |
-| 3000 | TCP | Público | Frontend (Next.js) - Acesso público |
-| 8000 | TCP | Público | Backend (FastAPI) - Acesso público |
-| 5433 | TCP | **Público** | PostgreSQL - Acesso público protegido por senha |
+| Porta | Protocolo | Acesso padrão | Como liberar |
+|-------|-----------|---------------|--------------|
+| 22 | TCP | Fechada (sem regra) | Adicione IPs em `allowed_ssh_ips` |
+| 80 | TCP | Aberta (0.0.0.0/0) | Ajuste `allowed_http_ips` se quiser restringir |
+| 443 | TCP | Aberta (0.0.0.0/0) | Ajuste `allowed_https_ips` se quiser restringir |
+| 3000 | TCP | Fechada (public_access = false) | Defina `frontend_public_access=true` **ou** IPs em `allowed_frontend_ips` |
+| 8000 | TCP | Fechada (public_access = false) | Defina `backend_public_access=true` **ou** IPs em `allowed_backend_ips` |
+| 5433 | TCP | Fechada (sem regra) | Adicione IPs em `allowed_postgres_ips` |
 
 ### Segurança Implementada
 
-- **SSH**: Autenticação apenas por chaves SSH (senha desabilitada)
-- **PostgreSQL**: Protegido por senha forte do banco de dados
-- **Firewall**: Portas abertas apenas para serviços necessários
+- **SSH**: Autenticação apenas por chaves SSH (senha desabilitada); sem regra se você não preencher `allowed_ssh_ips`.
+- **PostgreSQL**: Porta fechada por padrão; só abre para a lista em `allowed_postgres_ips`.
+- **Frontend/Backend**: Fechados por padrão; abra explicitamente por IP ou marque `public_access=true` se for realmente necessário.
+- **Proxy (HTTP/HTTPS)**: 80/443 abertos por padrão; restrinja com `allowed_http_ips`/`allowed_https_ips` se precisar.
 - **VM**: Ubuntu 22.04 LTS com atualizações de segurança
 
-### Restringir Acesso por IP (Opcional)
+### Abrir acesso por IP (recomendado)
 
-Se você quiser restringir acesso por IP (não recomendado para times distribuídos):
-
-1. Edite `terraform.tfvars`:
+1. Edite `terraform.tfvars` e substitua os placeholders por seus IPs /32:
    ```hcl
-   # Restringir SSH apenas para IPs específicos
    allowed_ssh_ips = [
-     "203.0.113.1/32",  # IP do desenvolvedor 1
-     "203.0.113.2/32",  # IP do desenvolvedor 2
+     "203.0.113.10/32", # Seu IP
    ]
-   
-   # Restringir PostgreSQL apenas para IPs específicos
    allowed_postgres_ips = [
-     "203.0.113.1/32",
+     "203.0.113.10/32", # IPs autorizados ao banco
+   ]
+   allowed_frontend_ips = [
+     "203.0.113.10/32",
+   ]
+   allowed_backend_ips = [
+     "203.0.113.10/32",
    ]
    ```
 
-2. Aplique as mudanças:
+2. Se precisar de acesso público temporário a frontend/backend, mude para `frontend_public_access = true` ou `backend_public_access = true` e replaneje.
+
+3. Aplique as mudanças:
    ```bash
    terraform apply
    ```

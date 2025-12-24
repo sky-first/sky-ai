@@ -47,6 +47,8 @@ docker compose -f docker-compose.postgres-only.yml up -d
 docker compose up -d --build
 ```
 
+> Observação: as migrações Alembic agora rodam em um serviço dedicado `migrate` antes de subir backend/worker/beat. Esses serviços só iniciam após o `migrate` concluir com sucesso.
+
 ## Pré-requisitos
 
 - Docker e Docker Compose instalados
@@ -87,6 +89,7 @@ Este projeto usa **Azure** para hospedar a infraestrutura:
 - Infraestrutura: `infra/azure/`
 - Acesso: `./access_server_azure.sh` (usa SSH)
 - Documentação completa: [`infra/azure/README.md`](infra/azure/README.md)
+- Estado remoto Terraform: configure Azure Storage + container e informe os secrets no GitHub (`TF_BACKEND_RESOURCE_GROUP`, `TF_BACKEND_STORAGE_ACCOUNT`, `TF_BACKEND_CONTAINER`, `TF_BACKEND_KEY_PREFIX`). O workflow cria `backend.hcl` e usa lock no storage.
 
 **Para começar:**
 ```bash
@@ -106,23 +109,18 @@ terraform init
 terraform plan
 terraform apply
 
-# 5. Acessar a VM
-cd ../..
-./access_server_azure.sh
-```
 
-## Acessar o Servidor Azure
-
-**Método recomendado (SSH):**
-```bash
-./access_server_azure.sh
-```
 
 **Pré-requisitos:**
 - Azure CLI instalado e configurado
 - Chave SSH configurada
 
 Para mais detalhes, consulte: [`infra/azure/README.md`](infra/azure/README.md)
+
+**Segredos via Key Vault (deploy automatizado):**
+- Crie/defina o Key Vault e os segredos: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `SENTRY_DSN` (nomes podem ser customizados).
+- Adicione secrets no GitHub: `KEYVAULT_NAME`, `KV_POSTGRES_PASSWORD_SECRET`, `KV_REDIS_PASSWORD_SECRET`, `KV_JWT_SECRET_SECRET`, `KV_ENCRYPTION_KEY_SECRET`, `KV_SENTRY_DSN_SECRET`.
+- O job `update-vm-code` busca esses segredos e gera `~/projeto/poc-deploy/.env` antes de restartar os containers.
 
 ## Estrutura Esperada no Servidor
 
@@ -219,16 +217,7 @@ Para aumentar o número máximo de conexões simultâneas permitidas pelo Postgr
 
 ### PostgreSQL em Docker
 
-**No servidor Azure, execute:**
 
-```bash
-# Conecte-se ao servidor primeiro
-./access_server_azure.sh
-
-# Execute o script de configuração (padrão: 300 conexões, work_mem 2MB)
-cd ~/poc-deploy
-./scripts/postgres/configure_postgres_safe.sh 300 2
-```
 
 Este script:
 -  Verifica memória disponível antes de configurar
@@ -258,17 +247,7 @@ cd infra/azure
 terraform apply  # Se necessário
 ```
 
-**2. Configurar PostgreSQL no servidor Azure:**
 
-**Via SSH:**
-```bash
-# Conecte-se ao servidor
-./access_server_azure.sh
-
-# Quando conectar, execute:
-cd ~/poc-deploy
-./scripts/postgres/configure_postgres_external.sh
-```
 
 Este script vai:
 - Configurar `pg_hba.conf` para aceitar conexões externas
@@ -289,11 +268,6 @@ Este script vai:
 
 **Execute primeiro o script de diagnóstico para identificar o problema:**
 
-```bash
-# No servidor Azure
-cd ~/poc-deploy
-./scripts/postgres/diagnose_postgres_connection.sh
-```
 
 Este script verifica automaticamente:
 -  Se o container está rodando
@@ -395,6 +369,38 @@ Execute na ordem:
 4.  **Verifique Network Security Group**: `cd infra/azure && terraform apply`
 5.  **Teste conectividade TCP**: `telnet <IP_DA_VM> 5433`
 
+## Backup do PostgreSQL para Azure Blob
+
+Para ter RPO/RTO melhores, faça dump periódico do Postgres para o Blob Storage:
+
+1. Pré-requisitos:
+   - `az` CLI autenticado (`az login`)
+   - Variáveis exportadas: `STORAGE_ACCOUNT`, `STORAGE_CONTAINER`, `STORAGE_SAS_TOKEN` (ou `AZURE_STORAGE_KEY`)
+   - Postgres rodando (container `ai_saas_postgres_prod` ou ajuste `POSTGRES_CONTAINER`)
+
+2. Rodar o backup:
+   ```bash
+   cd ~/projeto/poc-deploy
+   export STORAGE_ACCOUNT=...
+   export STORAGE_CONTAINER=...
+   export STORAGE_SAS_TOKEN='?sv=...'
+   ./scripts/postgres/backup_to_azure.sh
+   ```
+
+3. O arquivo é enviado para o container Blob em `backups/pgdump-<db>-<timestamp>.sql.gz`.
+
+4. Agendamento (exemplo cron na VM):
+   ```cron
+   0 3 * * * cd ~/projeto/poc-deploy && /usr/bin/env \
+     STORAGE_ACCOUNT=... \
+     STORAGE_CONTAINER=... \
+     STORAGE_SAS_TOKEN='?sv=...' \
+     ./scripts/postgres/backup_to_azure.sh >> /var/log/pg-backup.log 2>&1
+   ```
+
+5. Restore (manual):
+   - Baixe o `.sql.gz` e rode `gunzip -c dump.sql.gz | psql -h <host> -U <user> -d <db>`
+
 ## Instalação e Configuração do pgvector
 
 O pgvector é uma extensão do PostgreSQL para armazenar e buscar embeddings vetoriais (usado para RAG - Retrieval Augmented Generation).
@@ -403,18 +409,6 @@ O pgvector é uma extensão do PostgreSQL para armazenar e buscar embeddings vet
 
 O pgvector **não pode ser instalado apenas pelo DBeaver**. É uma extensão de sistema que precisa estar instalada no host do PostgreSQL. O DBeaver apenas executa SQL; o pacote precisa estar instalado no servidor.
 
-### Instalação Automática (Recomendado)
-
-**No servidor Azure, execute:**
-
-```bash
-# Conecte-se ao servidor primeiro
-./access_server_azure.sh
-
-# Execute o script de instalação
-cd ~/poc-deploy
-./scripts/postgres/install_pgvector_ai_saas_db.sh
-```
 
 Este script:
 -  Detecta automaticamente se está rodando em Docker ou PostgreSQL nativo

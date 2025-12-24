@@ -58,7 +58,7 @@ variable "allowed_postgres_ips" {
 variable "frontend_public_access" {
   description = "Se true, permite acesso público ao Frontend (porta 3000). Se false, apenas IPs em allowed_frontend_ips."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "allowed_frontend_ips" {
@@ -70,13 +70,25 @@ variable "allowed_frontend_ips" {
 variable "backend_public_access" {
   description = "Se true, permite acesso público ao Backend (porta 8000). Se false, apenas IPs em allowed_backend_ips."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "allowed_backend_ips" {
   description = "Lista de IPs/CIDRs permitidos para acesso ao Backend (porta 8000). Usado apenas se backend_public_access = false."
   type        = list(string)
   default     = []
+}
+
+variable "allowed_http_ips" {
+  description = "Lista de IPs/CIDRs permitidos para HTTP (porta 80). Se vazio, porta 80 permanece fechada."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "allowed_https_ips" {
+  description = "Lista de IPs/CIDRs permitidos para HTTPS (porta 443). Se vazio, porta 443 permanece fechada."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 # Variáveis para múltiplos ambientes e CI/CD

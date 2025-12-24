@@ -1,3 +1,4 @@
+---
 name: Backend Deploy
 
 on:
@@ -86,12 +87,12 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Blue-Green deploy (optional)
-        if: inputs.blue_green
+        if: ${{ inputs.blue_green }}
         run: |
           echo "Running blue-green strategy for ${{ inputs.environment }}"
           ./scripts/azure/deploy_to_vm.sh --blue-green --env ${{ inputs.environment }}
       - name: Standard deploy
-        if: !inputs.blue_green
+        if: ${{ not inputs.blue_green }}
         run: ./scripts/azure/deploy_to_vm.sh --env ${{ inputs.environment }}
       - name: Publish app URL
         id: deploy
