@@ -46,6 +46,65 @@ from db.base import SessionLocal
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
+def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[dict]:
+    """
+    Backend-compatible catalog loader.
+
+    In this project, the source-of-truth catalog is stored by the backend in `connection_metadata.tables`
+    (JSON containing [{name, schema, columns:[{name,type,nullable}, ...]}, ...]).
+    """
+    # IMPORTANT:
+    # Some environments end up with `db` bound to a different DATABASE_URL than `db.base.engine`
+    # (due to import timing / dotenv overrides). We use `db.base.engine` here as the single source of truth.
+    try:
+        from db.base import engine
+
+        with engine.connect() as raw_conn:
+            tables = raw_conn.execute(
+                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+                {"cid": connection_id},
+            ).scalar_one_or_none()
+        if isinstance(tables, list):
+            return [t for t in tables if isinstance(t, dict)]
+        return []
+    except Exception as e:
+        log_event("ai_connection_metadata_load_error", {"connection_id": connection_id, "error": str(e)})
+        return []
+
+
+def _schema_summary_from_tables(tables: list[dict], max_tables: int = 12) -> tuple[list[str], str]:
+    logical_tables: list[str] = []
+    lines: list[str] = []
+
+    for t in (tables or [])[: max(0, int(max_tables))]:
+        schema = str(t.get("schema") or "").strip()
+        name = str(t.get("name") or "").strip()
+        if not name:
+            continue
+        logical = f"{schema}.{name}" if schema else name
+        logical_tables.append(logical)
+
+        cols = t.get("columns") or []
+        col_names: list[str] = []
+        if isinstance(cols, list):
+            for c in cols[:10]:
+                if isinstance(c, dict) and c.get("name"):
+                    col_names.append(str(c["name"]))
+        if col_names:
+            lines.append(f"- {logical} cols: {', '.join(col_names)}")
+        else:
+            lines.append(f"- {logical}")
+
+    # unique preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for lt in logical_tables:
+        if lt not in seen:
+            seen.add(lt)
+            unique.append(lt)
+
+    return unique, "\n".join(lines)
+
 def _safe_json_loads(text: str) -> Optional[dict]:
     """
     Best-effort JSON parsing for LLM outputs.
@@ -137,30 +196,14 @@ async def chat_bootstrap(
     if lang not in {"pt", "en", "es"}:
         lang = "en"
 
-    # Load AgentConfig (tables/columns) using provided crew_ids (avoid resolving here).
-    try:
-        agent_config = load_agent_config_from_connection(
-            db=db,
-            space_id=body.space_id,
-            connection_id=connection_id,
-            crew_ids=body.crew_ids if body.crew_ids else None,
-        )
-    except Exception as e:
-        return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
-
-    tables = agent_config.tables or []
+    # Backend-compatible: read catalog from `connection_metadata`.
+    tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
     if not tables:
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
     # Build a compact schema summary for the LLM.
     max_tables_in_prompt = min(12, len(tables))
-    schema_lines: list[str] = []
-    for t in tables[:max_tables_in_prompt]:
-        cols = getattr(t, "columns", []) or []
-        col_names = [c.name for c in cols[:8]] if cols else []
-        schema_lines.append(f"- {t.logical_name} (physical: {t.physical_name}) cols: {', '.join(col_names)}")
-
-    schema_summary = "\n".join(schema_lines)
+    _logical, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
 
     system = (
         "You generate a greeting and suggestion cards for a data analytics chat.\n"
@@ -231,7 +274,7 @@ async def chat_bootstrap(
                 "fallback": False,
                 "num_tables": len(tables),
                 "prompt_tables": max_tables_in_prompt,
-                "agent_id": agent_config.id,
+                "agent_id": None,
             },
         )
     except Exception:
@@ -289,75 +332,17 @@ async def dashboards_plan(
         )
         resolved_crew_ids = []
 
-    # Load AgentConfig (tables/columns) using resolved crew_ids.
-    # If catalog metadata is not available yet, continue with an empty catalog and let
-    # the planner return a safe text-only plan.
+    # Prefer backend-provided overrides (avoids needing this service to query the DB schema correctly).
     try:
-        agent_config = load_agent_config_from_connection(
-            db=db,
-            space_id=body.space_id,
-            connection_id=connection_id,
-            crew_ids=resolved_crew_ids if resolved_crew_ids else None,
-        )
-        tables = agent_config.tables or []
-        logical_tables = [
-            (t.get("logical_name") if isinstance(t, dict) else getattr(t, "logical_name", None))
-            for t in tables
-        ]
-        logical_tables = [lt for lt in logical_tables if lt]
-
-        # Compact schema summary for the planner.
-        max_tables_in_prompt = min(12, len(tables))
-        schema_lines: list[str] = []
-        for t in tables[:max_tables_in_prompt]:
-            t_logical = (
-                t.get("logical_name")
-                if isinstance(t, dict)
-                else getattr(t, "logical_name", None)
-            )
-            cols = (t.get("columns") if isinstance(t, dict) else getattr(t, "columns", None)) or []
-
-            col_names: list[str] = []
-            all_col_names: list[str] = []
-            for c in (cols if isinstance(cols, list) else []):
-                if isinstance(c, dict):
-                    name = c.get("name") or c.get("column_name")
-                    if name:
-                        all_col_names.append(str(name))
-                else:
-                    name = getattr(c, "name", None)
-                    if name:
-                        all_col_names.append(str(name))
-
-            # Show up to 10 columns, but also highlight join-like keys to encourage multi-table questions.
-            col_names = all_col_names[:10]
-            key_like = [
-                n
-                for n in all_col_names
-                if any(
-                    k in n.lower()
-                    for k in (
-                        "_id",
-                        "id",
-                        "key",
-                        "date",
-                        "time",
-                        "customer",
-                        "user",
-                        "account",
-                        "invoice",
-                        "order",
-                        "product",
-                    )
-                )
-            ][:6]
-
-            if t_logical:
-                suffix = f" keys: {', '.join(key_like)}" if key_like else ""
-                schema_lines.append(f"- {t_logical} cols: {', '.join(col_names)}{suffix}")
-        schema_summary = "\n".join(schema_lines)
+        if body.logical_tables_override:
+            logical_tables = [str(x) for x in body.logical_tables_override if str(x).strip()]
+            schema_summary = str(body.schema_summary_override or "").strip()
+            max_tables_in_prompt = min(12, len(logical_tables))
+        else:
+            tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+            max_tables_in_prompt = min(12, len(tables))
+            logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
     except Exception:
-        agent_config = None
         tables = []
         logical_tables = []
         schema_summary = ""
@@ -382,7 +367,7 @@ async def dashboards_plan(
                 **(plan.meta or {}),
                 "num_tables": len(logical_tables),
                 "prompt_tables": max_tables_in_prompt,
-                "agent_id": agent_config.id if agent_config else None,
+                "agent_id": None,
             },
         )
     except HTTPException:
@@ -441,81 +426,36 @@ async def list_available_tables(
             # Se falhar ao resolver, usar lista vazia (apenas dados públicos)
             resolved_crew_ids = []
     
-    # Construir query SQL com filtro de permissões
-    query_sql = """
-        SELECT DISTINCT table_name
-        FROM table_metadata
-        WHERE space_id = :space_id AND data_connection_id = :conn_id
-    """
-    query_params = {"space_id": space_id, "conn_id": connection_id}
-    
-    # Adicionar filtro de permissões se crew_ids fornecidos
-    if resolved_crew_ids:
-        query_sql += " AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))"
-        query_params["crew_ids"] = resolved_crew_ids
-    else:
-        # Se não há crew_ids, mostrar apenas dados públicos (crew_id IS NULL)
-        query_sql += " AND crew_id IS NULL"
-    
-    query_sql += " ORDER BY table_name"
-    
-    # Buscar tabelas via SQL direto
-    from db.base import engine
-    with engine.connect() as raw_conn:
-        result = raw_conn.execute(
-            text(query_sql),
-            query_params
-        ).fetchall()
-    
-    # Buscar detalhes de cada tabela (colunas)
+    # Backend-compatible: list tables from `connection_metadata.tables`.
+    # Note: we currently do not enforce crew_id-level filtering here; that is handled by the product backend permissions.
+    raw_tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
     tables_info = []
-    for row in result:
-        table_name = row[0]
-        
-        # Buscar colunas desta tabela
-        columns_sql = """
-            SELECT column_name, data_type, is_nullable, description
-            FROM table_metadata
-            WHERE space_id = :space_id 
-              AND data_connection_id = :conn_id 
-              AND table_name = :table_name
-        """
-        columns_params = {
-            "space_id": space_id,
-            "conn_id": connection_id,
-            "table_name": table_name
-        }
-        
-        # Adicionar filtro de permissões para colunas também
-        if resolved_crew_ids:
-            columns_sql += " AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))"
-            columns_params["crew_ids"] = resolved_crew_ids
-        else:
-            columns_sql += " AND crew_id IS NULL"
-        
-        columns_sql += " ORDER BY column_name"
-        
-        with engine.connect() as raw_conn2:
-            columns_result = raw_conn2.execute(
-                text(columns_sql),
-                columns_params
-            ).fetchall()
-        
-        columns = [
-            {
-                "name": col[0],
-                "type": col[1] or "STRING",
-                "nullable": col[2] or False,
-                "description": col[3] if len(col) > 3 and col[3] else None,
-            }
-            for col in columns_result
-        ]
-        
-        tables_info.append({
-            "name": table_name,
-            "columns": columns,
-            "num_columns": len(columns),
-        })
+    for t in raw_tables:
+        schema = str(t.get("schema") or "").strip()
+        name = str(t.get("name") or "").strip()
+        if not name:
+            continue
+        full_name = f"{schema}.{name}" if schema else name
+
+        cols = t.get("columns") or []
+        columns = []
+        if isinstance(cols, list):
+            for c in cols:
+                if not isinstance(c, dict):
+                    continue
+                cname = c.get("name")
+                if not cname:
+                    continue
+                columns.append(
+                    {
+                        "name": str(cname),
+                        "type": str(c.get("type") or "STRING"),
+                        "nullable": bool(c.get("nullable", True)),
+                        "description": c.get("description"),
+                    }
+                )
+
+        tables_info.append({"name": full_name, "columns": columns, "num_columns": len(columns)})
     
     log_event(
         "api_list_tables_success",
@@ -562,6 +502,104 @@ def load_agent_config_from_connection(
             "connection_id": connection_id,
             "crew_ids": crew_ids,
         },
+    )
+
+    # Prefer backend-native catalog (poc backend writes to connection_metadata.tables).
+    # This avoids relying on the AI Engine's legacy `table_metadata` table, which may not exist in the same DB.
+    try:
+        with engine.connect() as raw_conn:
+            tables_json = raw_conn.execute(
+                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+                {"cid": connection_id},
+            ).scalar_one_or_none()
+
+            if isinstance(tables_json, list) and len(tables_json) > 0:
+                # Load connection config for project_id fallback
+                conn_result = raw_conn.execute(
+                    text("SELECT config FROM data_connections WHERE id = :id"),
+                    {"id": connection_id},
+                ).first()
+                config = conn_result[0] if conn_result else {}
+                if isinstance(config, str):
+                    config = json.loads(config)
+                elif config is None:
+                    config = {}
+
+                project_id = None
+                if isinstance(config, dict):
+                    project_id = config.get("project_id") or config.get("gcp_project_id")
+
+                table_schemas: list[TableSchema] = []
+                for t in tables_json:
+                    if not isinstance(t, dict):
+                        continue
+                    schema = str(t.get("schema") or "").strip()
+                    name = str(t.get("name") or "").strip()
+                    if not name:
+                        continue
+
+                    # Physical name for BigQuery: project.dataset.table (best-effort)
+                    if schema and project_id:
+                        physical_name = f"{project_id}.{schema}.{name}"
+                    elif schema:
+                        physical_name = f"{schema}.{name}"
+                    else:
+                        physical_name = name
+
+                    logical_name = _normalize_logical_name(name)
+                    cols = t.get("columns") or []
+                    columns = []
+                    if isinstance(cols, list):
+                        for c in cols:
+                            if not isinstance(c, dict):
+                                continue
+                            cname = c.get("name")
+                            if not cname:
+                                continue
+                            columns.append(
+                                {
+                                    "name": str(cname),
+                                    "type": str(c.get("type") or c.get("data_type") or "STRING"),
+                                    "nullable": bool(c.get("nullable", True)),
+                                }
+                            )
+
+                    table_schemas.append(
+                        TableSchema(
+                            logical_name=logical_name,
+                            physical_name=physical_name,
+                            columns=columns,
+                        )
+                    )
+
+                if table_schemas:
+                    agent = AgentConfig(
+                        id=f"agent-conn-{connection_id}",
+                        name=f"Agent for connection {connection_id}",
+                        tables=table_schemas,
+                    )
+                    log_event(
+                        "load_agent_config_from_connection_metadata",
+                        {
+                            "space_id": space_id,
+                            "connection_id": connection_id,
+                            "num_tables": len(table_schemas),
+                        },
+                    )
+                    return agent
+    except Exception as e:
+        log_event(
+            "load_agent_config_connection_metadata_error",
+            {"space_id": space_id, "connection_id": connection_id, "error": str(e)[:500]},
+        )
+
+    # Backend-compatible mode: do NOT fall back to the legacy `table_metadata` table.
+    # In this repo, the backend is the source-of-truth and stores the catalog in
+    # `connection_metadata.tables` (JSON). If it's missing/empty, treat it as "no catalog yet".
+    raise HTTPException(
+        status_code=404,
+        detail="Nenhum catálogo encontrado em connection_metadata.tables para esta conexão. "
+        "Sincronize a conexão no backend e tente novamente.",
     )
     
     # Construir query SQL com filtro de permissões

@@ -130,6 +130,16 @@ class DashboardPlanRequest(BaseModel):
     # Temporarily keep dashboard creation fully automatic with a fixed cap.
     max_widgets: int = Field(default=8, ge=1, le=8)
 
+    # Backend-override fields (allows the product backend to pass catalog directly)
+    logical_tables_override: Optional[List[str]] = Field(
+        default=None,
+        description="Optional explicit list of logical tables (e.g. schema.table) to use for planning.",
+    )
+    schema_summary_override: Optional[str] = Field(
+        default=None,
+        description="Optional explicit schema summary to use for planning (table + key columns).",
+    )
+
 
 class DashboardPlanResponse(BaseModel):
     """Response containing a dashboard plan."""
