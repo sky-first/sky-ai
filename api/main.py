@@ -1,10 +1,18 @@
 # api/main.py
 from __future__ import annotations
 
+import os
 from fastapi import FastAPI
+from sqlalchemy import text
 
-from api.routes import connection_query, connection_discover
-from api.routes import data_ingestion, pipeline
+# Force local DB for local dev when a remote/stale DATABASE_URL is present.
+# This project expects the AI Engine to read the same Postgres as the backend docker-compose.
+_db_url = os.getenv("DATABASE_URL", "")
+if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
+    os.environ["DATABASE_URL"] = "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
+
+from api.routes import connection_query, connection_discover  # noqa: E402
+from api.routes import data_ingestion, pipeline  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -22,6 +30,35 @@ async def on_startup():
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/debug/db", tags=["debug"])
+async def debug_db():
+    """
+    Local-dev helper to verify which DB the AI Engine is connected to.
+    """
+    from db.base import DATABASE_URL, engine
+
+    safe_url = DATABASE_URL
+    try:
+        # redact password
+        if "://" in safe_url and "@" in safe_url:
+            prefix, rest = safe_url.split("://", 1)
+            creds, hostpart = rest.split("@", 1)
+            if ":" in creds:
+                user, _pwd = creds.split(":", 1)
+                safe_url = f"{prefix}://{user}:***@{hostpart}"
+    except Exception:
+        safe_url = "<redacted>"
+
+    with engine.connect() as conn:
+        total_meta = conn.execute(text("select count(*) from connection_metadata")).scalar_one()
+        sample = conn.execute(
+            text("select count(*) from connection_metadata where connection_id = CAST(:cid AS uuid)"),
+            {"cid": "1fd6fee8-bf03-4e82-9c85-419a228ef726"},
+        ).scalar_one()
+
+    return {"database_url": safe_url, "connection_metadata_count": int(total_meta), "sample_connection_row": int(sample)}
 
 
 # ===========================

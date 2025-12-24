@@ -25,11 +25,9 @@ def _default_database_url() -> str:
         return f"postgresql+psycopg2://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
 
     # Fallback: local docker mapping used by this repo (ai_saas_postgres_prod)
-    return (
-        "postgresql+psycopg2://postgres:"
-        "IvXyeUdrcPA6gvfp1HzjgojiDj%2B0%2BPDO1Ob4s4PviRM%3D"
-        "@localhost:5433/ai_saas_db"
-    )
+    # Local dev default: matches sky-poc-backend docker postgres published port.
+    # Override via DATABASE_URL or POSTGRES_* env vars for other environments.
+    return "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
 
 
 DATABASE_URL = os.getenv("DATABASE_URL") or _default_database_url()

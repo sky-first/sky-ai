@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # Database
-    database_url: str = "postgresql+psycopg2://postgres:IvXyeUdrcPA6gvfp1HzjgojiDj%2B0%2BPDO1Ob4s4PviRM%3D@44.197.200.153:5433/ai_saas_db"
+    # Local dev default (override via DATABASE_URL in .env)
+    database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
     
     # OpenAI
     openai_api_key: str
