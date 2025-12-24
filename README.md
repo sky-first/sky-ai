@@ -92,19 +92,40 @@ Este projeto usa **Azure** para hospedar a infraestrutura:
 - Estado remoto Terraform: configure Azure Storage + container e informe os secrets no GitHub (`TF_BACKEND_RESOURCE_GROUP`, `TF_BACKEND_STORAGE_ACCOUNT`, `TF_BACKEND_CONTAINER`, `TF_BACKEND_KEY_PREFIX`). O workflow cria `backend.hcl` e usa lock no storage.
 
 **Para começar:**
+
+**1. Instalar Azure CLI:**
+
+**Windows (PowerShell):**
+```powershell
+# Opção 1: Usando script automatizado (recomendado)
+.\install_azure_cli.ps1
+
+# Opção 2: Usando winget (não requer admin)
+winget install -e --id Microsoft.AzureCLI
+
+# Opção 3: Baixar instalador manualmente
+# https://aka.ms/installazurecliwindows
+```
+
+**macOS/Linux:**
 ```bash
-# 1. Instalar Azure CLI (se ainda não tiver)
 brew install azure-cli
+```
 
-# 2. Fazer login
+**2. Fazer login:**
+```bash
 az login
+```
 
-# 3. Configurar Terraform
+**3. Configurar Terraform:**
+```bash
 cd infra/azure
 cp terraform.tfvars.example terraform.tfvars
 # Edite terraform.tfvars com suas configurações
+```
 
-# 4. Criar infraestrutura
+**4. Criar infraestrutura:**
+```bash
 terraform init
 terraform plan
 terraform apply

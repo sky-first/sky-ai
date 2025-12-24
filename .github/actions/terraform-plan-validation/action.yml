@@ -26,18 +26,60 @@ runs:
   using: 'composite'
   steps:
     - name: Validate Plan File Exists
+      id: validate-plan-file
       shell: bash
+      continue-on-error: false
       run: |
-        if [ ! -f "${{ inputs.plan_file }}" ]; then
-          echo "Plan file not found: ${{ inputs.plan_file }}"
-          exit 1
+        PLAN_FILE="${{ inputs.plan_file }}"
+        FOUND_FILE=""
+        
+        # Tentar 1: Caminho relativo (diretório atual - deve ser working-directory)
+        if [ -f "$PLAN_FILE" ]; then
+          FOUND_FILE="$PLAN_FILE"
+          echo "✅ Plan file found (relative path): $FOUND_FILE"
+        
+        # Tentar 2: Workspace root + caminho
+        elif [ -f "${GITHUB_WORKSPACE}/${PLAN_FILE}" ]; then
+          FOUND_FILE="${GITHUB_WORKSPACE}/${PLAN_FILE}"
+          echo "✅ Plan file found in workspace root: $FOUND_FILE"
+        
+        # Tentar 3: infra/azure + caminho (working-directory padrão)
+        elif [ -f "${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}" ]; then
+          FOUND_FILE="${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}"
+          echo "✅ Plan file found in infra/azure: $FOUND_FILE"
+        
+        # Tentar 4: Buscar recursivamente (fallback)
+        else
+          FOUND_FILE=$(find ${GITHUB_WORKSPACE} -name "$(basename ${PLAN_FILE})" -type f 2>/dev/null | head -1)
+          if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
+            echo "✅ Plan file found (searched): $FOUND_FILE"
+          else
+            echo "❌ Plan file not found: ${{ inputs.plan_file }}"
+            echo "Current directory: $(pwd)"
+            echo "Workspace: ${GITHUB_WORKSPACE}"
+            echo ""
+            echo "Searched locations:"
+            echo "  1. $PLAN_FILE (current directory)"
+            echo "  2. ${GITHUB_WORKSPACE}/${PLAN_FILE} (workspace root)"
+            echo "  3. ${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE} (infra/azure)"
+            echo ""
+            echo "Files in current directory:"
+            ls -la || true
+            echo ""
+            echo "All tfplan* files in workspace:"
+            find ${GITHUB_WORKSPACE} -name "tfplan*" -type f 2>/dev/null || true
+            exit 1
+          fi
         fi
+        
+        echo "plan_file_path=${FOUND_FILE}" >> $GITHUB_OUTPUT
 
     - name: Analyze Plan for Destructive Changes
       id: validate
       shell: bash
       run: |
-        PLAN_OUTPUT=$(terraform show -json ${{ inputs.plan_file }} 2>/dev/null || echo "{}")
+        PLAN_FILE="${{ steps.validate-plan-file.outputs.plan_file_path || inputs.plan_file }}"
+        PLAN_OUTPUT=$(terraform show -json "$PLAN_FILE" 2>/dev/null || echo "{}")
         
         DESTROY_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("delete"))] | length' 2>/dev/null || echo "0")
         CREATE_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("create"))] | length' 2>/dev/null || echo "0")
