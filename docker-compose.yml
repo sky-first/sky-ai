@@ -46,20 +46,21 @@ services:
     mem_reservation: 256m
     cpus: 1.0
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - ai_saas_network
 
   backend:
     build:
-      context: ../backend
+      context: ../sky-poc-backend
       dockerfile: docker/Dockerfile
     container_name: ai_saas_backend_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -67,6 +68,9 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       DEBUG: ${DEBUG:-false}
       ENVIRONMENT: production
+      # CRÍTICO: CORS_ORIGINS deve ser configurado explicitamente no .env
+      # NUNCA use "*" ou "0.0.0.0" - isso permite qualquer origem (vulnerabilidade)
+      # Validação deve ser feita no código do backend
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: production
@@ -91,19 +95,19 @@ services:
         uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 2
       "
     healthcheck:
-      test: ["CMD", "bash", "-c", "</dev/tcp/localhost/8000"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/ || exit 1"]
       interval: 20s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 30s
 
   worker:
     build:
-      context: ../backend
+      context: ../sky-poc-backend
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_worker_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -136,11 +140,11 @@ services:
 
   beat:
     build:
-      context: ../backend
+      context: ../sky-poc-backend
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_beat_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -170,11 +174,11 @@ services:
 
   migrate:
     build:
-      context: ../backend
+      context: ../sky-poc-backend
       dockerfile: docker/Dockerfile
     container_name: ai_saas_migrate
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
     depends_on:
       postgres:
         condition: service_healthy
@@ -190,10 +194,13 @@ services:
 
   frontend:
     build:
-      context: ../frontend
+      context: ../sky-poc-frontend
       dockerfile: docker/Dockerfile
     container_name: ai_saas_frontend_prod
     environment:
+      # IMPORTANTE: Esta variável deve ser configurada no .env
+      # Para local: http://localhost:8000/api/v1
+      # Para produção: http://<IP_DA_VM>/api/v1 (ex: http://172.191.77.30/api/v1)
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
       NODE_ENV: production
     depends_on:

@@ -26,28 +26,75 @@ runs:
       id: check
       if: inputs.vm_ip != ''
       shell: bash
-      continue-on-error: true
       run: |
+        set -euo pipefail
         TIMEOUT=$(({{ inputs.timeout_minutes }} * 60))
         START_TIME=$(date +%s)
         STATUS="unhealthy"
         
+        echo "Verificando conectividade da VM: ${{ inputs.vm_ip }}"
+        echo "Timeout: {{ inputs.timeout_minutes }} minutos"
+        echo ""
+        
         while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
+          ELAPSED=$(( $(date +%s) - START_TIME ))
+          
+          # Tentar ping primeiro
           if ping -c 1 -W 2 ${{ inputs.vm_ip }} > /dev/null 2>&1; then
             STATUS="healthy"
+            echo "✅ VM está respondendo (ping)"
             break
           fi
+          
+          # Se ping falhar, tentar HTTP (porta 80) como alternativa
+          if curl -f -s --max-time 5 "http://${{ inputs.vm_ip }}" > /dev/null 2>&1; then
+            STATUS="healthy"
+            echo "✅ VM está respondendo (HTTP)"
+            break
+          fi
+          
+          # Se ambos falharem, tentar HTTPS (porta 443)
+          if curl -f -s --max-time 5 -k "https://${{ inputs.vm_ip }}" > /dev/null 2>&1; then
+            STATUS="healthy"
+            echo "✅ VM está respondendo (HTTPS)"
+            break
+          fi
+          
+          echo "Aguardando resposta da VM... (${ELAPSED}s/${TIMEOUT}s)"
           sleep 10
         done
         
         echo "status=${STATUS}" >> $GITHUB_OUTPUT
         
         if [ "$STATUS" != "healthy" ]; then
-          echo "VM health check failed"
+          echo ""
+          echo "❌ ERRO: VM health check falhou após {{ inputs.timeout_minutes }} minutos"
+          echo ""
+          echo "A VM não está respondendo a nenhum método de verificação:"
+          echo "  - Ping (ICMP)"
+          echo "  - HTTP (porta 80)"
+          echo "  - HTTPS (porta 443)"
+          echo ""
+          echo "Verifique:"
+          echo "  - Se a VM está rodando (az vm show --name <vm-name> --resource-group <rg> --query powerState)"
+          echo "  - Se o IP está correto: ${{ inputs.vm_ip }}"
+          echo "  - Se as regras de firewall/NSG permitem ICMP, HTTP ou HTTPS"
+          echo "  - Se os containers Docker estão rodando na VM"
+          echo "  - Se há problemas de rede ou conectividade"
+          echo ""
+          echo "Para diagnosticar, conecte-se via SSH e verifique:"
+          echo "  - sudo systemctl status docker"
+          echo "  - sudo docker ps"
+          echo "  - sudo docker compose ps"
           exit 1
         fi
 
     - name: Verify Terraform Outputs
       shell: bash
       continue-on-error: true
-      run: terraform output -json > /dev/null 2>&1 || echo "Could not verify outputs"
+      run: |
+        if terraform output -json > /dev/null 2>&1; then
+          echo "✅ Terraform outputs verificados"
+        else
+          echo "⚠️  WARNING: Não foi possível verificar Terraform outputs (não crítico)"
+        fi

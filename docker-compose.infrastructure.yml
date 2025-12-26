@@ -7,6 +7,8 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Habilitar SSL no PostgreSQL
+      POSTGRES_INITDB_ARGS: "-c ssl=on"
       POSTGRES_DB: ${POSTGRES_DB:-ai_saas_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -46,10 +48,11 @@ services:
     mem_reservation: 256m
     cpus: 1.0
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - ai_saas_network
 

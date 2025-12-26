@@ -13,11 +13,19 @@ on:
       - 'infra/**'
       - '.github/workflows/**'
       - '.github/actions/**'
+      - 'docker-compose*.yml'
+      - 'scripts/**'
   push:
     branches: [staging, main]
     paths:
       - 'infra/**'
       - '.github/workflows/**'
+      - 'docker-compose*.yml'
+      - 'scripts/**'
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
@@ -123,15 +131,24 @@ jobs:
 
       - name: Terraform Security Scan with tfsec
         id: security-tfsec
-        continue-on-error: true
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/src" \
             aquasec/tfsec:latest /src \
-            --format json --out tfsec-results.json --no-colour || true
+            --format json --out tfsec-results.json --no-colour
           
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT
+            
+            # Verificar se há vulnerabilidades críticas
+            CRITICAL_COUNT=$(cat tfsec-results.json | jq -r '[.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH")] | length' || echo "0")
+            
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "❌ ERRO: Encontradas $CRITICAL_COUNT vulnerabilidade(s) CRÍTICA(S) ou ALTA(S)"
+              cat tfsec-results.json | jq -r '.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH") | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"'
+              exit 1
+            fi
+            
             cat tfsec-results.json | jq -r '.results[]? | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"' || true
           fi
 
@@ -216,6 +233,52 @@ jobs:
               body: output
             });
 
+  docker-compose-validation:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate docker-compose.yml
+        run: |
+          echo "Validando docker-compose.yml..."
+          docker compose -f docker-compose.yml config > /dev/null
+          echo "✅ docker-compose.yml válido"
+
+      - name: Validate docker-compose.infrastructure.yml
+        run: |
+          echo "Validando docker-compose.infrastructure.yml..."
+          docker compose -f docker-compose.infrastructure.yml config > /dev/null
+          echo "✅ docker-compose.infrastructure.yml válido"
+
+      - name: Validate docker-compose.postgres-only.yml
+        run: |
+          echo "Validando docker-compose.postgres-only.yml..."
+          docker compose -f docker-compose.postgres-only.yml config > /dev/null
+          echo "✅ docker-compose.postgres-only.yml válido"
+
+      - name: Check for correct repository paths
+        run: |
+          echo "Verificando caminhos dos repositórios..."
+          if grep -E "context:\s*\.\./(backend|frontend|ia)[^/]" docker-compose.yml; then
+            echo "⚠️ WARNING: Caminhos relativos antigos detectados"
+            echo "Verifique se os caminhos estão corretos: devem ser ../sky-poc-backend, ../sky-poc-frontend"
+            exit 1
+          fi
+          
+          if grep -q "context: ../sky-poc-backend" docker-compose.yml && \
+             grep -q "context: ../sky-poc-frontend" docker-compose.yml; then
+            echo "✅ Caminhos corretos para sky-poc-backend e sky-poc-frontend encontrados"
+          else
+            echo "⚠️ WARNING: Caminhos corretos não encontrados"
+            exit 1
+          fi
+
   terraform-plan-preview:
     name: Terraform Plan Preview
     runs-on: ubuntu-latest
@@ -285,21 +348,21 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        continue-on-error: true
         run: |
+          set -euo pipefail
+          
           # Inicializar outputs com valores padrão
           echo "plan_generated=false" >> $GITHUB_OUTPUT
           echo "plan_exit_code=1" >> $GITHUB_OUTPUT
           
-          # Executar terraform plan (não falhar se der erro)
-          set +e
+          # Executar terraform plan
           terraform plan \
             -var-file=${{ steps.detect-env.outputs.tfvars }} \
             -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -no-color \
             -out=tfplan-preview 2>&1 | tee plan-output.txt
-          PLAN_EXIT_CODE=$?
-          set -e
+          
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
           
           # Verificar se o arquivo do plan foi gerado
           if [ -f "tfplan-preview" ]; then
@@ -309,7 +372,8 @@ jobs:
           else
             echo "plan_generated=false" >> $GITHUB_OUTPUT
             echo "plan_exit_code=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
-            echo "⚠️ Terraform plan file was not generated (exit code: ${PLAN_EXIT_CODE})"
+            echo "❌ ERRO: Terraform plan file was not generated (exit code: ${PLAN_EXIT_CODE})"
+            exit 1
           fi
 
       - name: Validate Plan

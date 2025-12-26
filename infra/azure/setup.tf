@@ -15,8 +15,31 @@ resource "null_resource" "setup_vm" {
     command = <<-EOT
       echo "Configurando VM (Docker, Docker Compose, Git)..."
       
-      # Aguarda a VM estar totalmente pronta
-      sleep 30
+      # Aguardar VM estar pronta com retry loop
+      MAX_RETRIES=10
+      RETRY_COUNT=0
+      VM_STATE="unknown"
+      
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        VM_STATE=$(az vm show \
+          --resource-group ${azurerm_resource_group.main.name} \
+          --name ${azurerm_linux_virtual_machine.main.name} \
+          --query "powerState" -o tsv 2>/dev/null || echo "unknown")
+        
+        if [ "$VM_STATE" == "VM running" ]; then
+          echo "OK: VM está rodando"
+          break
+        fi
+        
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo "Aguardando VM estar pronta... ($RETRY_COUNT/$MAX_RETRIES)"
+        sleep 10
+      done
+      
+      if [ "$VM_STATE" != "VM running" ]; then
+        echo "ERRO: VM não está rodando após $MAX_RETRIES tentativas"
+        exit 1
+      fi
       
       # Executa setup via Azure Run Command
       az vm run-command invoke \
@@ -24,7 +47,7 @@ resource "null_resource" "setup_vm" {
         --name ${azurerm_linux_virtual_machine.main.name} \
         --command-id RunShellScript \
         --scripts "
-          set -e
+          set -euo pipefail
           
           echo 'Atualizando lista de pacotes...'
           sudo apt update -y
@@ -54,9 +77,9 @@ resource "null_resource" "setup_vm" {
           fi
           
           echo 'Verificando instalações...'
-          docker --version || echo 'Docker não disponível (será aplicado no próximo login)'
-          docker compose version || echo 'Docker Compose não disponível'
-          git --version || echo 'Git não disponível'
+          docker --version || { echo 'ERRO: Docker não disponível'; exit 1; }
+          docker compose version || { echo 'ERRO: Docker Compose não disponível'; exit 1; }
+          git --version || { echo 'ERRO: Git não disponível'; exit 1; }
           
           echo 'Setup concluído!'
         " \

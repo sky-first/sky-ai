@@ -2,6 +2,18 @@
 
 Repositório de infraestrutura e deploy para a aplicação AI SaaS.
 
+## Status do Deploy
+
+![Deploy Status](https://github.com/sky-first/sky-poc-infra/workflows/Deploy%20Infrastructure/badge.svg)
+
+**Últimos Deploys:**
+- [Ver histórico completo](https://github.com/sky-first/sky-poc-infra/actions/workflows/deploy.yml)
+
+**Ambientes:**
+- **POC-SKY** - [Status](https://github.com/sky-first/sky-poc-infra/actions?query=workflow%3A%22Deploy+Infrastructure%22+environment%3Apoc-sky)
+- **Staging** - [Status](https://github.com/sky-first/sky-poc-infra/actions?query=workflow%3A%22Deploy+Infrastructure%22+environment%3Astaging)
+- **Production** - [Status](https://github.com/sky-first/sky-poc-infra/actions?query=workflow%3A%22Deploy+Infrastructure%22+environment%3Aprod)
+
 ## Estrutura
 
 ```

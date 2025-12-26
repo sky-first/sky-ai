@@ -16,6 +16,12 @@ provider "azurerm" {
   # Se subscription_id for null, o provider usa automaticamente ARM_SUBSCRIPTION_ID da variável de ambiente
 }
 
+# Data source para validar Resource Group existente (opcional)
+data "azurerm_resource_group" "existing" {
+  count = var.check_existing_resources ? 1 : 0
+  name  = var.resource_group_name
+}
+
 # 1. Resource Group
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
@@ -25,6 +31,10 @@ resource "azurerm_resource_group" "main" {
     Environment = var.environment
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
+  }
+  
+  lifecycle {
+    prevent_destroy = var.environment == "prod" ? true : false
   }
 }
 
@@ -40,9 +50,13 @@ resource "azurerm_virtual_network" "main" {
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
   }
+  
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
-# 3. Subnet
+# 3. Subnet (VM)
 resource "azurerm_subnet" "main" {
   name                 = "ai-saas-subnet-${var.environment}"
   resource_group_name  = azurerm_resource_group.main.name
@@ -50,7 +64,16 @@ resource "azurerm_subnet" "main" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# 4. Public IP
+# 3.1. Subnet para Azure Bastion (obrigatória)
+resource "azurerm_subnet" "bastion" {
+  count                = var.enable_bastion ? 1 : 0
+  name                 = "AzureBastionSubnet"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.2.0/27"]  # /27 é o tamanho mínimo para Bastion
+}
+
+# 4. Public IP (VM)
 resource "azurerm_public_ip" "main" {
   name                = "ai-saas-public-ip-${var.environment}"
   location            = azurerm_resource_group.main.location
@@ -65,15 +88,32 @@ resource "azurerm_public_ip" "main" {
   }
 }
 
+# 4.1. Public IP para Azure Bastion
+resource "azurerm_public_ip" "bastion" {
+  count                = var.enable_bastion ? 1 : 0
+  name                 = "ai-saas-bastion-ip-${var.environment}"
+  location             = azurerm_resource_group.main.location
+  resource_group_name  = azurerm_resource_group.main.name
+  allocation_method    = "Static"
+  sku                  = "Standard"
+
+  tags = {
+    Environment = var.environment
+    Project     = "AI-SaaS"
+    Workspace   = terraform.workspace
+  }
+}
+
 # 5. Network Security Group (Firewall)
 resource "azurerm_network_security_group" "main" {
   name                = "ai-saas-nsg-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
-  # SSH - Requer lista explícita; se vazio, porta 22 permanece fechada
+  # SSH - Apenas se Bastion estiver desabilitado (legado)
+  # CRÍTICO: Com Bastion habilitado, porta 22 não precisa estar aberta publicamente
   dynamic "security_rule" {
-    for_each = { for idx, cidr in var.allowed_ssh_ips : idx => cidr }
+    for_each = var.enable_bastion ? [] : { for idx, cidr in var.allowed_ssh_ips : idx => cidr }
     content {
       name                       = "SSH-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
       priority                   = 1001 + tonumber(security_rule.key)
@@ -176,7 +216,7 @@ resource "azurerm_network_security_group" "main" {
 
 # 6. Network Interface
 resource "azurerm_network_interface" "main" {
-  name                = "ai-saas-nic"
+  name                = "ai-saas-nic-${var.environment}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
@@ -198,6 +238,13 @@ resource "azurerm_network_interface" "main" {
 resource "azurerm_network_interface_security_group_association" "main" {
   network_interface_id      = azurerm_network_interface.main.id
   network_security_group_id = azurerm_network_security_group.main.id
+}
+
+# Data source para validar VM existente (opcional)
+data "azurerm_virtual_machine" "existing" {
+  count               = var.check_existing_resources ? 1 : 0
+  name                = var.vm_name
+  resource_group_name = var.resource_group_name
 }
 
 # 7. Virtual Machine
@@ -244,6 +291,32 @@ resource "azurerm_linux_virtual_machine" "main" {
 
   tags = {
     Name        = "AI-SaaS-${title(var.environment)}"
+    Environment = var.environment
+    Project     = "AI-SaaS"
+    Workspace   = terraform.workspace
+  }
+  
+  lifecycle {
+    prevent_destroy = var.environment == "prod" ? true : false
+    ignore_changes  = [tags["Workspace"]]  # Ignorar mudanças no workspace tag
+  }
+}
+
+# 8. Azure Bastion (Acesso SSH seguro sem expor porta 22)
+# CRÍTICO: Migração de SSH público para acesso seguro via Bastion
+resource "azurerm_bastion_host" "main" {
+  count               = var.enable_bastion ? 1 : 0
+  name                = "ai-saas-bastion-${var.environment}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+
+  ip_configuration {
+    name                 = "configuration"
+    subnet_id            = azurerm_subnet.bastion[0].id
+    public_ip_address_id = azurerm_public_ip.bastion[0].id
+  }
+
+  tags = {
     Environment = var.environment
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace

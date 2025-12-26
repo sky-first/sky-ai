@@ -1,0 +1,76 @@
+# Configuração Nginx HTTP apenas (fallback se HTTPS não estiver disponível)
+# CRÍTICO: Use apenas para desenvolvimento/teste. Produção DEVE usar HTTPS.
+
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=general_limit:10m rate=30r/s;
+
+server {
+  listen 80;
+  server_name _;
+  
+  # Security Headers - CRÍTICO: Proteção contra ataques comuns
+  # NOTA: Sem HSTS pois não há HTTPS
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-XSS-Protection "1; mode=block" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'self';" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+  server_tokens off;
+  
+  # Proxy para frontend (Next.js)
+  location / {
+    limit_req zone=general_limit burst=50 nodelay;
+    limit_req_status 429;
+    
+    proxy_pass http://frontend:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+
+  # Proxy para backend (FastAPI) - CRÍTICO: Rate limiting aplicado
+  location /api/ {
+    limit_req zone=api_limit burst=20 nodelay;
+    limit_req_status 429;
+    
+    proxy_pass http://backend:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 300s;
+  }
+  
+  # Health check endpoint (sem rate limiting)
+  location /health {
+    proxy_pass http://backend:8000/health;
+    access_log off;
+  }
+  
+  # Ajustes globais
+  proxy_read_timeout 300s;
+  proxy_connect_timeout 60s;
+  proxy_send_timeout 300s;
+  proxy_buffering on;
+  proxy_buffer_size 4k;
+  proxy_buffers 8 4k;
+  proxy_busy_buffers_size 8k;
+}
+
