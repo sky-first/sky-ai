@@ -46,6 +46,15 @@ jobs:
     steps:
       - name: Validate Required Secrets
         id: validate-secrets
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+          TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+          TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+          TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+          KEYVAULT_NAME: ${{ secrets.KEYVAULT_NAME }}
         run: |
           set -euo pipefail
           echo "Validando secrets obrigatórios do GitHub..."

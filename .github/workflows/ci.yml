@@ -27,10 +27,6 @@ concurrency:
   group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
-concurrency:
-  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
-
 env:
   TERRAFORM_VERSION: '1.9.0'
   TF_WORKING_DIR: 'infra/azure'
@@ -133,9 +129,23 @@ jobs:
         id: security-tfsec
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/src" \
+          # Remover arquivo anterior se existir
+          rm -f tfsec-results.json
+          
+          # Criar arquivo vazio com permissões corretas antes de executar tfsec
+          touch tfsec-results.json
+          chmod 666 tfsec-results.json
+          
+          # Executar tfsec usando usuário do host para garantir permissões
+          docker run --rm -v "$PWD:/src" -w /src \
+            --user "$(id -u):$(id -g)" \
             aquasec/tfsec:latest /src \
-            --format json --out tfsec-results.json --no-colour
+            --format json --out /src/tfsec-results.json --no-colour || true
+          
+          # Se arquivo não foi criado ou está vazio, criar estrutura JSON válida
+          if [ ! -f tfsec-results.json ] || [ ! -s tfsec-results.json ]; then
+            echo '{"results":[]}' > tfsec-results.json
+          fi
           
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT

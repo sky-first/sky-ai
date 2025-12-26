@@ -93,7 +93,7 @@ resource "null_resource" "deploy_application" {
             fi
             
             # Validar branch antes de clonar
-            BACKEND_REPO_URL="https://github.com/${BACKEND_REPO}.git"
+            BACKEND_REPO_URL="https://github.com/$${BACKEND_REPO}.git"
             if git ls-remote --heads "$BACKEND_REPO_URL" ${var.git_branch} 2>/dev/null | grep -q ${var.git_branch}; then
               echo "OK: Branch ${var.git_branch} encontrada no backend, clonando..."
               git clone -b ${var.git_branch} "$BACKEND_REPO_URL" backend || \
@@ -117,7 +117,7 @@ resource "null_resource" "deploy_application" {
             fi
             
             # Validar branch antes de clonar
-            FRONTEND_REPO_URL="https://github.com/${FRONTEND_REPO}.git"
+            FRONTEND_REPO_URL="https://github.com/$${FRONTEND_REPO}.git"
             if git ls-remote --heads "$FRONTEND_REPO_URL" ${var.git_branch} 2>/dev/null | grep -q ${var.git_branch}; then
               echo "OK: Branch ${var.git_branch} encontrada no frontend, clonando..."
               git clone -b ${var.git_branch} "$FRONTEND_REPO_URL" frontend || \
@@ -141,7 +141,7 @@ resource "null_resource" "deploy_application" {
             fi
             
             # Validar branch antes de clonar
-            IA_REPO_URL="https://github.com/${IA_REPO}.git"
+            IA_REPO_URL="https://github.com/$${IA_REPO}.git"
             if git ls-remote --heads "$IA_REPO_URL" ${var.git_branch} 2>/dev/null | grep -q ${var.git_branch}; then
               echo "OK: Branch ${var.git_branch} encontrada no IA, clonando..."
               git clone -b ${var.git_branch} "$IA_REPO_URL" ia || \

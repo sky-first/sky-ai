@@ -58,7 +58,7 @@ variable "allowed_ssh_ips" {
   # Exemplo: ["203.0.113.1/32", "203.0.113.2/32", "198.51.100.0/24"]
   # Nota: Se vazio [], SSH será público mas protegido por chaves SSH (sem senha)
   validation {
-    condition = var.environment != "prod" || length(var.allowed_ssh_ips) > 0 || var.enable_bastion
+    condition     = var.environment != "prod" || length(var.allowed_ssh_ips) > 0 || var.enable_bastion
     error_message = "Em produção, allowed_ssh_ips não pode estar vazio a menos que enable_bastion seja true."
   }
 }
@@ -70,7 +70,7 @@ variable "allowed_postgres_ips" {
   # Exemplo: ["203.0.113.1/32", "203.0.113.2/32"]
   # Nota: Se vazio [], PostgreSQL será público mas protegido por senha
   validation {
-    condition = var.environment != "prod" || length(var.allowed_postgres_ips) > 0
+    condition     = var.environment != "prod" || length(var.allowed_postgres_ips) > 0
     error_message = "Em produção, allowed_postgres_ips não pode estar vazio."
   }
 }

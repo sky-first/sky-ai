@@ -67,7 +67,7 @@ resource "azurerm_monitor_metric_alert" "vm_memory_high" {
     metric_name      = "Available Memory Bytes"
     aggregation      = "Average"
     operator         = "LessThan"
-    threshold        = 524288000  # 500MB em bytes
+    threshold        = 524288000 # 500MB em bytes
   }
 
   action {
@@ -95,7 +95,7 @@ resource "azurerm_monitor_metric_alert" "vm_disk_high" {
     metric_name      = "OS Disk Free Space"
     aggregation      = "Average"
     operator         = "LessThan"
-    threshold        = 5368709120  # 5GB em bytes
+    threshold        = 5368709120 # 5GB em bytes
   }
 
   action {
@@ -114,7 +114,7 @@ resource "azurerm_monitor_metric_alert" "vm_unavailable" {
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_linux_virtual_machine.main.id]
   description         = "Alerta quando VM não está respondendo (status check failed)"
-  severity            = 0  # Critical
+  severity            = 0 # Critical
   frequency           = "PT1M"
   window_size         = "PT5M"
 

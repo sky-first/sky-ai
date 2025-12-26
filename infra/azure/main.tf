@@ -32,10 +32,9 @@ resource "azurerm_resource_group" "main" {
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
   }
-  
-  lifecycle {
-    prevent_destroy = var.environment == "prod" ? true : false
-  }
+
+  # prevent_destroy removido: Terraform não permite expressões condicionais em lifecycle blocks
+  # Para proteger recursos em produção, use: terraform destroy -target=... ou proteção via políticas Azure
 }
 
 # 2. Virtual Network
@@ -50,7 +49,7 @@ resource "azurerm_virtual_network" "main" {
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
   }
-  
+
   lifecycle {
     create_before_destroy = true
   }
@@ -70,7 +69,7 @@ resource "azurerm_subnet" "bastion" {
   name                 = "AzureBastionSubnet"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = ["10.0.2.0/27"]  # /27 é o tamanho mínimo para Bastion
+  address_prefixes     = ["10.0.2.0/27"] # /27 é o tamanho mínimo para Bastion
 }
 
 # 4. Public IP (VM)
@@ -90,12 +89,12 @@ resource "azurerm_public_ip" "main" {
 
 # 4.1. Public IP para Azure Bastion
 resource "azurerm_public_ip" "bastion" {
-  count                = var.enable_bastion ? 1 : 0
-  name                 = "ai-saas-bastion-ip-${var.environment}"
-  location             = azurerm_resource_group.main.location
-  resource_group_name  = azurerm_resource_group.main.name
-  allocation_method    = "Static"
-  sku                  = "Standard"
+  count               = var.enable_bastion ? 1 : 0
+  name                = "ai-saas-bastion-ip-${var.environment}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
 
   tags = {
     Environment = var.environment
@@ -113,7 +112,7 @@ resource "azurerm_network_security_group" "main" {
   # SSH - Apenas se Bastion estiver desabilitado (legado)
   # CRÍTICO: Com Bastion habilitado, porta 22 não precisa estar aberta publicamente
   dynamic "security_rule" {
-    for_each = var.enable_bastion ? [] : { for idx, cidr in var.allowed_ssh_ips : idx => cidr }
+    for_each = var.enable_bastion ? {} : { for idx, cidr in var.allowed_ssh_ips : idx => cidr }
     content {
       name                       = "SSH-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
       priority                   = 1001 + tonumber(security_rule.key)
@@ -160,6 +159,7 @@ resource "azurerm_network_security_group" "main" {
   }
 
   # HTTP (proxy) - Aberto conforme lista (default 0.0.0.0/0)
+  # tfsec:ignore:azure-network-no-public-ingress - Acesso público necessário para frontend web
   dynamic "security_rule" {
     for_each = { for idx, cidr in var.allowed_http_ips : idx => cidr }
     content {
@@ -170,12 +170,13 @@ resource "azurerm_network_security_group" "main" {
       protocol                   = "Tcp"
       source_port_range          = "*"
       destination_port_range     = "80"
-      source_address_prefix      = security_rule.value
+      source_address_prefix      = security_rule.value # tfsec:ignore:azure-network-no-public-ingress
       destination_address_prefix = "*"
     }
   }
 
   # HTTPS (proxy) - Aberto conforme lista (default 0.0.0.0/0)
+  # tfsec:ignore:azure-network-no-public-ingress - Acesso público necessário para frontend web com HTTPS
   dynamic "security_rule" {
     for_each = { for idx, cidr in var.allowed_https_ips : idx => cidr }
     content {
@@ -186,7 +187,7 @@ resource "azurerm_network_security_group" "main" {
       protocol                   = "Tcp"
       source_port_range          = "*"
       destination_port_range     = "443"
-      source_address_prefix      = security_rule.value
+      source_address_prefix      = security_rule.value # tfsec:ignore:azure-network-no-public-ingress
       destination_address_prefix = "*"
     }
   }
@@ -286,8 +287,8 @@ resource "azurerm_linux_virtual_machine" "main" {
     }
   }
 
-  # Desabilitar autenticação por senha (mais seguro)
-  disable_password_authentication = var.ssh_public_key != ""
+  # Desabilitar autenticação por senha (mais seguro) - sempre desabilitado, usar apenas chaves SSH
+  disable_password_authentication = true
 
   tags = {
     Name        = "AI-SaaS-${title(var.environment)}"
@@ -295,10 +296,11 @@ resource "azurerm_linux_virtual_machine" "main" {
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
   }
-  
+
   lifecycle {
-    prevent_destroy = var.environment == "prod" ? true : false
-    ignore_changes  = [tags["Workspace"]]  # Ignorar mudanças no workspace tag
+    # prevent_destroy removido: Terraform não permite expressões condicionais em lifecycle blocks
+    # Para proteger recursos em produção, use: terraform destroy -target=... ou proteção via políticas Azure
+    ignore_changes = [tags["Workspace"]] # Ignorar mudanças no workspace tag
   }
 }
 
