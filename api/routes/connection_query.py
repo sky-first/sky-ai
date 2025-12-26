@@ -72,6 +72,129 @@ def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[di
         return []
 
 
+def _filter_tables_by_permissions(
+    db: Session,
+    connection_id: str,
+    space_id: str,
+    tables: list[dict],
+    crew_ids: Optional[List[str]] = None,
+) -> list[dict]:
+    """
+    Filtra tabelas baseado em permissões (space_id + crew_ids).
+    
+    Regras de permissão (agnósticas, funcionam para qualquer domínio):
+    - Se crew_ids for None ou vazio: retorna apenas tabelas públicas (crew_id IS NULL)
+    - Se crew_ids fornecido: retorna tabelas onde crew_id IS NULL OU crew_id IN crew_ids
+    
+    Args:
+        db: Sessão do banco
+        connection_id: ID da conexão
+        space_id: ID do space
+        tables: Lista de tabelas do connection_metadata.tables
+        crew_ids: Lista opcional de crew_ids para filtrar
+        
+    Returns:
+        Lista filtrada de tabelas que o usuário tem permissão
+    """
+    if not tables:
+        return []
+    
+    # Se não há crew_ids, retornar todas as tabelas (modo personal ou sem restrições)
+    # Na prática, vamos verificar se há permissões específicas em table_metadata
+    if crew_ids is None or len(crew_ids) == 0:
+        # Sem crew_ids: retornar todas as tabelas (assumindo que são públicas ou o backend já filtrou)
+        # Para ser mais seguro, podemos verificar table_metadata, mas por enquanto retornamos todas
+        return tables
+    
+    # Com crew_ids: verificar permissões em table_metadata
+    try:
+        from db.base import engine
+        
+        # Extrair nomes de tabelas (normalizados)
+        table_names = set()
+        for t in tables:
+            schema = str(t.get("schema") or "").strip()
+            name = str(t.get("name") or "").strip()
+            if name:
+                # Normalizar nome (pode ter schema.table ou apenas table)
+                full_name = f"{schema}.{name}" if schema else name
+                table_names.add(full_name)
+                # Também adicionar apenas o nome (sem schema)
+                table_names.add(name)
+        
+        if not table_names:
+            return tables  # Se não conseguimos extrair nomes, retornar todas
+        
+        # Buscar tabelas permitidas em table_metadata
+        with engine.connect() as raw_conn:
+            # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
+            query = text("""
+                SELECT DISTINCT table_name
+                FROM table_metadata
+                WHERE space_id = CAST(:space_id AS uuid)
+                  AND data_connection_id = CAST(:conn_id AS uuid)
+                  AND (
+                    crew_id IS NULL
+                    OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
+                  )
+            """)
+            
+            result = raw_conn.execute(
+                query,
+                {
+                    "space_id": space_id,
+                    "conn_id": connection_id,
+                    "crew_ids": crew_ids,
+                }
+            )
+            
+            allowed_table_names = {row[0] for row in result}
+        
+        # Filtrar tabelas baseado em allowed_table_names
+        filtered_tables = []
+        for t in tables:
+            schema = str(t.get("schema") or "").strip()
+            name = str(t.get("name") or "").strip()
+            if not name:
+                continue
+            
+            # Verificar se a tabela está permitida
+            full_name = f"{schema}.{name}" if schema else name
+            if full_name in allowed_table_names or name in allowed_table_names:
+                filtered_tables.append(t)
+        
+        # Se não encontramos correspondências em table_metadata, retornar todas
+        # (pode ser que table_metadata não esteja populado ainda)
+        if not filtered_tables and allowed_table_names:
+            # Se há allowed_table_names mas não encontramos match, pode ser problema de normalização
+            # Retornar todas por segurança
+            log_event(
+                "bootstrap_table_filter_no_matches",
+                {
+                    "connection_id": connection_id,
+                    "space_id": space_id,
+                    "crew_ids": crew_ids,
+                    "total_tables": len(tables),
+                    "allowed_table_names_count": len(allowed_table_names),
+                },
+            )
+            return tables
+        
+        return filtered_tables if filtered_tables else tables
+        
+    except Exception as e:
+        # Se der erro ao filtrar, retornar todas as tabelas (fail-safe)
+        log_event(
+            "bootstrap_table_filter_error",
+            {
+                "connection_id": connection_id,
+                "space_id": space_id,
+                "error": str(e)[:500],
+            },
+        )
+        return tables
+
+
 def _schema_summary_from_tables(tables: list[dict], max_tables: int = 12) -> tuple[list[str], str]:
     logical_tables: list[str] = []
     lines: list[str] = []
@@ -186,25 +309,98 @@ async def chat_bootstrap(
 ) -> ChatBootstrapResponse:
     """
     Generate greeting + suggestion cards for a new chat session.
-
-    Called by the product backend (poc-02) only for Personal mode.
+    
+    Supports both Personal and Collaborative modes:
+    - Personal mode (is_personal=True): Suggestions based on all crews/spaces user belongs to
+    - Collaborative mode (is_personal=False): Suggestions based only on data from specific space/crew
     """
     from core.i18n.i18n import detect_language
+    from uuid import UUID
 
     lang = body.language or detect_language(body.user_id or "") or "en"
     lang = (lang or "en").lower()
     if lang not in {"pt", "en", "es"}:
         lang = "en"
 
+    # ✅ NOVA: Resolver crew_ids baseado no contexto (personal vs collaborative)
+    resolved_crew_ids: Optional[List[str]] = None
+    try:
+        if body.crew_ids:
+            # Se crew_ids foram fornecidos explicitamente, usar eles
+            resolved_crew_ids = [str(x) for x in body.crew_ids]
+        elif body.user_id:
+            # Resolver crew_ids automaticamente baseado no modo
+            resolved = resolve_crew_ids_for_context(
+                db=db,
+                user_id=UUID(body.user_id),
+                space_id=UUID(body.space_id) if body.space_id else None,
+                request_crew_ids=body.crew_ids,
+                is_personal=bool(body.is_personal),
+            )
+            resolved_crew_ids = [str(x) for x in (resolved or [])]
+    except Exception as e:
+        log_event(
+            "bootstrap_resolve_crew_ids_error",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "user_id": body.user_id,
+                "is_personal": bool(body.is_personal),
+                "error": str(e),
+            },
+        )
+        # Se falhar, usar lista vazia (apenas dados públicos)
+        resolved_crew_ids = []
+
     # Backend-compatible: read catalog from `connection_metadata`.
-    tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    all_tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    if not all_tables:
+        return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
+
+    # ✅ NOVA: Filtrar tabelas por permissões (agnóstico, funciona para qualquer domínio)
+    # Em modo personal (is_personal=True), resolved_crew_ids pode ser None ou vazio
+    # Nesse caso, retornamos todas as tabelas (usuário tem acesso a tudo)
+    # Em modo collaborative, filtramos baseado em resolved_crew_ids
+    if body.is_personal:
+        # Modo personal: usar todas as tabelas (usuário tem acesso a todos os crews)
+        tables = all_tables
+    else:
+        # Modo collaborative: filtrar por permissões
+        tables = _filter_tables_by_permissions(
+            db=db,
+            connection_id=connection_id,
+            space_id=body.space_id,
+            tables=all_tables,
+            crew_ids=resolved_crew_ids,
+        )
+    
     if not tables:
+        # Se após filtrar não há tabelas, retornar fallback
+        log_event(
+            "bootstrap_no_tables_after_filter",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "is_personal": bool(body.is_personal),
+                "crew_ids": resolved_crew_ids,
+                "total_tables_before_filter": len(all_tables),
+            },
+        )
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
     # Build a compact schema summary for the LLM.
     max_tables_in_prompt = min(12, len(tables))
     _logical, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
 
+    # ✅ NOVA: Contexto de permissões para o LLM (agnóstico)
+    mode_context = ""
+    if body.is_personal:
+        mode_context = "The user is in PERSONAL mode and has access to all their data across all crews/spaces."
+    else:
+        mode_context = f"The user is in COLLABORATIVE mode and has access only to data from the specific space/crew (space_id: {body.space_id})."
+        if resolved_crew_ids:
+            mode_context += f" They have access to {len(resolved_crew_ids)} crew(s)."
+    
     system = (
         "You generate a greeting and suggestion cards for a data analytics chat.\n"
         "Rules:\n"
@@ -215,13 +411,16 @@ async def chat_bootstrap(
         "- Avoid mentioning table physical names; prefer natural questions.\n"
         "- Keep questions short and actionable.\n"
         f"- Language: {lang}\n"
+        f"\nContext: {mode_context}\n"
+        "- Generate suggestions that are relevant to the user's accessible data only.\n"
     )
 
     user = (
         f"N={max(1, body.max_suggestions - 1)}\n"
-        f"User has access to {len(tables)} tables. Schema (sample):\n"
+        f"User has access to {len(tables)} tables (filtered by permissions). Schema (sample):\n"
         f"{schema_summary}\n\n"
-        "Generate greeting + suggestions."
+        f"Context: {mode_context}\n\n"
+        "Generate greeting + suggestions based ONLY on the accessible tables shown above."
     )
 
     try:
@@ -250,6 +449,85 @@ async def chat_bootstrap(
         if not greeting or len(suggestions) == 0:
             return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
+        # ✅ NOVA: Validar e filtrar sugestões problemáticas usando SuggestionValidator
+        try:
+            from core.validation.question_validator import QuestionValidator
+            from core.validation.suggestion_validator import SuggestionValidator
+            
+            # Preparar metadados para o validador
+            available_tables_meta = [
+                {
+                    "name": t.get("name", ""),
+                    "logical_name": t.get("logical_name") or t.get("name", ""),
+                    "columns": [c.get("name") if isinstance(c, dict) else str(c) 
+                               for c in (t.get("columns") or [])]
+                }
+                for t in tables[:max_tables_in_prompt]
+            ]
+            available_columns = {
+                (t.get("logical_name") or t.get("name", "")): [
+                    c.get("name") if isinstance(c, dict) else str(c) 
+                    for c in (t.get("columns") or [])
+                ]
+                for t in tables[:max_tables_in_prompt]
+            }
+            
+            question_validator = QuestionValidator(available_tables_meta, available_columns)
+            suggestion_validator = SuggestionValidator(question_validator)
+            
+            # Filtrar sugestões problemáticas
+            filtered_suggestions: list[ChatBootstrapSuggestion] = []
+            filtered_count = 0
+            
+            for sug in suggestions:
+                # Ações (como "Create dashboard") não precisam validação
+                if sug.kind == "action":
+                    filtered_suggestions.append(sug)
+                    continue
+                
+                # Validar perguntas
+                question_text = sug.question or ""
+                if question_text:
+                    should_filter = suggestion_validator.should_filter_suggestion(question_text)
+                    if should_filter:
+                        filtered_count += 1
+                        log_event(
+                            "bootstrap_suggestion_filtered",
+                            {
+                                "connection_id": connection_id,
+                                "title": sug.title,
+                                "question": question_text[:200],
+                                "reason": "Failed validation",
+                            },
+                        )
+                        continue  # Pular esta sugestão
+                
+                filtered_suggestions.append(sug)
+            
+            suggestions = filtered_suggestions
+            
+            # Se filtramos muitas sugestões, adicionar algumas de fallback
+            if filtered_count > 0 and len(suggestions) < body.max_suggestions:
+                log_event(
+                    "bootstrap_suggestions_filtered_summary",
+                    {
+                        "connection_id": connection_id,
+                        "filtered_count": filtered_count,
+                        "remaining_count": len(suggestions),
+                        "requested_count": body.max_suggestions,
+                    },
+                )
+        except Exception as e:
+            # Se a validação falhar, não quebra o fluxo - apenas loga
+            log_event(
+                "bootstrap_validation_exception",
+                {
+                    "connection_id": connection_id,
+                    "error": str(e)[:500],
+                },
+            )
+            # Continua normalmente sem validação
+
         # Always prepend the action card as the first suggestion.
         action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
         action_card = ChatBootstrapSuggestion(
@@ -273,8 +551,12 @@ async def chat_bootstrap(
             meta={
                 "fallback": False,
                 "num_tables": len(tables),
+                "num_tables_total": len(all_tables),
                 "prompt_tables": max_tables_in_prompt,
                 "agent_id": None,
+                "is_personal": bool(body.is_personal),
+                "crew_ids": resolved_crew_ids,
+                "mode": "personal" if body.is_personal else "collaborative",
             },
         )
     except Exception:
