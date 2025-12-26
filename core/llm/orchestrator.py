@@ -374,6 +374,107 @@ def run_orchestrator(
         log_event("orchestrator_no_tables", {"agent_id": agent_config.id})
         return state
 
+    # ✅ NOVA: Validação prévia da pergunta usando QuestionValidator
+    try:
+        from core.validation.question_validator import QuestionValidator, ValidationSeverity
+        
+        # Preparar metadados para o validador
+        available_tables_meta = [
+            {
+                "name": t.logical_name,
+                "logical_name": t.logical_name,
+                "columns": [c.get("name") if isinstance(c, dict) else getattr(c, "name", "") 
+                           for c in (t.columns or [])]
+            }
+            for t in agent_config.tables
+        ]
+        available_columns = {
+            t.logical_name: [c.get("name") if isinstance(c, dict) else getattr(c, "name", "") 
+                            for c in (t.columns or [])]
+            for t in agent_config.tables
+        }
+        
+        validator = QuestionValidator(available_tables_meta, available_columns)
+        validation_results = validator.validate_question(question)
+        
+        # Logar métricas de validação
+        errors = [r for r in validation_results if r.severity == ValidationSeverity.ERROR]
+        warnings = [r for r in validation_results if r.severity == ValidationSeverity.WARNING]
+        infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
+        
+        log_event(
+            "orchestrator_validation_metrics",
+            {
+                "agent_id": agent_config.id,
+                "question_length": len(question),
+                "question_words": len(question.split()),
+                "num_errors": len(errors),
+                "num_warnings": len(warnings),
+                "num_infos": len(infos),
+                "error_codes": [e.code for e in errors],
+                "warning_codes": [w.code for w in warnings],
+                "info_codes": [i.code for i in infos],
+                "was_blocked": len(errors) > 0,
+            },
+        )
+        
+        # Se houver erros críticos, retornar erro amigável
+        critical_errors = errors
+        if critical_errors:
+            error_msg = critical_errors[0].message
+            if critical_errors[0].suggestion:
+                if lang.startswith("pt"):
+                    error_msg += f"\n\n💡 Sugestão: {critical_errors[0].suggestion}"
+                else:
+                    error_msg += f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
+            
+            state["answer"] = error_msg
+            state["error"] = critical_errors[0].code
+            log_event(
+                "orchestrator_validation_error",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "error_code": critical_errors[0].code,
+                    "error_message": critical_errors[0].message,
+                },
+            )
+            return state
+        
+        # Warnings podem ser logados mas não bloqueiam
+        warnings = [r for r in validation_results if r.severity == ValidationSeverity.WARNING]
+        if warnings:
+            log_event(
+                "orchestrator_validation_warnings",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "warnings": [{"code": w.code, "message": w.message} for w in warnings],
+                },
+            )
+        
+        # Infos são apenas informativos
+        infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
+        if infos:
+            log_event(
+                "orchestrator_validation_info",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "infos": [{"code": i.code, "message": i.message} for i in infos],
+                },
+            )
+    except Exception as e:
+        # Se a validação falhar, não quebra o fluxo - apenas loga
+        log_event(
+            "orchestrator_validation_exception",
+            {
+                "agent_id": agent_config.id,
+                "error": str(e)[:500],
+            },
+        )
+        # Continua normalmente sem validação
+
     # ==================== CATALOG EARLY RETURN ====================
     # Para perguntas genéricas de dados ("quais dados eu posso ver?", "quais colunas tem na tabela X?",
     # "o que você pode responder?"), não faz sentido gerar SQL. Respondemos diretamente com base no

@@ -83,6 +83,10 @@ class ChatBootstrapRequest(BaseModel):
     crew_ids: Optional[List[str]] = Field(
         default=None, description="Crew IDs resolved by product backend (optional)."
     )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="If True, suggestions can use all crews/spaces the user belongs to (personal mode). If False, only data from the specific space/crew (collaborative mode).",
+    )
     language: Optional[str] = Field(
         default=None, description="Language hint (e.g. en, pt, es)."
     )
