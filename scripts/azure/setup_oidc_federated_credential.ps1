@@ -18,6 +18,9 @@ param(
     [string[]]$Branches = @("staging", "main"),
     
     [Parameter(Mandatory=$false)]
+    [string[]]$Environments = @("staging", "production", "poc-sky"),
+    
+    [Parameter(Mandatory=$false)]
     [switch]$IncludePullRequests
 )
 
@@ -78,6 +81,40 @@ foreach ($branch in $Branches) {
         subject = $subject
         audiences = @("api://AzureADTokenExchange")
         description = "GitHub Actions for $branch branch"
+    } | ConvertTo-Json -Compress
+    
+    Write-Host "Criando credential: $credentialName" -ForegroundColor Yellow
+    Write-Host "Subject: $subject" -ForegroundColor Gray
+    
+    # Tentar criar a credential
+    $result = az ad app federated-credential create --id $ClientId --parameters $credentialJson 2>&1
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ Credential '$credentialName' criada com sucesso" -ForegroundColor Green
+    } else {
+        if ($result -match "already exists") {
+            Write-Host "⚠️  Credential '$credentialName' já existe. Pulando..." -ForegroundColor Yellow
+        } else {
+            Write-Host "❌ Erro ao criar credential '$credentialName':" -ForegroundColor Red
+            Write-Host $result -ForegroundColor Red
+        }
+    }
+}
+
+# Criar credentials para cada environment
+foreach ($environment in $Environments) {
+    Write-Host ""
+    Write-Host "=== Configurando credential para environment: $environment ===" -ForegroundColor Cyan
+    
+    $credentialName = "github-actions-env-$environment"
+    $subject = "repo:${Organization}/${Repository}:environment:${environment}"
+    
+    $credentialJson = @{
+        name = $credentialName
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = $subject
+        audiences = @("api://AzureADTokenExchange")
+        description = "GitHub Actions for $environment environment"
     } | ConvertTo-Json -Compress
     
     Write-Host "Criando credential: $credentialName" -ForegroundColor Yellow
