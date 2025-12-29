@@ -1251,6 +1251,10 @@ jobs:
           fi
           
           echo "Resource Group: $RESOURCE_GROUP_NAME"
+          SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+          RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+          NEEDS_IMPORT=false
+          PLAN_REGENERATED=false
           
           # Verificar se Resource Group existe no Azure
           if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
@@ -1261,27 +1265,39 @@ jobs:
               echo "OK: Resource Group já está no estado do Terraform"
             else
               echo "Importando Resource Group existente para o estado do Terraform..."
-              SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
-              RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+              NEEDS_IMPORT=true
               
-              if terraform import azurerm_resource_group.main "$RESOURCE_ID" 2>&1; then
+              # Tentar importar (não falhar se já estiver importado)
+              set +e  # Desabilitar exit on error temporariamente
+              terraform import azurerm_resource_group.main "$RESOURCE_ID" 2>&1
+              IMPORT_EXIT_CODE=$?
+              set -e  # Reabilitar exit on error
+              
+              if [ $IMPORT_EXIT_CODE -eq 0 ]; then
                 echo "✅ Resource Group importado com sucesso"
-                echo "Regenerando plan após importação..."
-                # Regenerar plan após importação
-                terraform plan \
-                  -var-file="$TFVARS_FILE" \
-                  -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-                  -out=tfplan \
-                  -no-color \
-                  -detailed-exitcode 2>&1 | tee plan-output.txt || true
-                echo "Plan regenerado após importação"
               else
-                echo "WARNING: Falha ao importar Resource Group (pode já estar importado ou não existir)"
-                echo "Continuando com apply..."
+                echo "WARNING: Import falhou (exit code: $IMPORT_EXIT_CODE)"
+                echo "Pode já estar importado ou haver outro problema"
+                # Verificar novamente se está no estado
+                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                  echo "OK: Resource Group está no estado (import pode ter sido feito anteriormente)"
+                fi
               fi
             fi
+            
+            # SEMPRE regenerar plan se Resource Group existe (pode ter sido importado agora)
+            echo "Regenerando plan após verificação/importação..."
+            terraform plan \
+              -var-file="$TFVARS_FILE" \
+              -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+              -out=tfplan \
+              -no-color \
+              -detailed-exitcode 2>&1 | tee plan-output.txt || true
+            PLAN_REGENERATED=true
+            echo "✅ Plan regenerado após verificação/importação"
           else
             echo "Resource Group não existe no Azure, será criado pelo Terraform"
+            echo "Usando plan original (sem regeneração)"
           fi
 
       - name: Terraform Apply
@@ -1290,12 +1306,26 @@ jobs:
           set -euo pipefail
           echo "Aplicando mudanças do Terraform..."
           
+          # Verificar se plan file existe
+          if [ ! -f "tfplan" ]; then
+            echo "ERRO: Plan file não encontrado após importação/verificação"
+            echo "Diretório atual: $(pwd)"
+            echo "Arquivos no diretório:"
+            ls -la || true
+            exit 1
+          fi
+          
+          echo "Plan file encontrado, tamanho: $(du -h tfplan | cut -f1)"
+          
           # Aplicar usando o plan file (mais seguro que -auto-approve)
           terraform apply tfplan 2>&1 | tee apply-output.txt
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
           
           if [ $APPLY_EXIT_CODE -ne 0 ]; then
             echo "ERRO: Terraform apply failed"
+            echo ""
+            echo "Se o erro for sobre recurso já existente, o import pode não ter funcionado."
+            echo "Verifique os logs do step 'Import Existing Resources' acima."
             exit 1
           fi
           
