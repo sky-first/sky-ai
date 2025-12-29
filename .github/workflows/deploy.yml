@@ -643,6 +643,19 @@ jobs:
           done
           echo ""
           
+          # Testar autenticação do PAT primeiro
+          if [ "$AUTH_TYPE" = "PAT" ]; then
+            echo "=== Testando autenticação PAT ==="
+            TEST_REPO="${REPO_OWNER}/${REPO_NAME}"
+            TEST_URL="${GITHUB_URL_PREFIX}${TEST_REPO}.git"
+            if git ls-remote "$TEST_URL" > /dev/null 2>&1; then
+              echo "OK: PAT autenticado com sucesso (consegue acessar repositório atual)"
+            else
+              echo "WARNING: PAT pode não ter acesso ao repositório atual"
+            fi
+            echo ""
+          fi
+          
           for repo_type in "${!REPOS[@]}"; do
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
@@ -663,6 +676,55 @@ jobs:
               echo "  - Tipo de autenticação: $AUTH_TYPE"
               echo "  - Repositório: $repo"
               echo ""
+              
+              # Verificar via GitHub API se PAT está configurado
+              if [ "$AUTH_TYPE" = "PAT" ]; then
+                echo "Verificando repositório via GitHub API..."
+                API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+                  -H "Authorization: token ${GH_PAT}" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/${repo}" 2>&1)
+                
+                HTTP_CODE=$(echo "$API_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+                API_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_CODE:/d')
+                
+                if [ "$HTTP_CODE" = "200" ]; then
+                  REPO_NAME_API=$(echo "$API_BODY" | grep '"name":' | head -1 | sed 's/.*"name": *"\([^"]*\)".*/\1/' || echo "N/A")
+                  REPO_PRIVATE=$(echo "$API_BODY" | grep '"private":' | head -1 | sed 's/.*"private": *\([^,}]*\).*/\1/' || echo "N/A")
+                  echo "  API: Repositório encontrado! (HTTP 200)"
+                  echo "  API: Nome: $REPO_NAME_API"
+                  echo "  API: Privado: $REPO_PRIVATE"
+                  echo ""
+                  echo "  PROBLEMA: Repositório existe e PAT tem acesso, mas git ls-remote falhou"
+                  echo "  POSSÍVEIS CAUSAS:"
+                  echo "    1. Problema com a URL construída"
+                  echo "    2. Problema com caracteres especiais no token"
+                  echo "    3. Problema de rede temporário"
+                  echo ""
+                  echo "  Tentando URL alternativa..."
+                  # Tentar com URL sem .git
+                  ALT_URL="${GITHUB_URL_PREFIX}${repo}"
+                  if git ls-remote "$ALT_URL" > /dev/null 2>&1; then
+                    echo "  OK: URL alternativa funcionou!"
+                    REPO_URL="$ALT_URL"
+                  else
+                    echo "  ERRO: URL alternativa também falhou"
+                  fi
+                elif [ "$HTTP_CODE" = "404" ]; then
+                  echo "  API: Repositório não encontrado (HTTP 404)"
+                  echo "  SOLUÇÃO: Verifique se o repositório existe: https://github.com/${repo}"
+                  echo "  SOLUÇÃO: Verifique se você tem acesso ao repositório"
+                elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+                  echo "  API: Acesso negado (HTTP $HTTP_CODE)"
+                  echo "  SOLUÇÃO: O PAT não tem acesso a este repositório"
+                  echo "  SOLUÇÃO: Verifique se o PAT tem acesso à organização 'sky-first'"
+                  echo "  SOLUÇÃO: Verifique se você tem permissão na organização"
+                else
+                  echo "  API: Resposta inesperada (HTTP $HTTP_CODE)"
+                  echo "  API: $(echo "$API_BODY" | head -5)"
+                fi
+                echo ""
+              fi
               
               if [ "$AUTH_TYPE" = "TOKEN" ] || [ "$AUTH_TYPE" = "NONE" ]; then
                 echo "SOLUÇÃO: Configure GH_PAT secret no GitHub:"
