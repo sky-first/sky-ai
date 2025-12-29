@@ -61,7 +61,16 @@ class SuggestionValidator:
         # Filtrar se:
         # 1. Tem erros críticos
         # 2. Tem 2 ou mais warnings (muitos problemas)
-        should_filter = len(critical_errors) > 0 or len(warnings) >= 2
+        # 3. Tem warning de filtro temporal restritivo (RESTRICTIVE_TIME_FILTER) - esses frequentemente retornam vazio
+        has_restrictive_time_filter = any(
+            i.code == "RESTRICTIVE_TIME_FILTER" for i in warnings
+        )
+        
+        should_filter = (
+            len(critical_errors) > 0 
+            or len(warnings) >= 2
+            or has_restrictive_time_filter  # Filtrar sugestões com filtros temporais restritivos
+        )
         
         return should_filter
     
