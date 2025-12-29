@@ -752,6 +752,70 @@ def generate_dashboard_plan(
             max_widgets=max_widgets,
         )
 
+        # ✅ NOVA: Validar widgets usando WidgetValidator
+        try:
+            from core.validation.widget_validator import WidgetValidator
+            from core.validation.question_validator import QuestionValidator
+            
+            # Preparar metadados para QuestionValidator
+            available_tables_meta = [
+                {
+                    "name": t,
+                    "logical_name": t,
+                    "columns": table_cols.get(t, []),
+                }
+                for t in logical_tables
+            ]
+            available_columns = {
+                t: table_cols.get(t, [])
+                for t in logical_tables
+            }
+            
+            question_validator = QuestionValidator(available_tables_meta, available_columns)
+            widget_validator = WidgetValidator(question_validator, strict_mode=True)
+            
+            # Filtrar widgets problemáticos
+            widgets_before_validation = len(widgets)
+            widgets = widget_validator.filter_widgets(widgets, min_widgets=max(1, max_widgets // 2))
+            widgets_after_validation = len(widgets)
+            
+            # Se filtramos muitos widgets, logar aviso
+            if widgets_before_validation > widgets_after_validation:
+                log_event(
+                    "davinci_widgets_validated",
+                    {
+                        "goal": goal[:200],
+                        "widgets_before": widgets_before_validation,
+                        "widgets_after": widgets_after_validation,
+                        "filtered": widgets_before_validation - widgets_after_validation,
+                    },
+                )
+            
+            # Se não temos widgets suficientes após validação, usar fallback
+            if len(widgets) < max(1, max_widgets // 2):
+                log_event(
+                    "davinci_validation_too_many_filtered",
+                    {
+                        "goal": goal[:200],
+                        "remaining_widgets": len(widgets),
+                        "min_required": max(1, max_widgets // 2),
+                        "action": "using_fallback",
+                    },
+                )
+                # Retornar fallback se validação filtrou muitos widgets
+                return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary)
+            
+        except Exception as e:
+            # Se validação falhar, continuar sem filtrar (fail-safe)
+            log_event(
+                "davinci_validation_error",
+                {
+                    "goal": goal[:200],
+                    "error": str(e)[:500],
+                    "action": "continuing_without_validation",
+                },
+            )
+
         log_event(
             "davinci_plan_generated",
             {

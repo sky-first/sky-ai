@@ -104,10 +104,19 @@ class QuestionValidator:
         # 4. Detectar perguntas que provavelmente retornarão 0 resultados
         if self._likely_empty_result(question):
             results.append(ValidationResult(
-                severity=ValidationSeverity.INFO,
+                severity=ValidationSeverity.WARNING,  # Mudado de INFO para WARNING
                 code="LIKELY_EMPTY_RESULT",
                 message="Esta pergunta pode não retornar resultados com os dados disponíveis.",
                 suggestion="Considere reformular ou verificar se os dados necessários estão disponíveis.",
+            ))
+        
+        # 5. Detectar filtros temporais muito restritivos (comum em sugestões que retornam vazio)
+        if self._has_restrictive_time_filter(question):
+            results.append(ValidationResult(
+                severity=ValidationSeverity.WARNING,
+                code="RESTRICTIVE_TIME_FILTER",
+                message="Esta pergunta usa filtros temporais que podem não retornar dados.",
+                suggestion="Reformule para uma pergunta mais geral sem filtros temporais específicos (ex: 'Quais são os principais motivos?' ao invés de 'Quais são os motivos deste mês?').",
             ))
         
         # 5. Detectar perguntas muito complexas (muito longas ou muitos termos)
@@ -344,4 +353,35 @@ class QuestionValidator:
             )
         
         return None
+    
+    def _has_restrictive_time_filter(self, question: str) -> bool:
+        """
+        Detecta filtros temporais muito restritivos que frequentemente retornam dados vazios.
+        Esses padrões são comuns em sugestões que não retornam dados.
+        """
+        restrictive_time_patterns = [
+            # Português - padrões mais específicos primeiro
+            r'\b(últim[ao]s?\s+)?(meses?|mês|month)\b',
+            r'\b(últim[ao]s?\s+)?(ano|anos?|year|years?)\b',  # Adicionado: último ano
+            r'\b(este|atual|current)\s+(mês|month|ano|year)\b',
+            r'\b(próxim[ao]s?|upcoming|vencendo|vencimento)\b',
+            r'\b(pendentes?|pending)\b',
+            r'\b(hoje|today|agora|now)\b',
+            r'\b(últim[ao]s?\s+)?(dias?|days?)\b',
+            r'\b(últim[ao]s?\s+)?(semanas?|weeks?)\b',
+            r'\b(últim[ao]s?\s+)?(trimestres?|quarters?)\b',
+            r'\b(recentes?|recent)\b',  # Adicionado: recentes
+            # Inglês
+            r'\b(last\s+)?(months?|days?|weeks?|quarters?|years?)\b',  # Adicionado years?
+            r'\b(this|current)\s+(month|year)\b',
+            r'\b(upcoming|pending|due)\b',
+            r'\b(today|now)\b',
+            r'\b(recent)\b',  # Adicionado: recent
+        ]
+        
+        question_lower = question.lower()
+        for pattern in restrictive_time_patterns:
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                return True
+        return False
 

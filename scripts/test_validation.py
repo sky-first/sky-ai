@@ -64,8 +64,8 @@ def test_question_validator():
         },
         {
             "question": "Quais faturas estão próximas do vencimento hoje?",
-            "expected_issues": 1,  # Pode detectar possível resultado vazio
-            "description": "Pergunta com filtro temporal restritivo",
+            "expected_issues": 2,  # Deve detectar filtro temporal + possível resultado vazio
+            "description": "Pergunta com filtro temporal restritivo (hoje + próximas)",
         },
         {
             "question": "Quais colunas tem na tabela 'orders'?",
@@ -86,6 +86,21 @@ def test_question_validator():
             "question": "Mostre os dados de faturas e pagamentos e clientes e itens e créditos e reembolsos todos juntos com todas as informações detalhadas",
             "expected_issues": 1,  # Deve detectar complexidade (muitas condições)
             "description": "Pergunta com muitas condições (múltiplos 'e')",
+        },
+        {
+            "question": "Quais créditos foram aplicados nos últimos meses?",
+            "expected_issues": 1,  # Deve detectar filtro temporal restritivo
+            "description": "Pergunta com filtro temporal restritivo (últimos meses)",
+        },
+        {
+            "question": "Quais faturas estão próximas do vencimento?",
+            "expected_issues": 1,  # Deve detectar filtro temporal restritivo
+            "description": "Pergunta com filtro temporal (próximas do vencimento)",
+        },
+        {
+            "question": "Quais são os principais motivos para os créditos emitidos?",
+            "expected_issues": 0,  # Pergunta geral, sem filtros restritivos
+            "description": "Pergunta geral sem filtros temporais (deve passar)",
         },
     ]
     

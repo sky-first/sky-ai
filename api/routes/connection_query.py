@@ -5,8 +5,9 @@ Ideal para integração com backend do produto.
 """
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 from uuid import UUID
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
@@ -45,6 +46,193 @@ from db.session import get_db
 from db.base import SessionLocal
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
+
+# ============================================================================
+# Cache para bootstrap suggestions (em memória, pode migrar para Redis depois)
+# ============================================================================
+_bootstrap_cache: Dict[str, Tuple[ChatBootstrapResponse, datetime]] = {}
+CACHE_TTL_MINUTES = 10  # Sugestões válidas por 10 minutos
+MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de memória
+
+# ============================================================================
+# Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
+# ============================================================================
+_dashboard_plan_cache: Dict[str, Tuple[DashboardPlanResponse, datetime]] = {}
+DASHBOARD_PLAN_CACHE_TTL_MINUTES = 60  # Planos válidos por 60 minutos (mais longo que bootstrap)
+DASHBOARD_PLAN_MAX_CACHE_SIZE = 50  # Menor que bootstrap (planos são maiores)
+
+
+def _get_cache_key(
+    connection_id: str,
+    space_id: str,
+    crew_ids: Optional[List[str]],
+    is_personal: bool,
+    language: str,
+) -> str:
+    """
+    Gera chave única para o cache baseada nos parâmetros relevantes.
+    
+    Args:
+        connection_id: ID da conexão
+        space_id: ID do space
+        crew_ids: Lista de crew_ids (será ordenada para consistência)
+        is_personal: Se está em modo personal
+        language: Idioma das sugestões
+        
+    Returns:
+        String única que identifica esta combinação de parâmetros
+    """
+    # Ordenar crew_ids para garantir consistência (mesma chave para mesma combinação)
+    crew_ids_str = ",".join(sorted(crew_ids or []))
+    return f"bootstrap:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{language}"
+
+
+def _get_cached_bootstrap(cache_key: str) -> Optional[ChatBootstrapResponse]:
+    """
+    Retorna sugestões do cache se ainda válidas.
+    
+    Args:
+        cache_key: Chave do cache
+        
+    Returns:
+        ChatBootstrapResponse se encontrado e válido, None caso contrário
+    """
+    if cache_key not in _bootstrap_cache:
+        return None
+    
+    cached_response, cached_time = _bootstrap_cache[cache_key]
+    age = datetime.now() - cached_time
+    
+    if age > timedelta(minutes=CACHE_TTL_MINUTES):
+        # Cache expirado, remover
+        del _bootstrap_cache[cache_key]
+        log_event(
+            "bootstrap_cache_expired",
+            {
+                "cache_key": cache_key,
+                "age_minutes": age.total_seconds() / 60,
+            },
+        )
+        return None
+    
+    return cached_response
+
+
+def _set_cached_bootstrap(cache_key: str, response: ChatBootstrapResponse):
+    """
+    Armazena sugestões no cache.
+    
+    Args:
+        cache_key: Chave do cache
+        response: Resposta a ser armazenada
+    """
+    _bootstrap_cache[cache_key] = (response, datetime.now())
+    
+    # Limpar cache antigo se exceder tamanho máximo
+    if len(_bootstrap_cache) > MAX_CACHE_SIZE:
+        # Remover entrada mais antiga
+        oldest_key = min(
+            _bootstrap_cache.keys(),
+            key=lambda k: _bootstrap_cache[k][1],
+        )
+        del _bootstrap_cache[oldest_key]
+        log_event(
+            "bootstrap_cache_evicted",
+            {
+                "cache_key": oldest_key,
+                "cache_size": len(_bootstrap_cache),
+            },
+        )
+
+
+def _get_dashboard_plan_cache_key(
+    connection_id: str,
+    space_id: str,
+    crew_ids: Optional[List[str]],
+    is_personal: bool,
+    goal: str,
+    max_widgets: int,
+    language: str,
+) -> str:
+    """
+    Gera chave única para o cache de planos de dashboard.
+    
+    Args:
+        connection_id: ID da conexão
+        space_id: ID do space
+        crew_ids: Lista de crew_ids (será ordenada para consistência)
+        is_personal: Se está em modo personal
+        goal: Objetivo do dashboard (ex: "Billing overview")
+        max_widgets: Número máximo de widgets
+        language: Idioma
+        
+    Returns:
+        String única que identifica esta combinação de parâmetros
+    """
+    # Ordenar crew_ids para garantir consistência
+    crew_ids_str = ",".join(sorted(crew_ids or []))
+    # Normalizar goal (lowercase, remover espaços extras)
+    goal_normalized = " ".join(goal.strip().lower().split())
+    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}"
+
+
+def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
+    """
+    Retorna plano de dashboard do cache se ainda válido.
+    
+    Args:
+        cache_key: Chave do cache
+        
+    Returns:
+        DashboardPlanResponse se encontrado e válido, None caso contrário
+    """
+    if cache_key not in _dashboard_plan_cache:
+        return None
+    
+    cached_response, cached_time = _dashboard_plan_cache[cache_key]
+    age = datetime.now() - cached_time
+    
+    if age > timedelta(minutes=DASHBOARD_PLAN_CACHE_TTL_MINUTES):
+        # Cache expirado, remover
+        del _dashboard_plan_cache[cache_key]
+        log_event(
+            "dashboard_plan_cache_expired",
+            {
+                "cache_key": cache_key,
+                "age_minutes": age.total_seconds() / 60,
+            },
+        )
+        return None
+    
+    return cached_response
+
+
+def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
+    """
+    Armazena plano de dashboard no cache.
+    
+    Args:
+        cache_key: Chave do cache
+        response: Resposta a ser armazenada
+    """
+    _dashboard_plan_cache[cache_key] = (response, datetime.now())
+    
+    # Limpar cache antigo se exceder tamanho máximo
+    if len(_dashboard_plan_cache) > DASHBOARD_PLAN_MAX_CACHE_SIZE:
+        # Remover entrada mais antiga
+        oldest_key = min(
+            _dashboard_plan_cache.keys(),
+            key=lambda k: _dashboard_plan_cache[k][1],
+        )
+        del _dashboard_plan_cache[oldest_key]
+        log_event(
+            "dashboard_plan_cache_evicted",
+            {
+                "cache_key": oldest_key,
+                "cache_size": len(_dashboard_plan_cache),
+            },
+        )
+
 
 def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[dict]:
     """
@@ -352,6 +540,114 @@ async def chat_bootstrap(
         # Se falhar, usar lista vazia (apenas dados públicos)
         resolved_crew_ids = []
 
+    # ✅ NOVA: Verificar cache antes de gerar sugestões
+    cache_key = _get_cache_key(
+        connection_id=connection_id,
+        space_id=body.space_id,
+        crew_ids=resolved_crew_ids,
+        is_personal=bool(body.is_personal),
+        language=lang,
+    )
+    
+    cached_response = _get_cached_bootstrap(cache_key)
+    if cached_response:
+        # ✅ GARANTIR que o card de ação "Create dashboard" sempre esteja presente
+        # Mesmo quando vem do cache (pode ter sido criado antes da implementação do card)
+        has_action_card = any(
+            sug.kind == "action" and sug.action_id == "create_dashboard"
+            for sug in cached_response.suggestions
+        )
+        
+        if not has_action_card:
+            # Adicionar o card de ação se não estiver presente
+            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+            action_card = ChatBootstrapSuggestion(
+                title=action_title,
+                kind="action",
+                action_id="create_dashboard",
+                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+            )
+            # Adicionar como primeiro item
+            cached_response.suggestions = [action_card] + cached_response.suggestions
+            # Normalizar contagem (garantir que o card seja sempre mantido)
+            # Se exceder max_suggestions, remover do final (não do início onde está o card)
+            if len(cached_response.suggestions) > body.max_suggestions:
+                cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+            log_event(
+                "bootstrap_action_card_added_to_cache",
+                {
+                    "connection_id": connection_id,
+                    "space_id": body.space_id,
+                    "cache_key": cache_key,
+                },
+            )
+        
+        # ✅ GARANTIR que o card está presente antes de retornar (verificação final)
+        final_has_action_card = any(
+            sug.kind == "action" and sug.action_id == "create_dashboard"
+            for sug in cached_response.suggestions
+        )
+        
+        if not final_has_action_card:
+            # Se ainda não tem o card, adicionar (fallback de segurança)
+            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+            action_card = ChatBootstrapSuggestion(
+                title=action_title,
+                kind="action",
+                action_id="create_dashboard",
+                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+            )
+            cached_response.suggestions = [action_card] + cached_response.suggestions
+            if len(cached_response.suggestions) > body.max_suggestions:
+                cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+            log_event(
+                "bootstrap_action_card_added_final_check",
+                {
+                    "connection_id": connection_id,
+                    "space_id": body.space_id,
+                    "cache_key": cache_key,
+                },
+            )
+        
+        # Garantir que o card está na primeira posição
+        if cached_response.suggestions:
+            first_sug = cached_response.suggestions[0]
+            if not (first_sug.kind == "action" and first_sug.action_id == "create_dashboard"):
+                # Card não está na primeira posição, mover
+                action_sug = next(
+                    (sug for sug in cached_response.suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
+                    None
+                )
+                if action_sug:
+                    cached_response.suggestions = [sug for sug in cached_response.suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
+                    cached_response.suggestions = [action_sug] + cached_response.suggestions
+                    if len(cached_response.suggestions) > body.max_suggestions:
+                        cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+        
+        log_event(
+            "bootstrap_cache_hit",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "cache_key": cache_key,
+                "num_suggestions": len(cached_response.suggestions),
+                "has_action_card": final_has_action_card or any(
+                    sug.kind == "action" and sug.action_id == "create_dashboard"
+                    for sug in cached_response.suggestions
+                ),
+            },
+        )
+        return cached_response
+    
+    log_event(
+        "bootstrap_cache_miss",
+        {
+            "connection_id": connection_id,
+            "space_id": body.space_id,
+            "cache_key": cache_key,
+        },
+    )
+
     # Backend-compatible: read catalog from `connection_metadata`.
     all_tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
     if not all_tables:
@@ -410,9 +706,13 @@ async def chat_bootstrap(
         "- Suggestions must be answerable using ONLY the provided tables/columns.\n"
         "- Avoid mentioning table physical names; prefer natural questions.\n"
         "- Keep questions short and actionable.\n"
+        "- IMPORTANT: Avoid time-based filters that might return no data (e.g., 'this month', 'last month', 'recent', 'upcoming', 'pending').\n"
+        "- IMPORTANT: Prefer general questions that will return data (e.g., 'What are the main reasons?' instead of 'What are the reasons this month?').\n"
+        "- IMPORTANT: Focus on aggregations, summaries, and general analysis rather than specific time periods.\n"
         f"- Language: {lang}\n"
         f"\nContext: {mode_context}\n"
         "- Generate suggestions that are relevant to the user's accessible data only.\n"
+        "- Ensure suggestions will return meaningful data when executed.\n"
     )
 
     user = (
@@ -420,7 +720,9 @@ async def chat_bootstrap(
         f"User has access to {len(tables)} tables (filtered by permissions). Schema (sample):\n"
         f"{schema_summary}\n\n"
         f"Context: {mode_context}\n\n"
-        "Generate greeting + suggestions based ONLY on the accessible tables shown above."
+        "Generate greeting + suggestions based ONLY on the accessible tables shown above.\n"
+        "IMPORTANT: Generate questions that will return data - avoid specific time filters like 'this month', 'last month', 'recent', 'upcoming', 'pending'.\n"
+        "Prefer general questions about trends, summaries, aggregations, and overall analysis."
     )
 
     try:
@@ -529,23 +831,134 @@ async def chat_bootstrap(
             # Continua normalmente sem validação
 
         # Always prepend the action card as the first suggestion.
-        action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-        action_card = ChatBootstrapSuggestion(
-            title=action_title,
-            kind="action",
-            action_id="create_dashboard",
-            payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+        # ✅ Verificar se já existe para evitar duplicatas
+        has_action_card = any(
+            sug.kind == "action" and sug.action_id == "create_dashboard"
+            for sug in suggestions
         )
-        suggestions = [action_card] + suggestions
+        
+        if not has_action_card:
+            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+            action_card = ChatBootstrapSuggestion(
+                title=action_title,
+                kind="action",
+                action_id="create_dashboard",
+                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+            )
+            suggestions = [action_card] + suggestions
+        else:
+            # Se já existe, garantir que está na primeira posição
+            action_sug = next(
+                (sug for sug in suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
+                None
+            )
+            if action_sug:
+                # Remover da posição atual e adicionar no início
+                suggestions = [sug for sug in suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
+                suggestions = [action_sug] + suggestions
 
-        # Normalize count
-        suggestions = suggestions[: body.max_suggestions]
+        # Normalize count (garantir que o card seja sempre mantido)
+        # Se exceder max_suggestions, remover do final (não do início onde está o card)
+        if len(suggestions) > body.max_suggestions:
+            suggestions = suggestions[: body.max_suggestions]
         while len(suggestions) < body.max_suggestions:
             suggestions.append(
                 ChatBootstrapSuggestion(title="Example", kind="question", question=(suggestions[-1].question or "Show me something interesting from my data."))
             )
 
-        return ChatBootstrapResponse(
+        # ✅ VERIFICAÇÃO FINAL: Garantir que o card está presente antes de criar a resposta
+        final_check_has_action_card = any(
+            sug.kind == "action" and sug.action_id == "create_dashboard"
+            for sug in suggestions
+        )
+        
+        if not final_check_has_action_card:
+            # Se ainda não tem o card, adicionar (fallback de segurança)
+            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+            action_card = ChatBootstrapSuggestion(
+                title=action_title,
+                kind="action",
+                action_id="create_dashboard",
+                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+            )
+            suggestions = [action_card] + suggestions
+            if len(suggestions) > body.max_suggestions:
+                suggestions = suggestions[: body.max_suggestions]
+            log_event(
+                "bootstrap_action_card_added_final_check_new",
+                {
+                    "connection_id": connection_id,
+                    "space_id": body.space_id,
+                },
+            )
+        
+        # Garantir que o card está na primeira posição
+        if suggestions and not (suggestions[0].kind == "action" and suggestions[0].action_id == "create_dashboard"):
+            action_sug = next(
+                (sug for sug in suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
+                None
+            )
+            if action_sug:
+                suggestions = [sug for sug in suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
+                suggestions = [action_sug] + suggestions
+                if len(suggestions) > body.max_suggestions:
+                    suggestions = suggestions[: body.max_suggestions]
+        
+        # ✅ VERIFICAÇÃO FINAL ABSOLUTA: Garantir que o card está presente antes de criar a resposta
+        # Esta é uma verificação de segurança final para garantir que nada remova o card
+        absolute_final_check = any(
+            sug.kind == "action" and sug.action_id == "create_dashboard"
+            for sug in suggestions
+        )
+        if not absolute_final_check:
+            # Se por algum motivo o card não está presente, adicionar agora
+            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+            action_card = ChatBootstrapSuggestion(
+                title=action_title,
+                kind="action",
+                action_id="create_dashboard",
+                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+            )
+            suggestions = [action_card] + suggestions
+            # Garantir que não exceda max_suggestions
+            if len(suggestions) > body.max_suggestions:
+                suggestions = suggestions[: body.max_suggestions]
+            log_event(
+                "bootstrap_action_card_added_absolute_final",
+                {
+                    "connection_id": connection_id,
+                    "space_id": body.space_id,
+                    "num_suggestions_before": len(suggestions) - 1,
+                },
+            )
+        
+        # Garantir que o card está na primeira posição (verificação final de posição)
+        if suggestions:
+            first_is_action = suggestions[0].kind == "action" and suggestions[0].action_id == "create_dashboard"
+            if not first_is_action:
+                # Procurar o card e mover para primeira posição
+                action_idx = None
+                for i, sug in enumerate(suggestions):
+                    if sug.kind == "action" and sug.action_id == "create_dashboard":
+                        action_idx = i
+                        break
+                if action_idx is not None:
+                    # Mover para primeira posição
+                    action_card = suggestions.pop(action_idx)
+                    suggestions.insert(0, action_card)
+                    # Garantir que não exceda max_suggestions
+                    if len(suggestions) > body.max_suggestions:
+                        suggestions = suggestions[: body.max_suggestions]
+                    log_event(
+                        "bootstrap_action_card_moved_to_first",
+                        {
+                            "connection_id": connection_id,
+                            "space_id": body.space_id,
+                            "old_position": action_idx,
+                        },
+                    )
+
+        response = ChatBootstrapResponse(
             greeting=greeting,
             suggestions=suggestions,
             meta={
@@ -557,8 +970,50 @@ async def chat_bootstrap(
                 "is_personal": bool(body.is_personal),
                 "crew_ids": resolved_crew_ids,
                 "mode": "personal" if body.is_personal else "collaborative",
+                "cached": False,  # Indica que esta resposta não veio do cache
             },
         )
+        
+        # ✅ VERIFICAÇÃO FINAL NA RESPOSTA: Garantir que o card está presente na resposta final
+        # Esta é uma última verificação antes de armazenar no cache
+        if response.suggestions:
+            response_has_action = any(
+                sug.kind == "action" and sug.action_id == "create_dashboard"
+                for sug in response.suggestions
+            )
+            if not response_has_action:
+                # Se por algum motivo ainda não tem, adicionar (última tentativa)
+                action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
+                action_card = ChatBootstrapSuggestion(
+                    title=action_title,
+                    kind="action",
+                    action_id="create_dashboard",
+                    payload={"default_goal": "Billing overview", "default_max_widgets": 6},
+                )
+                response.suggestions = [action_card] + response.suggestions
+                if len(response.suggestions) > body.max_suggestions:
+                    response.suggestions = response.suggestions[: body.max_suggestions]
+                log_event(
+                    "bootstrap_action_card_added_in_response",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": body.space_id,
+                    },
+                )
+        
+        # ✅ NOVA: Armazenar no cache após gerar
+        _set_cached_bootstrap(cache_key, response)
+        log_event(
+            "bootstrap_cache_set",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "cache_key": cache_key,
+                "cache_size": len(_bootstrap_cache),
+            },
+        )
+        
+        return response
     except Exception:
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
@@ -614,6 +1069,42 @@ async def dashboards_plan(
         )
         resolved_crew_ids = []
 
+    # ✅ NOVA: Verificar cache antes de gerar plano
+    cache_key = _get_dashboard_plan_cache_key(
+        connection_id=connection_id,
+        space_id=body.space_id,
+        crew_ids=resolved_crew_ids,
+        is_personal=bool(getattr(body, "is_personal", False)),
+        goal=body.goal,
+        max_widgets=body.max_widgets,
+        language=lang,
+    )
+    
+    cached_response = _get_cached_dashboard_plan(cache_key)
+    if cached_response:
+        log_event(
+            "dashboard_plan_cache_hit",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "cache_key": cache_key,
+                "num_widgets": len(cached_response.widgets),
+            },
+        )
+        # Atualizar meta para indicar que veio do cache
+        if cached_response.meta:
+            cached_response.meta["cached"] = True
+        return cached_response
+    
+    log_event(
+        "dashboard_plan_cache_miss",
+        {
+            "connection_id": connection_id,
+            "space_id": body.space_id,
+            "cache_key": cache_key,
+        },
+    )
+
     # Prefer backend-provided overrides (avoids needing this service to query the DB schema correctly).
     try:
         if body.logical_tables_override:
@@ -641,7 +1132,7 @@ async def dashboards_plan(
             schema_summary=schema_summary,
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
-        return DashboardPlanResponse(
+        response = DashboardPlanResponse(
             dashboard_name=plan.dashboard_name,
             description=plan.description,
             widgets=widgets,
@@ -650,8 +1141,23 @@ async def dashboards_plan(
                 "num_tables": len(logical_tables),
                 "prompt_tables": max_tables_in_prompt,
                 "agent_id": None,
+                "cached": False,  # Indica que esta resposta não veio do cache
             },
         )
+        
+        # ✅ NOVA: Armazenar no cache após gerar
+        _set_cached_dashboard_plan(cache_key, response)
+        log_event(
+            "dashboard_plan_cache_set",
+            {
+                "connection_id": connection_id,
+                "space_id": body.space_id,
+                "cache_key": cache_key,
+                "cache_size": len(_dashboard_plan_cache),
+            },
+        )
+        
+        return response
     except HTTPException:
         raise
     except Exception as e:
