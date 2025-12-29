@@ -601,18 +601,41 @@ jobs:
           GH_PAT="${{ secrets.GH_PAT }}"
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           
+          # Função para URL-encode o token (necessário para caracteres especiais)
+          urlencode() {
+            local string="${1}"
+            local strlen=${#string}
+            local encoded=""
+            local pos c o
+            for (( pos=0 ; pos<strlen ; pos++ )); do
+              c=${string:$pos:1}
+              case "$c" in
+                [-_.~a-zA-Z0-9] ) o="${c}" ;;
+                * ) printf -v o '%%%02x' "'$c" ;;
+              esac
+              encoded+="${o}"
+            done
+            echo "${encoded}"
+          }
+          
           if [ -n "$GH_PAT" ]; then
             echo "Usando GH_PAT para autenticação (acesso completo a repositórios privados)"
-            # Usar formato x-access-token para evitar problemas com caracteres especiais no token
-            GITHUB_URL_PREFIX="https://x-access-token:${GH_PAT}@github.com/"
+            # URL-encode o token para evitar problemas com caracteres especiais
+            ENCODED_PAT=$(urlencode "${GH_PAT}")
+            # Usar formato x-access-token com token URL-encoded
+            GITHUB_URL_PREFIX="https://x-access-token:${ENCODED_PAT}@github.com/"
             AUTH_TYPE="PAT"
+            # Configurar git para usar autenticação via config (mais robusto)
+            git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+            echo "OK: Autenticação configurada (PAT com URL-encoding)"
           elif [ -n "$GITHUB_TOKEN" ]; then
             echo "Usando GITHUB_TOKEN para autenticação (acesso limitado ao repositório atual)"
             echo "WARNING: GITHUB_TOKEN não tem acesso a repositórios privados de outras organizações"
             echo "Configure GH_PAT secret no GitHub com permissão 'repo' para acesso completo"
-            # Usar formato x-access-token para evitar problemas com caracteres especiais no token
-            GITHUB_URL_PREFIX="https://x-access-token:${GITHUB_TOKEN}@github.com/"
+            ENCODED_TOKEN=$(urlencode "${GITHUB_TOKEN}")
+            GITHUB_URL_PREFIX="https://x-access-token:${ENCODED_TOKEN}@github.com/"
             AUTH_TYPE="TOKEN"
+            git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           else
             echo "WARNING: Nenhum token disponível - apenas repositórios públicos serão acessíveis"
             GITHUB_URL_PREFIX="https://github.com/"
@@ -649,11 +672,18 @@ jobs:
           if [ "$AUTH_TYPE" = "PAT" ]; then
             echo "=== Testando autenticação PAT ==="
             TEST_REPO="${REPO_OWNER}/${REPO_NAME}"
-            TEST_URL="${GITHUB_URL_PREFIX}${TEST_REPO}.git"
+            # Tentar primeiro com git config (mais robusto)
+            TEST_URL="https://github.com/${TEST_REPO}.git"
             if git ls-remote "$TEST_URL" > /dev/null 2>&1; then
-              echo "OK: PAT autenticado com sucesso (consegue acessar repositório atual)"
+              echo "OK: PAT autenticado com sucesso via git config (consegue acessar repositório atual)"
             else
-              echo "WARNING: PAT pode não ter acesso ao repositório atual"
+              # Fallback: tentar com URL direta
+              TEST_URL_DIRECT="${GITHUB_URL_PREFIX}${TEST_REPO}.git"
+              if git ls-remote "$TEST_URL_DIRECT" > /dev/null 2>&1; then
+                echo "OK: PAT autenticado com sucesso via URL direta (consegue acessar repositório atual)"
+              else
+                echo "WARNING: PAT pode não ter acesso ao repositório atual"
+              fi
             fi
             echo ""
           fi
@@ -662,22 +692,35 @@ jobs:
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
             
-            # Construir URL com autenticação
-            REPO_URL="${GITHUB_URL_PREFIX}${repo}.git"
-            
-            # Debug: mostrar tipo de autenticação
+            # Usar URL padrão se git config estiver configurado, senão usar URL com token
             if [ "$AUTH_TYPE" != "NONE" ]; then
-              echo "  Autenticação: $AUTH_TYPE"
+              # Tentar primeiro com git config (mais robusto)
+              REPO_URL="https://github.com/${repo}.git"
+              echo "  Autenticação: $AUTH_TYPE (via git config)"
+            else
+              REPO_URL="${GITHUB_URL_PREFIX}${repo}.git"
             fi
             
             # Verificar se repositório existe (com autenticação se necessário)
             if ! git ls-remote "$REPO_URL" > /dev/null 2>&1; then
-              echo "ERRO: Repositório não encontrado: $repo"
-              echo ""
-              echo "Detalhes:"
-              echo "  - Tipo de autenticação: $AUTH_TYPE"
-              echo "  - Repositório: $repo"
-              echo ""
+              # Se falhou com git config, tentar com URL direta como fallback
+              if [ "$AUTH_TYPE" != "NONE" ]; then
+                echo "  Tentando fallback com URL direta..."
+                REPO_URL_FALLBACK="${GITHUB_URL_PREFIX}${repo}.git"
+                if git ls-remote "$REPO_URL_FALLBACK" > /dev/null 2>&1; then
+                  echo "  OK: Fallback funcionou!"
+                  REPO_URL="$REPO_URL_FALLBACK"
+                fi
+              fi
+              
+              # Se chegou aqui, ambos os métodos falharam
+              if [ -z "${REPO_URL_FALLBACK:-}" ] || [ "$REPO_URL" = "$REPO_URL_FALLBACK" ]; then
+                echo "ERRO: Repositório não encontrado: $repo"
+                echo ""
+                echo "Detalhes:"
+                echo "  - Tipo de autenticação: $AUTH_TYPE"
+                echo "  - Repositório: $repo"
+                echo ""
               
               # Verificar via GitHub API se PAT está configurado
               if [ "$AUTH_TYPE" = "PAT" ]; then
