@@ -456,6 +456,9 @@ jobs:
             exit 1
           fi
           
+          # Executar terraform plan com detailed-exitcode
+          # Exit codes: 0 = sem mudanças, 1 = erro, 2 = há mudanças (esperado)
+          set +e  # Desabilitar exit on error temporariamente
           terraform plan \
             -var-file="$TFVARS_FILE" \
             -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
@@ -464,8 +467,20 @@ jobs:
             -detailed-exitcode 2>&1 | tee plan-output.txt
           
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          set -e  # Reabilitar exit on error
+          
+          # Tratar exit codes
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
             echo "ERRO: Terraform plan failed"
+            exit 1
+          elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+            echo "OK: Terraform plan gerado com sucesso (há mudanças planejadas)"
+            echo "plan_has_changes=true" >> $GITHUB_OUTPUT
+          elif [ $PLAN_EXIT_CODE -eq 0 ]; then
+            echo "OK: Terraform plan gerado com sucesso (sem mudanças)"
+            echo "plan_has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "ERRO: Exit code inesperado do terraform plan: $PLAN_EXIT_CODE"
             exit 1
           fi
 
