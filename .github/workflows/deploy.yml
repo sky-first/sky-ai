@@ -1235,6 +1235,55 @@ jobs:
           echo "recreate_count=$RECREATE_COUNT" >> $GITHUB_OUTPUT
           echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
 
+      - name: Import Existing Resources (if needed)
+        run: |
+          set -euo pipefail
+          echo "Verificando se há recursos existentes que precisam ser importados..."
+          
+          # Obter nome do Resource Group do terraform.tfvars
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          RESOURCE_GROUP_NAME=$(grep "resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | tr -d ' ' || echo "")
+          
+          if [ -z "$RESOURCE_GROUP_NAME" ]; then
+            echo "WARNING: Não foi possível obter resource_group_name do tfvars"
+            echo "Pulando importação de recursos existentes"
+            exit 0
+          fi
+          
+          echo "Resource Group: $RESOURCE_GROUP_NAME"
+          
+          # Verificar se Resource Group existe no Azure
+          if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+            echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
+            
+            # Verificar se já está no estado do Terraform
+            if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+              echo "OK: Resource Group já está no estado do Terraform"
+            else
+              echo "Importando Resource Group existente para o estado do Terraform..."
+              SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+              RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+              
+              if terraform import azurerm_resource_group.main "$RESOURCE_ID" 2>&1; then
+                echo "✅ Resource Group importado com sucesso"
+                echo "Regenerando plan após importação..."
+                # Regenerar plan após importação
+                terraform plan \
+                  -var-file="$TFVARS_FILE" \
+                  -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+                  -out=tfplan \
+                  -no-color \
+                  -detailed-exitcode 2>&1 | tee plan-output.txt || true
+                echo "Plan regenerado após importação"
+              else
+                echo "WARNING: Falha ao importar Resource Group (pode já estar importado ou não existir)"
+                echo "Continuando com apply..."
+              fi
+            fi
+          else
+            echo "Resource Group não existe no Azure, será criado pelo Terraform"
+          fi
+
       - name: Terraform Apply
         id: apply
         run: |
