@@ -563,13 +563,37 @@ jobs:
         run: |
           set -euo pipefail
           BRANCH="${{ needs.detect-environment.outputs.branch }}"
+          ENV="${{ needs.detect-environment.outputs.environment }}"
           REPO="${{ github.repository }}"
           REPO_OWNER=$(echo "$REPO" | cut -d'/' -f1)
           REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
           
           echo "Validando repositórios Git e branches..."
           echo "Branch alvo: $BRANCH"
+          echo "Environment: $ENV"
           echo ""
+          
+          # Se branch for "manual", usar branch do environment para validação
+          VALIDATION_BRANCH="$BRANCH"
+          if [[ "$BRANCH" == "manual" ]]; then
+            # Mapear environment para branch
+            case "$ENV" in
+              "staging")
+                VALIDATION_BRANCH="staging"
+                ;;
+              "prod")
+                VALIDATION_BRANCH="main"
+                ;;
+              "poc-sky")
+                VALIDATION_BRANCH="staging"  # ou main, ajuste conforme necessário
+                ;;
+              *)
+                VALIDATION_BRANCH="main"  # fallback
+                ;;
+            esac
+            echo "Branch 'manual' detectado - usando branch '$VALIDATION_BRANCH' para validação (baseado no environment $ENV)"
+            echo ""
+          fi
           
           # Configurar autenticação para repositórios privados
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
@@ -616,18 +640,18 @@ jobs:
               exit 1
             fi
             
-            # Verificar se branch existe
-            if ! git ls-remote --heads "https://github.com/${repo}.git" "$BRANCH" | grep -q "$BRANCH"; then
-              echo "ERRO: Branch $BRANCH não encontrada no repositório $repo"
+            # Verificar se branch existe (usar VALIDATION_BRANCH ao invés de BRANCH)
+            if ! git ls-remote --heads "https://github.com/${repo}.git" "$VALIDATION_BRANCH" | grep -q "$VALIDATION_BRANCH"; then
+              echo "ERRO: Branch $VALIDATION_BRANCH não encontrada no repositório $repo"
               echo ""
               echo "Branches disponíveis:"
               git ls-remote --heads "https://github.com/${repo}.git" | sed 's/.*refs\/heads\///' | head -10 || true
               echo ""
-              echo "Crie a branch $BRANCH no repositório $repo antes de fazer o deploy"
+              echo "Crie a branch $VALIDATION_BRANCH no repositório $repo antes de fazer o deploy"
               exit 1
             fi
             
-            echo "  OK: Repositório $repo_type validado (branch $BRANCH existe)"
+            echo "  OK: Repositório $repo_type validado (branch $VALIDATION_BRANCH existe)"
           done
           
           echo ""
