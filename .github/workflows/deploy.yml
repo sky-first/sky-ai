@@ -571,6 +571,16 @@ jobs:
           echo "Branch alvo: $BRANCH"
           echo ""
           
+          # Configurar autenticação para repositórios privados
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          if [ -n "$GITHUB_TOKEN" ]; then
+            # Usar token para autenticação em repositórios privados
+            git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "Autenticação GitHub configurada para acessar repositórios privados"
+          else
+            echo "WARNING: GITHUB_TOKEN não disponível - apenas repositórios públicos serão acessíveis"
+          fi
+          
           # Lista de repositórios a validar
           declare -A REPOS=(
             ["infra"]="${REPO}"
@@ -594,7 +604,7 @@ jobs:
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
             
-            # Verificar se repositório existe
+            # Verificar se repositório existe (com autenticação se necessário)
             if ! git ls-remote "https://github.com/${repo}.git" > /dev/null 2>&1; then
               echo "ERRO: Repositório não encontrado: $repo"
               echo ""
@@ -602,6 +612,7 @@ jobs:
               echo "  1. O repositório existe no GitHub"
               echo "  2. O nome está correto"
               echo "  3. O repositório é público ou você tem acesso"
+              echo "  4. O GITHUB_TOKEN tem permissão para acessar repositórios privados"
               exit 1
             fi
             
