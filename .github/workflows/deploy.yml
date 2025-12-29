@@ -703,8 +703,34 @@ jobs:
             
             # Verificar se repositório existe (com autenticação se necessário)
             REPO_FOUND=false
+            API_ACCESS=false
+            
+            # Primeiro, verificar via API se temos acesso (mais confiável)
+            if [ "$AUTH_TYPE" = "PAT" ]; then
+              echo "  Verificando acesso via GitHub API..."
+              API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+                -H "Authorization: token ${GH_PAT}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/${repo}" 2>&1)
+              
+              HTTP_CODE=$(echo "$API_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+              API_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_CODE:/d')
+              
+              if [ "$HTTP_CODE" = "200" ]; then
+                API_ACCESS=true
+                REPO_NAME_API=$(echo "$API_BODY" | grep '"name":' | head -1 | sed 's/.*"name": *"\([^"]*\)".*/\1/' || echo "N/A")
+                REPO_PRIVATE=$(echo "$API_BODY" | grep '"private":' | head -1 | sed 's/.*"private": *\([^,}]*\).*/\1/' || echo "N/A")
+                echo "  API: Repositório encontrado! (HTTP 200)"
+                echo "  API: Nome: $REPO_NAME_API"
+                echo "  API: Privado: $REPO_PRIVATE"
+                echo "  API: PAT tem acesso confirmado via API"
+              fi
+            fi
+            
+            # Tentar git ls-remote (preferencial, mas não crítico se API confirmar acesso)
             if git ls-remote "$REPO_URL" > /dev/null 2>&1; then
               REPO_FOUND=true
+              echo "  OK: git ls-remote funcionou"
             else
               # Se falhou com git config, tentar com URL direta como fallback
               if [ "$AUTH_TYPE" != "NONE" ]; then
@@ -714,52 +740,36 @@ jobs:
                   echo "  OK: Fallback funcionou!"
                   REPO_URL="$REPO_URL_FALLBACK"
                   REPO_FOUND=true
+                else
+                  echo "  WARNING: git ls-remote falhou (mas continuando se API confirmar acesso)"
                 fi
               fi
             fi
             
-            # Se não encontrou, mostrar erro
+            # Se API confirmou acesso, aceitar mesmo se git ls-remote falhou
+            if [ "$API_ACCESS" = "true" ] && [ "$REPO_FOUND" = "false" ]; then
+              echo "  INFO: git ls-remote falhou, mas API confirmou acesso - continuando..."
+              echo "  NOTA: O PAT pode não ter permissão Git aprovada na organização"
+              echo "  NOTA: Mas o acesso via API está funcionando, então o deploy pode continuar"
+              REPO_FOUND=true
+              # Usar URL padrão para validação de branch (será validado via API se necessário)
+            fi
+            
+            # Se não encontrou e API não confirmou, mostrar erro
             if [ "$REPO_FOUND" = "false" ]; then
               echo "ERRO: Repositório não encontrado: $repo"
-                echo ""
-                echo "Detalhes:"
-                echo "  - Tipo de autenticação: $AUTH_TYPE"
-                echo "  - Repositório: $repo"
-                echo ""
+              echo ""
+              echo "Detalhes:"
+              echo "  - Tipo de autenticação: $AUTH_TYPE"
+              echo "  - Repositório: $repo"
+              echo ""
               
-              # Verificar via GitHub API se PAT está configurado
-              if [ "$AUTH_TYPE" = "PAT" ]; then
-                echo "Verificando repositório via GitHub API..."
-                API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
-                  -H "Authorization: token ${GH_PAT}" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${repo}" 2>&1)
-                
-                HTTP_CODE=$(echo "$API_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-                API_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_CODE:/d')
-                
-                if [ "$HTTP_CODE" = "200" ]; then
-                  REPO_NAME_API=$(echo "$API_BODY" | grep '"name":' | head -1 | sed 's/.*"name": *"\([^"]*\)".*/\1/' || echo "N/A")
-                  REPO_PRIVATE=$(echo "$API_BODY" | grep '"private":' | head -1 | sed 's/.*"private": *\([^,}]*\).*/\1/' || echo "N/A")
-                  echo "  API: Repositório encontrado! (HTTP 200)"
-                  echo "  API: Nome: $REPO_NAME_API"
-                  echo "  API: Privado: $REPO_PRIVATE"
-                  echo ""
-                  echo "  PROBLEMA: Repositório existe e PAT tem acesso, mas git ls-remote falhou"
-                  echo "  POSSÍVEIS CAUSAS:"
-                  echo "    1. Problema com a URL construída"
-                  echo "    2. Problema com caracteres especiais no token"
-                  echo "    3. Problema de rede temporário"
-                  echo ""
-                  echo "  Tentando URL alternativa..."
-                  # Tentar com URL sem .git
-                  ALT_URL="${GITHUB_URL_PREFIX}${repo}"
-                  if git ls-remote "$ALT_URL" > /dev/null 2>&1; then
-                    echo "  OK: URL alternativa funcionou!"
-                    REPO_URL="$ALT_URL"
-                  else
-                    echo "  ERRO: URL alternativa também falhou"
-                  fi
+              if [ "$AUTH_TYPE" = "PAT" ] && [ "$API_ACCESS" = "false" ]; then
+                echo "  API: Acesso negado ou repositório não encontrado"
+                echo "  SOLUÇÃO: Verifique se o PAT tem acesso à organização 'sky-first'"
+                echo "  SOLUÇÃO: Verifique se o PAT foi aprovado na organização"
+                echo "  SOLUÇÃO: Acesse: https://github.com/organizations/sky-first/settings/personal_access_tokens"
+              fi
                 elif [ "$HTTP_CODE" = "404" ]; then
                   echo "  API: Repositório não encontrado (HTTP 404)"
                   echo "  SOLUÇÃO: Verifique se o repositório existe: https://github.com/${repo}"
@@ -796,14 +806,48 @@ jobs:
             fi
             
             # Verificar se branch existe (usar VALIDATION_BRANCH ao invés de BRANCH)
-            if ! git ls-remote --heads "$REPO_URL" "$VALIDATION_BRANCH" | grep -q "$VALIDATION_BRANCH"; then
-              echo "ERRO: Branch $VALIDATION_BRANCH não encontrada no repositório $repo"
-              echo ""
-              echo "Branches disponíveis:"
-              git ls-remote --heads "$REPO_URL" | sed 's/.*refs\/heads\///' | head -10 || true
-              echo ""
-              echo "Crie a branch $VALIDATION_BRANCH no repositório $repo antes de fazer o deploy"
-              exit 1
+            BRANCH_FOUND=false
+            
+            # Tentar validar branch via git ls-remote
+            if git ls-remote --heads "$REPO_URL" "$VALIDATION_BRANCH" 2>/dev/null | grep -q "$VALIDATION_BRANCH"; then
+              BRANCH_FOUND=true
+              echo "  OK: Branch $VALIDATION_BRANCH encontrada via git ls-remote"
+            else
+              # Se git ls-remote falhou, tentar via API
+              if [ "$AUTH_TYPE" = "PAT" ]; then
+                echo "  Validando branch via GitHub API..."
+                BRANCH_API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+                  -H "Authorization: token ${GH_PAT}" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/${repo}/branches/${VALIDATION_BRANCH}" 2>&1)
+                
+                BRANCH_HTTP_CODE=$(echo "$BRANCH_API_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+                if [ "$BRANCH_HTTP_CODE" = "200" ]; then
+                  BRANCH_FOUND=true
+                  echo "  OK: Branch $VALIDATION_BRANCH encontrada via API"
+                else
+                  echo "  ERRO: Branch $VALIDATION_BRANCH não encontrada no repositório $repo"
+                  echo ""
+                  echo "Branches disponíveis (via API):"
+                  BRANCHES_API=$(curl -s \
+                    -H "Authorization: token ${GH_PAT}" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${repo}/branches" 2>/dev/null | \
+                    grep '"name":' | sed 's/.*"name": *"\([^"]*\)".*/\1/' | head -10 || echo "  (não foi possível listar)")
+                  echo "$BRANCHES_API"
+                  echo ""
+                  echo "Crie a branch $VALIDATION_BRANCH no repositório $repo antes de fazer o deploy"
+                  exit 1
+                fi
+              else
+                echo "ERRO: Branch $VALIDATION_BRANCH não encontrada no repositório $repo"
+                echo ""
+                echo "Branches disponíveis:"
+                git ls-remote --heads "$REPO_URL" 2>/dev/null | sed 's/.*refs\/heads\///' | head -10 || echo "  (não foi possível listar)"
+                echo ""
+                echo "Crie a branch $VALIDATION_BRANCH no repositório $repo antes de fazer o deploy"
+                exit 1
+              fi
             fi
             
             echo "  OK: Repositório $repo_type validado (branch $VALIDATION_BRANCH existe)"
