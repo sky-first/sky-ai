@@ -603,13 +603,15 @@ jobs:
           
           if [ -n "$GH_PAT" ]; then
             echo "Usando GH_PAT para autenticação (acesso completo a repositórios privados)"
-            GITHUB_URL_PREFIX="https://${GH_PAT}@github.com/"
+            # Usar formato x-access-token para evitar problemas com caracteres especiais no token
+            GITHUB_URL_PREFIX="https://x-access-token:${GH_PAT}@github.com/"
             AUTH_TYPE="PAT"
           elif [ -n "$GITHUB_TOKEN" ]; then
             echo "Usando GITHUB_TOKEN para autenticação (acesso limitado ao repositório atual)"
             echo "WARNING: GITHUB_TOKEN não tem acesso a repositórios privados de outras organizações"
             echo "Configure GH_PAT secret no GitHub com permissão 'repo' para acesso completo"
-            GITHUB_URL_PREFIX="https://${GITHUB_TOKEN}@github.com/"
+            # Usar formato x-access-token para evitar problemas com caracteres especiais no token
+            GITHUB_URL_PREFIX="https://x-access-token:${GITHUB_TOKEN}@github.com/"
             AUTH_TYPE="TOKEN"
           else
             echo "WARNING: Nenhum token disponível - apenas repositórios públicos serão acessíveis"
