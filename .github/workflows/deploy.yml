@@ -596,14 +596,25 @@ jobs:
           fi
           
           # Configurar autenticação para repositórios privados
+          # Priorizar GH_PAT (Personal Access Token) se disponível
+          # GH_PAT tem acesso completo a repositórios privados
+          GH_PAT="${{ secrets.GH_PAT }}"
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          if [ -n "$GITHUB_TOKEN" ]; then
-            echo "Autenticação GitHub configurada para acessar repositórios privados"
-            # Usar token diretamente nas URLs (mais confiável que git config)
+          
+          if [ -n "$GH_PAT" ]; then
+            echo "Usando GH_PAT para autenticação (acesso completo a repositórios privados)"
+            GITHUB_URL_PREFIX="https://${GH_PAT}@github.com/"
+            AUTH_TYPE="PAT"
+          elif [ -n "$GITHUB_TOKEN" ]; then
+            echo "Usando GITHUB_TOKEN para autenticação (acesso limitado ao repositório atual)"
+            echo "WARNING: GITHUB_TOKEN não tem acesso a repositórios privados de outras organizações"
+            echo "Configure GH_PAT secret no GitHub com permissão 'repo' para acesso completo"
             GITHUB_URL_PREFIX="https://${GITHUB_TOKEN}@github.com/"
+            AUTH_TYPE="TOKEN"
           else
-            echo "WARNING: GITHUB_TOKEN não disponível - apenas repositórios públicos serão acessíveis"
+            echo "WARNING: Nenhum token disponível - apenas repositórios públicos serão acessíveis"
             GITHUB_URL_PREFIX="https://github.com/"
+            AUTH_TYPE="NONE"
           fi
           
           # Lista de repositórios a validar
@@ -625,6 +636,13 @@ jobs:
             REPOS["ia"]="${REPO_OWNER}/sky-poc-ai"
           fi
           
+          # Debug: mostrar repositórios que serão validados
+          echo "=== Repositórios a validar ==="
+          for repo_type in "${!REPOS[@]}"; do
+            echo "  $repo_type: ${REPOS[$repo_type]}"
+          done
+          echo ""
+          
           for repo_type in "${!REPOS[@]}"; do
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
@@ -632,22 +650,36 @@ jobs:
             # Construir URL com autenticação
             REPO_URL="${GITHUB_URL_PREFIX}${repo}.git"
             
+            # Debug: mostrar tipo de autenticação
+            if [ "$AUTH_TYPE" != "NONE" ]; then
+              echo "  Autenticação: $AUTH_TYPE"
+            fi
+            
             # Verificar se repositório existe (com autenticação se necessário)
             if ! git ls-remote "$REPO_URL" > /dev/null 2>&1; then
               echo "ERRO: Repositório não encontrado: $repo"
               echo ""
-              echo "Verifique se:"
-              echo "  1. O repositório existe no GitHub"
-              echo "  2. O nome está correto"
-              echo "  3. O repositório é público ou você tem acesso"
-              echo "  4. O GITHUB_TOKEN tem permissão para acessar repositórios privados"
+              echo "Detalhes:"
+              echo "  - Tipo de autenticação: $AUTH_TYPE"
+              echo "  - Repositório: $repo"
               echo ""
+              
+              if [ "$AUTH_TYPE" = "TOKEN" ] || [ "$AUTH_TYPE" = "NONE" ]; then
+                echo "SOLUÇÃO: Configure GH_PAT secret no GitHub:"
+                echo "  1. Crie um Personal Access Token (PAT) com escopo 'repo'"
+                echo "  2. Adicione como secret 'GH_PAT' no repositório"
+                echo "  3. O PAT terá acesso completo a repositórios privados"
+                echo ""
+              fi
+              
               echo "Tentando sem autenticação para debug..."
               if git ls-remote "https://github.com/${repo}.git" > /dev/null 2>&1; then
                 echo "INFO: Repositório é público e acessível sem autenticação"
               else
                 echo "INFO: Repositório não encontrado mesmo sem autenticação"
+                echo "Verifique se o repositório existe: https://github.com/${repo}"
               fi
+              
               exit 1
             fi
             
@@ -663,6 +695,7 @@ jobs:
             fi
             
             echo "  OK: Repositório $repo_type validado (branch $VALIDATION_BRANCH existe)"
+            echo ""
           done
           
           echo ""
