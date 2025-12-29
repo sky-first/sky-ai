@@ -770,21 +770,6 @@ jobs:
                 echo "  SOLUÇÃO: Verifique se o PAT foi aprovado na organização"
                 echo "  SOLUÇÃO: Acesse: https://github.com/organizations/sky-first/settings/personal_access_tokens"
               fi
-                elif [ "$HTTP_CODE" = "404" ]; then
-                  echo "  API: Repositório não encontrado (HTTP 404)"
-                  echo "  SOLUÇÃO: Verifique se o repositório existe: https://github.com/${repo}"
-                  echo "  SOLUÇÃO: Verifique se você tem acesso ao repositório"
-                elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-                  echo "  API: Acesso negado (HTTP $HTTP_CODE)"
-                  echo "  SOLUÇÃO: O PAT não tem acesso a este repositório"
-                  echo "  SOLUÇÃO: Verifique se o PAT tem acesso à organização 'sky-first'"
-                  echo "  SOLUÇÃO: Verifique se você tem permissão na organização"
-                else
-                  echo "  API: Resposta inesperada (HTTP $HTTP_CODE)"
-                  echo "  API: $(echo "$API_BODY" | head -5)"
-                fi
-                echo ""
-              fi
               
               if [ "$AUTH_TYPE" = "TOKEN" ] || [ "$AUTH_TYPE" = "NONE" ]; then
                 echo "SOLUÇÃO: Configure GH_PAT secret no GitHub:"
