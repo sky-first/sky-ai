@@ -1056,8 +1056,10 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false
 
-      - name: Select Workspace
-        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+      - name: Select/Create Workspace
+        run: |
+          terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
+          terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
       - name: Get VM Information
         id: vm-info
@@ -1631,8 +1633,10 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false -backend-config=backend.hcl
 
-      - name: Select Workspace
-        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+      - name: Select/Create Workspace
+        run: |
+          terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
+          terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
       - name: Check for Previous State Backup
         id: check-backup
