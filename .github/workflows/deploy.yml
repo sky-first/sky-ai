@@ -39,7 +39,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       environment: ${{ steps.detect.outputs.env }}
-      tfvars_file: ${{ steps.detect.outputs.tfvars }}
+      tfvars_file: ${{ steps.detect.outputs.tfvars_file }}
       workspace: ${{ steps.detect.outputs.workspace }}
       branch: ${{ steps.detect.outputs.branch }}
       allow_destroy: ${{ steps.detect.outputs.allow_destroy }}
