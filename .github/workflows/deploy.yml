@@ -374,12 +374,66 @@ jobs:
           fi
           echo "OK: Subscription ID validado: ${ARM_SUBSCRIPTION_ID}"
 
+      - name: Validate tfvars File
+        run: |
+          set -euo pipefail
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          
+          echo "=== Validação do arquivo tfvars ==="
+          echo "Environment detectado: ${ENV}"
+          echo "Arquivo esperado: ${TFVARS_FILE}"
+          echo "Diretório de trabalho: $(pwd)"
+          echo ""
+          
+          # Verificar se o nome do arquivo está definido
+          if [ -z "$TFVARS_FILE" ]; then
+            echo "ERRO: Nome do arquivo tfvars está vazio"
+            echo "Environment output: ${ENV}"
+            exit 1
+          fi
+          
+          # Listar arquivos tfvars disponíveis para debug
+          echo "Arquivos tfvars disponíveis:"
+          ls -la terraform.tfvars.* 2>/dev/null || echo "  Nenhum arquivo encontrado"
+          echo ""
+          
+          # Verificar se o arquivo existe
+          if [ ! -f "$TFVARS_FILE" ]; then
+            echo "ERRO: Arquivo não encontrado: $TFVARS_FILE"
+            echo ""
+            echo "Arquivos disponíveis no diretório:"
+            ls -la *.tfvars* 2>/dev/null || echo "  Nenhum arquivo .tfvars encontrado"
+            echo ""
+            echo "Solução:"
+            echo "  1. Verifique se o arquivo terraform.tfvars.${ENV} existe em infra/azure/"
+            echo "  2. Verifique se o environment foi detectado corretamente"
+            exit 1
+          fi
+          
+          # Verificar se o arquivo não está vazio
+          if [ ! -s "$TFVARS_FILE" ]; then
+            echo "ERRO: Arquivo está vazio: $TFVARS_FILE"
+            exit 1
+          fi
+          
+          echo "OK: Arquivo validado: $TFVARS_FILE"
+          echo "Tamanho: $(wc -l < "$TFVARS_FILE") linhas"
+
       - name: Terraform Plan
         id: plan
         run: |
           set -euo pipefail
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          
+          # Verificar novamente antes de executar (fail-fast)
+          if [ ! -f "$TFVARS_FILE" ]; then
+            echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
+            exit 1
+          fi
+          
           terraform plan \
-            -var-file=${{ needs.detect-environment.outputs.tfvars_file }} \
+            -var-file="$TFVARS_FILE" \
             -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -out=tfplan \
             -no-color \
@@ -821,11 +875,31 @@ jobs:
         run: |
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          ENV="${{ needs.detect-environment.outputs.environment }}"
           
-          echo "Validando arquivo terraform.tfvars: $TFVARS_FILE"
+          echo "=== Validação do arquivo tfvars (terraform-apply) ==="
+          echo "Environment: ${ENV}"
+          echo "Arquivo esperado: ${TFVARS_FILE}"
+          echo "Diretório de trabalho: $(pwd)"
+          echo ""
+          
+          # Verificar se o nome do arquivo está definido
+          if [ -z "$TFVARS_FILE" ]; then
+            echo "ERRO: Nome do arquivo tfvars está vazio"
+            echo "Environment output: ${ENV}"
+            exit 1
+          fi
+          
+          # Listar arquivos tfvars disponíveis para debug
+          echo "Arquivos tfvars disponíveis:"
+          ls -la terraform.tfvars.* 2>/dev/null || echo "  Nenhum arquivo encontrado"
+          echo ""
           
           if [ ! -f "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo não encontrado: $TFVARS_FILE"
+            echo ""
+            echo "Arquivos disponíveis no diretório:"
+            ls -la *.tfvars* 2>/dev/null || echo "  Nenhum arquivo .tfvars encontrado"
             exit 1
           fi
           
@@ -836,10 +910,11 @@ jobs:
           
           # Validar sintaxe básica HCL
           if ! grep -q "=" "$TFVARS_FILE"; then
-            echo "WARNING: WARNING: Arquivo pode não conter variáveis válidas"
+            echo "WARNING: Arquivo pode não conter variáveis válidas"
           fi
           
           echo "OK: Arquivo $TFVARS_FILE validado"
+          echo "Tamanho: $(wc -l < "$TFVARS_FILE") linhas"
 
       - name: Pre-Apply Validation
         run: |
