@@ -598,11 +598,12 @@ jobs:
           # Configurar autenticação para repositórios privados
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           if [ -n "$GITHUB_TOKEN" ]; then
-            # Usar token para autenticação em repositórios privados
-            git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "Autenticação GitHub configurada para acessar repositórios privados"
+            # Usar token diretamente nas URLs (mais confiável que git config)
+            GITHUB_URL_PREFIX="https://${GITHUB_TOKEN}@github.com/"
           else
             echo "WARNING: GITHUB_TOKEN não disponível - apenas repositórios públicos serão acessíveis"
+            GITHUB_URL_PREFIX="https://github.com/"
           fi
           
           # Lista de repositórios a validar
@@ -628,8 +629,11 @@ jobs:
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
             
+            # Construir URL com autenticação
+            REPO_URL="${GITHUB_URL_PREFIX}${repo}.git"
+            
             # Verificar se repositório existe (com autenticação se necessário)
-            if ! git ls-remote "https://github.com/${repo}.git" > /dev/null 2>&1; then
+            if ! git ls-remote "$REPO_URL" > /dev/null 2>&1; then
               echo "ERRO: Repositório não encontrado: $repo"
               echo ""
               echo "Verifique se:"
@@ -637,15 +641,22 @@ jobs:
               echo "  2. O nome está correto"
               echo "  3. O repositório é público ou você tem acesso"
               echo "  4. O GITHUB_TOKEN tem permissão para acessar repositórios privados"
+              echo ""
+              echo "Tentando sem autenticação para debug..."
+              if git ls-remote "https://github.com/${repo}.git" > /dev/null 2>&1; then
+                echo "INFO: Repositório é público e acessível sem autenticação"
+              else
+                echo "INFO: Repositório não encontrado mesmo sem autenticação"
+              fi
               exit 1
             fi
             
             # Verificar se branch existe (usar VALIDATION_BRANCH ao invés de BRANCH)
-            if ! git ls-remote --heads "https://github.com/${repo}.git" "$VALIDATION_BRANCH" | grep -q "$VALIDATION_BRANCH"; then
+            if ! git ls-remote --heads "$REPO_URL" "$VALIDATION_BRANCH" | grep -q "$VALIDATION_BRANCH"; then
               echo "ERRO: Branch $VALIDATION_BRANCH não encontrada no repositório $repo"
               echo ""
               echo "Branches disponíveis:"
-              git ls-remote --heads "https://github.com/${repo}.git" | sed 's/.*refs\/heads\///' | head -10 || true
+              git ls-remote --heads "$REPO_URL" | sed 's/.*refs\/heads\///' | head -10 || true
               echo ""
               echo "Crie a branch $VALIDATION_BRANCH no repositório $repo antes de fazer o deploy"
               exit 1
