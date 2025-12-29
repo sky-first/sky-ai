@@ -153,6 +153,7 @@ jobs:
       TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
       TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -325,6 +326,25 @@ jobs:
           terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
           terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
+      - name: Setup SSH Key from Secret
+        run: |
+          set -euo pipefail
+          echo "Configurando chave SSH a partir do GitHub Secret..."
+          
+          # Criar diretório para chaves SSH (relativo ao workspace root)
+          mkdir -p "${GITHUB_WORKSPACE}/keys/azure"
+          
+          # Se o secret SSH_PUBLIC_KEY estiver definido, usar ele
+          if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
+            echo "Usando chave SSH do GitHub Secret..."
+            echo "$SSH_PUBLIC_KEY" > "${GITHUB_WORKSPACE}/keys/azure/id_rsa.pub"
+            chmod 644 "${GITHUB_WORKSPACE}/keys/azure/id_rsa.pub"
+            echo "OK: Chave SSH criada a partir do secret em ${GITHUB_WORKSPACE}/keys/azure/id_rsa.pub"
+          else
+            echo "WARNING: SSH_PUBLIC_KEY secret não configurado"
+            echo "O workflow tentará usar o caminho especificado no terraform.tfvars"
+          fi
+
       - name: Validate SSH Key (if required)
         run: |
           set -euo pipefail
@@ -336,7 +356,10 @@ jobs:
             if [ -n "$SSH_KEY_PATH" ]; then
               # Resolver caminho relativo
               if [[ "$SSH_KEY_PATH" == ../../* ]]; then
-                SSH_KEY_PATH="${GITHUB_WORKSPACE}/${SSH_KEY_PATH}"
+                # Remover ../.. do início e construir caminho absoluto
+                SSH_KEY_PATH="${GITHUB_WORKSPACE}/${SSH_KEY_PATH#../../}"
+              elif [[ "$SSH_KEY_PATH" == ../* ]]; then
+                SSH_KEY_PATH="${GITHUB_WORKSPACE}/infra/azure/${SSH_KEY_PATH#../}"
               elif [[ "$SSH_KEY_PATH" != /* ]]; then
                 SSH_KEY_PATH="${GITHUB_WORKSPACE}/infra/azure/${SSH_KEY_PATH}"
               fi
@@ -346,20 +369,21 @@ jobs:
                 echo ""
                 echo "Caminho especificado em terraform.tfvars: $(grep 'ssh_public_key' "${{ needs.detect-environment.outputs.tfvars_file }}" | head -1)"
                 echo ""
-                echo "Ações corretivas:"
-                echo "  1. Crie a chave SSH: ssh-keygen -t rsa -b 4096 -f keys/azure/id_rsa"
-                echo "  2. Ou atualize o caminho em terraform.tfvars.staging"
-                echo "  3. Ou remova ssh_public_key do tfvars se usar variável"
+                echo "Solução:"
+                echo "  1. Configure o GitHub Secret 'SSH_PUBLIC_KEY' com o conteúdo da chave SSH pública"
+                echo "     (Settings > Secrets and variables > Actions > New repository secret)"
+                echo "  2. Ou crie a chave SSH no repositório: ssh-keygen -t rsa -b 4096 -f keys/azure/id_rsa"
+                echo "  3. Ou atualize o caminho em terraform.tfvars para usar o secret via variável"
                 exit 1
               else
                 echo "OK: SSH key encontrada: $SSH_KEY_PATH"
                 # Validar formato da chave
                 if ! grep -q "ssh-rsa\|ssh-ed25519\|ecdsa-sha2" "$SSH_KEY_PATH" 2>/dev/null; then
-                  echo "WARNING: WARNING: Formato da chave SSH pode estar incorreto"
+                  echo "WARNING: Formato da chave SSH pode estar incorreto"
                 fi
               fi
             else
-              echo "WARNING: WARNING: ssh_public_key definido mas caminho vazio"
+              echo "WARNING: ssh_public_key definido mas caminho vazio"
             fi
           else
             echo "INFO: SSH key não especificada em tfvars (pode usar default ou variável)"
