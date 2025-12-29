@@ -326,6 +326,135 @@ jobs:
           terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
           terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
+      - name: Sync Existing Resources with Terraform State
+        run: |
+          set -euo pipefail
+          echo "=== Sincronizando recursos existentes com estado do Terraform ==="
+          
+          # Verificar se jq está disponível (necessário para parsing JSON)
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "Instalando jq..."
+            sudo apt-get update -qq && sudo apt-get install -y jq > /dev/null 2>&1 || {
+              echo "WARNING: Não foi possível instalar jq, continuando sem refresh automático"
+            }
+          fi
+          
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+          
+          # Obter nome do Resource Group do terraform.tfvars
+          RESOURCE_GROUP_NAME=$(grep "resource_group_name" "$TFVARS_FILE" | head -1 | \
+            sed 's/.*= *"\([^"]*\)".*/\1/' | \
+            sed "s/.*= *'\([^']*\)'.*/\1/" | \
+            tr -d ' ' || echo "")
+          
+          if [ -z "$RESOURCE_GROUP_NAME" ]; then
+            echo "WARNING: Não foi possível obter resource_group_name do tfvars"
+            echo "Pulando sincronização de recursos existentes"
+            exit 0
+          fi
+          
+          echo "Resource Group: $RESOURCE_GROUP_NAME"
+          RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+          
+          # Verificar se Resource Group existe no Azure
+          if ! az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+            echo "Resource Group não existe no Azure, será criado pelo Terraform"
+            exit 0
+          fi
+          
+          echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
+          
+          # Verificar se já está no estado do Terraform
+          if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+            echo "✅ Resource Group já está no estado do Terraform"
+            echo "Executando refresh para sincronizar estado com Azure..."
+            
+            # Refresh-only: atualiza estado sem fazer mudanças
+            set +e
+            terraform plan \
+              -var-file="$TFVARS_FILE" \
+              -var="subscription_id=${SUBSCRIPTION_ID}" \
+              -refresh-only \
+              -no-color \
+              -out=tfplan-refresh 2>&1 | tee refresh-output.txt
+            REFRESH_EXIT_CODE=$?
+            set -e
+            
+            if [ $REFRESH_EXIT_CODE -eq 0 ]; then
+              # Verificar se há mudanças no estado para aplicar
+              if command -v jq >/dev/null 2>&1; then
+                if terraform show -json tfplan-refresh 2>/dev/null | \
+                  jq -e '.resource_changes[]? | select(.change.actions[]? == "update")' > /dev/null 2>&1; then
+                  echo "Aplicando refresh do estado..."
+                  terraform apply -refresh-only -auto-approve tfplan-refresh || true
+                  echo "✅ Estado sincronizado com Azure"
+                else
+                  echo "✅ Estado já está sincronizado"
+                fi
+              else
+                # Se jq não estiver disponível, aplicar refresh de qualquer forma (seguro)
+                echo "Aplicando refresh do estado (jq não disponível, aplicando preventivamente)..."
+                terraform apply -refresh-only -auto-approve tfplan-refresh || true
+                echo "✅ Estado sincronizado com Azure"
+              fi
+              rm -f tfplan-refresh refresh-output.txt || true
+            else
+              echo "WARNING: Refresh falhou, mas continuando..."
+            fi
+          else
+            echo "Resource Group não está no estado do Terraform, importando..."
+            
+            # Importar com variáveis necessárias
+            set +e
+            terraform import \
+              -var-file="$TFVARS_FILE" \
+              -var="subscription_id=${SUBSCRIPTION_ID}" \
+              azurerm_resource_group.main "$RESOURCE_ID" 2>&1
+            IMPORT_EXIT_CODE=$?
+            set -e
+            
+            if [ $IMPORT_EXIT_CODE -eq 0 ]; then
+              echo "✅ Resource Group importado com sucesso"
+              
+              # Após import, fazer refresh para garantir sincronização completa
+              echo "Executando refresh após importação..."
+              terraform plan \
+                -var-file="$TFVARS_FILE" \
+                -var="subscription_id=${SUBSCRIPTION_ID}" \
+                -refresh-only \
+                -no-color \
+                -out=tfplan-refresh 2>&1 | tee refresh-output.txt || true
+              
+              if command -v jq >/dev/null 2>&1; then
+                if terraform show -json tfplan-refresh 2>/dev/null | \
+                  jq -e '.resource_changes[]? | select(.change.actions[]? == "update")' > /dev/null 2>&1; then
+                  terraform apply -refresh-only -auto-approve tfplan-refresh || true
+                fi
+              else
+                # Se jq não estiver disponível, aplicar refresh de qualquer forma (seguro)
+                terraform apply -refresh-only -auto-approve tfplan-refresh || true
+              fi
+              rm -f tfplan-refresh refresh-output.txt || true
+            else
+              echo "WARNING: Import falhou (exit code: $IMPORT_EXIT_CODE)"
+              echo "Verificando se Resource Group está no estado..."
+              
+              # Verificar novamente (pode ter sido importado em tentativa anterior)
+              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "✅ Resource Group está no estado (pode ter sido importado anteriormente)"
+              else
+                echo "WARNING: Não foi possível importar Resource Group"
+                echo "O plan pode falhar se tentar criar um recurso que já existe"
+                echo "Solução manual: terraform import azurerm_resource_group.main \"$RESOURCE_ID\""
+                # Não falhar aqui - deixar o plan mostrar o erro
+              fi
+            fi
+          fi
+          
+          echo ""
+          echo "✅ Sincronização de recursos concluída"
+
       - name: Setup SSH Key from Secret
         run: |
           set -euo pipefail
@@ -1308,7 +1437,7 @@ jobs:
           
           # Verificar se plan file existe
           if [ ! -f "tfplan" ]; then
-            echo "ERRO: Plan file não encontrado após importação/verificação"
+            echo "ERRO: Plan file não encontrado"
             echo "Diretório atual: $(pwd)"
             echo "Arquivos no diretório:"
             ls -la || true
