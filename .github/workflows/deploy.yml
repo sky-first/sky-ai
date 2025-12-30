@@ -427,27 +427,27 @@ jobs:
           else
             echo "Resource Group não está no estado do Terraform, importando..."
             
-            # Construir comando de import com todas as variáveis necessárias
-            # Passar variáveis explicitamente garante que o Terraform não pedirá interativamente
-            IMPORT_VARS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
+            # Construir lista de argumentos -var dinamicamente
+            # Usar array bash para garantir que todas as variáveis sejam passadas corretamente
+            VAR_ARGS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
             
-            # Adicionar variáveis obrigatórias explicitamente se encontradas
             if [ -n "$ENVIRONMENT" ]; then
-              IMPORT_VARS+=(-var="environment=${ENVIRONMENT}")
+              VAR_ARGS+=(-var="environment=${ENVIRONMENT}")
             fi
             if [ -n "$RESOURCE_GROUP_NAME" ]; then
-              IMPORT_VARS+=(-var="resource_group_name=${RESOURCE_GROUP_NAME}")
+              VAR_ARGS+=(-var="resource_group_name=${RESOURCE_GROUP_NAME}")
             fi
             if [ -n "$VM_NAME" ]; then
-              IMPORT_VARS+=(-var="vm_name=${VM_NAME}")
+              VAR_ARGS+=(-var="vm_name=${VM_NAME}")
             fi
             
             echo "Executando terraform import com variáveis explícitas..."
-            echo "Comando: terraform import ${IMPORT_VARS[@]} azurerm_resource_group.main \"$RESOURCE_ID\""
+            echo "Variáveis: ${VAR_ARGS[*]}"
+            echo "Comando: terraform import ${VAR_ARGS[*]} azurerm_resource_group.main \"$RESOURCE_ID\""
             
             # Tentar importar - CRÍTICO: se falhar, o workflow deve falhar
             terraform import \
-              "${IMPORT_VARS[@]}" \
+              "${VAR_ARGS[@]}" \
               azurerm_resource_group.main "$RESOURCE_ID" 2>&1 | tee import-output.txt
             IMPORT_EXIT_CODE=${PIPESTATUS[0]}
             
@@ -1550,6 +1550,57 @@ jobs:
           fi
           
           echo "Plan file encontrado, tamanho: $(du -h tfplan | cut -f1)"
+          
+          # Verificação crítica: se plan tenta criar Resource Group, verificar se já existe no Azure
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          
+          if [ -f "$TFVARS_FILE" ]; then
+            # Extrair nome do Resource Group do tfvars
+            RESOURCE_GROUP_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
+              sed 's/.*= *"\([^"]*\)".*/\1/' | \
+              sed "s/.*= *'\([^']*\)'.*/\1/" | \
+              sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            
+            if [ -n "$RESOURCE_GROUP_NAME" ]; then
+              # Verificar se o plan tenta criar o Resource Group
+              # Usar jq se disponível, senão usar grep como fallback
+              PLAN_TRIES_TO_CREATE_RG=false
+              
+              if command -v jq >/dev/null 2>&1; then
+                if terraform show -json tfplan 2>/dev/null | \
+                  jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                  PLAN_TRIES_TO_CREATE_RG=true
+                fi
+              else
+                # Fallback: verificar via terraform show (texto)
+                if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                  PLAN_TRIES_TO_CREATE_RG=true
+                fi
+              fi
+              
+              if [ "$PLAN_TRIES_TO_CREATE_RG" = "true" ]; then
+                echo "WARNING: Plan tenta criar Resource Group: $RESOURCE_GROUP_NAME"
+                
+                # Verificar se Resource Group já existe no Azure
+                if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+                  echo "ERRO CRÍTICO: Plan tenta criar Resource Group que JÁ EXISTE no Azure!"
+                  echo "Resource Group: $RESOURCE_GROUP_NAME"
+                  echo ""
+                  echo "Isso causará erro: 'A resource with the ID already exists'"
+                  echo ""
+                  echo "O Resource Group deveria ter sido importado no step 'Sync Existing Resources'."
+                  echo "Verifique os logs do job 'terraform-plan' para identificar o problema."
+                  echo ""
+                  echo "Solução: Execute o import manualmente ou corrija o step de sincronização."
+                  exit 1
+                else
+                  echo "OK: Resource Group não existe no Azure, será criado"
+                fi
+              else
+                echo "OK: Plan não tenta criar Resource Group (já existe no estado ou não será criado)"
+              fi
+            fi
+          fi
           
           # Aplicar usando o plan file (mais seguro que -auto-approve)
           terraform apply tfplan 2>&1 | tee apply-output.txt
