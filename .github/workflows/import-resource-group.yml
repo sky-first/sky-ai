@@ -1,5 +1,9 @@
 name: Import Resource Group (Manual)
 
+permissions:
+  contents: read
+  id-token: write
+
 on:
   workflow_dispatch:
     inputs:
