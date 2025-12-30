@@ -836,8 +836,14 @@ jobs:
             PLAN_TRIES_TO_CREATE_RG=false
             
             if command -v jq >/dev/null 2>&1; then
-              if terraform show -json tfplan 2>/dev/null | \
-                jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+              # CRÍTICO: se terraform show falhar, não assumir "false" (isso gera falso negativo)
+              if ! terraform show -json tfplan > tfplan.json; then
+                echo "ERRO: Falha ao executar 'terraform show -json tfplan' (plan pode estar corrompido ou incompatível)"
+                echo "Tentando mostrar plan em formato texto para debug:"
+                terraform show tfplan | tail -200 || true
+                exit 1
+              fi
+              if jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' tfplan.json > /dev/null 2>&1; then
                 PLAN_TRIES_TO_CREATE_RG=true
               fi
             else
@@ -1762,7 +1768,7 @@ jobs:
               PLAN_TRIES_TO_CREATE_RG=false
               
               if command -v jq >/dev/null 2>&1; then
-                if terraform show -json tfplan 2>/dev/null | \
+                if terraform show -json tfplan | \
                   jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
                   PLAN_TRIES_TO_CREATE_RG=true
                 fi
@@ -1778,16 +1784,41 @@ jobs:
                 
                 # Verificar se Resource Group já existe no Azure
                 if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
-                  echo "ERRO CRÍTICO: Plan tenta criar Resource Group que JÁ EXISTE no Azure!"
-                  echo "Resource Group: $RESOURCE_GROUP_NAME"
-                  echo ""
-                  echo "Isso causará erro: 'A resource with the ID already exists'"
-                  echo ""
-                  echo "O Resource Group deveria ter sido importado no step 'Sync Existing Resources'."
-                  echo "Verifique os logs do job 'terraform-plan' para identificar o problema."
-                  echo ""
-                  echo "Solução: Execute o import manualmente ou corrija o step de sincronização."
-                  exit 1
+                  echo "⚠️  RG existe no Azure, mas o plan quer criar. Tentando auto-correção (import + re-plan)..."
+                  SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+                  RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+                  
+                  echo "Importando RG no state..."
+                  terraform import \
+                    -var-file="$TFVARS_FILE" \
+                    -var="subscription_id=${SUBSCRIPTION_ID}" \
+                    azurerm_resource_group.main "$RESOURCE_ID"
+                  
+                  echo "Verificando state do RG após import..."
+                  terraform state show azurerm_resource_group.main || true
+                  
+                  echo "Regerando plan após import..."
+                  terraform plan \
+                    -var-file="$TFVARS_FILE" \
+                    -var="subscription_id=${SUBSCRIPTION_ID}" \
+                    -out=tfplan \
+                    -no-color
+                  
+                  echo "Revalidando se plan ainda tenta criar RG..."
+                  if command -v jq >/dev/null 2>&1; then
+                    if terraform show -json tfplan | \
+                      jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                      echo "❌ ERRO: Ainda tenta criar RG mesmo após import. Falhando para evitar erro no apply."
+                      exit 1
+                    fi
+                  else
+                    if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                      echo "❌ ERRO: Ainda tenta criar RG mesmo após import (fallback texto). Falhando."
+                      exit 1
+                    fi
+                  fi
+                  
+                  echo "✅ Auto-correção OK: plan não tenta criar RG após import"
                 else
                   echo "OK: Resource Group não existe no Azure, será criado"
                 fi
