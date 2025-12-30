@@ -765,6 +765,55 @@ jobs:
             echo "ERRO: Exit code inesperado do terraform plan: $PLAN_EXIT_CODE"
             exit 1
           fi
+          
+          # Verificação crítica APÓS gerar plan: se plan tenta criar Resource Group que já existe
+          if [ -n "$RESOURCE_GROUP_NAME" ]; then
+            echo "Verificando plan gerado para garantir que não tenta criar Resource Group existente..."
+            
+            # Verificar se Resource Group existe no Azure
+            if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+              echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
+              
+              # Verificar se plan tenta criar Resource Group
+              PLAN_TRIES_TO_CREATE_RG=false
+              
+              if command -v jq >/dev/null 2>&1; then
+                if terraform show -json tfplan 2>/dev/null | \
+                  jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                  PLAN_TRIES_TO_CREATE_RG=true
+                fi
+              else
+                # Fallback: verificar via terraform show (texto)
+                if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                  PLAN_TRIES_TO_CREATE_RG=true
+                fi
+              fi
+              
+              if [ "$PLAN_TRIES_TO_CREATE_RG" = "true" ]; then
+                echo "❌ ERRO CRÍTICO: Plan gerado tenta criar Resource Group que JÁ EXISTE no Azure!"
+                echo "Resource Group: $RESOURCE_GROUP_NAME"
+                echo ""
+                echo "Isso causará erro: 'A resource with the ID already exists' no terraform apply"
+                echo ""
+                echo "O step 'Sync Existing Resources' deveria ter importado este recurso."
+                echo "Verifique os logs do step 'Sync Existing Resources' acima."
+                echo ""
+                echo "Estado atual:"
+                echo "  - Resource Group existe no Azure: ✅"
+                echo "  - Resource Group está no estado do Terraform:"
+                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                  echo "    ✅ SIM (mas plan ainda tenta criar - possível problema de sincronização)"
+                else
+                  echo "    ❌ NÃO (import não funcionou)"
+                fi
+                echo ""
+                echo "FALHANDO workflow para evitar erro no terraform apply"
+                exit 1
+              else
+                echo "✅ Plan não tenta criar Resource Group (correto)"
+              fi
+            fi
+          fi
 
       - name: Validate Plan
         uses: ./.github/actions/terraform-plan-validation
