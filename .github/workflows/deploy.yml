@@ -342,19 +342,41 @@ jobs:
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
           
-          # Obter nome do Resource Group do terraform.tfvars
-          RESOURCE_GROUP_NAME=$(grep "resource_group_name" "$TFVARS_FILE" | head -1 | \
-            sed 's/.*= *"\([^"]*\)".*/\1/' | \
-            sed "s/.*= *'\([^']*\)'.*/\1/" | \
-            tr -d ' ' || echo "")
+          # Validar se arquivo tfvars existe
+          if [ ! -f "$TFVARS_FILE" ]; then
+            echo "WARNING: Arquivo tfvars não encontrado: $TFVARS_FILE"
+            echo "Pulando sincronização de recursos existentes"
+            exit 0
+          fi
           
+          # Função helper para extrair variáveis do tfvars de forma robusta
+          extract_var() {
+            local var_name="$1"
+            local value=$(grep "^${var_name}" "$TFVARS_FILE" | head -1 | \
+              sed 's/.*= *"\([^"]*\)".*/\1/' | \
+              sed "s/.*= *'\([^']*\)'.*/\1/" | \
+              sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            echo "$value"
+          }
+          
+          # Extrair variáveis obrigatórias do arquivo tfvars
+          ENVIRONMENT=$(extract_var "environment")
+          RESOURCE_GROUP_NAME=$(extract_var "resource_group_name")
+          VM_NAME=$(extract_var "vm_name")
+          
+          # Validar variáveis obrigatórias
           if [ -z "$RESOURCE_GROUP_NAME" ]; then
             echo "WARNING: Não foi possível obter resource_group_name do tfvars"
             echo "Pulando sincronização de recursos existentes"
             exit 0
           fi
           
-          echo "Resource Group: $RESOURCE_GROUP_NAME"
+          echo "Variáveis extraídas do tfvars:"
+          echo "  - environment: ${ENVIRONMENT:-<não definido>}"
+          echo "  - resource_group_name: ${RESOURCE_GROUP_NAME}"
+          echo "  - vm_name: ${VM_NAME:-<não definido>}"
+          echo ""
+          
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
           
           # Verificar se Resource Group existe no Azure
@@ -405,12 +427,26 @@ jobs:
           else
             echo "Resource Group não está no estado do Terraform, importando..."
             
-            # Importar com variáveis necessárias
+            # Construir comando de import com todas as variáveis necessárias
+            # Passar variáveis explicitamente garante que o Terraform não pedirá interativamente
+            IMPORT_VARS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
+            
+            # Adicionar variáveis obrigatórias explicitamente se encontradas
+            if [ -n "$ENVIRONMENT" ]; then
+              IMPORT_VARS+=(-var="environment=${ENVIRONMENT}")
+            fi
+            if [ -n "$RESOURCE_GROUP_NAME" ]; then
+              IMPORT_VARS+=(-var="resource_group_name=${RESOURCE_GROUP_NAME}")
+            fi
+            if [ -n "$VM_NAME" ]; then
+              IMPORT_VARS+=(-var="vm_name=${VM_NAME}")
+            fi
+            
+            echo "Executando terraform import com variáveis explícitas..."
             set +e
             terraform import \
-              -var-file="$TFVARS_FILE" \
-              -var="subscription_id=${SUBSCRIPTION_ID}" \
-              azurerm_resource_group.main "$RESOURCE_ID" 2>&1
+              "${IMPORT_VARS[@]}" \
+              azurerm_resource_group.main "$RESOURCE_ID" 2>&1 | tee import-output.txt
             IMPORT_EXIT_CODE=$?
             set -e
             
@@ -435,7 +471,7 @@ jobs:
                 # Se jq não estiver disponível, aplicar refresh de qualquer forma (seguro)
                 terraform apply -refresh-only -auto-approve tfplan-refresh || true
               fi
-              rm -f tfplan-refresh refresh-output.txt || true
+              rm -f tfplan-refresh refresh-output.txt import-output.txt || true
             else
               echo "WARNING: Import falhou (exit code: $IMPORT_EXIT_CODE)"
               echo "Verificando se Resource Group está no estado..."
@@ -446,9 +482,25 @@ jobs:
               else
                 echo "WARNING: Não foi possível importar Resource Group"
                 echo "O plan pode falhar se tentar criar um recurso que já existe"
-                echo "Solução manual: terraform import azurerm_resource_group.main \"$RESOURCE_ID\""
+                echo ""
+                echo "Detalhes do erro:"
+                cat import-output.txt 2>/dev/null || echo "  (logs não disponíveis)"
+                echo ""
+                echo "Solução manual:"
+                echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
+                if [ -n "$ENVIRONMENT" ]; then
+                  echo "    -var=\"environment=${ENVIRONMENT}\" \\"
+                fi
+                if [ -n "$RESOURCE_GROUP_NAME" ]; then
+                  echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
+                fi
+                if [ -n "$VM_NAME" ]; then
+                  echo "    -var=\"vm_name=${VM_NAME}\" \\"
+                fi
+                echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
                 # Não falhar aqui - deixar o plan mostrar o erro
               fi
+              rm -f import-output.txt || true
             fi
           fi
           
