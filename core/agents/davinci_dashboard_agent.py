@@ -432,13 +432,29 @@ def _safe_json_loads(text: str) -> Optional[dict]:
     return None
 
 
-def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schema_summary: str = "") -> DavinciDashboardPlan:
+def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schema_summary: str = "", original_question: Optional[str] = None) -> DavinciDashboardPlan:
     """
     Deterministic fallback plan when LLM fails.
     Produces widgets that are safe to execute with small result sets.
     """
     picked = logical_tables[:12]
     widgets: List[Dict[str, Any]] = []
+
+    # ✅ Se temos pergunta original, ela deve ser a primeira widget
+    if original_question:
+        widgets.append(
+            {
+                "widget_key": "w1",
+                "type": "chart",
+                "title": "Original Question",
+                "question": original_question.strip(),
+                "viz": {"type": "bar"},
+            }
+        )
+        # Ajustar max_widgets restantes
+        remaining_widgets = max_widgets - 1
+    else:
+        remaining_widgets = max_widgets
 
     # Try to build a strong fallback using join/key hints when available.
     table_cols, table_keys = _parse_schema_summary(schema_summary)
@@ -472,7 +488,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
             dashboard_name=goal.strip()[:80] or "Dashboard",
             description="Auto-generated dashboard plan (catalog not ready yet).",
             widgets=widgets[:max_widgets],
-            meta={"fallback": True, "reason": "NO_CATALOG_METADATA"},
+            meta={"fallback": True, "reason": "NO_CATALOG_METADATA", "has_original_question": original_question is not None},
         )
 
     # Strong fallback layout for N=8:
@@ -563,8 +579,14 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         )
 
     # Charts: force required viz set for a "super dashboard"
+    # Ajustar índice inicial se já temos pergunta original
+    start_idx = 4 if not original_question else 5
     required_viz = ["bar", "line", "pie", "area", "scatter"]
-    for i, viz_type in enumerate(required_viz, start=4):
+    # Calcular quantos charts precisamos: total desejado - widgets já criados
+    num_charts_needed = max_widgets - len(widgets)
+    charts_to_generate = min(max(0, num_charts_needed), len(required_viz))
+    
+    for i, viz_type in enumerate(required_viz[:charts_to_generate], start=start_idx):
         pair = _pick_pair(i)
         if pair:
             a, b, key = pair
@@ -629,7 +651,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         dashboard_name=goal.strip()[:80] or "Dashboard",
         description="Auto-generated super dashboard based on your accessible data.",
         widgets=widgets[:max_widgets],
-        meta={"fallback": True, "reason": "LLM_FALLBACK"},
+        meta={"fallback": True, "reason": "LLM_FALLBACK", "has_original_question": original_question is not None},
     )
 
 
@@ -641,11 +663,16 @@ def generate_dashboard_plan(
     max_widgets: int,
     logical_tables: List[str],
     schema_summary: str,
+    original_question: Optional[str] = None,
 ) -> DavinciDashboardPlan:
     """
     Davinci "graph": generate a dashboard plan as STRICT JSON.
 
     Inputs are already permission-filtered (logical_tables/schema_summary).
+    
+    If original_question is provided:
+    - The first widget MUST be the original question (70-80% weight)
+    - The remaining 7 widgets will be strongly related to the original question
     """
     # Keep the request bounded and deterministic-ish.
     # Temporary product decision: cap at 8 widgets for auto dashboard creation.
@@ -655,44 +682,87 @@ def generate_dashboard_plan(
         language = "en"
 
     if not logical_tables:
-        return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary)
+        return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question)
 
     table_cols, table_keys = _parse_schema_summary(schema_summary)
 
     # NOTE: when using `.format(...)`, any `{}` in the prompt becomes a formatting placeholder.
     # We intentionally avoid `.format` here because the JSON schema includes `{}`.
     min_join = min(5, max_widgets)
-    system = (
-        "You are Davinci, a dashboard planner.\n"
-        "You propose a dashboard (name + widgets) based on accessible tables.\n"
-        "Rules:\n"
-        "- Output STRICT JSON only.\n"
-        "- Use ONLY the provided logical table names.\n"
-        "- ALWAYS wrap referenced table names in backticks (e.g., `invoices`).\n"
-        "- Each widget must have: widget_key, type, title, question, viz.\n"
-        "- Widget types allowed: chart, kpi, table, text.\n"
-        "- Questions MUST be answerable from the provided tables.\n"
-        "- Prefer aggregated queries that return <= 15 rows for charts.\n"
-        "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
-        "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
-        "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., invoice + customer, order + product, payments + invoices) to produce better business metrics.\n"
-        "- If keys are provided in the schema sample, use them to suggest joined questions (e.g., *_id and date fields).\n"
-        f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
-        "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
-        "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., invoices↔customers, orders↔products).\n"
-        f"- Language for titles/questions: {language}\n"
-        "- EXACTLY N widgets.\n"
-        'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-        '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
-        "]}}.\n"
-    )
-
-    user = (
-        f"N={max_widgets}\n"
-        f"Goal: {goal}\n"
-        f"Accessible tables: {', '.join(logical_tables[:20])}\n"
-        f"Schema sample:\n{schema_summary}\n"
-    )
+    
+    # Modificar prompt baseado em se temos pergunta original ou não
+    if original_question:
+        system = (
+            "You are Davinci, a dashboard planner.\n"
+            "You propose a dashboard (name + widgets) based on accessible tables.\n"
+            "CRITICAL REQUIREMENT: The user has provided an ORIGINAL QUESTION that MUST be the FIRST widget.\n"
+            "Rules:\n"
+            "- Output STRICT JSON only.\n"
+            "- The FIRST widget MUST be exactly the user's original question (provided below).\n"
+            "- The remaining 7 widgets MUST be strongly related to the original question (70-80% weight).\n"
+            "- These 7 widgets should be variations, complements, deeper insights, or related metrics based on the original question.\n"
+            "- Think of them as: 'What else would be useful to know related to this question?'\n"
+            "- Use ONLY the provided logical table names.\n"
+            "- ALWAYS wrap referenced table names in backticks (e.g., `invoices`).\n"
+            "- Each widget must have: widget_key, type, title, question, viz.\n"
+            "- Widget types allowed: chart, kpi, table, text.\n"
+            "- Questions MUST be answerable from the provided tables.\n"
+            "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
+            "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
+            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
+            f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
+            "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
+            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
+            f"- Language for titles/questions: {language}\n"
+            "- EXACTLY N widgets.\n"
+            'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
+            '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
+            "]}}.\n"
+        )
+        
+        user = (
+            f"N={max_widgets}\n"
+            f"ORIGINAL QUESTION (MUST be first widget, word-for-word): {original_question}\n"
+            f"Goal: {goal}\n"
+            f"Accessible tables: {', '.join(logical_tables[:20])}\n"
+            f"Schema sample:\n{schema_summary}\n"
+            f"\nGenerate 7 additional widgets that are STRONGLY RELATED (70-80% weight) to the original question above. "
+            f"They should complement, extend, or provide deeper insights related to: '{original_question}'"
+        )
+    else:
+        # Prompt original (sem pergunta original)
+        system = (
+            "You are Davinci, a dashboard planner.\n"
+            "You propose a dashboard (name + widgets) based on accessible tables.\n"
+            "Rules:\n"
+            "- Output STRICT JSON only.\n"
+            "- Use ONLY the provided logical table names.\n"
+            "- ALWAYS wrap referenced table names in backticks (e.g., `invoices`).\n"
+            "- Each widget must have: widget_key, type, title, question, viz.\n"
+            "- Widget types allowed: chart, kpi, table, text.\n"
+            "- Questions MUST be answerable from the provided tables.\n"
+            "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
+            "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
+            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., invoice + customer, order + product, payments + invoices) to produce better business metrics.\n"
+            "- If keys are provided in the schema sample, use them to suggest joined questions (e.g., *_id and date fields).\n"
+            f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
+            "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
+            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., invoices↔customers, orders↔products).\n"
+            f"- Language for titles/questions: {language}\n"
+            "- EXACTLY N widgets.\n"
+            'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
+            '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
+            "]}}.\n"
+        )
+        
+        user = (
+            f"N={max_widgets}\n"
+            f"Goal: {goal}\n"
+            f"Accessible tables: {', '.join(logical_tables[:20])}\n"
+            f"Schema sample:\n{schema_summary}\n"
+        )
 
     try:
         resp = llm.invoke([{"role": "system", "content": system}, {"role": "user", "content": user}])
@@ -729,6 +799,34 @@ def generate_dashboard_plan(
 
         if not widgets:
             raise ValueError("LLM widgets invalid")
+
+        # ✅ CRÍTICO: Se temos pergunta original, garantir que seja a primeira widget
+        if original_question:
+            original_question_clean = original_question.strip()
+            first_widget_question = widgets[0].get("question", "").strip() if widgets else ""
+            
+            # Verificar se a primeira widget já é a pergunta original (comparação flexível)
+            is_same_question = (
+                original_question_clean.lower() == first_widget_question.lower() or
+                original_question_clean.lower() in first_widget_question.lower() or
+                first_widget_question.lower() in original_question_clean.lower()
+            )
+            
+            if not is_same_question:
+                # Criar widget com a pergunta original como primeiro
+                # Tentar preservar tipo e viz da primeira widget gerada, ou usar defaults
+                original_widget = {
+                    "widget_key": "w1",
+                    "type": widgets[0].get("type", "chart") if widgets else "chart",
+                    "title": widgets[0].get("title", "Original Question") if widgets else "Original Question",
+                    "question": original_question_clean,
+                    "viz": widgets[0].get("viz", {"type": "bar"}) if widgets else {"type": "bar"},
+                }
+                # Inserir no início e manter apenas max_widgets
+                widgets = [original_widget] + widgets[1:max_widgets]
+            else:
+                # Já está correto, mas garantir que a pergunta está exatamente como o usuário forneceu
+                widgets[0]["question"] = original_question_clean
 
         # Normalize count
         widgets = widgets[:max_widgets]
@@ -774,9 +872,26 @@ def generate_dashboard_plan(
             question_validator = QuestionValidator(available_tables_meta, available_columns)
             widget_validator = WidgetValidator(question_validator, strict_mode=True)
             
-            # Filtrar widgets problemáticos
+            # Filtrar widgets problemáticos (mas preservar a primeira se for original_question)
             widgets_before_validation = len(widgets)
-            widgets = widget_validator.filter_widgets(widgets, min_widgets=max(1, max_widgets // 2))
+            original_widget_preserved = None
+            if original_question and widgets:
+                original_widget_preserved = widgets[0]
+                widgets_to_validate = widgets[1:]
+            else:
+                widgets_to_validate = widgets
+            
+            widgets_validated = widget_validator.filter_widgets(
+                widgets_to_validate, 
+                min_widgets=max(1, (max_widgets - 1) // 2) if original_question else max(1, max_widgets // 2)
+            )
+            
+            # Reconstruir lista com original preservado
+            if original_widget_preserved:
+                widgets = [original_widget_preserved] + widgets_validated
+            else:
+                widgets = widgets_validated
+            
             widgets_after_validation = len(widgets)
             
             # Se filtramos muitos widgets, logar aviso
@@ -785,6 +900,7 @@ def generate_dashboard_plan(
                     "davinci_widgets_validated",
                     {
                         "goal": goal[:200],
+                        "original_question": original_question[:200] if original_question else None,
                         "widgets_before": widgets_before_validation,
                         "widgets_after": widgets_after_validation,
                         "filtered": widgets_before_validation - widgets_after_validation,
@@ -792,18 +908,26 @@ def generate_dashboard_plan(
                 )
             
             # Se não temos widgets suficientes após validação, usar fallback
-            if len(widgets) < max(1, max_widgets // 2):
+            min_required = max(1, max_widgets // 2)
+            if len(widgets) < min_required:
                 log_event(
                     "davinci_validation_too_many_filtered",
                     {
                         "goal": goal[:200],
+                        "original_question": original_question[:200] if original_question else None,
                         "remaining_widgets": len(widgets),
-                        "min_required": max(1, max_widgets // 2),
+                        "min_required": min_required,
                         "action": "using_fallback",
                     },
                 )
                 # Retornar fallback se validação filtrou muitos widgets
-                return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary)
+                return _fallback_plan(
+                    goal=goal, 
+                    logical_tables=logical_tables, 
+                    max_widgets=max_widgets, 
+                    schema_summary=schema_summary,
+                    original_question=original_question,
+                )
             
         except Exception as e:
             # Se validação falhar, continuar sem filtrar (fail-safe)
@@ -811,6 +935,7 @@ def generate_dashboard_plan(
                 "davinci_validation_error",
                 {
                     "goal": goal[:200],
+                    "original_question": original_question[:200] if original_question else None,
                     "error": str(e)[:500],
                     "action": "continuing_without_validation",
                 },
@@ -820,6 +945,7 @@ def generate_dashboard_plan(
             "davinci_plan_generated",
             {
                 "goal": goal[:200],
+                "original_question": original_question[:200] if original_question else None,
                 "language": language,
                 "num_widgets": len(widgets),
                 "join_widgets": sum(1 for w in widgets if _count_tables_mentioned(str(w.get("question") or ""), logical_tables) >= 2),
@@ -830,18 +956,27 @@ def generate_dashboard_plan(
                     "text": sum(1 for w in widgets if str(w.get("type") or "") == "text"),
                 },
                 "fallback": False,
+                "has_original_question": original_question is not None,
             },
         )
         return DavinciDashboardPlan(
             dashboard_name=dashboard_name,
             description=description,
             widgets=widgets,
-            meta={"fallback": False, "model": getattr(getattr(llm, "_chat", None), "model_name", None)},
+            meta={
+                "fallback": False, 
+                "model": getattr(getattr(llm, "_chat", None), "model_name", None),
+                "has_original_question": original_question is not None,
+            },
         )
     except Exception as e:
         log_event(
             "davinci_plan_error",
-            {"goal": goal[:200], "error": str(e)[:500]},
+            {
+                "goal": goal[:200], 
+                "original_question": original_question[:200] if original_question else None,
+                "error": str(e)[:500]
+            },
         )
-        return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary)
+        return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question)
 

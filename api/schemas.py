@@ -133,6 +133,13 @@ class DashboardPlanRequest(BaseModel):
     goal: str = Field(..., description="Dashboard goal (e.g., Billing overview).")
     # Temporarily keep dashboard creation fully automatic with a fixed cap.
     max_widgets: int = Field(default=8, ge=1, le=8)
+    
+    # ✅ NOVO: Pergunta original do usuário (70-80% de peso nas sugestões)
+    # A IA só será chamada quando este endpoint for invocado (ao clicar em "Criar Dashboard")
+    original_question: Optional[str] = Field(
+        default=None,
+        description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question."
+    )
 
     # Backend-override fields (allows the product backend to pass catalog directly)
     logical_tables_override: Optional[List[str]] = Field(
