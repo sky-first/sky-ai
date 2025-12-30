@@ -427,6 +427,24 @@ jobs:
           else
             echo "Resource Group não está no estado do Terraform, importando..."
             
+            # Verificar workspace atual antes de importar
+            CURRENT_WORKSPACE=$(terraform workspace show)
+            EXPECTED_WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
+            echo "Workspace atual: $CURRENT_WORKSPACE"
+            echo "Workspace esperado: $EXPECTED_WORKSPACE"
+            
+            if [ "$CURRENT_WORKSPACE" != "$EXPECTED_WORKSPACE" ]; then
+              echo "ERRO: Workspace incorreto! Esperado: $EXPECTED_WORKSPACE, Atual: $CURRENT_WORKSPACE"
+              echo "Selecionando workspace correto..."
+              terraform workspace select "$EXPECTED_WORKSPACE" || terraform workspace new "$EXPECTED_WORKSPACE"
+              CURRENT_WORKSPACE=$(terraform workspace show)
+              if [ "$CURRENT_WORKSPACE" != "$EXPECTED_WORKSPACE" ]; then
+                echo "ERRO: Falha ao selecionar workspace correto"
+                exit 1
+              fi
+              echo "✅ Workspace correto selecionado: $CURRENT_WORKSPACE"
+            fi
+            
             # Construir lista de argumentos -var dinamicamente
             # Usar array bash para garantir que todas as variáveis sejam passadas corretamente
             VAR_ARGS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
@@ -481,6 +499,20 @@ jobs:
                 # Se jq não estiver disponível, aplicar refresh de qualquer forma (seguro)
                 terraform apply -refresh-only -auto-approve tfplan-refresh || true
               fi
+              
+              # Verificação final: confirmar que Resource Group está no estado após refresh
+              echo "Verificação final após import e refresh..."
+              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "✅ CONFIRMADO: Resource Group está no estado após import e refresh"
+                echo "O plan será gerado corretamente no próximo step"
+              else
+                echo "ERRO CRÍTICO: Resource Group não está no estado após import e refresh"
+                echo "Isso indica um problema grave com o backend do Terraform"
+                echo "Verificando estado atual..."
+                terraform state list | grep resource_group || echo "Nenhum resource_group encontrado no estado"
+                exit 1
+              fi
+              
               rm -f tfplan-refresh refresh-output.txt import-output.txt || true
             else
               echo "ERRO: Import falhou (exit code: $IMPORT_EXIT_CODE)"
@@ -652,18 +684,34 @@ jobs:
           
           if [ -n "$RESOURCE_GROUP_NAME" ]; then
             echo "Verificando sincronização do Resource Group antes de gerar plan..."
+            echo "Resource Group: $RESOURCE_GROUP_NAME"
             
             # Verificar se Resource Group existe no Azure
             if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
-              echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
+              echo "✅ Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
               
               # Verificar se está no estado do Terraform
-              if ! terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                echo "ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+              echo "Verificando se Resource Group está no estado do Terraform..."
+              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "✅ Resource Group está no estado do Terraform"
+                echo "Listando recursos no estado para debug:"
+                terraform state list | grep -E "resource_group|azurerm_resource_group" || echo "  (nenhum resource_group encontrado na listagem)"
+              else
+                echo "❌ ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+                echo ""
+                echo "Estado atual do Terraform:"
+                echo "Recursos no estado:"
+                terraform state list | head -20 || echo "  (não foi possível listar estado)"
+                echo ""
                 echo "Isso causará erro no terraform apply quando tentar criar um recurso existente."
                 echo ""
                 echo "O step 'Sync Existing Resources' deveria ter importado este recurso."
                 echo "Verifique os logs do step anterior para identificar o problema."
+                echo ""
+                echo "Possíveis causas:"
+                echo "  1. Import falhou silenciosamente (verifique logs do step 'Sync Existing Resources')"
+                echo "  2. Workspace diferente entre steps"
+                echo "  3. Backend do Terraform não está sincronizado"
                 echo ""
                 echo "Solução manual:"
                 SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
@@ -681,12 +729,12 @@ jobs:
                   echo "    -var=\"vm_name=${VM_NAME}\" \\"
                 fi
                 echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
+                echo ""
+                echo "FALHANDO workflow para evitar erro no terraform apply"
                 exit 1
-              else
-                echo "✅ Resource Group está no estado do Terraform - OK para gerar plan"
               fi
             else
-              echo "Resource Group não existe no Azure - será criado pelo Terraform"
+              echo "✅ Resource Group não existe no Azure - será criado pelo Terraform"
             fi
           fi
           
