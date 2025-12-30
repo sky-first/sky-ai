@@ -443,17 +443,27 @@ jobs:
             fi
             
             echo "Executando terraform import com variáveis explícitas..."
-            set +e
+            echo "Comando: terraform import ${IMPORT_VARS[@]} azurerm_resource_group.main \"$RESOURCE_ID\""
+            
+            # Tentar importar - CRÍTICO: se falhar, o workflow deve falhar
             terraform import \
               "${IMPORT_VARS[@]}" \
               azurerm_resource_group.main "$RESOURCE_ID" 2>&1 | tee import-output.txt
-            IMPORT_EXIT_CODE=$?
-            set -e
+            IMPORT_EXIT_CODE=${PIPESTATUS[0]}
             
             if [ $IMPORT_EXIT_CODE -eq 0 ]; then
               echo "✅ Resource Group importado com sucesso"
               
-              # Após import, fazer refresh para garantir sincronização completa
+              # Verificar se realmente está no estado após import
+              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "✅ Confirmado: Resource Group está no estado do Terraform"
+              else
+                echo "ERRO: Import reportou sucesso, mas Resource Group não está no estado"
+                echo "Isso indica um problema crítico com o estado do Terraform"
+                exit 1
+              fi
+              
+              # Após import bem-sucedido, fazer refresh para garantir sincronização completa
               echo "Executando refresh após importação..."
               terraform plan \
                 -var-file="$TFVARS_FILE" \
@@ -473,34 +483,30 @@ jobs:
               fi
               rm -f tfplan-refresh refresh-output.txt import-output.txt || true
             else
-              echo "WARNING: Import falhou (exit code: $IMPORT_EXIT_CODE)"
-              echo "Verificando se Resource Group está no estado..."
-              
-              # Verificar novamente (pode ter sido importado em tentativa anterior)
-              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                echo "✅ Resource Group está no estado (pode ter sido importado anteriormente)"
-              else
-                echo "WARNING: Não foi possível importar Resource Group"
-                echo "O plan pode falhar se tentar criar um recurso que já existe"
-                echo ""
-                echo "Detalhes do erro:"
-                cat import-output.txt 2>/dev/null || echo "  (logs não disponíveis)"
-                echo ""
-                echo "Solução manual:"
-                echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
-                if [ -n "$ENVIRONMENT" ]; then
-                  echo "    -var=\"environment=${ENVIRONMENT}\" \\"
-                fi
-                if [ -n "$RESOURCE_GROUP_NAME" ]; then
-                  echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
-                fi
-                if [ -n "$VM_NAME" ]; then
-                  echo "    -var=\"vm_name=${VM_NAME}\" \\"
-                fi
-                echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
-                # Não falhar aqui - deixar o plan mostrar o erro
+              echo "ERRO: Import falhou (exit code: $IMPORT_EXIT_CODE)"
+              echo ""
+              echo "Detalhes do erro:"
+              cat import-output.txt 2>/dev/null || echo "  (logs não disponíveis)"
+              echo ""
+              echo "O Resource Group existe no Azure mas não pôde ser importado."
+              echo "Isso causará falha no terraform apply quando tentar criar um recurso existente."
+              echo ""
+              echo "Solução manual:"
+              echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
+              if [ -n "$ENVIRONMENT" ]; then
+                echo "    -var=\"environment=${ENVIRONMENT}\" \\"
               fi
+              if [ -n "$RESOURCE_GROUP_NAME" ]; then
+                echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
+              fi
+              if [ -n "$VM_NAME" ]; then
+                echo "    -var=\"vm_name=${VM_NAME}\" \\"
+              fi
+              echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
+              echo ""
+              echo "FALHANDO workflow para evitar erro no terraform apply"
               rm -f import-output.txt || true
+              exit 1
             fi
           fi
           
