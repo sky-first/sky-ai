@@ -44,17 +44,21 @@ output "deploy_status" {
 
 output "ssh_command" {
   description = "Comando SSH para conectar à VM (legado - use Bastion se habilitado)"
-  value       = var.enable_bastion ? "Use Azure Bastion via Portal ou: az network bastion ssh --name ${azurerm_bastion_host.main[0].name} --resource-group ${azurerm_resource_group.main.name} --target-resource-id ${azurerm_linux_virtual_machine.main.id} --auth-type ssh --username ${var.admin_username}" : "ssh ${var.admin_username}@${azurerm_public_ip.main.ip_address}"
+  # CRÍTICO: evitar "Invalid index" quando Bastion ainda não existe no state/plan
+  value = var.enable_bastion ? try(
+    "Use Azure Bastion via Portal ou: az network bastion ssh --name ${azurerm_bastion_host.main[0].name} --resource-group ${azurerm_resource_group.main.name} --target-resource-id ${azurerm_linux_virtual_machine.main.id} --auth-type ssh --username ${var.admin_username}",
+    "Use Azure Bastion via Portal (Bastion ainda não está disponível no state/plan)."
+  ) : "ssh ${var.admin_username}@${azurerm_public_ip.main.ip_address}"
 }
 
 output "bastion_host_id" {
   description = "ID do Azure Bastion Host (se habilitado)"
-  value       = var.enable_bastion ? azurerm_bastion_host.main[0].id : null
+  value       = var.enable_bastion ? try(azurerm_bastion_host.main[0].id, null) : null
 }
 
 output "bastion_host_name" {
   description = "Nome do Azure Bastion Host (se habilitado)"
-  value       = var.enable_bastion ? azurerm_bastion_host.main[0].name : null
+  value       = var.enable_bastion ? try(azurerm_bastion_host.main[0].name, null) : null
 }
 
 output "git_branch" {

@@ -919,13 +919,24 @@ jobs:
             exit 1
           fi
 
+      # CRÍTICO: garantir que o artifact do plan tenha um path estável (sem duplicar infra/azure no download)
+      - name: Prepare Plan Artifact (stable paths)
+        run: |
+          set -euo pipefail
+          ARTIFACT_DIR="${GITHUB_WORKSPACE}/_tfplan_artifact"
+          mkdir -p "$ARTIFACT_DIR"
+          cp -f tfplan "$ARTIFACT_DIR/tfplan"
+          cp -f plan-output.txt "$ARTIFACT_DIR/plan-output.txt"
+          echo "Artifact preparado em: $ARTIFACT_DIR"
+          ls -la "$ARTIFACT_DIR"
+
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
           path: |
-            ${{ env.TF_WORKING_DIR }}/tfplan
-            ${{ env.TF_WORKING_DIR }}/plan-output.txt
+            _tfplan_artifact/tfplan
+            _tfplan_artifact/plan-output.txt
           retention-days: 30
 
       - name: Save Plan Summary
@@ -1438,7 +1449,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
-          path: ${{ env.TF_WORKING_DIR }}
+          path: _tfplan_artifact
 
       - name: Verify Plan Artifact Downloaded
         if: steps.download-artifact.outcome != 'success'
@@ -1447,6 +1458,23 @@ jobs:
           echo "O job 'terraform-plan' pode ter falhado ou o artifact não foi gerado."
           echo "Verifique os logs do job 'terraform-plan' para mais detalhes."
           exit 1
+
+      - name: Stage Downloaded Plan into Working Directory
+        run: |
+          set -euo pipefail
+          echo "Staging tfplan para o diretório de trabalho: $(pwd)"
+          echo "Conteúdo de _tfplan_artifact:"
+          ls -la "${GITHUB_WORKSPACE}/_tfplan_artifact" || true
+          if [ ! -f "${GITHUB_WORKSPACE}/_tfplan_artifact/tfplan" ]; then
+            echo "ERRO: tfplan não encontrado em _tfplan_artifact"
+            echo "Arquivos encontrados:"
+            find "${GITHUB_WORKSPACE}/_tfplan_artifact" -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+          cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/tfplan" "./tfplan"
+          cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/plan-output.txt" "./plan-output.txt" || true
+          echo "OK: tfplan copiado para $(pwd)/tfplan"
+          ls -la ./tfplan
 
       - name: Verify Plan File Exists
         run: |
