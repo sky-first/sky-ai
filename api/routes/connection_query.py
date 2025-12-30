@@ -153,6 +153,7 @@ def _get_dashboard_plan_cache_key(
     goal: str,
     max_widgets: int,
     language: str,
+    original_question: Optional[str] = None,
 ) -> str:
     """
     Gera chave única para o cache de planos de dashboard.
@@ -165,6 +166,7 @@ def _get_dashboard_plan_cache_key(
         goal: Objetivo do dashboard (ex: "Billing overview")
         max_widgets: Número máximo de widgets
         language: Idioma
+        original_question: Pergunta original do usuário (opcional)
         
     Returns:
         String única que identifica esta combinação de parâmetros
@@ -173,7 +175,11 @@ def _get_dashboard_plan_cache_key(
     crew_ids_str = ",".join(sorted(crew_ids or []))
     # Normalizar goal (lowercase, remover espaços extras)
     goal_normalized = " ".join(goal.strip().lower().split())
-    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}"
+    # Normalizar original_question se existir
+    original_q_normalized = ""
+    if original_question:
+        original_q_normalized = " ".join(original_question.strip().lower().split())
+    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}"
 
 
 def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
@@ -1069,7 +1075,7 @@ async def dashboards_plan(
         )
         resolved_crew_ids = []
 
-    # ✅ NOVA: Verificar cache antes de gerar plano
+    # ✅ NOVA: Verificar cache antes de gerar plano (incluindo original_question)
     cache_key = _get_dashboard_plan_cache_key(
         connection_id=connection_id,
         space_id=body.space_id,
@@ -1078,6 +1084,7 @@ async def dashboards_plan(
         goal=body.goal,
         max_widgets=body.max_widgets,
         language=lang,
+        original_question=getattr(body, "original_question", None),
     )
     
     cached_response = _get_cached_dashboard_plan(cache_key)
@@ -1123,6 +1130,9 @@ async def dashboards_plan(
 
     try:
         llm = create_llm_specialist(creativity=10, length=35)  # gpt-4o by default
+        # ✅ NOVO: Passar original_question para generate_dashboard_plan
+        # A IA só será chamada aqui (quando o endpoint é invocado ao clicar em "Criar Dashboard")
+        original_question = getattr(body, "original_question", None)
         plan = generate_dashboard_plan(
             llm=llm,
             goal=body.goal,
@@ -1130,6 +1140,7 @@ async def dashboards_plan(
             max_widgets=body.max_widgets,
             logical_tables=logical_tables,
             schema_summary=schema_summary,
+            original_question=original_question,
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
@@ -1142,6 +1153,7 @@ async def dashboards_plan(
                 "prompt_tables": max_tables_in_prompt,
                 "agent_id": None,
                 "cached": False,  # Indica que esta resposta não veio do cache
+                "has_original_question": original_question is not None,
             },
         )
         
