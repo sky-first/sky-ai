@@ -472,12 +472,62 @@ jobs:
             if [ $IMPORT_EXIT_CODE -eq 0 ]; then
               echo "✅ Resource Group importado com sucesso"
               
-              # Verificar se realmente está no estado após import
+              # Verificar se realmente está no estado após import (local)
               if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                echo "✅ Confirmado: Resource Group está no estado do Terraform"
+                echo "✅ Confirmado: Resource Group está no estado local do Terraform"
               else
                 echo "ERRO: Import reportou sucesso, mas Resource Group não está no estado"
                 echo "Isso indica um problema crítico com o estado do Terraform"
+                exit 1
+              fi
+              
+              # CRÍTICO: O Terraform salva automaticamente no backend remoto após import
+              # Mas vamos garantir que o estado foi salvo fazendo uma operação que force
+              # o Terraform a interagir com o backend
+              echo "Garantindo que estado foi salvo no backend remoto..."
+              
+              # Fazer um state list para forçar Terraform a ler do backend
+              # Isso garante que estamos verificando o estado remoto, não local
+              echo "Listando recursos no estado (força leitura do backend)..."
+              terraform state list > /dev/null 2>&1 || {
+                echo "WARNING: Não foi possível listar estado (pode ser normal)"
+              }
+              
+              # Verificar novamente - agora deve estar sincronizado com backend
+              echo "Verificando estado após garantir sincronização..."
+              STATE_CHECK_COUNT=0
+              MAX_CHECKS=3
+              
+              while [ $STATE_CHECK_COUNT -lt $MAX_CHECKS ]; do
+                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                  echo "✅ Resource Group confirmado no estado (tentativa $((STATE_CHECK_COUNT + 1)))"
+                  break
+                else
+                  STATE_CHECK_COUNT=$((STATE_CHECK_COUNT + 1))
+                  if [ $STATE_CHECK_COUNT -lt $MAX_CHECKS ]; then
+                    echo "Aguardando sincronização do backend... (tentativa $STATE_CHECK_COUNT/$MAX_CHECKS)"
+                    sleep 2
+                    # Forçar nova leitura do backend
+                    terraform state list > /dev/null 2>&1 || true
+                  fi
+                fi
+              done
+              
+              # Verificação final
+              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "✅ Resource Group confirmado no estado após sincronização"
+                
+                # Listar recursos no estado para debug
+                echo "Recursos no estado:"
+                terraform state list | head -10 || echo "  (não foi possível listar)"
+              else
+                echo "ERRO: Resource Group não está no estado após $MAX_CHECKS tentativas"
+                echo "Isso indica problema com backend remoto ou sincronização"
+                echo ""
+                echo "Debug:"
+                echo "  Workspace: $(terraform workspace show)"
+                echo "  Estado completo:"
+                terraform state list || echo "  (não foi possível listar)"
                 exit 1
               fi
               
@@ -504,12 +554,17 @@ jobs:
               echo "Verificação final após import e refresh..."
               if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
                 echo "✅ CONFIRMADO: Resource Group está no estado após import e refresh"
+                echo "Estado foi salvo no backend remoto"
                 echo "O plan será gerado corretamente no próximo step"
               else
                 echo "ERRO CRÍTICO: Resource Group não está no estado após import e refresh"
                 echo "Isso indica um problema grave com o backend do Terraform"
                 echo "Verificando estado atual..."
                 terraform state list | grep resource_group || echo "Nenhum resource_group encontrado no estado"
+                echo ""
+                echo "Workspace atual: $(terraform workspace show)"
+                echo "Backend configurado:"
+                terraform version -json | jq -r '.terraform_backend' 2>/dev/null || echo "  (não foi possível verificar)"
                 exit 1
               fi
               
@@ -767,31 +822,38 @@ jobs:
           fi
           
           # Verificação crítica APÓS gerar plan: se plan tenta criar Resource Group que já existe
-          if [ -n "$RESOURCE_GROUP_NAME" ]; then
-            echo "Verificando plan gerado para garantir que não tenta criar Resource Group existente..."
+          # Extrair Resource Group do tfvars novamente (não depender de variável anterior)
+          PLAN_RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
+            sed 's/.*= *"\([^"]*\)".*/\1/' | \
+            sed "s/.*= *'\([^']*\)'.*/\1/" | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          
+          if [ -n "$PLAN_RG_NAME" ]; then
+            echo "=== Verificação crítica do plan gerado ==="
+            echo "Resource Group do tfvars: $PLAN_RG_NAME"
             
-            # Verificar se Resource Group existe no Azure
-            if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
-              echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
-              
-              # Verificar se plan tenta criar Resource Group
-              PLAN_TRIES_TO_CREATE_RG=false
-              
-              if command -v jq >/dev/null 2>&1; then
-                if terraform show -json tfplan 2>/dev/null | \
-                  jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
-                  PLAN_TRIES_TO_CREATE_RG=true
-                fi
-              else
-                # Fallback: verificar via terraform show (texto)
-                if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
-                  PLAN_TRIES_TO_CREATE_RG=true
-                fi
+            # Verificar se plan tenta criar Resource Group
+            PLAN_TRIES_TO_CREATE_RG=false
+            
+            if command -v jq >/dev/null 2>&1; then
+              if terraform show -json tfplan 2>/dev/null | \
+                jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                PLAN_TRIES_TO_CREATE_RG=true
               fi
+            else
+              # Fallback: verificar via terraform show (texto)
+              if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                PLAN_TRIES_TO_CREATE_RG=true
+              fi
+            fi
+            
+            if [ "$PLAN_TRIES_TO_CREATE_RG" = "true" ]; then
+              echo "⚠️  WARNING: Plan tenta criar Resource Group: $PLAN_RG_NAME"
               
-              if [ "$PLAN_TRIES_TO_CREATE_RG" = "true" ]; then
+              # Verificar se Resource Group existe no Azure
+              if az group show --name "$PLAN_RG_NAME" --query id -o tsv > /dev/null 2>&1; then
                 echo "❌ ERRO CRÍTICO: Plan gerado tenta criar Resource Group que JÁ EXISTE no Azure!"
-                echo "Resource Group: $RESOURCE_GROUP_NAME"
+                echo "Resource Group: $PLAN_RG_NAME"
                 echo ""
                 echo "Isso causará erro: 'A resource with the ID already exists' no terraform apply"
                 echo ""
@@ -803,16 +865,24 @@ jobs:
                 echo "  - Resource Group está no estado do Terraform:"
                 if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
                   echo "    ✅ SIM (mas plan ainda tenta criar - possível problema de sincronização)"
+                  echo "    Workspace atual: $(terraform workspace show)"
+                  echo "    Recursos no estado:"
+                  terraform state list | head -10 || echo "      (não foi possível listar)"
                 else
                   echo "    ❌ NÃO (import não funcionou)"
+                  echo "    Workspace atual: $(terraform workspace show)"
                 fi
                 echo ""
                 echo "FALHANDO workflow para evitar erro no terraform apply"
                 exit 1
               else
-                echo "✅ Plan não tenta criar Resource Group (correto)"
+                echo "✅ Resource Group não existe no Azure - será criado (correto)"
               fi
+            else
+              echo "✅ Plan não tenta criar Resource Group (correto)"
             fi
+          else
+            echo "WARNING: Não foi possível extrair resource_group_name do tfvars para verificação"
           fi
 
       - name: Validate Plan
