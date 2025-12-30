@@ -312,8 +312,12 @@ resource "azurerm_bastion_host" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
+  # Alinhar com o recurso existente no Azure para evitar replacement (delete+create)
+  sku = "Standard"
+
   ip_configuration {
-    name                 = "configuration"
+    # Alinhar com o recurso existente no Azure para evitar replacement (delete+create)
+    name                 = "bastion_ip_config"
     subnet_id            = azurerm_subnet.bastion[0].id
     public_ip_address_id = azurerm_public_ip.bastion[0].id
   }
