@@ -304,6 +304,10 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -345,10 +349,46 @@ jobs:
           echo "tfvars=terraform.tfvars.${ENV}" >> $GITHUB_OUTPUT
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
 
+      - name: Validate Terraform Backend Secrets
+        run: |
+          set -euo pipefail
+          echo "Validando secrets obrigatórios do backend Terraform..."
+          REQUIRED_VARS=(
+            "TF_BACKEND_RESOURCE_GROUP"
+            "TF_BACKEND_STORAGE_ACCOUNT"
+            "TF_BACKEND_CONTAINER"
+            "TF_BACKEND_KEY_PREFIX"
+          )
+          MISSING=()
+          for v in "${REQUIRED_VARS[@]}"; do
+            if [ -z "${!v:-}" ]; then
+              MISSING+=("$v")
+            fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "ERRO: Secrets obrigatórios do backend não configurados no GitHub:"
+            printf '  - %s\n' "${MISSING[@]}"
+            echo ""
+            echo "Configure em: Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "OK: Secrets do backend presentes"
+
+      - name: Write backend config
+        run: |
+          ENV="${{ steps.detect-env.outputs.env }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
+
       - name: Terraform Init
         run: |
           set -euo pipefail
-          terraform init -input=false
+          terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
         run: |

@@ -363,6 +363,17 @@ jobs:
           ENVIRONMENT=$(extract_var "environment")
           RESOURCE_GROUP_NAME=$(extract_var "resource_group_name")
           VM_NAME=$(extract_var "vm_name")
+          ENABLE_BASTION_RAW=$(extract_var "enable_bastion")
+
+          # Normalizar bool (true/false) - default true se vazio
+          ENABLE_BASTION="true"
+          if [ -n "$ENABLE_BASTION_RAW" ]; then
+            case "$(echo "$ENABLE_BASTION_RAW" | tr '[:upper:]' '[:lower:]')" in
+              true|1|yes) ENABLE_BASTION="true" ;;
+              false|0|no) ENABLE_BASTION="false" ;;
+              *) ENABLE_BASTION="true" ;;
+            esac
+          fi
           
           # Validar variáveis obrigatórias
           if [ -z "$RESOURCE_GROUP_NAME" ]; then
@@ -375,6 +386,7 @@ jobs:
           echo "  - environment: ${ENVIRONMENT:-<não definido>}"
           echo "  - resource_group_name: ${RESOURCE_GROUP_NAME}"
           echo "  - vm_name: ${VM_NAME:-<não definido>}"
+          echo "  - enable_bastion: ${ENABLE_BASTION}"
           echo ""
           
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
@@ -457,6 +469,10 @@ jobs:
             fi
             if [ -n "$VM_NAME" ]; then
               VAR_ARGS+=(-var="vm_name=${VM_NAME}")
+            fi
+            # Garantir consistência do enable_bastion (evita count mismatch na importação)
+            if [ -n "$ENABLE_BASTION" ]; then
+              VAR_ARGS+=(-var="enable_bastion=${ENABLE_BASTION}")
             fi
             
             echo "Executando terraform import com variáveis explícitas..."
@@ -597,6 +613,142 @@ jobs:
             fi
           fi
           
+          # ============================================================
+          # Importação adicional: recursos que já existem no Azure mas
+          # não estão no state (evita "already exists" no apply)
+          # ============================================================
+          echo ""
+          echo "=== Importando recursos adicionais existentes (network/compute) ==="
+
+          # Helper: checar se address está no state
+          state_has() {
+            local addr="$1"
+            terraform state show "$addr" > /dev/null 2>&1
+          }
+
+          # Helper: importar com validação
+          import_if_missing() {
+            local addr="$1"
+            local rid="$2"
+            local label="$3"
+            if state_has "$addr"; then
+              echo "✅ Já no state: $label ($addr)"
+              return 0
+            fi
+            echo "➡️  Importando: $label ($addr)"
+            echo "    ID: $rid"
+            terraform import "${VAR_ARGS[@]}" "$addr" "$rid" 2>&1 | tee "import-${label// /-}.txt"
+            local ec=${PIPESTATUS[0]}
+            if [ $ec -ne 0 ]; then
+              echo "❌ ERRO: Falha ao importar $label (exit code: $ec)"
+              exit 1
+            fi
+            if state_has "$addr"; then
+              echo "✅ Import OK: $label"
+            else
+              echo "❌ ERRO: Import reportou sucesso mas $addr não está no state"
+              exit 1
+            fi
+          }
+
+          # Garantir VAR_ARGS existe também no caminho onde RG já estava no state
+          if [ -z "${VAR_ARGS+x}" ]; then
+            VAR_ARGS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
+            if [ -n "$ENVIRONMENT" ]; then VAR_ARGS+=(-var="environment=${ENVIRONMENT}"); fi
+            if [ -n "$RESOURCE_GROUP_NAME" ]; then VAR_ARGS+=(-var="resource_group_name=${RESOURCE_GROUP_NAME}"); fi
+            if [ -n "$VM_NAME" ]; then VAR_ARGS+=(-var="vm_name=${VM_NAME}"); fi
+            if [ -n "$ENABLE_BASTION" ]; then VAR_ARGS+=(-var="enable_bastion=${ENABLE_BASTION}"); fi
+          fi
+
+          # Nomes padronizados (baseado no Terraform)
+          ENV_NAME="${ENVIRONMENT:-${{ needs.detect-environment.outputs.environment }}}"
+          VNET_NAME="ai-saas-vnet-${ENV_NAME}"
+          SUBNET_NAME="ai-saas-subnet-${ENV_NAME}"
+          NSG_NAME="ai-saas-nsg-${ENV_NAME}"
+          NIC_NAME="ai-saas-nic-${ENV_NAME}"
+          PIP_NAME="ai-saas-public-ip-${ENV_NAME}"
+          BASTION_PIP_NAME="ai-saas-bastion-ip-${ENV_NAME}"
+          BASTION_HOST_NAME="ai-saas-bastion-${ENV_NAME}"
+
+          # IDs ARM
+          VNET_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/virtualNetworks/${VNET_NAME}"
+          SUBNET_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/virtualNetworks/${VNET_NAME}/subnets/${SUBNET_NAME}"
+          BASTION_SUBNET_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/virtualNetworks/${VNET_NAME}/subnets/AzureBastionSubnet"
+          NSG_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/networkSecurityGroups/${NSG_NAME}"
+          NIC_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/networkInterfaces/${NIC_NAME}"
+          PIP_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/publicIPAddresses/${PIP_NAME}"
+          BASTION_PIP_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/publicIPAddresses/${BASTION_PIP_NAME}"
+          BASTION_HOST_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/bastionHosts/${BASTION_HOST_NAME}"
+          VM_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/virtualMachines/${VM_NAME}"
+
+          # Importar VNet se existir
+          if az network vnet show --resource-group "$RESOURCE_GROUP_NAME" --name "$VNET_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_virtual_network.main" "$VNET_ID" "vnet"
+          else
+            echo "ℹ️  VNet não existe no Azure: $VNET_NAME"
+          fi
+
+          # Importar Subnet principal se existir (depende da VNet)
+          if az network vnet subnet show --resource-group "$RESOURCE_GROUP_NAME" --vnet-name "$VNET_NAME" --name "$SUBNET_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_subnet.main" "$SUBNET_ID" "subnet-main"
+          else
+            echo "ℹ️  Subnet principal não existe no Azure: $SUBNET_NAME"
+          fi
+
+          # Importar NSG se existir
+          if az network nsg show --resource-group "$RESOURCE_GROUP_NAME" --name "$NSG_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_network_security_group.main" "$NSG_ID" "nsg"
+          else
+            echo "ℹ️  NSG não existe no Azure: $NSG_NAME"
+          fi
+
+          # Importar Public IP principal se existir
+          if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PIP_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_public_ip.main" "$PIP_ID" "public-ip-main"
+          else
+            echo "ℹ️  Public IP principal não existe no Azure: $PIP_NAME"
+          fi
+
+          # Importar NIC se existir
+          if az network nic show --resource-group "$RESOURCE_GROUP_NAME" --name "$NIC_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_network_interface.main" "$NIC_ID" "nic"
+          else
+            echo "ℹ️  NIC não existe no Azure: $NIC_NAME"
+          fi
+
+          # Importar VM se existir (opcional: só importa se existir)
+          if [ -n "$VM_NAME" ] && az vm show --resource-group "$RESOURCE_GROUP_NAME" --name "$VM_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_linux_virtual_machine.main" "$VM_ID" "vm"
+          else
+            echo "ℹ️  VM não existe no Azure ou vm_name vazio: ${VM_NAME:-<vazio>}"
+          fi
+
+          # Recursos Bastion (apenas se enable_bastion=true)
+          if [ "$ENABLE_BASTION" = "true" ]; then
+            if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$BASTION_PIP_NAME" --query id -o tsv > /dev/null 2>&1; then
+              import_if_missing "azurerm_public_ip.bastion[0]" "$BASTION_PIP_ID" "public-ip-bastion"
+            else
+              echo "ℹ️  Public IP Bastion não existe no Azure: $BASTION_PIP_NAME"
+            fi
+
+            if az network vnet subnet show --resource-group "$RESOURCE_GROUP_NAME" --vnet-name "$VNET_NAME" --name "AzureBastionSubnet" --query id -o tsv > /dev/null 2>&1; then
+              import_if_missing "azurerm_subnet.bastion[0]" "$BASTION_SUBNET_ID" "subnet-bastion"
+            else
+              echo "ℹ️  Subnet Bastion não existe no Azure: AzureBastionSubnet"
+            fi
+
+            # Bastion host pode falhar se o comando não existir; usar az resource show como fallback
+            if az resource show --resource-group "$RESOURCE_GROUP_NAME" --name "$BASTION_HOST_NAME" --resource-type "Microsoft.Network/bastionHosts" --query id -o tsv > /dev/null 2>&1; then
+              import_if_missing "azurerm_bastion_host.main[0]" "$BASTION_HOST_ID" "bastion-host"
+            else
+              echo "ℹ️  Bastion Host não existe no Azure: $BASTION_HOST_NAME"
+            fi
+          else
+            echo "ℹ️  enable_bastion=false — pulando imports de Bastion"
+          fi
+
+          echo "✅ Importação adicional concluída"
+
           echo ""
           echo "✅ Sincronização de recursos concluída"
 
@@ -1954,6 +2106,10 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
     env:
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -1970,6 +2126,12 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
 
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
       - name: Azure Authentication
         uses: ./.github/actions/azure-auth
         with:
@@ -1977,8 +2139,19 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
+      - name: Write backend config
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
+
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config=backend.hcl
 
       - name: Select/Create Workspace
         run: |

@@ -3,6 +3,11 @@
 # O backend será configurado dinamicamente no CI/CD via -backend-config=backend.hcl
 
 terraform {
+  # Backend explicitamente definido para evitar warning do Terraform quando
+  # usamos -backend-config=backend.hcl no CI/CD.
+  # As configurações (RG/Storage/Container/Key) são fornecidas via backend.hcl.
+  backend "azurerm" {}
+
   # Backend será configurado dinamicamente no CI/CD através do arquivo backend.hcl
   # que é gerado automaticamente pelo workflow do GitHub Actions
   #
