@@ -109,13 +109,34 @@ jobs:
             exit 1
           fi
 
+      - name: Azure Login (OIDC) for Terraform Validation
+        # Em PR de fork, secrets não existem; nesses casos, pulamos login e também pulamos init/validate.
+        if: secrets.AZURE_SUBSCRIPTION_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != ''
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
       - name: Terraform Init
+        if: secrets.AZURE_SUBSCRIPTION_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != ''
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_USE_OIDC: true
         run: |
           set -euo pipefail
           terraform init -backend=false -input=false
 
       - name: Terraform Validate
         id: validate
+        if: secrets.AZURE_SUBSCRIPTION_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != ''
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_USE_OIDC: true
         run: |
           set -euo pipefail
           terraform validate -no-color
@@ -124,6 +145,13 @@ jobs:
             echo "Terraform validation failed"
             exit 1
           fi
+
+      - name: Skip Terraform init/validate (no Azure credentials in this context)
+        if: secrets.AZURE_SUBSCRIPTION_ID == '' || secrets.AZURE_TENANT_ID == '' || secrets.AZURE_CLIENT_ID == ''
+        run: |
+          set -euo pipefail
+          echo "INFO: Secrets do Azure não disponíveis (ex: PR de fork)."
+          echo "Pulando terraform init/validate para evitar dependência de 'az login'."
 
       - name: Terraform Security Scan with tfsec
         id: security-tfsec
