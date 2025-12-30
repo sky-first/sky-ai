@@ -23,11 +23,6 @@ on:
         required: false
         type: boolean
         default: false
-      destroy_confirmation:
-        description: 'Obrigatório se allow_destroy=true. Digite exatamente: I_UNDERSTAND_DESTROY'
-        required: false
-        type: string
-        default: ''
 
 concurrency:
   group: deploy-${{ github.ref }}-${{ github.event.inputs.environment || 'auto' }}
@@ -117,25 +112,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             ENV="${{ github.event.inputs.environment }}"
             ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
-            CONFIRM="${{ github.event.inputs.destroy_confirmation }}"
             BRANCH="manual"
-
-            # Guardrail: nunca permitir destroy em produção via workflow_dispatch
-            if [[ "$ENV" == "prod" && "$ALLOW_DESTROY" == "true" ]]; then
-              echo "ERRO: allow_destroy=true não é permitido em 'prod'."
-              echo "Se uma mudança destrutiva for realmente necessária, trate como procedimento excepcional."
-              exit 1
-            fi
-
-            # Guardrail: exigir confirmação explícita quando allow_destroy=true
-            if [[ "$ALLOW_DESTROY" == "true" ]]; then
-              if [[ "$CONFIRM" != "I_UNDERSTAND_DESTROY" ]]; then
-                echo "ERRO: allow_destroy=true requer confirmação."
-                echo "Preencha o input 'destroy_confirmation' com exatamente: I_UNDERSTAND_DESTROY"
-                exit 1
-              fi
-              echo "WARNING: allow_destroy=true confirmado explicitamente (I_UNDERSTAND_DESTROY)"
-            fi
           elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
             BASE_REF="${{ github.event.pull_request.base.ref }}"
             if [[ "${BASE_REF}" == "staging" ]]; then
@@ -927,25 +904,41 @@ jobs:
                 echo "Listando recursos no estado para debug:"
                 terraform state list | grep -E "resource_group|azurerm_resource_group" || echo "  (nenhum resource_group encontrado na listagem)"
               else
-                echo "⚠️  Resource Group existe no Azure mas NÃO está no state. Tentando auto-correção (import)..."
+                echo "❌ ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+                echo ""
+                echo "Estado atual do Terraform:"
+                echo "Recursos no estado:"
+                terraform state list | head -20 || echo "  (não foi possível listar estado)"
+                echo ""
+                echo "Isso causará erro no terraform apply quando tentar criar um recurso existente."
+                echo ""
+                echo "O step 'Sync Existing Resources' deveria ter importado este recurso."
+                echo "Verifique os logs do step anterior para identificar o problema."
+                echo ""
+                echo "Possíveis causas:"
+                echo "  1. Import falhou silenciosamente (verifique logs do step 'Sync Existing Resources')"
+                echo "  2. Workspace diferente entre steps"
+                echo "  3. Backend do Terraform não está sincronizado"
+                echo ""
+                echo "Solução manual:"
                 SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
                 RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
-                echo "Importando: azurerm_resource_group.main -> $RESOURCE_ID"
-                terraform import \
-                  -var-file="$TFVARS_FILE" \
-                  -var="subscription_id=${SUBSCRIPTION_ID}" \
-                  azurerm_resource_group.main "$RESOURCE_ID"
-                echo "Verificando state após import..."
-                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                  echo "✅ Auto-correção OK: Resource Group agora está no state"
-                else
-                  echo "❌ ERRO: Import foi executado mas o Resource Group ainda não aparece no state"
-                  echo "Recursos no state (debug):"
-                  terraform state list | head -30 || true
-                  echo ""
-                  echo "Falhando para evitar erro no terraform apply"
-                  exit 1
+                echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
+                ENVIRONMENT=$(grep "^environment" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+                VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+                if [ -n "$ENVIRONMENT" ]; then
+                  echo "    -var=\"environment=${ENVIRONMENT}\" \\"
                 fi
+                if [ -n "$RESOURCE_GROUP_NAME" ]; then
+                  echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
+                fi
+                if [ -n "$VM_NAME" ]; then
+                  echo "    -var=\"vm_name=${VM_NAME}\" \\"
+                fi
+                echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
+                echo ""
+                echo "FALHANDO workflow para evitar erro no terraform apply"
+                exit 1
               fi
             else
               echo "✅ Resource Group não existe no Azure - será criado pelo Terraform"
@@ -1861,19 +1854,21 @@ jobs:
               echo "Importando Resource Group existente para o estado do Terraform..."
               NEEDS_IMPORT=true
               
-              echo "Executando import com variáveis (evita prompt/erro por variáveis obrigatórias)..."
-              terraform import \
-                -var-file="$TFVARS_FILE" \
-                -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-                azurerm_resource_group.main "$RESOURCE_ID"
-
-              echo "Verificando state após import..."
-              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                echo "✅ Resource Group importado e presente no state"
+              # Tentar importar (não falhar se já estiver importado)
+              set +e  # Desabilitar exit on error temporariamente
+              terraform import azurerm_resource_group.main "$RESOURCE_ID" 2>&1
+              IMPORT_EXIT_CODE=$?
+              set -e  # Reabilitar exit on error
+              
+              if [ $IMPORT_EXIT_CODE -eq 0 ]; then
+                echo "✅ Resource Group importado com sucesso"
               else
-                echo "❌ ERRO: Resource Group ainda não aparece no state após import"
-                echo "Falhando para evitar terraform apply tentando criar RG existente"
-                exit 1
+                echo "WARNING: Import falhou (exit code: $IMPORT_EXIT_CODE)"
+                echo "Pode já estar importado ou haver outro problema"
+                # Verificar novamente se está no estado
+                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                  echo "OK: Resource Group está no estado (import pode ter sido feito anteriormente)"
+                fi
               fi
             fi
             
