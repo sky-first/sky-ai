@@ -50,6 +50,13 @@ variable "ssh_public_key" {
   sensitive   = false
 }
 
+# Permite alinhar com recursos legados já existentes no Azure (ex.: NIC criada manualmente/por versão antiga)
+variable "nic_name_override" {
+  description = "Override opcional do nome da Network Interface. Se vazio, usa o padrão ai-saas-nic-${environment}."
+  type        = string
+  default     = ""
+}
+
 # Variáveis de Segurança - Network Security Group
 variable "allowed_ssh_ips" {
   description = "Lista de IPs/CIDRs permitidos para acesso SSH (porta 22). Se vazio, permite acesso público (qualquer IP). Segurança garantida por autenticação via chaves SSH."

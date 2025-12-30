@@ -364,6 +364,7 @@ jobs:
           RESOURCE_GROUP_NAME=$(extract_var "resource_group_name")
           VM_NAME=$(extract_var "vm_name")
           ENABLE_BASTION_RAW=$(extract_var "enable_bastion")
+          NIC_NAME_OVERRIDE=$(extract_var "nic_name_override")
 
           # Normalizar bool (true/false) - default true se vazio
           ENABLE_BASTION="true"
@@ -387,6 +388,7 @@ jobs:
           echo "  - resource_group_name: ${RESOURCE_GROUP_NAME}"
           echo "  - vm_name: ${VM_NAME:-<não definido>}"
           echo "  - enable_bastion: ${ENABLE_BASTION}"
+          echo "  - nic_name_override: ${NIC_NAME_OVERRIDE:-<vazio>}"
           echo ""
           
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
@@ -665,7 +667,8 @@ jobs:
           VNET_NAME="ai-saas-vnet-${ENV_NAME}"
           SUBNET_NAME="ai-saas-subnet-${ENV_NAME}"
           NSG_NAME="ai-saas-nsg-${ENV_NAME}"
-          NIC_NAME="ai-saas-nic-${ENV_NAME}"
+          # Pode ser "legado" via nic_name_override (ex.: staging com NIC criada como ai-saas-nic)
+          NIC_NAME="${NIC_NAME_OVERRIDE:-ai-saas-nic-${ENV_NAME}}"
           PIP_NAME="ai-saas-public-ip-${ENV_NAME}"
           BASTION_PIP_NAME="ai-saas-bastion-ip-${ENV_NAME}"
           BASTION_HOST_NAME="ai-saas-bastion-${ENV_NAME}"
@@ -680,6 +683,8 @@ jobs:
           BASTION_PIP_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/publicIPAddresses/${BASTION_PIP_NAME}"
           BASTION_HOST_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Network/bastionHosts/${BASTION_HOST_NAME}"
           VM_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/virtualMachines/${VM_NAME}"
+          ACTION_GROUP_NAME="ai-saas-alerts-${ENV_NAME}"
+          ACTION_GROUP_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Insights/actionGroups/${ACTION_GROUP_NAME}"
 
           # Importar VNet se existir
           if az network vnet show --resource-group "$RESOURCE_GROUP_NAME" --name "$VNET_NAME" --query id -o tsv > /dev/null 2>&1; then
@@ -705,6 +710,37 @@ jobs:
           # Importar Public IP principal se existir
           if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PIP_NAME" --query id -o tsv > /dev/null 2>&1; then
             import_if_missing "azurerm_public_ip.main" "$PIP_ID" "public-ip-main"
+            
+            # Verificar se o IP público está associado a uma NIC diferente da esperada
+            # Isso resolve conflitos quando há NICs antigas usando o mesmo IP
+            IP_CONFIG_ID=$(az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PIP_NAME" --query "ipConfiguration.id" -o tsv 2>/dev/null || echo "")
+            if [ -n "$IP_CONFIG_ID" ]; then
+              # Extrair nome da NIC do ID (formato: /subscriptions/.../networkInterfaces/NIC_NAME/ipConfigurations/...)
+              CURRENT_NIC_NAME=$(echo "$IP_CONFIG_ID" | sed -n 's|.*/networkInterfaces/\([^/]*\)/ipConfigurations/.*|\1|p')
+              if [ -n "$CURRENT_NIC_NAME" ] && [ "$CURRENT_NIC_NAME" != "$NIC_NAME" ]; then
+                echo "⚠️  IP público $PIP_NAME está associado à NIC antiga: $CURRENT_NIC_NAME (esperado: $NIC_NAME)"
+                echo "➡️  Desanexando IP público da NIC antiga..."
+                
+                # Tentar desanexar o IP público da NIC antiga
+                set +e  # Desabilitar exit on error temporariamente
+                az network nic ip-config update \
+                  --resource-group "$RESOURCE_GROUP_NAME" \
+                  --nic-name "$CURRENT_NIC_NAME" \
+                  --name "internal" \
+                  --remove public-ip-address 2>&1
+                DETACH_EXIT_CODE=$?
+                set -e  # Reabilitar exit on error
+                
+                if [ $DETACH_EXIT_CODE -eq 0 ]; then
+                  echo "✅ IP público desanexado da NIC antiga: $CURRENT_NIC_NAME"
+                else
+                  echo "⚠️  Aviso: Não foi possível desanexar IP público da NIC antiga (exit code: $DETACH_EXIT_CODE)"
+                  echo "   Isso pode ser normal se a NIC não existe mais ou se o IP já está desanexado"
+                fi
+              else
+                echo "✅ IP público está associado à NIC correta ou não está associado"
+              fi
+            fi
           else
             echo "ℹ️  Public IP principal não existe no Azure: $PIP_NAME"
           fi
@@ -745,6 +781,13 @@ jobs:
             fi
           else
             echo "ℹ️  enable_bastion=false — pulando imports de Bastion"
+          fi
+
+          # Importar Action Group para monitoramento (se existir)
+          if az monitor action-group show --resource-group "$RESOURCE_GROUP_NAME" --name "$ACTION_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+            import_if_missing "azurerm_monitor_action_group.main" "$ACTION_GROUP_ID" "action-group"
+          else
+            echo "ℹ️  Action Group não existe no Azure: $ACTION_GROUP_NAME"
           fi
 
           echo "✅ Importação adicional concluída"

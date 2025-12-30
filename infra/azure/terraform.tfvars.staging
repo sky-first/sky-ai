@@ -11,6 +11,11 @@ admin_username      = "azureuser"
 # Chave pública SSH
 ssh_public_key = "../../keys/azure/id_rsa.pub"
 
+# Compatibilidade com recursos legados:
+# Em alguns ambientes, a NIC foi criada como "ai-saas-nic" (sem sufixo do ambiente).
+# Isso evita o Terraform tentar criar "ai-saas-nic-staging" e falhar com PublicIPAddressInUse.
+nic_name_override = "ai-saas-nic"
+
 # Git e Deploy
 git_branch  = "staging"
 github_repo = "sky-first/sky-poc-infra"
