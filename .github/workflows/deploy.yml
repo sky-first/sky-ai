@@ -643,6 +643,53 @@ jobs:
             exit 1
           fi
           
+          # Verificação crítica: se Resource Group existe no Azure, deve estar no estado
+          # Extrair nome do Resource Group do tfvars
+          RESOURCE_GROUP_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
+            sed 's/.*= *"\([^"]*\)".*/\1/' | \
+            sed "s/.*= *'\([^']*\)'.*/\1/" | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          
+          if [ -n "$RESOURCE_GROUP_NAME" ]; then
+            echo "Verificando sincronização do Resource Group antes de gerar plan..."
+            
+            # Verificar se Resource Group existe no Azure
+            if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
+              echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
+              
+              # Verificar se está no estado do Terraform
+              if ! terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                echo "ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+                echo "Isso causará erro no terraform apply quando tentar criar um recurso existente."
+                echo ""
+                echo "O step 'Sync Existing Resources' deveria ter importado este recurso."
+                echo "Verifique os logs do step anterior para identificar o problema."
+                echo ""
+                echo "Solução manual:"
+                SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+                RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
+                echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
+                ENVIRONMENT=$(grep "^environment" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+                VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+                if [ -n "$ENVIRONMENT" ]; then
+                  echo "    -var=\"environment=${ENVIRONMENT}\" \\"
+                fi
+                if [ -n "$RESOURCE_GROUP_NAME" ]; then
+                  echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
+                fi
+                if [ -n "$VM_NAME" ]; then
+                  echo "    -var=\"vm_name=${VM_NAME}\" \\"
+                fi
+                echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
+                exit 1
+              else
+                echo "✅ Resource Group está no estado do Terraform - OK para gerar plan"
+              fi
+            else
+              echo "Resource Group não existe no Azure - será criado pelo Terraform"
+            fi
+          fi
+          
           # Executar terraform plan com detailed-exitcode
           # Exit codes: 0 = sem mudanças, 1 = erro, 2 = há mudanças (esperado)
           set +e  # Desabilitar exit on error temporariamente
