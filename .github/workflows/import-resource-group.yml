@@ -1,0 +1,264 @@
+name: Import Resource Group (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to import'
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+          - poc-sky
+      resource_group_name:
+        description: 'Resource Group name (leave empty to use default)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  TERRAFORM_VERSION: '1.9.0'
+  TF_WORKING_DIR: 'infra/azure'
+
+jobs:
+  import-resource-group:
+    name: Import Resource Group
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      TF_WORKING_DIR: infra/azure
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+      - name: Write backend config
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
+
+      - name: Initialize Terraform
+        run: |
+          set -euo pipefail
+          echo "Inicializando Terraform com backend..."
+          terraform init -backend-config=backend.hcl
+
+      - name: Select Workspace
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment }}"
+          echo "Selecionando workspace: $ENV"
+          terraform workspace select "$ENV" || terraform workspace new "$ENV"
+          echo "Workspace atual: $(terraform workspace show)"
+
+      - name: Determine Resource Group Name
+        id: rg-name
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment }}"
+          INPUT_RG="${{ github.event.inputs.resource_group_name }}"
+          
+          if [ -n "$INPUT_RG" ]; then
+            RG_NAME="$INPUT_RG"
+          else
+            # Usar nome padrão baseado no ambiente
+            case "$ENV" in
+              staging)
+                RG_NAME="rg-ai-saas-staging"
+                ;;
+              prod)
+                RG_NAME="rg-ai-saas-prod"
+                ;;
+              poc-sky)
+                RG_NAME="rg-ai-saas-poc-sky"
+                ;;
+              *)
+                echo "ERRO: Environment inválido: $ENV"
+                exit 1
+                ;;
+            esac
+          fi
+          
+          echo "resource_group_name=$RG_NAME" >> $GITHUB_OUTPUT
+          echo "Resource Group: $RG_NAME"
+
+      - name: Verify Resource Group Exists
+        run: |
+          set -euo pipefail
+          RG_NAME="${{ steps.rg-name.outputs.resource_group_name }}"
+          
+          echo "Verificando se Resource Group existe no Azure..."
+          if ! az group show --name "$RG_NAME" --query id -o tsv > /dev/null 2>&1; then
+            echo "ERRO: Resource Group não existe no Azure: $RG_NAME"
+            echo "Não é possível importar um Resource Group que não existe."
+            exit 1
+          fi
+          
+          RG_ID=$(az group show --name "$RG_NAME" --query id -o tsv)
+          echo "✅ Resource Group encontrado: $RG_NAME"
+          echo "   ID: $RG_ID"
+
+      - name: Check if Already in State
+        id: check-state
+        run: |
+          set -euo pipefail
+          
+          if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+            echo "already_imported=true" >> $GITHUB_OUTPUT
+            echo "⚠️  Resource Group já está no estado do Terraform"
+            terraform state show azurerm_resource_group.main
+          else
+            echo "already_imported=false" >> $GITHUB_OUTPUT
+            echo "✅ Resource Group não está no estado (precisa importar)"
+          fi
+
+      - name: Import Resource Group
+        if: steps.check-state.outputs.already_imported != 'true'
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment }}"
+          RG_NAME="${{ steps.rg-name.outputs.resource_group_name }}"
+          SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+          RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}"
+          TFVARS_FILE="terraform.tfvars.${ENV}"
+          
+          echo "========================================"
+          echo "Importando Resource Group"
+          echo "========================================"
+          echo "Environment: $ENV"
+          echo "Resource Group: $RG_NAME"
+          echo "Resource ID: $RESOURCE_ID"
+          echo "Tfvars File: $TFVARS_FILE"
+          echo ""
+          
+          # Verificar se arquivo tfvars existe
+          if [ ! -f "$TFVARS_FILE" ]; then
+            echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
+            exit 1
+          fi
+          
+          # Construir argumentos de variáveis
+          VAR_ARGS=(-var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}")
+          
+          # Extrair variáveis do tfvars se necessário
+          ENVIRONMENT=$(grep "^environment" "$TFVARS_FILE" | head -1 | \
+            sed 's/.*= *"\([^"]*\)".*/\1/' | \
+            sed "s/.*= *'\([^']*\)'.*/\1/" | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          
+          if [ -n "$ENVIRONMENT" ]; then
+            VAR_ARGS+=(-var="environment=${ENVIRONMENT}")
+          fi
+          
+          if [ -n "$RG_NAME" ]; then
+            VAR_ARGS+=(-var="resource_group_name=${RG_NAME}")
+          fi
+          
+          VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" | head -1 | \
+            sed 's/.*= *"\([^"]*\)".*/\1/' | \
+            sed "s/.*= *'\([^']*\)'.*/\1/" | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          
+          if [ -n "$VM_NAME" ]; then
+            VAR_ARGS+=(-var="vm_name=${VM_NAME}")
+          fi
+          
+          echo "Executando terraform import..."
+          echo "Comando: terraform import ${VAR_ARGS[*]} azurerm_resource_group.main \"$RESOURCE_ID\""
+          echo ""
+          
+          terraform import \
+            "${VAR_ARGS[@]}" \
+            azurerm_resource_group.main "$RESOURCE_ID"
+          
+          IMPORT_EXIT_CODE=$?
+          
+          if [ $IMPORT_EXIT_CODE -ne 0 ]; then
+            echo "❌ ERRO: Falha ao importar Resource Group (exit code: $IMPORT_EXIT_CODE)"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Import realizado com sucesso!"
+
+      - name: Verify Import
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment }}"
+          SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
+          TFVARS_FILE="terraform.tfvars.${ENV}"
+          
+          echo "Verificando se Resource Group está no estado..."
+          if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+            echo "✅ Resource Group está no estado do Terraform"
+            echo ""
+            echo "Estado do Resource Group:"
+            terraform state show azurerm_resource_group.main
+          else
+            echo "❌ ERRO: Resource Group não está no estado após import"
+            exit 1
+          fi
+          
+          echo ""
+          echo "Verificando plan (não deve tentar criar Resource Group)..."
+          terraform plan \
+            -var-file="$TFVARS_FILE" \
+            -var="subscription_id=${SUBSCRIPTION_ID}" \
+            -no-color | grep -A 5 -B 5 "azurerm_resource_group.main" || echo "✅ Plan não tenta criar Resource Group (correto)"
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          ENV="${{ github.event.inputs.environment }}"
+          RG_NAME="${{ steps.rg-name.outputs.resource_group_name }}"
+          
+          echo ""
+          echo "========================================"
+          if [ "${{ steps.check-state.outputs.already_imported }}" = "true" ]; then
+            echo "✅ Resource Group já estava importado"
+          elif [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Import concluído com sucesso!"
+          else
+            echo "❌ Import falhou"
+          fi
+          echo "========================================"
+          echo ""
+          echo "Environment: $ENV"
+          echo "Resource Group: $RG_NAME"
+          echo ""
+          echo "Próximos passos:"
+          echo "1. O Resource Group está agora gerenciado pelo Terraform"
+          echo "2. O pipeline de deploy deve funcionar corretamente agora"
+          echo "3. Execute 'terraform plan' para verificar mudanças planejadas"
+
