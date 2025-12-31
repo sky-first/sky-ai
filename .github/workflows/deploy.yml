@@ -1827,13 +1827,14 @@ jobs:
           echo "Validando plan para mudanças destrutivas..."
           
           # Verificar se o plan contém mudanças destrutivas (delete)
-          DESTROY_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? == "delete")] | length' || echo "0")
+          # Ignorar null_resource pois são recursos efêmeros que são recriados frequentemente
+          DESTROY_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource")] | length' || echo "0")
           
           if [ "$DESTROY_COUNT" -gt 0 ]; then
             echo "ERRO: Plan contém $DESTROY_COUNT mudança(s) destrutiva(s)!"
             echo ""
             echo "Recursos que serão destruídos:"
-            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions[]? == "delete") | "  - \(.address) (\(.type))"' || true
+            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource") | "  - \(.address) (\(.type))"' || true
             echo ""
             
             # Se allow_destroy for false, falhar
@@ -1849,12 +1850,20 @@ jobs:
             echo "OK: Nenhuma mudança destrutiva detectada"
           fi
           
+          # Mostrar null_resources que serão recriados (apenas informativo)
+          NULL_RECREATE_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions | contains(["delete", "create"]) and .type == "null_resource")] | length' || echo "0")
+          if [ "$NULL_RECREATE_COUNT" -gt 0 ]; then
+            echo "INFO: $NULL_RECREATE_COUNT null_resource(s) serão recriados (comportamento esperado devido a triggers):"
+            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions | contains(["delete", "create"]) and .type == "null_resource") | "  - \(.address)"' || true
+          fi
+          
           # Verificar se há mudanças que requerem recriação (destroy + create)
-          RECREATE_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions | contains(["delete", "create"]))] | length' || echo "0")
+          # Ignorar null_resource na contagem de recriações críticas
+          RECREATE_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions | contains(["delete", "create"]) and .type != "null_resource")] | length' || echo "0")
           
           if [ "$RECREATE_COUNT" -gt 0 ]; then
             echo "WARNING: AVISO: Plan contém $RECREATE_COUNT recurso(s) que serão recriados (destroy + create)"
-            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions | contains(["delete", "create"])) | "  - \(.address) (\(.type))"' || true
+            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions | contains(["delete", "create"]) and .type != "null_resource") | "  - \(.address) (\(.type))"' || true
           fi
           
           # Contar total de mudanças
