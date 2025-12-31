@@ -82,6 +82,7 @@ resource "azurerm_monitor_metric_alert" "vm_memory_high" {
 
 # Alert: Disco quase cheio
 resource "azurerm_monitor_metric_alert" "vm_disk_high" {
+  count               = var.enable_experimental_vm_metric_alerts ? 1 : 0
   name                = "ai-saas-vm-disk-high-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_linux_virtual_machine.main.id]
@@ -110,6 +111,7 @@ resource "azurerm_monitor_metric_alert" "vm_disk_high" {
 
 # Alert: VM não disponível (status check failed)
 resource "azurerm_monitor_metric_alert" "vm_unavailable" {
+  count               = var.enable_experimental_vm_metric_alerts ? 1 : 0
   name                = "ai-saas-vm-unavailable-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_linux_virtual_machine.main.id]

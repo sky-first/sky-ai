@@ -38,7 +38,7 @@ output "workspace" {
 
 output "deploy_status" {
   description = "Status do deploy (sucesso se health_check foi executado)"
-  value       = null_resource.health_check != null ? "success" : "pending"
+  value       = length(null_resource.health_check) > 0 ? "success" : "pending"
   depends_on  = [null_resource.health_check]
 }
 

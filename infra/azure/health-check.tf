@@ -2,87 +2,47 @@
 # Verifica se todos os serviços estão funcionando corretamente após o deploy
 
 resource "null_resource" "health_check" {
+  count = var.enable_app_deploy ? 1 : 0
+
   depends_on = [null_resource.deploy_application]
 
   triggers = {
-    deploy_id = null_resource.deploy_application.id
+    deploy_id = try(null_resource.deploy_application[0].id, "")
   }
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Executando health check..."
-      
-      # Aguarda alguns segundos para os containers iniciarem
-      sleep 30
-      
-      # Executa health check na VM via Azure Run Command
-      az vm run-command invoke \
-        --resource-group ${azurerm_resource_group.main.name} \
-        --name ${azurerm_linux_virtual_machine.main.name} \
-        --command-id RunShellScript \
-        --scripts "
-          set -e
-          
-          echo 'Verificando containers Docker...'
-          
-          # Verifica se containers estão rodando (usar sudo se necessário)
-          if ! sudo docker ps | grep -q ai_saas_postgres; then
-            echo 'Container PostgreSQL não está rodando'
-            exit 1
-          fi
-          
-          if ! sudo docker ps | grep -q ai_saas_redis; then
-            echo 'Container Redis não está rodando'
-            exit 1
-          fi
-          
-          echo 'Containers Docker estão rodando'
-          
-          # Aguarda PostgreSQL estar pronto
-          echo 'Verificando PostgreSQL...'
-          for i in {1..30}; do
-            if sudo docker exec ai_saas_postgres_prod pg_isready -U postgres > /dev/null 2>&1; then
-              echo 'PostgreSQL está respondendo'
-              break
-            fi
-            if [ \$i -eq 30 ]; then
-              echo 'PostgreSQL não está respondendo após 30 tentativas'
-              exit 1
-            fi
-            sleep 2
-          done
-          
-          # Verifica Redis
-          echo 'Verificando Redis...'
-          if ! sudo docker exec ai_saas_redis_prod redis-cli ping | grep -q PONG; then
-            echo 'Redis não está respondendo'
-            exit 1
-          fi
-          echo 'Redis está respondendo'
-          
-          # Verifica Backend (se estiver rodando)
-          if sudo docker ps | grep -q ai_saas_backend; then
-            echo 'Verificando Backend...'
-            sleep 5
-            if curl -f -s http://localhost:8000/health > /dev/null 2>&1 || curl -f -s http://localhost:8000/api/health > /dev/null 2>&1; then
-              echo 'Backend está respondendo'
-            else
-              echo 'Backend pode não estar totalmente pronto, mas containers estão rodando'
-            fi
-          fi
-          
-          echo 'Health check concluído com sucesso!'
-        " \
-        --output json > /tmp/health-check-output.json 2>&1 || {
-          echo "Health check falhou"
-          cat /tmp/health-check-output.json
-          exit 1
-        }
-      
-      echo "Health check executado com sucesso"
-      cat /tmp/health-check-output.json | jq -r '.value[0].message' || cat /tmp/health-check-output.json
+      $rg = "${azurerm_resource_group.main.name}"
+      $vm = "${azurerm_linux_virtual_machine.main.name}"
+      Write-Host "Executando health check..."
+      Start-Sleep -Seconds 30
+
+      $azCmd = (Get-Command az).Source
+      $azPy = Join-Path (Split-Path $azCmd) "..\\python.exe"
+      if (!(Test-Path $azPy)) { throw "ERRO: python.exe do Azure CLI não encontrado em: $azPy" }
+
+      $scripts = @(
+        'set -eu',
+        'echo Verificando_containers_Docker',
+        'PG_CONT=$(sudo docker ps --format \"{{.Names}}\" | grep -Ei postgres | head -n 1 || true)',
+        'REDIS_CONT=$(sudo docker ps --format \"{{.Names}}\" | grep -Ei redis | head -n 1 || true)',
+        'if [ -z \"$PG_CONT\" ]; then echo ERRO_Postgres_nao_rodando; sudo docker ps -a || true; exit 1; fi',
+        'if [ -z \"$REDIS_CONT\" ]; then echo ERRO_Redis_nao_rodando; sudo docker ps -a || true; exit 1; fi',
+        'echo Containers_ok PG=$PG_CONT REDIS=$REDIS_CONT',
+        'echo Verificando_Postgres',
+        'i=1; while [ $i -le 30 ]; do if sudo docker exec \"$PG_CONT\" pg_isready -U postgres >/dev/null 2>&1; then echo Postgres_ok; break; fi; if [ $i -eq 30 ]; then echo ERRO_Postgres_timeout; exit 1; fi; i=$((i+1)); sleep 2; done',
+        'echo Verificando_Redis',
+        'OUT=$(sudo docker exec \"$REDIS_CONT\" redis-cli ping 2>/dev/null || true); echo redis_ping=$OUT; echo $OUT | grep -Eq \"PONG|NOAUTH\" || { echo ERRO_Redis; exit 1; }',
+        'echo Health_check_ok'
+      )
+
+      $out = & $azPy -m azure.cli vm run-command invoke -g $rg -n $vm --command-id RunShellScript --scripts $scripts -o json --only-show-errors
+      $msg = (ConvertFrom-Json $out).value[0].message
+      if ($msg -match '\\[stderr\\]\\s*\\S') { throw "ERRO: health-check na VM retornou stderr. Mensagem: $msg" }
+      Write-Host "Health check executado. Resultado:"
+      Write-Output $out
     EOT
 
-    interpreter = ["bash", "-c"]
+    interpreter = ["powershell", "-NoProfile", "-Command"]
   }
 }

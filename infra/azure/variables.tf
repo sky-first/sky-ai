@@ -52,7 +52,7 @@ variable "ssh_public_key" {
 
 # Permite alinhar com recursos legados já existentes no Azure (ex.: NIC criada manualmente/por versão antiga)
 variable "nic_name_override" {
-  description = "Override opcional do nome da Network Interface. Se vazio, usa o padrão ai-saas-nic-${environment}."
+  description = "Override opcional do nome da Network Interface. Se vazio, usa o padrão ai-saas-nic-<environment> (ex.: ai-saas-nic-staging)."
   type        = string
   default     = ""
 }
@@ -134,6 +134,12 @@ variable "git_branch" {
   default     = "main"
 }
 
+variable "enable_app_deploy" {
+  description = "Se true, executa deploy da aplicação (git clone + docker compose) e health check. Deixe false enquanto não houver credenciais de acesso aos repos privados."
+  type        = bool
+  default     = false
+}
+
 variable "github_repo" {
   description = "Repositório GitHub (formato: owner/repo)"
   type        = string
@@ -160,4 +166,12 @@ variable "alert_email" {
   type        = string
   default     = ""
   sensitive   = false
+}
+
+# Alguns alerts dependem de métricas/telemetria que podem não estar disponíveis
+# (por exemplo, métricas de disco/availability sem VM Insights/AMA).
+variable "enable_experimental_vm_metric_alerts" {
+  description = "Habilita alerts experimentais (ex.: disco livre/availability) que podem não existir em todas as subscriptions/VMs."
+  type        = bool
+  default     = false
 }

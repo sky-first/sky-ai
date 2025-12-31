@@ -2353,10 +2353,22 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -e
-              mkdir -p ~/projeto/poc-deploy || { echo '❌ Erro ao criar diretório'; exit 1; }
-              echo ${ENV_B64} | base64 -d > ~/projeto/poc-deploy/.env || { echo '❌ Erro ao escrever .env'; exit 1; }
-              chmod 600 ~/projeto/poc-deploy/.env || { echo '❌ Erro ao definir permissões do .env'; exit 1; }
+              set -eu
+              BASE=~/projeto
+              mkdir -p \"$BASE\" || { echo '❌ Erro ao criar diretório ~/projeto'; exit 1; }
+
+              # Detectar diretório da infra (compatível com legado)
+              INFRA_DIR=\"$BASE/sky-poc-infra\"
+              if [ -d \"$BASE/sky-poc-infra\" ]; then
+                INFRA_DIR=\"$BASE/sky-poc-infra\"
+              elif [ -d \"$BASE/poc-deploy\" ]; then
+                INFRA_DIR=\"$BASE/poc-deploy\"
+              else
+                mkdir -p \"$INFRA_DIR\" || { echo '❌ Erro ao criar diretório da infra'; exit 1; }
+              fi
+
+              echo ${ENV_B64} | base64 -d > \"$INFRA_DIR/.env\" || { echo '❌ Erro ao escrever .env'; exit 1; }
+              chmod 600 \"$INFRA_DIR/.env\" || { echo '❌ Erro ao definir permissões do .env'; exit 1; }
               echo 'OK: Arquivo .env criado com sucesso'
             " \
             --output json
@@ -2369,57 +2381,56 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -e
-              
-              ENV_FILE=~/projeto/poc-deploy/.env
-              
+              set -eu
+
+              BASE=~/projeto
+              INFRA_DIR=\"$BASE/sky-poc-infra\"
+              if [ -d \"$BASE/sky-poc-infra\" ]; then
+                INFRA_DIR=\"$BASE/sky-poc-infra\"
+              elif [ -d \"$BASE/poc-deploy\" ]; then
+                INFRA_DIR=\"$BASE/poc-deploy\"
+              fi
+
+              ENV_FILE=\"$INFRA_DIR/.env\"
               echo 'Validando arquivo .env na VM...'
-              
+
               if [ ! -f \"\$ENV_FILE\" ]; then
                 echo 'ERRO: Arquivo .env não encontrado'
-                echo 'Caminho esperado: \$ENV_FILE'
+                echo \"Caminho esperado: \$ENV_FILE\"
                 exit 1
               fi
-              
-              # Verificar se arquivo não está vazio
+
               if [ ! -s \"\$ENV_FILE\" ]; then
                 echo 'ERRO: Arquivo .env está vazio'
                 exit 1
               fi
-              
-              # Verificar permissões (deve ser 600)
+
               PERMS=\$(stat -c '%a' \"\$ENV_FILE\" 2>/dev/null || stat -f '%A' \"\$ENV_FILE\" 2>/dev/null || echo '')
               if [ \"\$PERMS\" != '600' ]; then
                 echo \"WARNING: Permissões do .env incorretas: \$PERMS (esperado: 600)\"
                 chmod 600 \"\$ENV_FILE\" || echo 'WARNING: Não foi possível corrigir permissões'
               fi
-              
-              # Verificar variáveis críticas
-              REQUIRED_VARS=(
-                'POSTGRES_PASSWORD'
-                'REDIS_PASSWORD'
-                'JWT_SECRET_KEY'
-                'ENCRYPTION_KEY'
-              )
-              
-              MISSING_VARS=()
-              for var in \"\${REQUIRED_VARS[@]}\"; do
-                if ! grep -q \"^${var}=\" \"\$ENV_FILE\"; then
-                  MISSING_VARS+=(\"\$var\")
+
+              MISSING=''
+              for var in POSTGRES_PASSWORD REDIS_PASSWORD JWT_SECRET_KEY ENCRYPTION_KEY; do
+                if ! grep -q \"^\$var=\" \"\$ENV_FILE\"; then
+                  MISSING=\"\$MISSING \$var\"
                 fi
               done
-              
-              if [ \${#MISSING_VARS[@]} -gt 0 ]; then
-                echo \"ERRO: Variáveis faltando no .env:\"
-                printf '  - %s\n' \"\${MISSING_VARS[@]}\"
-                echo \"\"
-                echo \"Conteúdo do .env (sem valores):\"
+
+              if [ -n \"\$MISSING\" ]; then
+                echo 'ERRO: Variáveis faltando no .env:'
+                for v in \$MISSING; do
+                  echo \"  - \$v\"
+                done
+                echo ''
+                echo 'Conteúdo do .env (sem valores):'
                 sed 's/=.*/=***/' \"\$ENV_FILE\" || true
                 exit 1
               fi
-              
+
               echo 'OK: Arquivo .env validado com sucesso'
-              echo \"Variáveis críticas encontradas: \${#REQUIRED_VARS[@]}\"
+              echo 'Variáveis críticas encontradas: 4'
             " \
             --output json
 
@@ -2481,11 +2492,12 @@ jobs:
                 fi
               fi
               
-              BACKEND_REPO=\${REPO_NAME/poc-deploy/backend}
-              BACKEND_REPO_URL="https://github.com/\${REPO_OWNER}/\${BACKEND_REPO}.git"
-              if [ -d backend ]; then
+              # IMPORTANTE: o docker-compose.yml referencia ../sky-poc-backend, ../sky-poc-frontend, ../sky-poc-ai
+              # Então os diretórios DEVEM ter esses nomes (para o build context funcionar).
+              BACKEND_REPO_URL="https://github.com/\${REPO_OWNER}/sky-poc-backend.git"
+              if [ -d sky-poc-backend ]; then
                 echo 'Updating backend repository...'
-                cd backend
+                cd sky-poc-backend
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
@@ -2507,7 +2519,7 @@ jobs:
                 # Validar branch antes de clonar
                 if git ls-remote --heads "\${BACKEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
                   echo "OK: Branch \${BRANCH} encontrada no backend, clonando..."
-                  git clone -b \${BRANCH} "\${BACKEND_REPO_URL}" backend || { echo "❌ Erro ao clonar repositório backend com branch \${BRANCH}"; exit 1; }
+                  git clone -b \${BRANCH} "\${BACKEND_REPO_URL}" sky-poc-backend || { echo "❌ Erro ao clonar repositório backend com branch \${BRANCH}"; exit 1; }
                 else
                   echo "ERRO: Branch \${BRANCH} não encontrada no repositório backend"
                   echo "URL do repositório: \${BACKEND_REPO_URL}"
@@ -2518,12 +2530,16 @@ jobs:
                   exit 1
                 fi
               fi
+
+              # Compatibilidade com runs antigos (se algum script ainda usa ./backend)
+              if [ ! -d backend ] && [ -d sky-poc-backend ]; then
+                ln -s sky-poc-backend backend 2>/dev/null || true
+              fi
               
-              FRONTEND_REPO=\${REPO_NAME/poc-deploy/frontend}
-              FRONTEND_REPO_URL="https://github.com/\${REPO_OWNER}/\${FRONTEND_REPO}.git"
-              if [ -d frontend ]; then
+              FRONTEND_REPO_URL="https://github.com/\${REPO_OWNER}/sky-poc-frontend.git"
+              if [ -d sky-poc-frontend ]; then
                 echo 'Updating frontend repository...'
-                cd frontend
+                cd sky-poc-frontend
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
@@ -2545,7 +2561,7 @@ jobs:
                 # Validar branch antes de clonar
                 if git ls-remote --heads "\${FRONTEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
                   echo "OK: Branch \${BRANCH} encontrada no frontend, clonando..."
-                  git clone -b \${BRANCH} "\${FRONTEND_REPO_URL}" frontend || { echo "❌ Erro ao clonar repositório frontend com branch \${BRANCH}"; exit 1; }
+                  git clone -b \${BRANCH} "\${FRONTEND_REPO_URL}" sky-poc-frontend || { echo "❌ Erro ao clonar repositório frontend com branch \${BRANCH}"; exit 1; }
                 else
                   echo "ERRO: Branch \${BRANCH} não encontrada no repositório frontend"
                   echo "URL do repositório: \${FRONTEND_REPO_URL}"
@@ -2556,12 +2572,15 @@ jobs:
                   exit 1
                 fi
               fi
+
+              if [ ! -d frontend ] && [ -d sky-poc-frontend ]; then
+                ln -s sky-poc-frontend frontend 2>/dev/null || true
+              fi
               
-              IA_REPO=\${REPO_NAME/poc-deploy/ia}
-              IA_REPO_URL="https://github.com/\${REPO_OWNER}/\${IA_REPO}.git"
-              if [ -d ia ]; then
+              IA_REPO_URL="https://github.com/\${REPO_OWNER}/sky-poc-ai.git"
+              if [ -d sky-poc-ai ]; then
                 echo 'Updating IA repository...'
-                cd ia
+                cd sky-poc-ai
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
@@ -2583,7 +2602,7 @@ jobs:
                 # Validar branch antes de clonar
                 if git ls-remote --heads "\${IA_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
                   echo "OK: Branch \${BRANCH} encontrada no IA, clonando..."
-                  git clone -b \${BRANCH} "\${IA_REPO_URL}" ia || { echo "❌ Erro ao clonar repositório IA com branch \${BRANCH}"; exit 1; }
+                  git clone -b \${BRANCH} "\${IA_REPO_URL}" sky-poc-ai || { echo "❌ Erro ao clonar repositório IA com branch \${BRANCH}"; exit 1; }
                 else
                   echo "ERRO: Branch \${BRANCH} não encontrada no repositório IA"
                   echo "URL do repositório: \${IA_REPO_URL}"
@@ -2593,6 +2612,10 @@ jobs:
                   echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
                   exit 1
                 fi
+              fi
+
+              if [ ! -d ia ] && [ -d sky-poc-ai ]; then
+                ln -s sky-poc-ai ia 2>/dev/null || true
               fi
               
               echo 'Code updated successfully'
@@ -2609,7 +2632,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -euo pipefail
+              set -eu
               
               echo 'Validando estrutura de diretórios...'
               
@@ -2643,6 +2666,20 @@ jobs:
                 echo '❌ ERRO: docker/nginx/nginx.conf não encontrado'
                 exit 1
               fi
+
+              # Validar build contexts referenciados pelo docker-compose.yml
+              if [ ! -d ../sky-poc-backend ]; then
+                echo '❌ ERRO: Diretório ../sky-poc-backend não encontrado (docker-compose.yml depende dele)'
+                exit 1
+              fi
+              if [ ! -d ../sky-poc-frontend ]; then
+                echo '❌ ERRO: Diretório ../sky-poc-frontend não encontrado (docker-compose.yml depende dele)'
+                exit 1
+              fi
+              if [ ! -d ../sky-poc-ai ]; then
+                echo '❌ ERRO: Diretório ../sky-poc-ai não encontrado (docker-compose.yml depende dele)'
+                exit 1
+              fi
               
               echo '✅ Todos os caminhos validados'
             " \
@@ -2655,7 +2692,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -euo pipefail
+              set -eu
               
               cd ~/projeto
               if [ -d poc-deploy ]; then

@@ -103,6 +103,24 @@ Este projeto usa **Azure** para hospedar a infraestrutura:
 - Documentação completa: [`infra/azure/README.md`](infra/azure/README.md)
 - Estado remoto Terraform: configure Azure Storage + container e informe os secrets no GitHub (`TF_BACKEND_RESOURCE_GROUP`, `TF_BACKEND_STORAGE_ACCOUNT`, `TF_BACKEND_CONTAINER`, `TF_BACKEND_KEY_PREFIX`). O workflow cria `backend.hcl` e usa lock no storage.
 
+#### Dry-run local (antes de rodar o workflow)
+
+Para pegar erros de `terraform init/validate/plan` antes do GitHub Actions, rode:
+
+```powershell
+# 1) Garanta que você está autenticado no Azure
+az login
+
+# 2) (Opcional, para testar igual ao CI com estado remoto) defina as variáveis do backend
+$env:TF_BACKEND_RESOURCE_GROUP  = "<rg-do-backend>"
+$env:TF_BACKEND_STORAGE_ACCOUNT = "<storage-account-do-backend>"
+$env:TF_BACKEND_CONTAINER       = "<container-do-backend>"   # ex: tfstate
+$env:TF_BACKEND_KEY_PREFIX      = "poc-deploy"               # opcional
+
+# 3) Rodar o dry-run (usa Terraform via Docker)
+.\scripts\run-terraform-ci-dryrun.ps1 -Environment staging -TerraformVersion 1.9.0
+```
+
 **Para começar:**
 
 **1. Instalar Azure CLI:**

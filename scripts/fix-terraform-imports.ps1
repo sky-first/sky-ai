@@ -52,8 +52,17 @@ $actionGroupExists = az monitor action-group show --resource-group $ResourceGrou
 if ($actionGroupExists) {
     Write-Host "Action Group existe no Azure: $ActionGroupName" -ForegroundColor Green
     
-    $stateCheck = terraform state show azurerm_monitor_action_group.main 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    # CRÍTICO: terraform state show retorna erro quando o recurso não existe no state.
+    # Em PowerShell com ErrorActionPreference=Stop isso pode virar erro terminante, então tratamos explicitamente.
+    $stateOk = $false
+    try {
+        terraform state show azurerm_monitor_action_group.main 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $stateOk = $true }
+    } catch {
+        $stateOk = $false
+    }
+
+    if ($stateOk) {
         Write-Host "✅ Action Group já está no estado do Terraform" -ForegroundColor Green
     } else {
         Write-Host "Importando Action Group..." -ForegroundColor Yellow
