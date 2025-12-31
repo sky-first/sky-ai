@@ -2172,24 +2172,6 @@ jobs:
           echo "Verifique os logs da VM e os containers Docker."
           exit 1
 
-      - name: Notify Team (Success)
-        if: success()
-        uses: ./.github/actions/notify
-        with:
-          status: success
-          environment: ${{ needs.detect-environment.outputs.environment }}
-          message: |
-            Deploy concluido com sucesso!
-            
-            *VM:* ${{ steps.outputs.vm_name }}
-            *IP:* ${{ steps.outputs.vm_ip }}
-            *Ambiente:* ${{ needs.detect-environment.outputs.environment }}
-            
-            *Links:*
-            • <http://${{ steps.outputs.vm_ip }}|Acessar Aplicação>
-            • <http://${{ steps.outputs.vm_ip }}/api/v1/health|Health Check>
-            • <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver Logs>
-
       - name: Show Terraform Outputs
         run: |
           echo "Terraform Outputs:" >> $GITHUB_STEP_SUMMARY
@@ -2802,44 +2784,6 @@ jobs:
               echo 'Containers restarted'
             " \
             --output json
-
-      - name: Notify Team (Success)
-        if: success()
-        uses: ./.github/actions/notify
-        with:
-          status: success
-          environment: ${{ needs.detect-environment.outputs.environment }}
-          message: |
-            Deploy completo concluido com sucesso!
-            
-            *VM:* ${{ steps.vm-info.outputs.vm_name }}
-            *IP:* ${{ steps.vm-info.outputs.vm_ip }}
-            *Ambiente:* ${{ needs.detect-environment.outputs.environment }}
-            
-            *Links:*
-            • <http://${{ steps.vm-info.outputs.vm_ip }}|Acessar Aplicação>
-            • <http://${{ steps.vm-info.outputs.vm_ip }}/api/v1/health|Health Check>
-            • <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver Logs>
-
-  notify-failure:
-    name: Notify Team (Failure)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [detect-environment, terraform-apply, update-vm-code]
-    if: failure()
-    steps:
-      - name: Notify Team
-        uses: ./.github/actions/notify
-        with:
-          status: failure
-          environment: ${{ needs.detect-environment.outputs.environment }}
-          message: |
-            ERRO: Deploy falhou!
-            
-            *Ambiente:* ${{ needs.detect-environment.outputs.environment }}
-            *Branch:* ${{ needs.detect-environment.outputs.branch }}
-            
-            Verifique os logs do workflow para mais detalhes.
 
   rollback:
     name: Rollback on Failure
