@@ -3,7 +3,7 @@
 # Validação completa e minuciosa antes do deploy local
 # Revisa: estrutura, docker compose, variáveis, health checks, configurações
 
-set -e
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

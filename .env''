@@ -1,0 +1,48 @@
+# ============================================
+# CONFIGURAÇÃO DE AMBIENTE
+# ============================================
+# IMPORTANTE: Para ambiente LOCAL, use:
+#   - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+#   - CORS_ORIGINS=http://localhost:3000,http://localhost
+#
+# Para PRODUÇÃO (VM), use:
+#   - NEXT_PUBLIC_API_URL=http://172.191.77.30/api/v1
+#   - CORS_ORIGINS=http://172.191.77.30:3000,http://172.191.77.30,http://localhost:3000,http://localhost
+# ============================================
+
+# Database
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=df5EQKEPs6o425ZiCzZyr3mluSEjLV2MWjUZ0x4pAEc=
+POSTGRES_DB=ai_saas_db
+POSTGRES_PORT=5433
+
+# Redis
+REDIS_PASSWORD=4H5HuhpdXS+1AkYO+p3V9bC0QUczeWVG1+xwDttZZNM=
+REDIS_PORT=6379
+
+# Backend
+BACKEND_PORT=8000
+# CRÍTICO: SSL/TLS habilitado para segurança
+# Use ?sslmode=require para forçar conexão criptografada
+DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
+JWT_SECRET_KEY=0da5e6902aefd59d6873785d162f457ccd9622cd921cff2005188ef158c022c4
+ENCRYPTION_KEY=generate_another_secure_key_here
+DEBUG=false
+
+# CORS - Configure conforme ambiente
+# CRÍTICO: NUNCA use "*" ou "0.0.0.0" - isso permite qualquer origem (vulnerabilidade)
+# LOCAL: http://localhost:3000,http://localhost
+# PRODUÇÃO: inclua apenas origens específicas e confiáveis
+# Exemplo: CORS_ORIGINS=http://seu-dominio.com,https://seu-dominio.com,http://localhost:3000
+# PRODUÇÃO (exemplo): http://172.191.77.30:3000,http://172.191.77.30,http://localhost:3000,http://localhost
+CORS_ORIGINS=http://localhost:3000,http://localhost
+
+SENTRY_DSN=
+
+# Frontend
+FRONTEND_PORT=3000
+# IMPORTANTE: Configure conforme ambiente
+# LOCAL: http://localhost:8000/api/v1
+# PRODUÇÃO: http://172.191.77.30/api/v1
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+

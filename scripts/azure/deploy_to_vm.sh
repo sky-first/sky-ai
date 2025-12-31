@@ -3,7 +3,7 @@
 # Script para copiar o projeto poc-deploy para a VM do Azure
 # Execute este script do seu computador local
 
-set -e
+set -eu
 
 # Obter IP da VM automaticamente do Terraform
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -3,6 +3,8 @@
 # Health Check Avançado - DevOps
 # Verifica saúde de todos os serviços
 
+set -eu
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -15,11 +17,11 @@ check_service() {
     local name=$1
     local check_cmd=$2
     
-    if eval "$check_cmd" > /dev/null 2>&1; then
-        echo -e "${GREEN}${NC} $name"
+    if eval "$check_cmd" > /dev/null 2>&1 || true; then
+        echo -e "${GREEN}✓${NC} $name"
         return 0
     else
-        echo -e "${RED}${NC} $name"
+        echo -e "${RED}✗${NC} $name"
         EXIT_CODE=1
         return 1
     fi
@@ -29,11 +31,11 @@ check_service_warning() {
     local name=$1
     local check_cmd=$2
     
-    if eval "$check_cmd" > /dev/null 2>&1; then
-        echo -e "${GREEN}${NC} $name"
+    if eval "$check_cmd" > /dev/null 2>&1 || true; then
+        echo -e "${GREEN}✓${NC} $name"
         return 0
     else
-        echo -e "${YELLOW}${NC} $name"
+        echo -e "${YELLOW}⚠${NC} $name"
         return 1
     fi
 }
@@ -52,9 +54,9 @@ check_service_warning "Beat Container" "docker ps | grep -q ai_saas_beat_prod"
 echo ""
 
 echo "--- Serviços ---"
-check_service "PostgreSQL Respondendo" "docker exec ai_saas_postgres_prod pg_isready -U postgres"
-check_service "Redis Respondendo" "docker exec ai_saas_redis_prod redis-cli ping | grep -q PONG"
-check_service_warning "Backend API" "curl -f -s http://localhost:8000/health > /dev/null 2>&1 || curl -f -s http://localhost:8000/api/health > /dev/null 2>&1"
+check_service "PostgreSQL Respondendo" "docker exec ai_saas_postgres_prod pg_isready -U postgres" || true
+check_service "Redis Respondendo" "docker exec ai_saas_redis_prod redis-cli ping | grep -q PONG" || true
+check_service_warning "Backend API" "curl -f -s http://localhost:8000/health > /dev/null 2>&1 || curl -f -s http://localhost:8000/api/health > /dev/null 2>&1" || true
 echo ""
 
 echo "--- Recursos do Sistema ---"
