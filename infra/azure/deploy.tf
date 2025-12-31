@@ -32,7 +32,7 @@ resource "null_resource" "deploy_application" {
         'set -eu',
         'BRANCH=${var.git_branch}',
         'INFRA_REPO=${var.github_repo != "" ? var.github_repo : "sky-first/sky-poc-infra"}',
-        'OWNER=${INFRA_REPO%%/*}',
+        'OWNER=${split("/", var.github_repo != "" ? var.github_repo : "sky-first/sky-poc-infra")[0]}',
         'PROJ_DIR=/home/${var.admin_username}/projeto',
         'sudo mkdir -p $PROJ_DIR',
         'sudo chown -R ${var.admin_username}:${var.admin_username} $PROJ_DIR || true',
