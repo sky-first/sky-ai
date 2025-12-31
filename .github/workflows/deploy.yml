@@ -271,9 +271,10 @@ jobs:
           if [ -n "$LOCK_INFO" ]; then
             # Tentar calcular idade do lock (pode falhar em alguns sistemas)
             LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_INFO" +%s 2>/dev/null || echo 0)))
-            # Se lock tem mais de 1 hora, considerar preso
-            if [ "$LOCK_AGE" -gt 3600 ] 2>/dev/null; then
-              echo "WARNING: WARNING: Lock preso detectado (idade: ${LOCK_AGE}s)"
+            # Se lock tem mais de 10 minutos, considerar preso (reduzido de 1 hora)
+            # Locks de workflows que falharam geralmente ficam presos
+            if [ "$LOCK_AGE" -gt 600 ] 2>/dev/null; then
+              echo "WARNING: Lock preso detectado (idade: ${LOCK_AGE}s, mais de 10 minutos)"
               echo "Removendo lock preso..."
               az storage blob delete \
                 --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
@@ -281,9 +282,10 @@ jobs:
                 --name ".terraform.tfstate.lock.info" \
                 --auth-mode login \
                 --output none 2>/dev/null || echo "Não foi possível remover lock"
+              echo "✅ Lock removido"
             else
-              echo "INFO: Lock ativo detectado (idade: ${LOCK_AGE}s) - aguardando..."
-              echo "Se o lock persistir, verifique se há outro deploy em andamento"
+              echo "INFO: Lock ativo detectado (idade: ${LOCK_AGE}s) - pode ser de outro workflow em execução"
+              echo "Se o lock persistir e bloquear este workflow, ele será removido antes do plan"
             fi
           else
             echo "OK: Nenhum lock detectado"
@@ -988,6 +990,43 @@ jobs:
             fi
           fi
           
+          # Verificar e remover lock antes do plan (se necessário)
+          echo "Verificando lock antes de executar terraform plan..."
+          LOCK_BLOB=".terraform.tfstate.lock.info"
+          if az storage blob exists \
+            --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+            --container-name "${TF_BACKEND_CONTAINER}" \
+            --name "$LOCK_BLOB" \
+            --auth-mode login \
+            --query "exists" -o tsv 2>/dev/null | grep -q "true"; then
+            echo "⚠️  Lock detectado antes do plan. Verificando idade..."
+            LOCK_MODIFIED=$(az storage blob show \
+              --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+              --container-name "${TF_BACKEND_CONTAINER}" \
+              --name "$LOCK_BLOB" \
+              --auth-mode login \
+              --query "properties.lastModified" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$LOCK_MODIFIED" ]; then
+              LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_MODIFIED" +%s 2>/dev/null || echo 0)))
+              # Se lock tem mais de 5 minutos, remover (pode ser de workflow anterior que falhou)
+              if [ "$LOCK_AGE" -gt 300 ] 2>/dev/null; then
+                echo "⚠️  Removendo lock preso (idade: ${LOCK_AGE}s, mais de 5 minutos)..."
+                az storage blob delete \
+                  --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+                  --container-name "${TF_BACKEND_CONTAINER}" \
+                  --name "$LOCK_BLOB" \
+                  --auth-mode login \
+                  --output none 2>/dev/null && echo "✅ Lock removido" || echo "⚠️  Não foi possível remover lock"
+              else
+                echo "INFO: Lock recente (idade: ${LOCK_AGE}s) - pode ser de outro workflow ativo"
+                echo "Tentando executar plan mesmo assim (pode falhar se lock estiver ativo)..."
+              fi
+            fi
+          else
+            echo "✅ Nenhum lock detectado"
+          fi
+          
           # Executar terraform plan com detailed-exitcode
           # Exit codes: 0 = sem mudanças, 1 = erro, 2 = há mudanças (esperado)
           set +e  # Desabilitar exit on error temporariamente
@@ -999,11 +1038,43 @@ jobs:
             -detailed-exitcode 2>&1 | tee plan-output.txt
           
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          PLAN_OUTPUT=$(cat plan-output.txt || echo "")
           set -e  # Reabilitar exit on error
+          
+          # Verificar se o erro foi devido a lock
+          if [ $PLAN_EXIT_CODE -eq 1 ] && echo "$PLAN_OUTPUT" | grep -qi "state lock\|already locked"; then
+            echo "⚠️  ERRO: Terraform plan falhou devido a lock do estado"
+            echo "Tentando remover lock e executar novamente..."
+            
+            # Remover lock forçadamente
+            az storage blob delete \
+              --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+              --container-name "${TF_BACKEND_CONTAINER}" \
+              --name ".terraform.tfstate.lock.info" \
+              --auth-mode login \
+              --output none 2>/dev/null && echo "✅ Lock removido" || echo "⚠️  Não foi possível remover lock"
+            
+            # Aguardar um pouco antes de tentar novamente
+            sleep 5
+            
+            # Tentar plan novamente
+            echo "Tentando terraform plan novamente após remover lock..."
+            set +e
+            terraform plan \
+              -var-file="$TFVARS_FILE" \
+              -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+              -out=tfplan \
+              -no-color \
+              -detailed-exitcode 2>&1 | tee plan-output.txt
+            PLAN_EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+          fi
           
           # Tratar exit codes
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
             echo "ERRO: Terraform plan failed"
+            echo "Últimas linhas do output:"
+            tail -50 plan-output.txt || echo "(não foi possível ler output)"
             exit 1
           elif [ $PLAN_EXIT_CODE -eq 2 ]; then
             echo "OK: Terraform plan gerado com sucesso (há mudanças planejadas)"
