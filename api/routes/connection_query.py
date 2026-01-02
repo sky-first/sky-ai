@@ -2342,6 +2342,13 @@ async def validate_sql(
         # Executar SQL com LIMIT 5 para preview
         sql = body.sql.strip().rstrip(';')
         
+        # Validar que SQL não está vazio após strip
+        if not sql:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error="SQL não pode ser vazio"
+            )
+        
         # Adicionar LIMIT se não existir (para evitar queries muito grandes)
         sql_upper = sql.upper()
         if "LIMIT" not in sql_upper:

@@ -301,7 +301,7 @@ class ValidateSQLRequest(BaseModel):
     """Request para validar SQL."""
     user_id: str = Field(..., description="ID do usuário.")
     space_id: str = Field(..., description="Space atual.")
-    sql: str = Field(..., description="SQL a ser validado.")
+    sql: str = Field(..., min_length=1, description="SQL a ser validado (não pode ser vazio).")
     crew_ids: Optional[List[str]] = Field(
         default=None, description="Lista de crews aos quais o usuário pertence."
     )
