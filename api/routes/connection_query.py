@@ -724,14 +724,68 @@ async def chat_bootstrap(
         "- Ensure suggestions will return meaningful data when executed.\n"
     )
 
+    # Calcular seed baseado em janela de 15 minutos para variação estável
+    # Usa timestamp dividido por 15 minutos (900 segundos) para criar janelas estáveis
+    current_time = datetime.now()
+    time_window_15min = int(current_time.timestamp() // 900)  # Janela de 15 minutos
+    
+    # Combinar com hash do schema para mais estabilidade e variação entre conexões
+    schema_hash = hashlib.md5(schema_summary.encode()).hexdigest()
+    combined_seed = f"{connection_id}_{schema_hash}_{time_window_15min}"
+    variation_seed = int(hashlib.md5(combined_seed.encode()).hexdigest()[:8], 16) % 6
+    
+    # Mapear seed para diferentes ênfases que rotacionam a cada 15 minutos
+    emphasis_hints = [
+        "Focus on performance metrics and KPIs (revenue, sales, growth rates, efficiency, profitability, ROI).",
+        "Focus on comparative analysis (compare performance across regions, products, customer segments, categories).",
+        "Focus on distributions and patterns (how data is spread, identify top/bottom performers, outliers).",
+        "Focus on relationships and correlations (connections between different entities, cause-effect analysis).",
+        "Focus on segmentation and grouping (breakdowns by dimensions like customer type, product category, cohorts).",
+        "Focus on aggregations and summaries (totals, averages, percentages, counts, ratios, trends).",
+    ]
+    
+    current_emphasis = emphasis_hints[variation_seed]
+
     user = (
         f"N={max(1, body.max_suggestions - 1)}\n"
         f"User has access to {len(tables)} tables (filtered by permissions). Schema (sample):\n"
         f"{schema_summary}\n\n"
         f"Context: {mode_context}\n\n"
-        "Generate greeting + suggestions based ONLY on the accessible tables shown above.\n"
+        "Generate greeting + STRATEGIC BUSINESS QUESTIONS based ONLY on the accessible tables shown above.\n"
+        "\n"
+        f"Current emphasis (to add variety): {current_emphasis}\n"
+        "But ensure you include a DIVERSE MIX of different question types and business perspectives.\n"
+        "\n"
+        "CRITICAL: Generate questions that:\n"
+        "- Focus on BUSINESS METRICS (revenue, profit, value, amounts, totals, averages)\n"
+        "- Enable PERFORMANCE ANALYSIS (top performers, rankings, comparisons)\n"
+        "- Reveal PATTERNS (distributions, concentrations, correlations, relationships)\n"
+        "- Support DECISION-MAKING (segmentation, optimization, opportunity identification)\n"
+        "- Provide ACTIONABLE INSIGHTS (specific, measurable, relevant to business goals)\n"
+        "\n"
+        "VARY the questions across:\n"
+        "- Question structures: 'What are...', 'Which...', 'How is...', 'What percentage...', 'Compare...'\n"
+        "- Business dimensions: customers, products, regions, categories, segments, types, statuses\n"
+        "- Analysis methods: top N, average, total, percentage, distribution, correlation, comparison\n"
+        "- Business metrics: revenue, sales, payments, credits, invoices, amounts, values, totals\n"
+        "\n"
+        "FORBIDDEN: Do NOT generate questions about:\n"
+        "- Data structure, tables, columns, or schema\n"
+        "- Generic exploration ('What data...', 'Which tables...', 'What columns...')\n"
+        "- Examples or meta-questions\n"
+        "\n"
+        "REQUIRED: Each question must:\n"
+        "- Be about BUSINESS PERFORMANCE or METRICS\n"
+        "- Use the actual column names from the schema (but phrase naturally)\n"
+        "- Return meaningful business insights when executed\n"
+        "- Be unique and non-repetitive\n"
+        "- Avoid time-based filters that might return no data\n"
+        "\n"
         "IMPORTANT: Generate questions that will return data - avoid specific time filters like 'this month', 'last month', 'recent', 'upcoming', 'pending'.\n"
-        "Prefer general questions about trends, summaries, aggregations, and overall analysis."
+        "Prefer general business questions about trends, summaries, aggregations, distributions, and overall business analysis.\n"
+        "\n"
+        "Think like a C-level executive asking their data team: 'What should I know about my business performance?'\n"
+        "Generate questions that a business leader would actually ask to make strategic decisions."
     )
 
     try:
@@ -872,7 +926,7 @@ async def chat_bootstrap(
             suggestions = suggestions[: body.max_suggestions]
         while len(suggestions) < body.max_suggestions:
             suggestions.append(
-                ChatBootstrapSuggestion(title="Example", kind="question", question=(suggestions[-1].question or "Show me something interesting from my data."))
+                ChatBootstrapSuggestion(title="Example", kind="question", question=(suggestions[-1].question if suggestions else "Show me something interesting from my data."))
             )
 
         # ✅ VERIFICAÇÃO FINAL: Garantir que o card está presente antes de criar a resposta
