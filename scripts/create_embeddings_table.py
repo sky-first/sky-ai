@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Cria a tabela embeddings no banco PostgreSQL"""
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
 import os
+import sys
+from dotenv import load_dotenv
 
 load_dotenv()
-engine = create_engine(os.getenv('DATABASE_URL'), future=True)
+
+# Adicionar o diretório raiz do projeto ao PYTHONPATH
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from sqlalchemy import text
+from db.base import engine
 
 # Verificar se pgvector está disponível
 pgvector_available = False
@@ -28,7 +35,21 @@ with engine.begin() as conn:
         
         if pgvector_available:
             # Com pgvector - tipo vector disponível
-            conn.execute(text("""
+            # Verificar se table_metadata existe antes de criar FK
+            check_meta = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'table_metadata'
+                )
+            """))
+            has_table_metadata = check_meta.scalar()
+            
+            fk_table_metadata = ""
+            if has_table_metadata:
+                fk_table_metadata = ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
+            
+            conn.execute(text(f"""
                 CREATE TABLE embeddings (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     space_id UUID NOT NULL,
@@ -42,14 +63,28 @@ with engine.begin() as conn:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     FOREIGN KEY(space_id) REFERENCES spaces(id),
                     FOREIGN KEY(crew_id) REFERENCES crews(id),
-                    FOREIGN KEY(user_id) REFERENCES users(id),
-                    FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                    {fk_table_metadata}
                 )
             """))
             print("✅ Tabela embeddings criada com suporte a busca vetorial!")
         else:
             # Sem pgvector - usar JSONB temporariamente
-            conn.execute(text("""
+            # Verificar se table_metadata existe antes de criar FK
+            check_meta = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'table_metadata'
+                )
+            """))
+            has_table_metadata = check_meta.scalar()
+            
+            fk_table_metadata = ""
+            if has_table_metadata:
+                fk_table_metadata = ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
+            
+            conn.execute(text(f"""
                 CREATE TABLE embeddings (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     space_id UUID NOT NULL,
@@ -63,8 +98,8 @@ with engine.begin() as conn:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     FOREIGN KEY(space_id) REFERENCES spaces(id),
                     FOREIGN KEY(crew_id) REFERENCES crews(id),
-                    FOREIGN KEY(user_id) REFERENCES users(id),
-                    FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                    {fk_table_metadata}
                 )
             """))
             print("✅ Tabela embeddings criada (sem busca vetorial - pgvector não disponível)")

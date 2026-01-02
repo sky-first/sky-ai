@@ -166,6 +166,14 @@ def run_specialist(
         len(chosen_tables_logical) > 1
     )
     
+    # Detectar se a pergunta requer agregação/temporal (antes de determinar modo)
+    requires_aggregation = any(term in question.lower() for term in [
+        "performance", "desempenho", "métrica", "total", "soma", "média", "média", 
+        "contagem", "count", "sum", "avg", "máximo", "mínimo", "max", "min",
+        "mensal", "monthly", "anual", "yearly", "diário", "daily", "por mês", "por ano",
+        "distribuição", "distribution", "agrupar", "group", "agrupado", "grouped"
+    ])
+    
     if use_multiple_tables:
         # Modo JOIN: múltiplas tabelas
         tables = [
@@ -187,16 +195,6 @@ def run_specialist(
         
         schema_text = _build_multiple_schemas_text(tables, join_relationships)
         primary_table = tables[0]  # primeira tabela é a principal (FROM)
-        
-        # Se não há join_relationships explícitos, adicionar instrução para o LLM inferir
-        join_guidance = ""
-        if not join_relationships:
-            join_guidance = (
-                "\n\nIMPORTANT: No explicit JOIN relationships were provided, but you should "
-                "try to infer relationships based on column names (e.g., user_id, customer_id, "
-                "order_id typically reference id columns in other tables). "
-                "Look for columns ending in '_id' that might reference other tables."
-            )
         
     else:
         # Modo tabela única (comportamento original)
@@ -243,6 +241,24 @@ def run_specialist(
             f"{sql_instructions}\n"
         )
     
+    # Preparar orientações de agregação (comum para ambos os modos)
+    aggregation_guidance = ""
+    if requires_aggregation:
+        aggregation_guidance = (
+            "\n\nIMPORTANT INTERPRETATION GUIDANCE:\n"
+            "- Questions about 'performance', 'metrics', 'monthly', 'yearly', or 'distribution' "
+            "typically require aggregation (SUM, COUNT, AVG, etc.) and GROUP BY.\n"
+            "- Look for date/month/year columns in the schema(s) to group by.\n"
+            "- For 'monthly performance', use GROUP BY with month/year columns and aggregate "
+            "relevant numeric columns (amounts, counts, etc.).\n"
+            "- DO NOT just return all rows with LIMIT - always aggregate when the question "
+            "asks for metrics, totals, or temporal analysis.\n"
+            "- Examples:\n"
+            "  * 'performance mensal' → GROUP BY month/year, aggregate amounts/counts\n"
+            "  * 'total por categoria' → GROUP BY category, SUM amounts\n"
+            "  * 'distribuição' → GROUP BY relevant dimension, COUNT or SUM\n"
+        )
+    
     if use_multiple_tables:
         # Modo JOIN: instruções para múltiplas tabelas
         physical_names = [t.physical_name for t in tables]
@@ -270,6 +286,9 @@ def run_specialist(
                 + ("- Use the JOIN relationships provided to connect the tables.\n" if join_relationships else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n")
                 + "- Use ONLY existing columns from the schemas.\n"
                 "- The query MUST be a single SELECT statement with JOINs.\n"
+                "- When the question asks for metrics, totals, performance, or temporal analysis, "
+                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
                 "- DO NOT modify data (no INSERT/UPDATE/DELETE/etc.).\n"
                 "- If the question cannot be answered with these tables and the provided context, "
                 "  respond with exactly:\n"
@@ -285,6 +304,7 @@ def run_specialist(
                 f"{context_block}"
                 f"{sql_instructions_block}"
                 f"{join_guidance}"
+                f"{aggregation_guidance}"
                 "Generate only the SQL query with JOINs (or IMPOSSIBLE: <reason>)."
             ),
         }
@@ -302,6 +322,9 @@ def run_specialist(
                 "- Use ONLY existing columns from the schema.\n"
                 "- The query MUST be a single SELECT statement.\n"
                 "- DO NOT modify data (no INSERT/UPDATE/DELETE/etc.).\n"
+                "- When the question asks for metrics, totals, performance, or temporal analysis, "
+                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
                 "- If the question cannot be answered with this table and the provided context, "
                 "  respond with exactly:\n"
                 "  IMPOSSIBLE: <short explanation>\n"
@@ -315,6 +338,7 @@ def run_specialist(
                 f"Table schema:\n{schema_text}\n"
                 f"{context_block}"
                 f"{sql_instructions_block}"
+                f"{aggregation_guidance}"
                 "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
             ),
         }

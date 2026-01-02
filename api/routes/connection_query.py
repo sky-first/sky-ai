@@ -16,7 +16,7 @@ from sqlalchemy import text, create_engine
 import os
 import json
 import asyncio
-import hashlib
+import time
 from typing import AsyncGenerator
 
 from api.schemas import (
@@ -29,6 +29,8 @@ from api.schemas import (
     DashboardPlanRequest,
     DashboardPlanResponse,
     DashboardPlanWidget,
+    ValidateSQLRequest,
+    ValidateSQLResponse,
 )
 from core.agents.generic_sql_agent import AgentConfig, TableSchema, run_agent_once
 from core.agents.davinci_dashboard_agent import generate_dashboard_plan
@@ -2331,3 +2333,137 @@ async def query_connection_stream(
             "X-Accel-Buffering": "no",  # Desabilita buffering no nginx
         }
     )
+
+
+@router.post("/{connection_id}/validate-sql", response_model=ValidateSQLResponse)
+async def validate_sql(
+    connection_id: str,
+    body: ValidateSQLRequest,
+    db: Session = Depends(get_db),
+) -> ValidateSQLResponse:
+    """
+    Valida SQL executando uma query de teste (LIMIT 5).
+    Útil para validar SQL antes de aplicar em widgets.
+    """
+    
+    try:
+        # Verificar se conexão existe
+        conn_result = db.execute(
+            text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
+            {"id": connection_id}
+        ).first()
+        
+        if not conn_result:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error="Conexão não encontrada"
+            )
+        
+        # Criar DataSource
+        conn_config = conn_result[3]
+        if isinstance(conn_config, str):
+            try:
+                conn_config = json.loads(conn_config)
+            except json.JSONDecodeError:
+                conn_config = {}
+        elif conn_config is None:
+            conn_config = {}
+        elif not isinstance(conn_config, dict):
+            conn_config = {}
+        
+        class TempDataConnection:
+            def __init__(self, id, name, type, config):
+                self.id = id
+                self.name = name
+                self.type = type
+                self.config = config
+        
+        data_conn = TempDataConnection(
+            id=str(conn_result[0]),
+            name=conn_result[1],
+            type=conn_result[2] or "bigquery",
+            config=conn_config
+        )
+        
+        try:
+            data_source = DataSourceFactory.build_from_dataconnection(data_conn)
+        except Exception as e:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error=f"Erro ao criar DataSource: {str(e)}"
+            )
+        
+        # Executar SQL com LIMIT 5 para preview
+        sql = body.sql.strip().rstrip(';')
+        
+        # Validar que SQL não está vazio após strip
+        if not sql:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error="SQL não pode ser vazio"
+            )
+        
+        # Adicionar LIMIT se não existir (para evitar queries muito grandes)
+        sql_upper = sql.upper()
+        if "LIMIT" not in sql_upper:
+            sql_with_limit = f"{sql} LIMIT 5"
+        else:
+            # Se já tem LIMIT, usar como está (mas pode ser limitado pelo DataSource)
+            sql_with_limit = sql
+        
+        # Executar query
+        start_time = time.time()
+        try:
+            data = data_source.run_query(sql_with_limit)
+            execution_time_ms = (time.time() - start_time) * 1000
+            
+            # Extrair colunas se houver dados
+            columns = None
+            if data and len(data) > 0 and isinstance(data[0], dict):
+                columns = list(data[0].keys())
+            
+            log_event(
+                "validate_sql_success",
+                {
+                    "connection_id": connection_id,
+                    "sql_preview": sql[:200],
+                    "num_rows": len(data),
+                    "execution_time_ms": execution_time_ms,
+                },
+            )
+            
+            return ValidateSQLResponse(
+                is_valid=True,
+                preview_data=data[:5],  # Máximo 5 linhas
+                num_rows=len(data),
+                execution_time_ms=execution_time_ms,
+                columns=columns
+            )
+        except Exception as e:
+            error_msg = str(e)[:500]
+            log_event(
+                "validate_sql_error",
+                {
+                    "connection_id": connection_id,
+                    "sql_preview": sql[:200],
+                    "error": error_msg,
+                },
+            )
+            return ValidateSQLResponse(
+                is_valid=False,
+                error=error_msg
+            )
+        
+    except Exception as e:
+        error_msg = str(e)[:500]
+        log_event(
+            "validate_sql_unexpected_error",
+            {
+                "connection_id": connection_id,
+                "error": error_msg,
+            },
+        )
+        return ValidateSQLResponse(
+            is_valid=False,
+            error=f"Erro inesperado: {error_msg}"
+        )
