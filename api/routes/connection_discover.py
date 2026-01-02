@@ -95,35 +95,125 @@ async def discover_tables(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     run_in_background: bool = False,
+    auto_generate_embeddings: bool = True,  # Novo parâmetro: gerar embeddings automaticamente
 ) -> dict:
     """
     Descobre automaticamente todas as tabelas de uma DataConnection.
+    Por padrão, também gera embeddings automaticamente após descobrir os metadados.
     
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter)
     - run_in_background: Se True, executa em background (default: False)
+    - auto_generate_embeddings: Se True, gera embeddings automaticamente após descobrir (default: True)
     
     Retorna:
     - metadata_rows_inserted: Número de colunas de metadados inseridas
     - tables_discovered: Número de tabelas descobertas
+    - embeddings_created: Número de embeddings criados (se auto_generate_embeddings=True)
     
     Exemplo:
-    POST /connections/{connection_id}/discover?space_id=xxx
+    POST /connections/{connection_id}/discover?space_id=xxx&auto_generate_embeddings=true
     """
     try:
+        from core.ingestion.service import run_metadata_ingestion, run_metadata_embeddings
+        from core.llm.factory import create_embedding_provider
+        
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
-            background_tasks.add_task(_discover_tables_sync, connection_id=connection_id)
+            def _discover_and_embed():
+                from db.session import SessionLocal as BackgroundSessionLocal
+                bg_db = BackgroundSessionLocal()
+                try:
+                    _discover_tables_sync(connection_id=connection_id)
+                    if auto_generate_embeddings:
+                        try:
+                            # Ingerir metadados na tabela table_metadata (se necessário)
+                            run_metadata_ingestion(
+                                db=bg_db,
+                                space_id=space_id,
+                                connection_id=connection_id,
+                                crew_id=None,
+                            )
+                            # Gerar embeddings
+                            embedding_provider = create_embedding_provider()
+                            run_metadata_embeddings(
+                                db=bg_db,
+                                space_id=space_id,
+                                connection_id=connection_id,
+                                crew_id=None,
+                                embedding_provider=embedding_provider,
+                            )
+                        except Exception as e:
+                            log_event(
+                                "discover_auto_embed_error",
+                                {
+                                    "connection_id": connection_id,
+                                    "space_id": space_id,
+                                    "error": str(e)[:500],
+                                },
+                            )
+                finally:
+                    bg_db.close()
+            
+            background_tasks.add_task(_discover_and_embed)
             return {
                 "message": "Discovery scheduled (backend catalog source-of-truth).",
                 "connection_id": connection_id,
                 "space_id": space_id,
                 "source": "backend_connection_metadata",
+                "auto_generate_embeddings": auto_generate_embeddings,
             }
 
         result = _discover_tables_sync(connection_id=connection_id)
         result["space_id"] = space_id
+        
+        # Gerar embeddings automaticamente se solicitado
+        if auto_generate_embeddings:
+            try:
+                # Ingerir metadados na tabela table_metadata (se necessário)
+                inserted = run_metadata_ingestion(
+                    db=db,
+                    space_id=space_id,
+                    connection_id=connection_id,
+                    crew_id=None,
+                )
+                
+                # Gerar embeddings
+                embedding_provider = create_embedding_provider()
+                created = run_metadata_embeddings(
+                    db=db,
+                    space_id=space_id,
+                    connection_id=connection_id,
+                    crew_id=None,
+                    embedding_provider=embedding_provider,
+                )
+                
+                result["embeddings_created"] = created
+                result["metadata_rows_inserted"] = inserted
+                
+                log_event(
+                    "discover_auto_embed_success",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "embeddings_created": created,
+                        "metadata_inserted": inserted,
+                    },
+                )
+            except Exception as e:
+                log_event(
+                    "discover_auto_embed_error",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "error": str(e)[:500],
+                    },
+                )
+                # Não falha o discover se embeddings falharem
+                result["embeddings_created"] = 0
+                result["embedding_error"] = str(e)[:200]
+        
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao descobrir tabelas: {str(e)}")

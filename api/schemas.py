@@ -290,3 +290,34 @@ class ConnectionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# =========================
+# SQL Validation
+# =========================
+
+
+class ValidateSQLRequest(BaseModel):
+    """Request para validar SQL."""
+    user_id: str = Field(..., description="ID do usuário.")
+    space_id: str = Field(..., description="Space atual.")
+    sql: str = Field(..., description="SQL a ser validado.")
+    crew_ids: Optional[List[str]] = Field(
+        default=None, description="Lista de crews aos quais o usuário pertence."
+    )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="Indica se está no modo personal."
+    )
+
+
+class ValidateSQLResponse(BaseModel):
+    """Response da validação de SQL."""
+    is_valid: bool = Field(..., description="Se o SQL é válido e retorna dados.")
+    error: Optional[str] = Field(None, description="Mensagem de erro se inválido.")
+    preview_data: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Preview dos dados (máx. 5 linhas) se válido."
+    )
+    num_rows: Optional[int] = Field(None, description="Número de linhas retornadas.")
+    execution_time_ms: Optional[float] = Field(None, description="Tempo de execução em ms.")
+    columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
