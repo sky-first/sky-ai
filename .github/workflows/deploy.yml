@@ -2467,10 +2467,34 @@ jobs:
           sleep 30
           echo "✅ Aguardado 30s para serviços iniciarem"
 
+      # ============================================
+      # VERIFICAÇÃO DO ARQUIVO .ENV CENTRALIZADO
+      # ============================================
+      # IMPORTANTE: Este projeto usa um ÚNICO arquivo .env centralizado na raiz do
+      # sky-poc-infra que serve como Single Source of Truth para TODOS os serviços:
+      #
+      # - Backend: lê DATABASE_URL, JWT_SECRET_KEY, CORS_ORIGINS, AI_SERVICE_URL, etc.
+      # - Frontend: lê NEXT_PUBLIC_API_URL
+      # - IA: lê DATABASE_URL, OPENAI_API_KEY, REDIS_PASSWORD, etc.
+      #
+      # O Docker Compose lê automaticamente este arquivo .env e injeta as variáveis
+      # em cada container através da seção 'environment:' do docker-compose.yml.
+      #
+      # Fluxo:
+      #   1. .env na raiz do sky-poc-infra
+      #   2. Docker Compose lê automaticamente (procura .env no mesmo diretório)
+      #   3. Substitui ${VARIAVEL} pelos valores do .env
+      #   4. Injeta como variáveis de ambiente nos containers
+      #   5. Cada serviço (backend/frontend/IA) lê suas variáveis via os.getenv() ou process.env
+      #
+      # Este step verifica se o .env existe na VM antes dos smoke tests.
+      # Se não existir, tenta criar a partir de env.example.
+      # ============================================
       - name: Verify .env File Exists on VM
         run: |
           set -euo pipefail
           echo "🔍 Verificando se arquivo .env existe na VM..."
+          echo "📝 NOTA: Este é o arquivo .env CENTRALIZADO usado por todos os serviços (backend, frontend, IA)"
           
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
@@ -2496,6 +2520,8 @@ jobs:
               fi
               
               cd "$INFRA_DIR"
+              # Verificar se o arquivo .env centralizado existe
+              # Este arquivo é usado pelo Docker Compose para injetar variáveis em todos os containers
               if [ -f .env ]; then
                 echo "EXISTS"
                 ls -lh .env
@@ -2504,6 +2530,7 @@ jobs:
                 if [ -f env.example ]; then
                   echo "⚠️  .env não existe, mas env.example encontrado"
                   echo "📝 Criando .env a partir de env.example..."
+                  echo "   (Este .env será usado por backend, frontend e IA via Docker Compose)"
                   cp env.example .env
                   chmod 600 .env
                   echo "✅ .env criado a partir de env.example"
@@ -2517,6 +2544,7 @@ jobs:
           
           if echo "$ENV_CHECK" | grep -q "EXISTS"; then
             echo "✅ Arquivo .env existe na VM"
+            echo "   Este arquivo será usado pelo Docker Compose para configurar todos os serviços"
           elif echo "$ENV_CHECK" | grep -q "NOT_FOUND"; then
             echo "❌ Arquivo .env NÃO existe na VM"
             echo "   Tentando criar a partir de env.example..."
