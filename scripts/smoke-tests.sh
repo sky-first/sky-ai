@@ -1,16 +1,18 @@
 #!/bin/bash
 # Script de Smoke Tests - Testes básicos após deploy
 # Valida se a aplicação está funcionando corretamente após o deploy
-# Uso: ./scripts/smoke-tests.sh <VM_IP> [TIMEOUT]
+# Uso: ./scripts/smoke-tests.sh <VM_IP> [TIMEOUT] [RESOURCE_GROUP] [VM_NAME]
 
 set -eu
 
 VM_IP="${1:-}"
 TIMEOUT="${2:-30}"
+RESOURCE_GROUP="${3:-}"
+VM_NAME="${4:-}"
 
 if [ -z "$VM_IP" ]; then
     echo "❌ ERRO: IP da VM não fornecido"
-    echo "Uso: $0 <VM_IP> [TIMEOUT]"
+    echo "Uso: $0 <VM_IP> [TIMEOUT] [RESOURCE_GROUP] [VM_NAME]"
     exit 1
 fi
 
@@ -18,11 +20,33 @@ fi
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 ERRORS=0
 WARNINGS=0
 PORT_80_ACCESSIBLE=false
+
+# Função para validar código HTTP
+# Retorna o código limpo se válido, ou vazio se inválido
+validate_http_code() {
+    local code="$1"
+    # Remove espaços e valida formato (3 dígitos numéricos)
+    local clean_code=$(echo "$code" | tr -d ' ' | grep -E '^[0-9]{3}$' || echo "000")
+    
+    # "000" = falha de conexão/timeout (não é código HTTP válido)
+    if [ "$clean_code" = "000" ] || [ -z "$clean_code" ]; then
+        return 1  # Falha
+    fi
+    
+    # Valida se é um código HTTP válido (100-599)
+    if [ "$clean_code" -ge 100 ] && [ "$clean_code" -le 599 ] 2>/dev/null; then
+        echo "$clean_code"
+        return 0  # Sucesso
+    fi
+    
+    return 1  # Formato inválido
+}
 
 # Função para log de erro
 log_error() {
@@ -41,6 +65,11 @@ log_success() {
     echo -e "${GREEN}✅${NC} $1"
 }
 
+# Função para log de informação
+log_info() {
+    echo -e "${BLUE}ℹ️  INFO:${NC} $1"
+}
+
 # Função para testar endpoint HTTP
 test_endpoint() {
     local url="$1"
@@ -52,14 +81,16 @@ test_endpoint() {
     
     response=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$timeout" --connect-timeout 5 "$url" 2>/dev/null || echo "000")
     
-    if [ "$response" = "$expected_status" ]; then
-        log_success "$description (HTTP $response)"
-        return 0
-    elif [ "$response" = "000" ]; then
-        log_error "$description (timeout/conexão recusada)"
-        return 1
+    if VALID_CODE=$(validate_http_code "$response"); then
+        if [ "$VALID_CODE" = "$expected_status" ]; then
+            log_success "$description (HTTP $VALID_CODE)"
+            return 0
+        else
+            log_error "$description (esperado HTTP $expected_status, recebido HTTP $VALID_CODE)"
+            return 1
+        fi
     else
-        log_error "$description (esperado HTTP $expected_status, recebido HTTP $response)"
+        log_error "$description (timeout/conexão recusada - código: $response)"
         return 1
     fi
 }
@@ -89,17 +120,130 @@ test_endpoint_with_content() {
     fi
 }
 
+# Função para verificar readiness dos serviços
+check_service_readiness() {
+    local vm_ip="$1"
+    local max_wait="${2:-120}"  # 2 minutos máximo
+    local check_interval=5
+    local elapsed=0
+    
+    echo "🔍 Verificando readiness dos serviços (timeout: ${max_wait}s)..."
+    
+    while [ $elapsed -lt $max_wait ]; do
+        local http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 --connect-timeout 2 "http://$vm_ip/health" 2>/dev/null || echo "000")
+        
+        if VALID_CODE=$(validate_http_code "$http_code"); then
+            # 200 = health check OK, 404 = serviço responde mas rota não existe (ainda é sinal de vida)
+            if [ "$VALID_CODE" = "200" ] || [ "$VALID_CODE" = "404" ]; then
+                echo "✅ Serviços prontos (HTTP $VALID_CODE)"
+                return 0
+            fi
+        fi
+        
+        # Mostra progresso a cada 15 segundos
+        if [ $((elapsed % 15)) -eq 0 ] && [ $elapsed -gt 0 ]; then
+            echo "⏳ Aguardando serviços... (${elapsed}s/${max_wait}s)"
+        fi
+        sleep $check_interval
+        elapsed=$((elapsed + check_interval))
+    done
+    
+    log_warning "Timeout: serviços não ficaram prontos em ${max_wait}s (continuando testes...)"
+    return 1
+}
+
+# Função para coletar diagnóstico quando falha
+collect_diagnostics() {
+    local vm_ip="$1"
+    local resource_group="$2"
+    local vm_name="$3"
+    
+    echo ""
+    echo "=========================================="
+    echo "🔍 Coletando Diagnóstico Automático"
+    echo "=========================================="
+    echo ""
+    
+    # 1. Teste de conectividade básica
+    echo "1️⃣ Testando conectividade básica..."
+    if command -v ping >/dev/null 2>&1; then
+        if ping -c 2 -W 2 "$vm_ip" >/dev/null 2>&1; then
+            echo "✅ VM responde a ping"
+        else
+            echo "❌ VM não responde a ping"
+        fi
+    else
+        echo "⚠️  Comando ping não disponível"
+    fi
+    
+    # 2. Teste de porta 80 com diferentes métodos
+    echo ""
+    echo "2️⃣ Testando porta 80..."
+    if timeout 3 bash -c "echo > /dev/tcp/$vm_ip/80" 2>/dev/null; then
+        echo "✅ Porta 80 está aberta (TCP)"
+    else
+        echo "❌ Porta 80 não está acessível (TCP)"
+    fi
+    
+    # 3. Verificar NSG (se Azure CLI disponível)
+    if command -v az >/dev/null 2>&1 && [ -n "$resource_group" ]; then
+        echo ""
+        echo "3️⃣ Verificando regras NSG..."
+        NSG_NAME=$(az network nic list -g "$resource_group" --query "[0].networkSecurityGroup.id" -o tsv 2>/dev/null | awk -F'/' '{print $NF}' || echo "")
+        if [ -n "$NSG_NAME" ]; then
+            HTTP_RULE=$(az network nsg rule list -g "$resource_group" --nsg-name "$NSG_NAME" --query "[?destinationPortRange=='80']" -o json 2>/dev/null)
+            if [ -n "$HTTP_RULE" ] && [ "$HTTP_RULE" != "[]" ]; then
+                echo "✅ Regra NSG para porta 80 encontrada"
+                echo "$HTTP_RULE" | jq -r '.[0] | "   Nome: \(.name), Prioridade: \(.priority), Source: \(.sourceAddressPrefix)"' 2>/dev/null || echo "   (detalhes não disponíveis)"
+            else
+                echo "❌ Regra NSG para porta 80 NÃO encontrada"
+            fi
+        else
+            echo "⚠️  NSG não encontrado"
+        fi
+    else
+        echo ""
+        echo "3️⃣ Verificação NSG: Azure CLI não disponível ou Resource Group não fornecido"
+    fi
+    
+    # 4. Verificar containers na VM (se possível)
+    if [ -n "$resource_group" ] && [ -n "$vm_name" ] && command -v az >/dev/null 2>&1; then
+        echo ""
+        echo "4️⃣ Verificando containers na VM..."
+        CONTAINERS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+            --command-id RunShellScript \
+            --scripts 'sudo docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Docker não disponível ou erro ao executar"' \
+            --query "value[0].message" -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$CONTAINERS" ]; then
+            echo "Containers:"
+            echo "$CONTAINERS" | grep -v "^$" | head -10 || echo "Nenhum container rodando ou erro ao verificar"
+        else
+            echo "⚠️  Não foi possível verificar containers"
+        fi
+    else
+        echo ""
+        echo "4️⃣ Verificação containers: Azure CLI não disponível ou informações insuficientes"
+    fi
+    
+    echo ""
+    echo "=========================================="
+}
+
 echo "=========================================="
 echo "🧪 Smoke Tests - Validação Pós-Deploy"
 echo "=========================================="
 echo ""
 echo "VM IP: $VM_IP"
 echo "Timeout: ${TIMEOUT}s"
+[ -n "$RESOURCE_GROUP" ] && echo "Resource Group: $RESOURCE_GROUP"
+[ -n "$VM_NAME" ] && echo "VM Name: $VM_NAME"
 echo ""
 
-# Aguardar um pouco para garantir que serviços iniciaram
-echo "Aguardando serviços iniciarem (30s)..."
-sleep 30
+# 1. Verificar readiness dos serviços (com timeout inteligente)
+if ! check_service_readiness "$VM_IP" 120; then
+    log_warning "Serviços podem não estar prontos, mas continuando testes..."
+fi
 
 echo ""
 echo "=========================================="
@@ -107,18 +251,22 @@ echo "📡 Testando Conectividade Básica"
 echo "=========================================="
 echo ""
 
-# Teste 1: Conectividade básica (porta 80) - múltiplas tentativas
+# 2. Teste de porta 80 com validação correta
 MAX_RETRIES=5
 RETRY_DELAY=3
 
 for i in $(seq 1 $MAX_RETRIES); do
     echo -n "Tentativa $i/$MAX_RETRIES: Testando porta 80... "
     
-    # Usa curl para testar HTTP (mais confiável que TCP direto)
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 --connect-timeout 3 "http://$VM_IP/" 2>/dev/null || echo "000")
     
-    if [ "$HTTP_CODE" != "000" ] && [ -n "$HTTP_CODE" ]; then
-        log_success "Porta 80 acessível (HTTP $HTTP_CODE)"
+    if VALID_CODE=$(validate_http_code "$HTTP_CODE"); then
+        # Aceita qualquer código HTTP válido (200-599) como sinal de que porta está acessível
+        if [ "$VALID_CODE" -ge 200 ] && [ "$VALID_CODE" -lt 400 ] 2>/dev/null; then
+            log_success "Porta 80 acessível (HTTP $VALID_CODE)"
+        else
+            log_warning "Porta 80 responde mas retornou HTTP $VALID_CODE"
+        fi
         PORT_80_ACCESSIBLE=true
         break
     fi
@@ -145,7 +293,10 @@ if [ "$PORT_80_ACCESSIBLE" = false ]; then
     echo "  4. Firewall da VM bloqueando porta 80"
     echo "  5. Serviços não foram deployados corretamente"
     echo ""
-    # Não falha imediatamente - continua com outros testes para coletar mais informações
+    # Coletar diagnóstico se informações disponíveis
+    if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
+        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME"
+    fi
 fi
 
 echo ""
@@ -208,10 +359,14 @@ cors_response=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS \
     --max-time 10 \
     "http://$VM_IP/api/v1/health" 2>/dev/null || echo "000")
 
-if [ "$cors_response" = "204" ] || [ "$cors_response" = "200" ]; then
-    log_success "CORS configurado (HTTP $cors_response)"
+if VALID_CORS=$(validate_http_code "$cors_response"); then
+    if [ "$VALID_CORS" = "204" ] || [ "$VALID_CORS" = "200" ]; then
+        log_success "CORS configurado (HTTP $VALID_CORS)"
+    else
+        log_warning "CORS pode não estar configurado corretamente (HTTP $VALID_CORS)"
+    fi
 else
-    log_warning "CORS pode não estar configurado corretamente (HTTP $cors_response)"
+    log_warning "CORS não acessível (código: $cors_response)"
 fi
 
 echo ""
@@ -220,22 +375,22 @@ echo "📊 Resumo dos Testes"
 echo "=========================================="
 echo ""
 
-# Se a porta 80 não está acessível, mas conseguimos fazer requisições HTTP, 
-# pode ser um problema com o teste TCP, não com o serviço
+# Verificação final: se porta 80 não está acessível mas outros testes passaram
 if [ "$PORT_80_ACCESSIBLE" = false ] && [ $ERRORS -gt 0 ]; then
-    echo -e "${YELLOW}⚠️  Porta 80 não acessível via teste TCP, mas verificando se serviços respondem via HTTP...${NC}"
+    echo -e "${YELLOW}⚠️  Porta 80 não acessível nas tentativas iniciais, mas verificando se serviços respondem via HTTP...${NC}"
     echo ""
     
     # Tenta fazer uma requisição HTTP real para verificar se o serviço está funcionando
     HTTP_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --connect-timeout 5 "http://$VM_IP/" 2>/dev/null || echo "000")
     
-    if [ "$HTTP_TEST" != "000" ] && [ "$HTTP_TEST" != "" ]; then
-        echo -e "${GREEN}✅ Serviço está respondendo via HTTP (código: $HTTP_TEST)${NC}"
-        echo -e "${YELLOW}⚠️  O teste TCP pode ter falhado por questões de firewall/rede, mas o serviço está funcionando${NC}"
+    if VALID_TEST=$(validate_http_code "$HTTP_TEST"); then
+        echo -e "${GREEN}✅ Serviço está respondendo via HTTP (código: $VALID_TEST)${NC}"
+        echo -e "${YELLOW}⚠️  O teste inicial pode ter falhado por questões de timing, mas o serviço está funcionando${NC}"
         # Remove o erro da porta 80 se conseguimos fazer requisições HTTP
         if [ $ERRORS -gt 0 ]; then
             ERRORS=$((ERRORS - 1))
         fi
+        PORT_80_ACCESSIBLE=true
     fi
     echo ""
 fi
@@ -252,6 +407,12 @@ elif [ $ERRORS -eq 0 ]; then
 else
     echo -e "${RED}❌ Testes falharam com $ERRORS erro(s) e $WARNINGS aviso(s)${NC}"
     echo ""
+    
+    # Coletar diagnóstico completo se houver erros
+    if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
+        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME"
+    fi
+    
     echo "🔧 Verifique:"
     echo "  1. Containers estão rodando:"
     echo "     az vm run-command invoke -g <RG> -n <VM> --command-id RunShellScript --scripts 'sudo docker ps'"
@@ -270,4 +431,3 @@ else
     echo ""
     exit 1
 fi
-

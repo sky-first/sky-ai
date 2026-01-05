@@ -2372,6 +2372,19 @@ jobs:
           echo "✅ VM Public IP validado: $VM_IP"
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
 
+      - name: Get VM Information for Diagnostics
+        id: vm-info
+        run: |
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+          VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+          
+          echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
+          echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
+          
+          echo "✅ Informações da VM obtidas:"
+          echo "  Resource Group: ${RESOURCE_GROUP:-não disponível}"
+          echo "  VM Name: ${VM_NAME:-não disponível}"
+
       - name: Wait for Services to Start
         run: |
           echo "Aguardando serviços iniciarem completamente..."
@@ -2388,10 +2401,17 @@ jobs:
           echo "🧪 Executando Smoke Tests"
           echo "=========================================="
           echo "IP da VM: ${{ steps.vm-ip.outputs.vm_public_ip }}"
+          echo "Resource Group: ${{ steps.vm-info.outputs.resource_group }}"
+          echo "VM Name: ${{ steps.vm-info.outputs.vm_name }}"
           echo "Script: $SCRIPT_PATH"
           echo ""
           
-          if bash "$SCRIPT_PATH" "${{ steps.vm-ip.outputs.vm_public_ip }}" 30; then
+          # Passa parâmetros adicionais para diagnóstico automático
+          if bash "$SCRIPT_PATH" \
+            "${{ steps.vm-ip.outputs.vm_public_ip }}" \
+            30 \
+            "${{ steps.vm-info.outputs.resource_group }}" \
+            "${{ steps.vm-info.outputs.vm_name }}"; then
             echo ""
             echo "✅ Todos os smoke tests passaram!"
           else
