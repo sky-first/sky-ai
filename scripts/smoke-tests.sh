@@ -297,6 +297,140 @@ collect_diagnostics() {
             if [ -n "$PROXY_LOGS" ] && [ "$PROXY_LOGS" != "null" ]; then
                 echo "$PROXY_LOGS" | head -10
             fi
+            
+            # Diagnóstico completo quando proxy não está rodando
+            echo ""
+            echo "7️⃣ Verificando docker compose ps (todos os containers)..."
+            COMPOSE_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && sudo docker compose ps 2>/dev/null || echo "ERRO: docker compose não disponível ou diretório não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$COMPOSE_STATUS" ] && [ "$COMPOSE_STATUS" != "null" ]; then
+                echo "$COMPOSE_STATUS" | grep -v "^$" | grep -v "Enable succeeded" | head -30
+                # Verificar se há containers com status "Exit" ou "Dead"
+                if echo "$COMPOSE_STATUS" | grep -qE "(Exit|Dead|unhealthy|restarting)"; then
+                    echo ""
+                    echo "⚠️  ATENÇÃO: Alguns containers estão com problemas!"
+                    echo "$COMPOSE_STATUS" | grep -E "(Exit|Dead|unhealthy|restarting)" || true
+                fi
+            else
+                echo "⚠️  Não foi possível verificar docker compose ps"
+                echo "   Verificando se diretório do projeto existe..."
+                DIR_CHECK=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                    --command-id RunShellScript \
+                    --scripts 'test -d ~/projeto/sky-poc-infra && echo "EXISTS" || echo "NOT_FOUND"' \
+                    --query "value[0].message" -o tsv 2>/dev/null || echo "")
+                if echo "$DIR_CHECK" | grep -q "NOT_FOUND"; then
+                    echo "❌ Diretório ~/projeto/sky-poc-infra NÃO existe!"
+                    echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
+                fi
+            fi
+            
+            echo ""
+            echo "8️⃣ Verificando containers parados ou com erro..."
+            STOPPED_CONTAINERS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps -a --format "{{.Names}}: {{.Status}}" --filter "status=exited" --filter "status=dead" 2>/dev/null | head -20 || echo ""' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$STOPPED_CONTAINERS" ] && [ "$STOPPED_CONTAINERS" != "null" ] && [ "$STOPPED_CONTAINERS" != "" ]; then
+                echo "Containers parados ou com erro:"
+                echo "$STOPPED_CONTAINERS" | grep -v "^$" | head -20
+                echo ""
+                echo "💡 Isso indica que containers falharam ao iniciar"
+            else
+                echo "✅ Nenhum container parado encontrado"
+            fi
+            
+            echo ""
+            echo "9️⃣ Verificando dependências do proxy (backend, frontend)..."
+            BACKEND_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps --filter "name=backend" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            FRONTEND_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps --filter "name=frontend" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            POSTGRES_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps --filter "name=postgres" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            REDIS_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps --filter "name=redis" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            AI_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker ps --filter "name=ai" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            echo "Dependências do proxy:"
+            if [ -n "$POSTGRES_STATUS" ] && echo "$POSTGRES_STATUS" | grep -q "postgres"; then
+                echo "✅ Postgres: $POSTGRES_STATUS"
+            else
+                echo "❌ Postgres NÃO está rodando (backend depende disso)"
+            fi
+            
+            if [ -n "$REDIS_STATUS" ] && echo "$REDIS_STATUS" | grep -q "redis"; then
+                echo "✅ Redis: $REDIS_STATUS"
+            else
+                echo "❌ Redis NÃO está rodando (backend depende disso)"
+            fi
+            
+            if [ -n "$AI_STATUS" ] && echo "$AI_STATUS" | grep -q "ai"; then
+                echo "✅ AI: $AI_STATUS"
+            else
+                echo "⚠️  AI NÃO está rodando (backend depende disso)"
+            fi
+            
+            if [ -n "$BACKEND_STATUS" ] && echo "$BACKEND_STATUS" | grep -q "backend"; then
+                echo "✅ Backend: $BACKEND_STATUS"
+            else
+                echo "❌ Backend NÃO está rodando (proxy depende disso)"
+            fi
+            
+            if [ -n "$FRONTEND_STATUS" ] && echo "$FRONTEND_STATUS" | grep -q "frontend"; then
+                echo "✅ Frontend: $FRONTEND_STATUS"
+            else
+                echo "⚠️  Frontend NÃO está rodando (proxy depende disso)"
+            fi
+            
+            echo ""
+            echo "🔟 Verificando logs do docker compose (últimas 50 linhas)..."
+            COMPOSE_LOGS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && sudo docker compose logs --tail=50 2>&1 | tail -50 || echo "Erro ao obter logs"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$COMPOSE_LOGS" ] && [ "$COMPOSE_LOGS" != "null" ]; then
+                echo "$COMPOSE_LOGS" | grep -v "^$" | grep -v "Enable succeeded" | head -50
+                # Destacar erros críticos
+                if echo "$COMPOSE_LOGS" | grep -qiE "(error|failed|fatal|exception|traceback)"; then
+                    echo ""
+                    echo "⚠️  ERROS ENCONTRADOS NOS LOGS:"
+                    echo "$COMPOSE_LOGS" | grep -iE "(error|failed|fatal|exception|traceback)" | head -10 || true
+                fi
+            fi
+            
+            echo ""
+            echo "1️⃣1️⃣ Verificando se .env existe..."
+            ENV_CHECK=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && test -f .env && echo "EXISTS" || echo "NOT_FOUND"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if echo "$ENV_CHECK" | grep -q "EXISTS"; then
+                echo "✅ Arquivo .env existe"
+            else
+                echo "❌ Arquivo .env NÃO existe!"
+                echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
+            fi
         fi
     else
         echo ""
