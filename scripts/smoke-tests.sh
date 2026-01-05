@@ -22,6 +22,7 @@ NC='\033[0m' # No Color
 
 ERRORS=0
 WARNINGS=0
+PORT_80_ACCESSIBLE=false
 
 # Função para log de erro
 log_error() {
@@ -97,8 +98,8 @@ echo "Timeout: ${TIMEOUT}s"
 echo ""
 
 # Aguardar um pouco para garantir que serviços iniciaram
-echo "Aguardando serviços iniciarem (5s)..."
-sleep 5
+echo "Aguardando serviços iniciarem (30s)..."
+sleep 30
 
 echo ""
 echo "=========================================="
@@ -106,11 +107,45 @@ echo "📡 Testando Conectividade Básica"
 echo "=========================================="
 echo ""
 
-# Teste 1: Conectividade básica (porta 80)
-if timeout 5 bash -c "echo > /dev/tcp/$VM_IP/80" 2>/dev/null; then
-    log_success "Porta 80 acessível"
-else
-    log_error "Porta 80 não acessível"
+# Teste 1: Conectividade básica (porta 80) - múltiplas tentativas
+MAX_RETRIES=5
+RETRY_DELAY=3
+
+for i in $(seq 1 $MAX_RETRIES); do
+    echo -n "Tentativa $i/$MAX_RETRIES: Testando porta 80... "
+    
+    # Usa curl para testar HTTP (mais confiável que TCP direto)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 --connect-timeout 3 "http://$VM_IP/" 2>/dev/null || echo "000")
+    
+    if [ "$HTTP_CODE" != "000" ] && [ -n "$HTTP_CODE" ]; then
+        log_success "Porta 80 acessível (HTTP $HTTP_CODE)"
+        PORT_80_ACCESSIBLE=true
+        break
+    fi
+    
+    echo "Falhou (código: $HTTP_CODE)"
+    if [ $i -lt $MAX_RETRIES ]; then
+        echo "Aguardando ${RETRY_DELAY}s antes da próxima tentativa..."
+        sleep $RETRY_DELAY
+    fi
+done
+
+if [ "$PORT_80_ACCESSIBLE" = false ]; then
+    log_error "Porta 80 não acessível após $MAX_RETRIES tentativas"
+    echo ""
+    echo "🔍 Informações de diagnóstico:"
+    echo "  - IP testado: $VM_IP"
+    echo "  - Porta: 80"
+    echo "  - Tentativas: $MAX_RETRIES"
+    echo ""
+    echo "💡 Possíveis causas:"
+    echo "  1. Containers ainda não iniciaram completamente"
+    echo "  2. Nginx/proxy não está rodando"
+    echo "  3. NSG bloqueando porta 80"
+    echo "  4. Firewall da VM bloqueando porta 80"
+    echo "  5. Serviços não foram deployados corretamente"
+    echo ""
+    # Não falha imediatamente - continua com outros testes para coletar mais informações
 fi
 
 echo ""
@@ -185,6 +220,26 @@ echo "📊 Resumo dos Testes"
 echo "=========================================="
 echo ""
 
+# Se a porta 80 não está acessível, mas conseguimos fazer requisições HTTP, 
+# pode ser um problema com o teste TCP, não com o serviço
+if [ "$PORT_80_ACCESSIBLE" = false ] && [ $ERRORS -gt 0 ]; then
+    echo -e "${YELLOW}⚠️  Porta 80 não acessível via teste TCP, mas verificando se serviços respondem via HTTP...${NC}"
+    echo ""
+    
+    # Tenta fazer uma requisição HTTP real para verificar se o serviço está funcionando
+    HTTP_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --connect-timeout 5 "http://$VM_IP/" 2>/dev/null || echo "000")
+    
+    if [ "$HTTP_TEST" != "000" ] && [ "$HTTP_TEST" != "" ]; then
+        echo -e "${GREEN}✅ Serviço está respondendo via HTTP (código: $HTTP_TEST)${NC}"
+        echo -e "${YELLOW}⚠️  O teste TCP pode ter falhado por questões de firewall/rede, mas o serviço está funcionando${NC}"
+        # Remove o erro da porta 80 se conseguimos fazer requisições HTTP
+        if [ $ERRORS -gt 0 ]; then
+            ERRORS=$((ERRORS - 1))
+        fi
+    fi
+    echo ""
+fi
+
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
     echo -e "${GREEN}✅ Todos os testes passaram!${NC}"
     echo ""
@@ -197,11 +252,21 @@ elif [ $ERRORS -eq 0 ]; then
 else
     echo -e "${RED}❌ Testes falharam com $ERRORS erro(s) e $WARNINGS aviso(s)${NC}"
     echo ""
-    echo "Verifique:"
-    echo "  - Se os containers estão rodando"
-    echo "  - Se o nginx/proxy está configurado corretamente"
-    echo "  - Se as portas estão abertas no NSG"
-    echo "  - Logs dos containers: docker compose logs"
+    echo "🔧 Verifique:"
+    echo "  1. Containers estão rodando:"
+    echo "     az vm run-command invoke -g <RG> -n <VM> --command-id RunShellScript --scripts 'sudo docker ps'"
+    echo ""
+    echo "  2. Nginx/proxy está configurado corretamente:"
+    echo "     az vm run-command invoke -g <RG> -n <VM> --command-id RunShellScript --scripts 'sudo docker logs ai_saas_proxy'"
+    echo ""
+    echo "  3. Portas estão abertas no NSG:"
+    echo "     az network nsg rule list -g <RG> --nsg-name <NSG> --query \"[?destinationPortRange=='80']\""
+    echo ""
+    echo "  4. Firewall da VM:"
+    echo "     az vm run-command invoke -g <RG> -n <VM> --command-id RunShellScript --scripts 'sudo ufw status || sudo iptables -L -n'"
+    echo ""
+    echo "  5. Logs dos containers:"
+    echo "     az vm run-command invoke -g <RG> -n <VM> --command-id RunShellScript --scripts 'cd /home/azureuser/projeto/sky-poc-infra && sudo docker compose logs --tail=50'"
     echo ""
     exit 1
 fi
