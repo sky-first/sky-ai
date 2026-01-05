@@ -2,6 +2,11 @@
 # Garante que .env tenha todas as variáveis necessárias
 # Usado no deploy para garantir configuração completa
 
+# #region agent log
+LOG_FILE="/Users/thedatafirst/Documents/poc-deploy-sky/sky-poc-infra/.cursor/debug.log"
+echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:12\",\"message\":\"Script iniciado\",\"data\":{\"arg1\":\"${1:-none}\",\"pwd\":\"$(pwd)\",\"user\":\"$(whoami)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "$LOG_FILE" 2>/dev/null || true
+# #endregion
+
 # Garantir que está sendo executado com bash (não zsh ou sh)
 if [ -z "$BASH_VERSION" ]; then
     echo "❌ ERRO: Este script deve ser executado com bash"
@@ -19,6 +24,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Caso contrário, tentar detectar automaticamente
 if [ -n "${1:-}" ]; then
     PROJECT_DIR="$1"
+    # #region agent log
+    echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:21\",\"message\":\"PROJECT_DIR definido via argumento\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"arg1\":\"${1}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+    # #endregion
 else
     # Tentar detectar automaticamente:
     # 1. Diretório atual se contém env.example
@@ -26,29 +34,59 @@ else
     # 3. Caminhos comuns na VM
     if [ -f "env.example" ]; then
         PROJECT_DIR="$(pwd)"
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:28\",\"message\":\"PROJECT_DIR detectado: diretório atual\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     elif [ -f "$PROJECT_ROOT/env.example" ]; then
         PROJECT_DIR="$PROJECT_ROOT"
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:30\",\"message\":\"PROJECT_DIR detectado: PROJECT_ROOT\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     elif [ -d "/home/azureuser/projeto/sky-poc-infra" ]; then
         PROJECT_DIR="/home/azureuser/projeto/sky-poc-infra"
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:32\",\"message\":\"PROJECT_DIR detectado: /home/azureuser/projeto/sky-poc-infra\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     elif [ -d ~/projeto/sky-poc-infra ]; then
         PROJECT_DIR=~/projeto/sky-poc-infra
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:34\",\"message\":\"PROJECT_DIR detectado: ~/projeto/sky-poc-infra\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     elif [ -d ~/projeto/poc-deploy ]; then
         PROJECT_DIR=~/projeto/poc-deploy
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:36\",\"message\":\"PROJECT_DIR detectado: ~/projeto/poc-deploy\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     else
         # Fallback: usar diretório do script
         PROJECT_DIR="$PROJECT_ROOT"
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:39\",\"message\":\"PROJECT_DIR fallback: PROJECT_ROOT\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     fi
 fi
 
 # Mudar para o diretório do projeto
+# #region agent log
+echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:44\",\"message\":\"Tentando cd para PROJECT_DIR\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"dir_exists\":\"$([ -d \"$PROJECT_DIR\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+# #endregion
 cd "$PROJECT_DIR" || {
+    # #region agent log
+    echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:45\",\"message\":\"FALHA: cd falhou\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"exit_code\":\"$?\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
+    # #endregion
     echo "❌ ERRO: Não foi possível acessar o diretório: $PROJECT_DIR"
     echo "💡 Dica: Execute o script do diretório sky-poc-infra ou passe o caminho como argumento"
     exit 1
 }
 
 # Verificar que estamos no diretório correto
+# #region agent log
+echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:51\",\"message\":\"Verificando env.example\",\"data\":{\"pwd\":\"$(pwd)\",\"env_example_exists\":\"$([ -f \"env.example\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "$LOG_FILE" 2>/dev/null || true
+# #endregion
 if [ ! -f "env.example" ]; then
+    # #region agent log
+    echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:52\",\"message\":\"FALHA: env.example não encontrado\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"pwd\":\"$(pwd)\",\"files\":\"$(ls -la 2>&1 | head -5)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "$LOG_FILE" 2>/dev/null || true
+    # #endregion
     echo "❌ ERRO: Arquivo env.example não encontrado em: $PROJECT_DIR"
     echo "💡 Certifique-se de estar no diretório sky-poc-infra"
     exit 1
@@ -82,16 +120,36 @@ if [ -z "$VM_IP" ]; then
 fi
 
 # Criar .env se não existir
+# #region agent log
+echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:85\",\"message\":\"Verificando se .env existe\",\"data\":{\"ENV_FILE\":\"$ENV_FILE\",\"env_exists\":\"$([ -f \"$ENV_FILE\" ] && echo true || echo false)\",\"env_example_exists\":\"$([ -f \"$ENV_EXAMPLE\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
+# #endregion
 if [ ! -f "$ENV_FILE" ]; then
     if [ -f "$ENV_EXAMPLE" ]; then
         echo "📋 Criando .env a partir de $ENV_EXAMPLE..."
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:88\",\"message\":\"Copiando env.example para .env\",\"data\":{\"ENV_EXAMPLE\":\"$ENV_EXAMPLE\",\"ENV_FILE\":\"$ENV_FILE\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
         cp "$ENV_EXAMPLE" "$ENV_FILE"
+        CP_EXIT=$?
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:88\",\"message\":\"cp executado\",\"data\":{\"exit_code\":\"$CP_EXIT\",\"env_created\":\"$([ -f \"$ENV_FILE\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
         # Tentar definir permissões adequadas (pode falhar em alguns ambientes, mas não é crítico)
         chmod 600 "$ENV_FILE" 2>/dev/null || chmod 644 "$ENV_FILE" 2>/dev/null || true
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:90\",\"message\":\"Permissões definidas\",\"data\":{\"env_exists\":\"$([ -f \"$ENV_FILE\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
     else
+        # #region agent log
+        echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:92\",\"message\":\"FALHA: ENV_EXAMPLE não encontrado\",\"data\":{\"ENV_EXAMPLE\":\"$ENV_EXAMPLE\",\"pwd\":\"$(pwd)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "$LOG_FILE" 2>/dev/null || true
+        # #endregion
         echo "❌ ERRO: $ENV_EXAMPLE não encontrado"
         exit 1
     fi
+else
+    # #region agent log
+    echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:95\",\"message\":\".env já existe\",\"data\":{\"ENV_FILE\":\"$ENV_FILE\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
+    # #endregion
 fi
 
 # Verificar se arquivo é legível
