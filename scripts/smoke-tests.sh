@@ -29,13 +29,21 @@ PORT_80_ACCESSIBLE=false
 
 # Função para validar código HTTP
 # Retorna o código limpo se válido, ou vazio se inválido
+# CORRIGIDA: Trata "000000", espaços, caracteres extras, etc.
 validate_http_code() {
     local code="$1"
-    # Remove espaços e valida formato (3 dígitos numéricos)
-    local clean_code=$(echo "$code" | tr -d ' ' | grep -E '^[0-9]{3}$' || echo "000")
+    
+    # Remove TODOS os caracteres não numéricos e pega apenas os primeiros 3 dígitos
+    # Isso trata: "000000", " 200 ", "200OK", "200\n", etc.
+    local clean_code=$(echo "$code" | grep -oE '[0-9]{3}' | head -1 || echo "")
+    
+    # Se não encontrou exatamente 3 dígitos, é inválido
+    if [ -z "$clean_code" ] || [ ${#clean_code} -ne 3 ]; then
+        return 1
+    fi
     
     # "000" = falha de conexão/timeout (não é código HTTP válido)
-    if [ "$clean_code" = "000" ] || [ -z "$clean_code" ]; then
+    if [ "$clean_code" = "000" ]; then
         return 1  # Falha
     fi
     
@@ -158,6 +166,16 @@ collect_diagnostics() {
     local resource_group="$2"
     local vm_name="$3"
     
+    # CRÍTICO: Desabilita exit on error temporariamente
+    # Isso garante que o diagnóstico seja executado mesmo se houver erros
+    local original_set_e
+    if [[ $- == *e* ]]; then
+        original_set_e=true
+        set +e
+    else
+        original_set_e=false
+    fi
+    
     echo ""
     echo "=========================================="
     echo "🔍 Coletando Diagnóstico Automático"
@@ -192,11 +210,14 @@ collect_diagnostics() {
         NSG_NAME=$(az network nic list -g "$resource_group" --query "[0].networkSecurityGroup.id" -o tsv 2>/dev/null | awk -F'/' '{print $NF}' || echo "")
         if [ -n "$NSG_NAME" ]; then
             HTTP_RULE=$(az network nsg rule list -g "$resource_group" --nsg-name "$NSG_NAME" --query "[?destinationPortRange=='80']" -o json 2>/dev/null)
-            if [ -n "$HTTP_RULE" ] && [ "$HTTP_RULE" != "[]" ]; then
+            if [ -n "$HTTP_RULE" ] && [ "$HTTP_RULE" != "[]" ] && [ "$HTTP_RULE" != "null" ]; then
                 echo "✅ Regra NSG para porta 80 encontrada"
-                echo "$HTTP_RULE" | jq -r '.[0] | "   Nome: \(.name), Prioridade: \(.priority), Source: \(.sourceAddressPrefix)"' 2>/dev/null || echo "   (detalhes não disponíveis)"
+                if command -v jq >/dev/null 2>&1; then
+                    echo "$HTTP_RULE" | jq -r '.[0] | "   Nome: \(.name), Prioridade: \(.priority), Source: \(.sourceAddressPrefix)"' 2>/dev/null || echo "   (detalhes não disponíveis)"
+                fi
             else
                 echo "❌ Regra NSG para porta 80 NÃO encontrada"
+                echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
             fi
         else
             echo "⚠️  NSG não encontrado"
@@ -215,15 +236,47 @@ collect_diagnostics() {
             --scripts 'sudo docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Docker não disponível ou erro ao executar"' \
             --query "value[0].message" -o tsv 2>/dev/null || echo "")
         
-        if [ -n "$CONTAINERS" ]; then
-            echo "Containers:"
-            echo "$CONTAINERS" | grep -v "^$" | head -10 || echo "Nenhum container rodando ou erro ao verificar"
+        if [ -n "$CONTAINERS" ] && [ "$CONTAINERS" != "null" ] && [ "$CONTAINERS" != "" ]; then
+            echo "Containers rodando:"
+            echo "$CONTAINERS" | grep -v "^$" | grep -v "null" | head -10 || echo "Nenhum container rodando"
         else
             echo "⚠️  Não foi possível verificar containers"
+        fi
+        
+        # Verificar especificamente o container nginx/proxy
+        echo ""
+        echo "5️⃣ Verificando container nginx/proxy (CRÍTICO)..."
+        PROXY_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+            --command-id RunShellScript \
+            --scripts 'sudo docker ps --filter "name=proxy" --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Não encontrado"' \
+            --query "value[0].message" -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$PROXY_STATUS" ] && [ "$PROXY_STATUS" != "null" ] && echo "$PROXY_STATUS" | grep -q "proxy"; then
+            echo "✅ Proxy container: $PROXY_STATUS"
+        else
+            echo "❌ Proxy container NÃO está rodando"
+            echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
+            
+            # Tentar ver logs do proxy
+            echo ""
+            echo "6️⃣ Últimos logs do proxy (se existir)..."
+            PROXY_LOGS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker logs ai_saas_proxy --tail=20 2>&1 || echo "Container não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$PROXY_LOGS" ] && [ "$PROXY_LOGS" != "null" ]; then
+                echo "$PROXY_LOGS" | head -10
+            fi
         fi
     else
         echo ""
         echo "4️⃣ Verificação containers: Azure CLI não disponível ou informações insuficientes"
+    fi
+    
+    # Restaura exit on error se estava habilitado
+    if [ "$original_set_e" = "true" ]; then
+        set -e
     fi
     
     echo ""
@@ -258,9 +311,18 @@ RETRY_DELAY=3
 for i in $(seq 1 $MAX_RETRIES); do
     echo -n "Tentativa $i/$MAX_RETRIES: Testando porta 80... "
     
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 --connect-timeout 3 "http://$VM_IP/" 2>/dev/null || echo "000")
+    # Captura código HTTP e stderr separadamente para diagnóstico
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 --connect-timeout 3 "http://$VM_IP/" 2>&1 || echo "000")
     
-    if VALID_CODE=$(validate_http_code "$HTTP_CODE"); then
+    # Limpa o código (remove qualquer texto de erro que possa ter vindo)
+    HTTP_CODE_CLEAN=$(echo "$HTTP_CODE" | grep -oE '[0-9]{3}' | head -1 || echo "000")
+    
+    # Log detalhado apenas na primeira tentativa para debugging
+    if [ "$i" -eq 1 ] && [ "$HTTP_CODE_CLEAN" = "000" ]; then
+        echo "(código bruto: '${HTTP_CODE:0:20}' -> limpo: '$HTTP_CODE_CLEAN')"
+    fi
+    
+    if VALID_CODE=$(validate_http_code "$HTTP_CODE_CLEAN"); then
         # Aceita qualquer código HTTP válido (200-599) como sinal de que porta está acessível
         if [ "$VALID_CODE" -ge 200 ] && [ "$VALID_CODE" -lt 400 ] 2>/dev/null; then
             log_success "Porta 80 acessível (HTTP $VALID_CODE)"
@@ -271,7 +333,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         break
     fi
     
-    echo "Falhou (código: $HTTP_CODE)"
+    echo "Falhou (código: '$HTTP_CODE_CLEAN')"
     if [ $i -lt $MAX_RETRIES ]; then
         echo "Aguardando ${RETRY_DELAY}s antes da próxima tentativa..."
         sleep $RETRY_DELAY
@@ -293,9 +355,17 @@ if [ "$PORT_80_ACCESSIBLE" = false ]; then
     echo "  4. Firewall da VM bloqueando porta 80"
     echo "  5. Serviços não foram deployados corretamente"
     echo ""
-    # Coletar diagnóstico se informações disponíveis
+    # Coletar diagnóstico se informações disponíveis (com tratamento de erro)
     if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
-        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME"
+        echo "🔍 Executando diagnóstico automático..."
+        # Desabilita exit on error temporariamente para garantir execução
+        set +e
+        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME" || {
+            echo "⚠️  Alguns comandos de diagnóstico falharam, mas informações coletadas acima"
+        }
+        set -e
+    else
+        echo "⚠️  Resource Group ou VM Name não fornecidos - diagnóstico automático não disponível"
     fi
 fi
 
@@ -408,9 +478,14 @@ else
     echo -e "${RED}❌ Testes falharam com $ERRORS erro(s) e $WARNINGS aviso(s)${NC}"
     echo ""
     
-    # Coletar diagnóstico completo se houver erros
+    # Coletar diagnóstico completo se houver erros (com tratamento de erro)
     if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
-        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME"
+        # Desabilita exit on error temporariamente para garantir execução
+        set +e
+        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME" || {
+            echo "⚠️  Alguns comandos de diagnóstico falharam, mas informações coletadas acima"
+        }
+        set -e
     fi
     
     echo "🔧 Verifique:"
