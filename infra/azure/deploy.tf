@@ -45,11 +45,15 @@ resource "null_resource" "deploy_application" {
         'clone_or_update sky-poc-ai https://github.com/$OWNER/sky-poc-ai.git',
         'echo Subindo_containers',
         'cd $PROJ_DIR/sky-poc-infra',
-        'if [ ! -f .env ]; then echo ERRO_env_nao_encontrado_crie_o_env_antes_do_deploy; exit 1; fi',
         'echo Validando_env_e_configuracoes_criticas',
+        # CRÍTICO: ensure-complete-env.sh CRIA o .env se não existir (a partir de env.example)
         # Garante que NEXT_PUBLIC_API_URL não fique em localhost:8000 (causa comum do erro no login)
         # e completa variáveis ausentes (senhas/keys) de forma segura.
-        'sudo bash scripts/azure/ensure-complete-env.sh "$PROJ_DIR/sky-poc-infra"',
+        'sudo bash scripts/azure/ensure-complete-env.sh "$PROJ_DIR/sky-poc-infra" || {',
+        '  echo "ERRO: Falha ao criar/validar .env"',
+        '  exit 1',
+        '}',
+        'if [ ! -f .env ]; then echo "ERRO: .env não foi criado pelo ensure-complete-env.sh"; exit 1; fi',
         # Garante que nginx.conf esteja em modo HTTP-only se não houver certificados
         'sudo bash scripts/azure/apply-nginx-config.sh "$PROJ_DIR/sky-poc-infra"',
         'sudo docker compose down || true',
