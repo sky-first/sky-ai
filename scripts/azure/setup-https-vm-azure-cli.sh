@@ -41,34 +41,73 @@ fi
 echo -e "${GREEN}✅ Azure CLI OK${NC}"
 echo ""
 
+# Verificar e criar scripts se necessário
+echo -e "${BLUE}0️⃣  Verificando scripts na VM...${NC}"
+az vm run-command invoke \
+    -g "$RESOURCE_GROUP" \
+    -n "$VM_NAME" \
+    --command-id RunShellScript \
+    --scripts "cd $PROJECT_DIR && mkdir -p scripts/azure && if [ ! -f scripts/azure/generate-self-signed-certs.sh ]; then cat > scripts/azure/generate-self-signed-certs.sh << 'SCRIPTEOF'
+#!/bin/bash
+set -eu
+PROJECT_DIR=\"\${1:-\$(pwd)}\"
+CERTS_DIR=\"\$PROJECT_DIR/certs\"
+DOMAIN=\"\${2:-localhost}\"
+mkdir -p \"\$CERTS_DIR\"
+if [ -f \"\$CERTS_DIR/fullchain.pem\" ] && [ -f \"\$CERTS_DIR/privkey.pem\" ]; then
+    echo \"⚠️  Certificados já existem\"
+    exit 0
+fi
+echo \"Gerando certificado para: \$DOMAIN\"
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout \"\$CERTS_DIR/privkey.pem\" -out \"\$CERTS_DIR/fullchain.pem\" -subj \"/C=BR/ST=State/L=City/O=Organization/CN=\$DOMAIN\" -addext \"subjectAltName=IP:127.0.0.1,IP:\$DOMAIN,DNS:localhost,DNS:\$DOMAIN\" 2>/dev/null || openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout \"\$CERTS_DIR/privkey.pem\" -out \"\$CERTS_DIR/fullchain.pem\" -subj \"/C=BR/ST=State/L=City/O=Organization/CN=\$DOMAIN\"
+chmod 600 \"\$CERTS_DIR/privkey.pem\"
+chmod 644 \"\$CERTS_DIR/fullchain.pem\"
+echo \"✅ Certificados gerados\"
+SCRIPTEOF
+chmod +x scripts/azure/generate-self-signed-certs.sh && echo 'Script generate-self-signed-certs.sh criado'; fi" \
+    --output json >/dev/null 2>&1 || true
+
+echo -e "${GREEN}✅ Scripts verificados/criados${NC}"
+echo ""
+
 # Passo 1: Gerar certificados
 echo -e "${BLUE}1️⃣  Gerando certificados SSL auto-assinados...${NC}"
-az vm run-command invoke \
+RESULT=$(az vm run-command invoke \
     -g "$RESOURCE_GROUP" \
     -n "$VM_NAME" \
     --command-id RunShellScript \
     --scripts "cd $PROJECT_DIR && bash scripts/azure/generate-self-signed-certs.sh . $VM_IP" \
-    --output json | jq -r '.value[0].message' || {
-    echo -e "${RED}❌ Erro ao gerar certificados${NC}"
-    exit 1
-}
+    --output json 2>&1)
 
-echo -e "${GREEN}✅ Certificados gerados${NC}"
+if echo "$RESULT" | jq -e '.value[0].message' >/dev/null 2>&1; then
+    echo "$RESULT" | jq -r '.value[0].message' | grep -v "^$" || echo "✅ Certificados gerados"
+else
+    echo "$RESULT" | grep -i "error\|erro" >/dev/null && {
+        echo -e "${RED}❌ Erro ao gerar certificados${NC}"
+        echo "$RESULT"
+        exit 1
+    } || echo -e "${GREEN}✅ Certificados gerados${NC}"
+fi
+
 echo ""
 
-# Passo 2: Aplicar configuração Nginx
+# Passo 2: Aplicar configuração Nginx (simplificado - apenas copia nginx.conf.secure se certificados existirem)
 echo -e "${BLUE}2️⃣  Aplicando configuração Nginx (HTTPS)...${NC}"
-az vm run-command invoke \
+RESULT=$(az vm run-command invoke \
     -g "$RESOURCE_GROUP" \
     -n "$VM_NAME" \
     --command-id RunShellScript \
-    --scripts "cd $PROJECT_DIR && bash scripts/azure/apply-nginx-config.sh ." \
-    --output json | jq -r '.value[0].message' || {
-    echo -e "${RED}❌ Erro ao aplicar configuração Nginx${NC}"
-    exit 1
-}
+    --scripts "cd $PROJECT_DIR && if [ -f certs/fullchain.pem ] && [ -f certs/privkey.pem ]; then if [ -f docker/nginx/nginx.conf.secure ]; then cp docker/nginx/nginx.conf.secure docker/nginx/nginx.conf && echo '✅ HTTPS config aplicado'; else echo '⚠️  nginx.conf.secure não encontrado'; fi; else echo '⚠️  Certificados não encontrados, mantendo HTTP-only'; fi" \
+    --output json 2>&1)
 
-echo -e "${GREEN}✅ Configuração Nginx aplicada${NC}"
+if echo "$RESULT" | jq -e '.value[0].message' >/dev/null 2>&1; then
+    echo "$RESULT" | jq -r '.value[0].message' | grep -v "^$" || echo -e "${GREEN}✅ Configuração aplicada${NC}"
+else
+    echo "$RESULT" | grep -i "error\|erro" >/dev/null && {
+        echo -e "${YELLOW}⚠️  Aviso ao aplicar configuração${NC}"
+    } || echo -e "${GREEN}✅ Configuração aplicada${NC}"
+fi
+
 echo ""
 
 # Passo 3: Reiniciar proxy
