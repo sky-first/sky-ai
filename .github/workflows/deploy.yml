@@ -5,8 +5,7 @@ permissions:
   id-token: write
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [staging, main]
   workflow_dispatch:
     inputs:
@@ -25,7 +24,7 @@ on:
         default: false
 
 concurrency:
-  group: deploy-${{ github.ref }}-${{ github.event.inputs.environment || 'auto' }}
+  group: deploy-${{ github.ref_name }}-${{ github.event.inputs.environment || 'auto' }}
   cancel-in-progress: false
 
 env:
@@ -113,20 +112,21 @@ jobs:
             ENV="${{ github.event.inputs.environment }}"
             ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
             BRANCH="manual"
-          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-            BASE_REF="${{ github.event.pull_request.base.ref }}"
-            if [[ "${BASE_REF}" == "staging" ]]; then
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # Push direto na branch staging ou main
+            BRANCH_REF="${{ github.ref_name }}"
+            if [[ "${BRANCH_REF}" == "staging" ]]; then
               ENV="staging"
-            elif [[ "${BASE_REF}" == "main" ]]; then
+            elif [[ "${BRANCH_REF}" == "main" ]]; then
               ENV="prod"
             else
-              echo "Branch de destino do PR não mapeada: ${BASE_REF}"
+              echo "Branch não mapeada para deploy: ${BRANCH_REF}"
               exit 1
             fi
             ALLOW_DESTROY="false"
-            BRANCH="${BASE_REF}"
+            BRANCH="${BRANCH_REF}"
           else
-            echo "Evento não suportado ou PR não foi mergeado"
+            echo "Evento não suportado: ${{ github.event_name }}"
             exit 1
           fi
           
@@ -158,7 +158,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Setup Terraform
@@ -1241,7 +1241,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+          ref: ${{ github.ref }}
 
       - name: Validate Git Repositories
         run: |
@@ -2452,7 +2452,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref }}
+          ref: ${{ github.ref }}
 
       - name: Setup Terraform
         uses: ./.github/actions/terraform-setup
