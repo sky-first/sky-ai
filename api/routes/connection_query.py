@@ -17,6 +17,7 @@ import os
 import json
 import asyncio
 import time
+import hashlib
 from typing import AsyncGenerator
 
 from api.schemas import (
@@ -57,6 +58,9 @@ _bootstrap_cache: Dict[str, Tuple[ChatBootstrapResponse, datetime]] = {}
 CACHE_TTL_MINUTES = 10  # Sugestões válidas por 10 minutos
 MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de memória
 
+# ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
+DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
+
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
 # ============================================================================
@@ -71,6 +75,7 @@ def _get_cache_key(
     crew_ids: Optional[List[str]],
     is_personal: bool,
     language: str,
+    time_window_30s: Optional[int] = None,
 ) -> str:
     """
     Gera chave única para o cache baseada nos parâmetros relevantes.
@@ -81,13 +86,16 @@ def _get_cache_key(
         crew_ids: Lista de crew_ids (será ordenada para consistência)
         is_personal: Se está em modo personal
         language: Idioma das sugestões
+        time_window_30s: Janela de tempo de 30 segundos (opcional, para variação)
         
     Returns:
         String única que identifica esta combinação de parâmetros
     """
     # Ordenar crew_ids para garantir consistência (mesma chave para mesma combinação)
     crew_ids_str = ",".join(sorted(crew_ids or []))
-    return f"bootstrap:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{language}"
+    # ✅ INCLUIR time_window_30s na chave para variação a cada 30 segundos
+    time_part = f":{time_window_30s}" if time_window_30s is not None else ""
+    return f"bootstrap:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{language}{time_part}"
 
 
 def _get_cached_bootstrap(cache_key: str) -> Optional[ChatBootstrapResponse]:
@@ -100,6 +108,10 @@ def _get_cached_bootstrap(cache_key: str) -> Optional[ChatBootstrapResponse]:
     Returns:
         ChatBootstrapResponse se encontrado e válido, None caso contrário
     """
+    # ✅ Para testes: desabilitar cache
+    if DISABLE_BOOTSTRAP_CACHE:
+        return None
+    
     if cache_key not in _bootstrap_cache:
         return None
     
@@ -452,12 +464,6 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     if lang == "pt":
         greeting = "Como posso te ajudar com seus dados?"
         suggestions: list[ChatBootstrapSuggestion] = [
-            ChatBootstrapSuggestion(
-                title="Criar dashboard",
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            ),
             ChatBootstrapSuggestion(title="Dados disponíveis", kind="question", question="Quais dados eu tenho acesso?"),
             ChatBootstrapSuggestion(title="Tabelas", kind="question", question="Quais tabelas estão disponíveis neste catálogo?"),
             ChatBootstrapSuggestion(title="Colunas", kind="question", question="Quais colunas tem dentro da tabela customers?"),
@@ -466,12 +472,6 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     elif lang == "es":
         greeting = "¿Cómo puedo ayudarte con tus datos?"
         suggestions = [
-            ChatBootstrapSuggestion(
-                title="Crear dashboard",
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            ),
             ChatBootstrapSuggestion(title="Datos disponibles", kind="question", question="¿A qué datos tengo acceso?"),
             ChatBootstrapSuggestion(title="Tablas", kind="question", question="¿Qué tablas están disponibles en este catálogo?"),
             ChatBootstrapSuggestion(title="Columnas", kind="question", question="¿Qué columnas tiene la tabla customers?"),
@@ -480,12 +480,6 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     else:
         greeting = "How can I help you with your data?"
         suggestions = [
-            ChatBootstrapSuggestion(
-                title="Create dashboard",
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            ),
             ChatBootstrapSuggestion(title="Available data", kind="question", question="What data do I have access to?"),
             ChatBootstrapSuggestion(title="Tables", kind="question", question="Which tables are available in my catalog?"),
             ChatBootstrapSuggestion(title="Columns", kind="question", question="What columns are inside the customers table?"),
@@ -549,89 +543,41 @@ async def chat_bootstrap(
         # Se falhar, usar lista vazia (apenas dados públicos)
         resolved_crew_ids = []
 
+    # ✅ Calcular time_window_30s ANTES de gerar a chave do cache
+    # Isso garante que a chave mude a cada 30 segundos, forçando variação
+    current_time = datetime.now()
+    time_window_30s = int(current_time.timestamp() // 30)  # Janela de 30 segundos
+
     # ✅ NOVA: Verificar cache antes de gerar sugestões
+    # A chave inclui time_window_30s para variação a cada 30 segundos
     cache_key = _get_cache_key(
         connection_id=connection_id,
         space_id=body.space_id,
         crew_ids=resolved_crew_ids,
         is_personal=bool(body.is_personal),
         language=lang,
+        time_window_30s=time_window_30s,  # ✅ INCLUIR na chave para variação
     )
     
     cached_response = _get_cached_bootstrap(cache_key)
     if cached_response:
-        # ✅ GARANTIR que o card de ação "Create dashboard" sempre esteja presente
-        # Mesmo quando vem do cache (pode ter sido criado antes da implementação do card)
-        has_action_card = any(
-            sug.kind == "action" and sug.action_id == "create_dashboard"
-            for sug in cached_response.suggestions
-        )
+        # Remover qualquer card "create_dashboard" que possa estar no cache antigo
+        cached_response.suggestions = [
+            sug for sug in cached_response.suggestions 
+            if not (sug.kind == "action" and sug.action_id == "create_dashboard")
+        ]
         
-        if not has_action_card:
-            # Adicionar o card de ação se não estiver presente
-            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-            action_card = ChatBootstrapSuggestion(
-                title=action_title,
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            )
-            # Adicionar como primeiro item
-            cached_response.suggestions = [action_card] + cached_response.suggestions
-            # Normalizar contagem (garantir que o card seja sempre mantido)
-            # Se exceder max_suggestions, remover do final (não do início onde está o card)
-            if len(cached_response.suggestions) > body.max_suggestions:
-                cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
-            log_event(
-                "bootstrap_action_card_added_to_cache",
-                {
-                    "connection_id": connection_id,
-                    "space_id": body.space_id,
-                    "cache_key": cache_key,
-                },
-            )
-        
-        # ✅ GARANTIR que o card está presente antes de retornar (verificação final)
-        final_has_action_card = any(
-            sug.kind == "action" and sug.action_id == "create_dashboard"
-            for sug in cached_response.suggestions
-        )
-        
-        if not final_has_action_card:
-            # Se ainda não tem o card, adicionar (fallback de segurança)
-            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-            action_card = ChatBootstrapSuggestion(
-                title=action_title,
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            )
-            cached_response.suggestions = [action_card] + cached_response.suggestions
-            if len(cached_response.suggestions) > body.max_suggestions:
-                cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
-            log_event(
-                "bootstrap_action_card_added_final_check",
-                {
-                    "connection_id": connection_id,
-                    "space_id": body.space_id,
-                    "cache_key": cache_key,
-                },
-            )
-        
-        # Garantir que o card está na primeira posição
-        if cached_response.suggestions:
-            first_sug = cached_response.suggestions[0]
-            if not (first_sug.kind == "action" and first_sug.action_id == "create_dashboard"):
-                # Card não está na primeira posição, mover
-                action_sug = next(
-                    (sug for sug in cached_response.suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
-                    None
+        # Ajustar contagem se necessário após filtrar
+        if len(cached_response.suggestions) > body.max_suggestions:
+            cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+        while len(cached_response.suggestions) < body.max_suggestions:
+            cached_response.suggestions.append(
+                ChatBootstrapSuggestion(
+                    title="Example", 
+                    kind="question", 
+                    question="Show me something interesting from my data."
                 )
-                if action_sug:
-                    cached_response.suggestions = [sug for sug in cached_response.suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
-                    cached_response.suggestions = [action_sug] + cached_response.suggestions
-                    if len(cached_response.suggestions) > body.max_suggestions:
-                        cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+            )
         
         log_event(
             "bootstrap_cache_hit",
@@ -640,10 +586,6 @@ async def chat_bootstrap(
                 "space_id": body.space_id,
                 "cache_key": cache_key,
                 "num_suggestions": len(cached_response.suggestions),
-                "has_action_card": final_has_action_card or any(
-                    sug.kind == "action" and sug.action_id == "create_dashboard"
-                    for sug in cached_response.suggestions
-                ),
             },
         )
         return cached_response
@@ -724,17 +666,15 @@ async def chat_bootstrap(
         "- Ensure suggestions will return meaningful data when executed.\n"
     )
 
-    # Calcular seed baseado em janela de 15 minutos para variação estável
-    # Usa timestamp dividido por 15 minutos (900 segundos) para criar janelas estáveis
-    current_time = datetime.now()
-    time_window_15min = int(current_time.timestamp() // 900)  # Janela de 15 minutos
-    
+    # ✅ Calcular seed baseado em janela de 30 segundos para variação mais frequente
+    # Usa timestamp dividido por 30 segundos para criar janelas que mudam rapidamente
+    # NOTA: time_window_30s já foi calculado acima para a chave do cache
     # Combinar com hash do schema para mais estabilidade e variação entre conexões
     schema_hash = hashlib.md5(schema_summary.encode()).hexdigest()
-    combined_seed = f"{connection_id}_{schema_hash}_{time_window_15min}"
+    combined_seed = f"{connection_id}_{schema_hash}_{time_window_30s}"
     variation_seed = int(hashlib.md5(combined_seed.encode()).hexdigest()[:8], 16) % 6
     
-    # Mapear seed para diferentes ênfases que rotacionam a cada 15 minutos
+    # Mapear seed para diferentes ênfases que rotacionam a cada 30 segundos
     emphasis_hints = [
         "Focus on performance metrics and KPIs (revenue, sales, growth rates, efficiency, profitability, ROI).",
         "Focus on comparative analysis (compare performance across regions, products, customer segments, categories).",
@@ -747,7 +687,7 @@ async def chat_bootstrap(
     current_emphasis = emphasis_hints[variation_seed]
 
     user = (
-        f"N={max(1, body.max_suggestions - 1)}\n"
+        f"N={body.max_suggestions}\n"
         f"User has access to {len(tables)} tables (filtered by permissions). Schema (sample):\n"
         f"{schema_summary}\n\n"
         f"Context: {mode_context}\n\n"
@@ -845,10 +785,18 @@ async def chat_bootstrap(
             filtered_count = 0
             
             for sug in suggestions:
-                # Ações (como "Create dashboard") não precisam validação
-                if sug.kind == "action":
-                    filtered_suggestions.append(sug)
-                    continue
+                # Filtrar ações "create_dashboard" - não queremos mais esse card
+                if sug.kind == "action" and sug.action_id == "create_dashboard":
+                    filtered_count += 1
+                    log_event(
+                        "bootstrap_suggestion_filtered",
+                        {
+                            "connection_id": connection_id,
+                            "title": sug.title,
+                            "reason": "create_dashboard action removed",
+                        },
+                    )
+                    continue  # Pular esta sugestão
                 
                 # Validar perguntas
                 question_text = sug.question or ""
@@ -893,133 +841,23 @@ async def chat_bootstrap(
             )
             # Continua normalmente sem validação
 
-        # Always prepend the action card as the first suggestion.
-        # ✅ Verificar se já existe para evitar duplicatas
-        has_action_card = any(
-            sug.kind == "action" and sug.action_id == "create_dashboard"
-            for sug in suggestions
-        )
-        
-        if not has_action_card:
-            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-            action_card = ChatBootstrapSuggestion(
-                title=action_title,
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            )
-            suggestions = [action_card] + suggestions
-        else:
-            # Se já existe, garantir que está na primeira posição
-            action_sug = next(
-                (sug for sug in suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
-                None
-            )
-            if action_sug:
-                # Remover da posição atual e adicionar no início
-                suggestions = [sug for sug in suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
-                suggestions = [action_sug] + suggestions
+        # Remover qualquer card "create_dashboard" que possa ter sido gerado pela LLM
+        suggestions = [
+            sug for sug in suggestions 
+            if not (sug.kind == "action" and sug.action_id == "create_dashboard")
+        ]
 
-        # Normalize count (garantir que o card seja sempre mantido)
-        # Se exceder max_suggestions, remover do final (não do início onde está o card)
+        # Normalize count
         if len(suggestions) > body.max_suggestions:
             suggestions = suggestions[: body.max_suggestions]
         while len(suggestions) < body.max_suggestions:
             suggestions.append(
-                ChatBootstrapSuggestion(title="Example", kind="question", question=(suggestions[-1].question if suggestions else "Show me something interesting from my data."))
+                ChatBootstrapSuggestion(
+                    title="Example", 
+                    kind="question", 
+                    question=(suggestions[-1].question if suggestions else "Show me something interesting from my data.")
+                )
             )
-
-        # ✅ VERIFICAÇÃO FINAL: Garantir que o card está presente antes de criar a resposta
-        final_check_has_action_card = any(
-            sug.kind == "action" and sug.action_id == "create_dashboard"
-            for sug in suggestions
-        )
-        
-        if not final_check_has_action_card:
-            # Se ainda não tem o card, adicionar (fallback de segurança)
-            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-            action_card = ChatBootstrapSuggestion(
-                title=action_title,
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            )
-            suggestions = [action_card] + suggestions
-            if len(suggestions) > body.max_suggestions:
-                suggestions = suggestions[: body.max_suggestions]
-            log_event(
-                "bootstrap_action_card_added_final_check_new",
-                {
-                    "connection_id": connection_id,
-                    "space_id": body.space_id,
-                },
-            )
-        
-        # Garantir que o card está na primeira posição
-        if suggestions and not (suggestions[0].kind == "action" and suggestions[0].action_id == "create_dashboard"):
-            action_sug = next(
-                (sug for sug in suggestions if sug.kind == "action" and sug.action_id == "create_dashboard"),
-                None
-            )
-            if action_sug:
-                suggestions = [sug for sug in suggestions if not (sug.kind == "action" and sug.action_id == "create_dashboard")]
-                suggestions = [action_sug] + suggestions
-                if len(suggestions) > body.max_suggestions:
-                    suggestions = suggestions[: body.max_suggestions]
-        
-        # ✅ VERIFICAÇÃO FINAL ABSOLUTA: Garantir que o card está presente antes de criar a resposta
-        # Esta é uma verificação de segurança final para garantir que nada remova o card
-        absolute_final_check = any(
-            sug.kind == "action" and sug.action_id == "create_dashboard"
-            for sug in suggestions
-        )
-        if not absolute_final_check:
-            # Se por algum motivo o card não está presente, adicionar agora
-            action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-            action_card = ChatBootstrapSuggestion(
-                title=action_title,
-                kind="action",
-                action_id="create_dashboard",
-                payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-            )
-            suggestions = [action_card] + suggestions
-            # Garantir que não exceda max_suggestions
-            if len(suggestions) > body.max_suggestions:
-                suggestions = suggestions[: body.max_suggestions]
-            log_event(
-                "bootstrap_action_card_added_absolute_final",
-                {
-                    "connection_id": connection_id,
-                    "space_id": body.space_id,
-                    "num_suggestions_before": len(suggestions) - 1,
-                },
-            )
-        
-        # Garantir que o card está na primeira posição (verificação final de posição)
-        if suggestions:
-            first_is_action = suggestions[0].kind == "action" and suggestions[0].action_id == "create_dashboard"
-            if not first_is_action:
-                # Procurar o card e mover para primeira posição
-                action_idx = None
-                for i, sug in enumerate(suggestions):
-                    if sug.kind == "action" and sug.action_id == "create_dashboard":
-                        action_idx = i
-                        break
-                if action_idx is not None:
-                    # Mover para primeira posição
-                    action_card = suggestions.pop(action_idx)
-                    suggestions.insert(0, action_card)
-                    # Garantir que não exceda max_suggestions
-                    if len(suggestions) > body.max_suggestions:
-                        suggestions = suggestions[: body.max_suggestions]
-                    log_event(
-                        "bootstrap_action_card_moved_to_first",
-                        {
-                            "connection_id": connection_id,
-                            "space_id": body.space_id,
-                            "old_position": action_idx,
-                        },
-                    )
 
         response = ChatBootstrapResponse(
             greeting=greeting,
@@ -1033,36 +871,11 @@ async def chat_bootstrap(
                 "is_personal": bool(body.is_personal),
                 "crew_ids": resolved_crew_ids,
                 "mode": "personal" if body.is_personal else "collaborative",
-                "cached": False,  # Indica que esta resposta não veio do cache
+                "cached": False,
+                "variation_seed": variation_seed,
+                "time_window_30s": time_window_30s,
             },
         )
-        
-        # ✅ VERIFICAÇÃO FINAL NA RESPOSTA: Garantir que o card está presente na resposta final
-        # Esta é uma última verificação antes de armazenar no cache
-        if response.suggestions:
-            response_has_action = any(
-                sug.kind == "action" and sug.action_id == "create_dashboard"
-                for sug in response.suggestions
-            )
-            if not response_has_action:
-                # Se por algum motivo ainda não tem, adicionar (última tentativa)
-                action_title = "Create dashboard" if lang == "en" else ("Criar dashboard" if lang == "pt" else "Crear dashboard")
-                action_card = ChatBootstrapSuggestion(
-                    title=action_title,
-                    kind="action",
-                    action_id="create_dashboard",
-                    payload={"default_goal": "Billing overview", "default_max_widgets": 6},
-                )
-                response.suggestions = [action_card] + response.suggestions
-                if len(response.suggestions) > body.max_suggestions:
-                    response.suggestions = response.suggestions[: body.max_suggestions]
-                log_event(
-                    "bootstrap_action_card_added_in_response",
-                    {
-                        "connection_id": connection_id,
-                        "space_id": body.space_id,
-                    },
-                )
         
         # ✅ NOVA: Armazenar no cache após gerar
         _set_cached_bootstrap(cache_key, response)
