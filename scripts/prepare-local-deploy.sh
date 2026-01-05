@@ -76,7 +76,7 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
     echo -e "${YELLOW}   - REDIS_PASSWORD${NC}"
     echo -e "${YELLOW}   - JWT_SECRET_KEY${NC}"
     echo -e "${YELLOW}   - ENCRYPTION_KEY${NC}"
-    echo -e "${YELLOW}   - NEXT_PUBLIC_API_URL (para local: http://localhost:8000/api/v1)${NC}"
+    echo -e "${YELLOW}   - NEXT_PUBLIC_API_URL (para local com proxy: /api/v1)${NC}"
   else
     echo -e "${RED}❌ env.example não encontrado${NC}"
     exit 1

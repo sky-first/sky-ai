@@ -63,7 +63,8 @@ if ($content -match "ENCRYPTION_KEY=.*") {
 
 # NEXT_PUBLIC_API_URL - Mudar para LOCAL
 if ($content -match "NEXT_PUBLIC_API_URL=.*") {
-    $content = $content -replace "NEXT_PUBLIC_API_URL=.*", "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1"
+    # DEVOPS: preferir path relativo (funciona com proxy Nginx do sky-poc-infra)
+    $content = $content -replace "NEXT_PUBLIC_API_URL=.*", "NEXT_PUBLIC_API_URL=/api/v1"
     Write-Host "  ✅ NEXT_PUBLIC_API_URL atualizado para LOCAL" -ForegroundColor Green
 } else {
     Write-Host "  ⚠️  NEXT_PUBLIC_API_URL não encontrado" -ForegroundColor Yellow

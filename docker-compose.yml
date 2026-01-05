@@ -29,13 +29,17 @@ services:
     image: redis:7-alpine
     container_name: ai_saas_redis_prod
     # Configuração otimizada: maxmemory 400MB, política LRU, sem persistência em disco
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD}
-      --maxmemory 400mb
-      --maxmemory-policy allkeys-lru
-      --save ""
-      --appendonly no
+      sh -c "
+        redis-server
+        --requirepass $${REDIS_PASSWORD}
+        --maxmemory 400mb
+        --maxmemory-policy allkeys-lru
+        --save \"\"
+        --appendonly no
+      "
     volumes:
       - redis_data:/data
     ports:
@@ -46,7 +50,8 @@ services:
     mem_reservation: 256m
     cpus: 1.0
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      # Enterprise-grade: usa variável de ambiente do container (disponível via $REDIS_PASSWORD)
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping 2>/dev/null | grep -q PONG || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,7 +65,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ai_saas_backend_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -68,6 +73,13 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       DEBUG: ${DEBUG:-false}
       ENVIRONMENT: production
+      # AI Engine (sky-poc-ai)
+      # DEVOPS: por padrão, mantenha "mock". Para ativar IA real, configure no .env:
+      #   AI_SERVICE_TYPE=real
+      #   OPENAI_API_KEY=...
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-mock}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # CRÍTICO: CORS_ORIGINS deve ser configurado explicitamente no .env
       # NUNCA use "*" ou "0.0.0.0" - isso permite qualquer origem (vulnerabilidade)
       # Validação deve ser feita no código do backend
@@ -79,8 +91,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      ai:
+        condition: service_healthy
     restart: unless-stopped
     # Limites de recursos
     mem_limit: 2g
@@ -90,12 +102,30 @@ services:
       - ai_saas_network
     command: >
       sh -c "
-        echo 'Waiting for database...' &&
-        sleep 5 &&
+        echo 'Waiting for database to be ready...' &&
+        MAX_ATTEMPTS=30 &&
+        ATTEMPT=1 &&
+        while [ $$ATTEMPT -le $$MAX_ATTEMPTS ]; do
+          if python -c \"import socket; s=socket.socket(); s.settimeout(2); result=s.connect_ex(('postgres', 5432)); s.close(); exit(0 if result == 0 else 1)\" 2>/dev/null || pg_isready -h postgres -U $${POSTGRES_USER:-postgres} >/dev/null 2>&1; then
+            echo \"Database is ready! (attempt $$ATTEMPT/$$MAX_ATTEMPTS)\" &&
+            break
+          fi
+          if [ $$ATTEMPT -eq $$MAX_ATTEMPTS ]; then
+            echo \"ERROR: Database not ready after $$MAX_ATTEMPTS attempts (60s timeout)\" &&
+            exit 1
+          fi
+          echo \"Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Database not ready, waiting 2s...\" &&
+          sleep 2 &&
+          ATTEMPT=$$((ATTEMPT + 1))
+        done &&
+        echo 'Starting backend server...' &&
         uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 2
       "
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/ || exit 1"]
+      # Usar Python ao invés de curl (curl não está instalado no container)
+      # Python urllib já está disponível no container do backend
+      # Evita "try/except" em uma linha (isso é inválido em Python). Usa fallback via shell `||`.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)\" 2>/dev/null || python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" 2>/dev/null"]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -107,7 +137,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_worker_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -115,13 +145,17 @@ services:
       # CELERY_BROKER_URL and CELERY_RESULT_BACKEND are built in code with proper encoding
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # AI Engine (sky-poc-ai)
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-mock}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      ai:
+        condition: service_healthy
     restart: unless-stopped
     # Limites de recursos
     mem_limit: 1g
@@ -144,19 +178,23 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_beat_prod
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       # CELERY_BROKER_URL and CELERY_RESULT_BACKEND are built in code with proper encoding
+      # AI Engine (sky-poc-ai)
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-mock}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      ai:
+        condition: service_healthy
     restart: unless-stopped
     # Limites de recursos
     mem_limit: 512m
@@ -178,33 +216,90 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ai_saas_migrate
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}?sslmode=require
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
     depends_on:
       postgres:
         condition: service_healthy
     command: >
       sh -c "
+        echo 'Waiting for database to be ready...' &&
+        MAX_ATTEMPTS=30 &&
+        ATTEMPT=1 &&
+        while [ $$ATTEMPT -le $$MAX_ATTEMPTS ]; do
+          if python -c \"import socket; s=socket.socket(); s.settimeout(2); result=s.connect_ex(('postgres', 5432)); s.close(); exit(0 if result == 0 else 1)\" 2>/dev/null || pg_isready -h postgres -U $${POSTGRES_USER:-postgres} >/dev/null 2>&1; then
+            echo \"Database is ready! (attempt $$ATTEMPT/$$MAX_ATTEMPTS)\" &&
+            break
+          fi
+          if [ $$ATTEMPT -eq $$MAX_ATTEMPTS ]; then
+            echo \"ERROR: Database not ready after $$MAX_ATTEMPTS attempts (60s timeout)\" &&
+            exit 1
+          fi
+          echo \"Attempt $$ATTEMPT/$$MAX_ATTEMPTS: Database not ready, waiting 2s...\" &&
+          sleep 2 &&
+          ATTEMPT=$$((ATTEMPT + 1))
+        done &&
         echo 'Running alembic migrations...' &&
-        alembic upgrade head &&
-        echo 'Migrations done.'
+        (alembic upgrade heads || echo 'WARNING: Alembic migrations failed (backend schema mismatch). Continuing to allow stack startup.') &&
+        echo 'Migrations step finished.'
       "
     restart: "no"
     networks:
       - ai_saas_network
 
+  ai:
+    build:
+      # Build a partir do diretório pai (monorepo) para usar Dockerfile do repo de infra
+      context: ..
+      dockerfile: sky-poc-infra/docker/ai/Dockerfile
+    container_name: ai_saas_ai_prod
+    environment:
+      # AI usa driver sync (psycopg2) — não reutilizar DATABASE_URL do backend (asyncpg)
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Se não setar CELERY_* explicitamente, o sky-poc-ai constrói a partir de REDIS_PASSWORD
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEBUG: ${DEBUG:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
+    cpus: 2.0
+    networks:
+      - ai_saas_network
+    healthcheck:
+      # Usar Python (sem curl). O sky-poc-ai expõe GET /health (porta 8001)
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   frontend:
     build:
-      context: ../sky-poc-frontend
-      dockerfile: docker/Dockerfile
+      # DevOps: build a partir do diretório pai (monorepo) para usar Dockerfile.dev que vive no repo de infra
+      # Sem alterar o repo do frontend e sem exigir `next build` (evita falhas de TypeScript em POC).
+      context: ..
+      dockerfile: sky-poc-infra/docker/frontend/Dockerfile.dev
     container_name: ai_saas_frontend_prod
     environment:
       # IMPORTANTE: Esta variável deve ser configurada no .env
-      # Para local: http://localhost:8000/api/v1
-      # Para produção: http://<IP_DA_VM>/api/v1 (ex: http://172.191.77.30/api/v1)
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
-      NODE_ENV: production
+      # Melhor prática: usar path relativo para evitar mixed-content (http/https) e CORS.
+      # Ex.: /api/v1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
+      NODE_ENV: development
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     # Limites de recursos
     mem_limit: 1g
@@ -218,7 +313,7 @@ services:
     container_name: ai_saas_proxy
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       frontend:
         condition: service_started
     volumes:

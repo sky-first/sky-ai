@@ -169,9 +169,15 @@ terraform apply
 Para mais detalhes, consulte: [`infra/azure/README.md`](infra/azure/README.md)
 
 **Segredos via Key Vault (deploy automatizado):**
-- Crie/defina o Key Vault e os segredos: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `SENTRY_DSN` (nomes podem ser customizados).
-- Adicione secrets no GitHub: `KEYVAULT_NAME`, `KV_POSTGRES_PASSWORD_SECRET`, `KV_REDIS_PASSWORD_SECRET`, `KV_JWT_SECRET_SECRET`, `KV_ENCRYPTION_KEY_SECRET`, `KV_SENTRY_DSN_SECRET`.
-- O job `update-vm-code` busca esses segredos e gera `~/projeto/poc-deploy/.env` antes de restartar os containers.
+- Crie/defina o Key Vault e os segredos: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `SENTRY_DSN`, `OPENAI_API_KEY` (nomes podem ser customizados).
+- Adicione secrets no GitHub: `KEYVAULT_NAME`, `KV_POSTGRES_PASSWORD_SECRET`, `KV_REDIS_PASSWORD_SECRET`, `KV_JWT_SECRET_SECRET`, `KV_ENCRYPTION_KEY_SECRET`, `KV_SENTRY_DSN_SECRET`, `KV_OPENAI_API_KEY_SECRET`.
+- O job `update-vm-code` busca esses segredos e gera o `.env` no diretório do projeto na VM (`~/projeto/sky-poc-infra/.env` ou legado `~/projeto/poc-deploy/.env`) antes de restartar os containers.
+
+**Bootstrap (1x) do OPENAI_API_KEY via GitHub Actions (sem rodar `az` local):**
+- (Opcional) Crie o secret no GitHub: `OPENAI_API_KEY_BOOTSTRAP` com o valor da sua chave.
+- Rode o workflow `deploy.yml` (ou faça merge em `staging`).
+- O job `update-vm-code` irá gravar o valor no Key Vault (secret `KV_OPENAI_API_KEY_SECRET`) e depois consumi-lo.
+- Após confirmar que o Key Vault está populado, **remova/limpe** o secret `OPENAI_API_KEY_BOOTSTRAP` do GitHub.
 
 ## Estrutura Esperada no Servidor
 

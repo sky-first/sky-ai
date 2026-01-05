@@ -26,6 +26,9 @@ tmp/
 temp/
 *.tmp
 
+# Nginx backups locais (gerados por scripts)
+docker/nginx/nginx.conf.backup.*
+
 # Docker
 .docker/
 

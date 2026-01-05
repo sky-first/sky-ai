@@ -34,10 +34,18 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     CREATE INDEX IF NOT EXISTS idx_embeddings_created_at ON embeddings(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_embeddings_metadata_gin ON embeddings USING GIN (metadata);
 
-    -- Índice HNSW para buscas vetoriais (essencial para performance em RAG)
-    CREATE INDEX IF NOT EXISTS idx_embeddings_vector_hnsw ON embeddings 
-    USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64);
+    -- Índice HNSW para buscas vetoriais.
+    -- Importante: em pgvector, HNSW tem limite de ~2000 dimensões.
+    -- Para embeddings 3072 (ex.: text-embedding-3-large), este CREATE INDEX falha.
+    -- Não podemos deixar isso quebrar o init do Postgres; então tratamos como "best effort".
+    DO $$
+    BEGIN
+      BEGIN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_embeddings_vector_hnsw ON embeddings USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)';
+      EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Skipping HNSW index (likely dims>2000 or unsupported): %', SQLERRM;
+      END;
+    END $$;
 EOSQL
 
 echo "Embeddings table created successfully!"

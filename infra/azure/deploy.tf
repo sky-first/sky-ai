@@ -46,8 +46,16 @@ resource "null_resource" "deploy_application" {
         'echo Subindo_containers',
         'cd $PROJ_DIR/sky-poc-infra',
         'if [ ! -f .env ]; then echo ERRO_env_nao_encontrado_crie_o_env_antes_do_deploy; exit 1; fi',
+        'echo Validando_env_e_configuracoes_criticas',
+        # Garante que NEXT_PUBLIC_API_URL não fique em localhost:8000 (causa comum do erro no login)
+        # e completa variáveis ausentes (senhas/keys) de forma segura.
+        'sudo bash scripts/azure/ensure-complete-env.sh "$PROJ_DIR/sky-poc-infra"',
+        # Garante que nginx.conf esteja em modo HTTP-only se não houver certificados
+        'sudo bash scripts/azure/apply-nginx-config.sh "$PROJ_DIR/sky-poc-infra"',
         'sudo docker compose down || true',
         'sudo docker compose up -d --build',
+        'echo Prewarm_frontend_routes',
+        'sudo bash scripts/azure/prewarm-frontend.sh http://127.0.0.1 || true',
         'sudo docker compose ps || true',
         'sudo docker ps || true'
       )

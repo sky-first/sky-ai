@@ -2179,6 +2179,28 @@ jobs:
           terraform output -no-color >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
 
+      - name: Get VM Public IP
+        id: vm-ip
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          if [ -z "$VM_IP" ]; then
+            echo "⚠️  VM IP não encontrado no output do Terraform"
+            echo "Tentando obter via Azure CLI..."
+            VM_IP=$(az vm show -d \
+              -g "${{ needs.detect-environment.outputs.resource_group }}" \
+              -n "${{ needs.detect-environment.outputs.vm_name }}" \
+              --query publicIps -o tsv 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$VM_IP" ]; then
+            echo "❌ ERRO: Não foi possível obter o IP da VM"
+            exit 1
+          fi
+          
+          echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM Public IP: $VM_IP"
+          echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
+
       - name: Save State Backup
         run: |
           set -euo pipefail
@@ -2200,6 +2222,129 @@ jobs:
           path: |
             terraform-state-backup-*.json
           retention-days: 90
+
+  smoke-tests:
+    name: Smoke Tests - Validação Pós-Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [detect-environment, terraform-apply, update-vm-code]
+    if: success() && needs.update-vm-code.result == 'success'
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Authentication
+        uses: ./.github/actions/azure-auth
+        with:
+          subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+      - name: Write backend config
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
+
+      - name: Terraform Init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Select Workspace
+        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+
+      - name: Get VM Public IP
+        id: vm-ip
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          if [ -z "$VM_IP" ]; then
+            echo "⚠️  VM IP não encontrado no output do Terraform"
+            echo "Tentando obter via Azure CLI..."
+            RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+            VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+            if [ -n "$RESOURCE_GROUP" ] && [ -n "$VM_NAME" ]; then
+              VM_IP=$(az vm show -d \
+                -g "$RESOURCE_GROUP" \
+                -n "$VM_NAME" \
+                --query publicIps -o tsv 2>/dev/null || echo "")
+            fi
+          fi
+          
+          if [ -z "$VM_IP" ]; then
+            echo "❌ ERRO: Não foi possível obter o IP da VM"
+            exit 1
+          fi
+          
+          echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM Public IP: $VM_IP"
+          echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
+
+      - name: Wait for Services to Start
+        run: |
+          echo "Aguardando serviços iniciarem completamente..."
+          sleep 30
+          echo "✅ Aguardado 30s para serviços iniciarem"
+
+      - name: Run Smoke Tests
+        run: |
+          set -euo pipefail
+          chmod +x scripts/smoke-tests.sh
+          
+          echo "=========================================="
+          echo "🧪 Executando Smoke Tests"
+          echo "=========================================="
+          echo ""
+          
+          if bash scripts/smoke-tests.sh "${{ steps.vm-ip.outputs.vm_public_ip }}" 30; then
+            echo ""
+            echo "✅ Todos os smoke tests passaram!"
+          else
+            echo ""
+            echo "❌ Smoke tests falharam!"
+            echo ""
+            echo "Verifique:"
+            echo "  - Logs dos containers na VM"
+            echo "  - Status do nginx/proxy"
+            echo "  - Regras do NSG (porta 80)"
+            exit 1
+          fi
+
+      - name: Smoke Tests Summary
+        if: always()
+        run: |
+          echo "## 🧪 Smoke Tests - Resultado" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ **Todos os testes passaram!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "VM IP: \`${{ steps.vm-ip.outputs.vm_public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Alguns testes falharam**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Verifique os logs acima para detalhes." >> $GITHUB_STEP_SUMMARY
+          fi
 
   update-vm-code:
     name: Update VM Code
@@ -2225,6 +2370,10 @@ jobs:
       KV_JWT_SECRET_SECRET: ${{ secrets.KV_JWT_SECRET_SECRET }}
       KV_ENCRYPTION_KEY_SECRET: ${{ secrets.KV_ENCRYPTION_KEY_SECRET }}
       KV_SENTRY_DSN_SECRET: ${{ secrets.KV_SENTRY_DSN_SECRET }}
+      KV_OPENAI_API_KEY_SECRET: ${{ secrets.KV_OPENAI_API_KEY_SECRET }}
+      # One-time bootstrap (opcional): permite gravar OPENAI_API_KEY no Key Vault via deploy (sem rodar az localmente).
+      # Recomendado remover/deixar vazio depois que o KV estiver populado.
+      OPENAI_API_KEY_BOOTSTRAP: ${{ secrets.OPENAI_API_KEY_BOOTSTRAP }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -2270,10 +2419,18 @@ jobs:
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
           
-          if [[ "${{ needs.detect-environment.outputs.branch }}" == "manual" ]]; then
-            GIT_BRANCH="main"
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          BRANCH_INPUT="${{ needs.detect-environment.outputs.branch }}"
+          
+          if [[ "$BRANCH_INPUT" == "manual" ]]; then
+            # Para poc-sky, usar staging; para outros ambientes, usar main
+            if [[ "$ENV" == "poc-sky" ]]; then
+              GIT_BRANCH="staging"
+            else
+              GIT_BRANCH="main"
+            fi
           else
-            GIT_BRANCH="${{ needs.detect-environment.outputs.branch }}"
+            GIT_BRANCH="$BRANCH_INPUT"
           fi
           
           GITHUB_REPO="${{ github.repository }}"
@@ -2337,8 +2494,31 @@ jobs:
               echo "OK: Secret encontrado: ${KV_POSTGRES_PASSWORD_SECRET}"
             fi
           fi
+
+          if [ -n "${KV_OPENAI_API_KEY_SECRET:-}" ]; then
+            if ! az keyvault secret show --vault-name "$KV_NAME" --name "${KV_OPENAI_API_KEY_SECRET}" --query id -o tsv > /dev/null 2>&1; then
+              echo "WARNING: WARNING: Secret não encontrado no Key Vault: ${KV_OPENAI_API_KEY_SECRET}"
+            else
+              echo "OK: Secret encontrado: ${KV_OPENAI_API_KEY_SECRET}"
+            fi
+          fi
           
           echo "OK: Key Vault $KV_NAME validado com sucesso"
+
+      - name: Bootstrap OPENAI_API_KEY to Key Vault (optional)
+        if: env.KEYVAULT_NAME != '' && env.OPENAI_API_KEY_BOOTSTRAP != '' && env.KV_OPENAI_API_KEY_SECRET != ''
+        run: |
+          set -euo pipefail
+          KV_NAME="${KEYVAULT_NAME}"
+          SECRET_NAME="${KV_OPENAI_API_KEY_SECRET}"
+          echo "Bootstrapping OPENAI_API_KEY to Key Vault '$KV_NAME' (secret name: '$SECRET_NAME')"
+          # Não exibe o valor da chave (o comando retorna metadados)
+          az keyvault secret set \
+            --vault-name "$KV_NAME" \
+            --name "$SECRET_NAME" \
+            --value "$OPENAI_API_KEY_BOOTSTRAP" \
+            --query id -o tsv > /dev/null
+          echo "OK: OPENAI_API_KEY gravada/atualizada no Key Vault"
 
       - name: Fetch secrets from Key Vault (optional)
         if: env.KEYVAULT_NAME != ''
@@ -2376,6 +2556,7 @@ jobs:
           JWT_SECRET_KEY=$(fetch_secret "${KV_JWT_SECRET_SECRET}")
           ENCRYPTION_KEY=$(fetch_secret "${KV_ENCRYPTION_KEY_SECRET}")
           SENTRY_DSN=$(fetch_secret "${KV_SENTRY_DSN_SECRET}")
+          OPENAI_API_KEY=$(fetch_secret "${KV_OPENAI_API_KEY_SECRET}")
 
           echo "# Generated from Key Vault ${KV_NAME}" > kv.env
           wrote=false
@@ -2392,6 +2573,7 @@ jobs:
           write_if "JWT_SECRET_KEY" "$JWT_SECRET_KEY"
           write_if "ENCRYPTION_KEY" "$ENCRYPTION_KEY"
           write_if "SENTRY_DSN" "$SENTRY_DSN"
+          write_if "OPENAI_API_KEY" "$OPENAI_API_KEY"
 
           if $wrote; then
             echo "has_secrets=true" >> $GITHUB_OUTPUT
@@ -2747,7 +2929,58 @@ jobs:
             " \
             --output json
 
-      - name: Restart Containers
+      - name: Write OPENAI_API_KEY to VM .env (no Key Vault)
+        if: env.KEYVAULT_NAME == '' && env.OPENAI_API_KEY_BOOTSTRAP != ''
+        run: |
+          set -euo pipefail
+          echo "KEYVAULT_NAME vazio; injetando OPENAI_API_KEY diretamente no .env da VM (via GitHub Secret)..."
+          az vm run-command invoke \
+            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
+            --name ${{ steps.vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -euo pipefail
+              BASE=~/projeto
+              if [ -d \"\$BASE/sky-poc-infra\" ]; then
+                INFRA_DIR=\"\$BASE/sky-poc-infra\"
+              elif [ -d \"\$BASE/poc-deploy\" ]; then
+                INFRA_DIR=\"\$BASE/poc-deploy\"
+              else
+                echo '❌ ERRO: Diretório de infraestrutura não encontrado em ~/projeto'
+                exit 1
+              fi
+
+              cd \"\$INFRA_DIR\"
+
+              if [ ! -f .env ]; then
+                if [ -f env.example ]; then
+                  cp env.example .env
+                else
+                  echo '❌ ERRO: env.example não encontrado para criar .env'
+                  exit 1
+                fi
+              fi
+
+              # Atualizar/Inserir variáveis sem imprimir valores
+              ensure_kv() {
+                key=\"\$1\"; val=\"\$2\"
+                if grep -q \"^\${key}=\" .env; then
+                  sed -i \"s|^\${key}=.*|\${key}=\${val}|\" .env
+                else
+                  printf \"%s=%s\\n\" \"\$key\" \"\$val\" >> .env
+                fi
+              }
+
+              ensure_kv \"OPENAI_API_KEY\" \"${OPENAI_API_KEY_BOOTSTRAP}\"
+              ensure_kv \"AI_SERVICE_URL\" \"http://ai:8001\"
+              ensure_kv \"AI_SERVICE_TYPE\" \"real\"
+
+              chmod 600 .env || true
+              echo '✅ .env atualizado com OPENAI_API_KEY (valor oculto)'
+            " \
+            --output json
+
+      - name: Restart Containers (Sequential Deploy)
         run: |
           az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
@@ -2771,17 +3004,27 @@ jobs:
                 exit 1
               fi
               
-              echo 'Restarting containers...'
-              # Parar containers existentes (pode não existir, então não falhar)
-              sudo docker compose down || echo "Nenhum container rodando para parar"
-              # Build e start dos containers (crítico - deve falhar se não funcionar)
-              sudo docker compose up -d --build || { 
-                echo '❌ ERRO: Falha ao iniciar containers'
-                echo 'Logs dos containers:'
-                sudo docker compose logs --tail=50
-                exit 1
-              }
-              echo 'Containers restarted'
+              # Usar deploy sequencial se script existir
+              if [ -f scripts/azure/sequential-deploy.sh ]; then
+                echo 'Usando deploy sequencial com health checks...'
+                bash scripts/azure/sequential-deploy.sh \"\$(pwd)\" || {
+                  echo '❌ ERRO: Deploy sequencial falhou'
+                  echo 'Logs dos containers:'
+                  sudo docker compose logs --tail=50
+                  exit 1
+                }
+              else
+                echo 'Script de deploy sequencial não encontrado, usando método padrão...'
+                # Fallback: método antigo
+                sudo docker compose down || echo 'Nenhum container rodando para parar'
+                sudo docker compose up -d --build || { 
+                  echo '❌ ERRO: Falha ao iniciar containers'
+                  echo 'Logs dos containers:'
+                  sudo docker compose logs --tail=50
+                  exit 1
+                }
+              fi
+              echo '✅ Containers iniciados com sucesso'
             " \
             --output json
 

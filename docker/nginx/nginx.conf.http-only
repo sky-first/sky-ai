@@ -5,9 +5,30 @@
 limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
 limit_req_zone $binary_remote_addr zone=general_limit:10m rate=30r/s;
 
+# Map para validar origens CORS permitidas
+# CRÍTICO: Este map valida origens permitidas. Por padrão, aceita apenas localhost.
+# Para produção, configure CORS_ORIGINS no .env e use script de entrypoint para gerar este map.
+# Formato esperado de CORS_ORIGINS: "http://example.com,https://example.com,http://localhost:3000"
+map $http_origin $cors_origin {
+    default "";
+    # Origens permitidas (padrão: apenas localhost para desenvolvimento)
+    "~^http://localhost(:[0-9]+)?$" $http_origin;
+    "~^http://127.0.0.1(:[0-9]+)?$" $http_origin;
+    # NOTA: Para produção, adicione origens específicas aqui ou use script de geração dinâmica
+    # Exemplo: "~^https://seu-dominio.com$" "https://seu-dominio.com";
+    # Exemplo: "~^http://20.86.142.1(:[0-9]+)?$" $http_origin;  # IP da VM
+}
+
 server {
   listen 80;
   server_name _;
+
+  # DEVOPS: Docker DNS é dinâmico (containers podem ser recriados e mudar de IP).
+  # Nginx cacheia resolução de hostnames em proxy_pass; usando resolver + variável,
+  # forçamos re-resolução e evitamos 502 após `docker compose up` recriar serviços.
+  resolver 127.0.0.11 ipv6=off valid=10s;
+  set $frontend_upstream frontend:3000;
+  set $backend_upstream backend:8000;
   
   # Security Headers - CRÍTICO: Proteção contra ataques comuns
   # NOTA: Sem HSTS pois não há HTTPS
@@ -24,7 +45,7 @@ server {
     limit_req zone=general_limit burst=50 nodelay;
     limit_req_status 429;
     
-    proxy_pass http://frontend:3000;
+    proxy_pass http://$frontend_upstream;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -38,11 +59,48 @@ server {
   }
 
   # Proxy para backend (FastAPI) - CRÍTICO: Rate limiting aplicado
-  location /api/ {
+  # Roteia /api/v1/* para backend:8000/api/v1/*
+  # Compatibilidade: alguns clientes/probes chamam /api/v1/health.
+  # Em algumas builds, /api/v1/health pode exigir auth (401). Aqui mapeamos para /health (público).
+  location = /api/v1/health {
+    proxy_pass http://$backend_upstream/health;
+    access_log off;
+  }
+
+  location /api/v1/ {
     limit_req zone=api_limit burst=20 nodelay;
     limit_req_status 429;
     
-    proxy_pass http://backend:8000;
+    # CORS Headers - CRÍTICO: Valida origem antes de permitir
+    # Usa $cors_origin que é validado pelo map acima
+    # Se origem não estiver na lista permitida, $cors_origin será vazio
+    set $cors_header "";
+    if ($cors_origin != "") {
+      set $cors_header $cors_origin;
+    }
+    
+    add_header Access-Control-Allow-Origin "$cors_header" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD" always;
+    add_header Access-Control-Allow-Headers "Accept, Accept-Language, Authorization, Content-Language, Content-Type, Origin, X-API-Key, X-CSRF-Token, X-Requested-With" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+    add_header Access-Control-Max-Age "3600" always;
+    
+    # Handle preflight requests (OPTIONS)
+    # CRÍTICO: Evitar uso de 'if' quando possível, mas necessário para OPTIONS
+    if ($request_method = 'OPTIONS') {
+      add_header Access-Control-Allow-Origin "$cors_header" always;
+      add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD" always;
+      add_header Access-Control-Allow-Headers "Accept, Accept-Language, Authorization, Content-Language, Content-Type, Origin, X-API-Key, X-CSRF-Token, X-Requested-With" always;
+      add_header Access-Control-Allow-Credentials "true" always;
+      add_header Access-Control-Max-Age "3600" always;
+      add_header Content-Type "text/plain charset=UTF-8";
+      add_header Content-Length "0";
+      return 204;
+    }
+    
+    # CRÍTICO: proxy_pass com trailing slash preserva o path completo
+    # /api/v1/users -> backend:8000/api/v1/users
+    proxy_pass http://$backend_upstream;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -60,7 +118,7 @@ server {
   
   # Health check endpoint (sem rate limiting)
   location /health {
-    proxy_pass http://backend:8000/health;
+    proxy_pass http://$backend_upstream/health;
     access_log off;
   }
   

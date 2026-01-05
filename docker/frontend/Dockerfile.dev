@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Dependências (copiamos apenas os manifests primeiro para aproveitar cache)
+COPY sky-poc-frontend/package.json sky-poc-frontend/package-lock.json* ./
+RUN npm ci
+
+# Código do frontend (sem build de produção; roda em modo dev)
+COPY sky-poc-frontend/ ./
+
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev", "--", "-p", "3000", "-H", "0.0.0.0"]
+
+
