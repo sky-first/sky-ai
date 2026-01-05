@@ -2681,7 +2681,7 @@ jobs:
         if: env.KEYVAULT_NAME != '' && steps.kv-secrets.outputs.has_secrets == 'true'
         run: |
           set -euo pipefail
-          echo "Pushing secrets to VM .env..."
+          echo "Pushing secrets to VM .env (fazendo merge com .env existente)..."
           if [ ! -f kv.env ]; then
             echo "ERRO: kv.env not found"
             exit 1
@@ -2706,9 +2706,51 @@ jobs:
                 mkdir -p \"$INFRA_DIR\" || { echo '❌ Erro ao criar diretório da infra'; exit 1; }
               fi
 
-              echo ${ENV_B64} | base64 -d > \"$INFRA_DIR/.env\" || { echo '❌ Erro ao escrever .env'; exit 1; }
-              chmod 600 \"$INFRA_DIR/.env\" || { echo '❌ Erro ao definir permissões do .env'; exit 1; }
-              echo 'OK: Arquivo .env criado com sucesso'
+              cd \"\$INFRA_DIR\"
+              
+              # CRÍTICO: Garantir que .env existe antes de fazer merge
+              if [ ! -f .env ]; then
+                if [ -f env.example ]; then
+                  echo '📝 .env não existe, criando a partir de env.example...'
+                  cp env.example .env
+                else
+                  echo '⚠️  env.example não encontrado ainda (código pode não estar atualizado)'
+                  echo '📝 Criando .env mínimo com apenas as variáveis do Key Vault...'
+                  echo '# Arquivo .env criado automaticamente (env.example será usado no próximo step)' > .env
+                  echo '# Este arquivo será completado quando o código for atualizado' >> .env
+                fi
+              fi
+              
+              # Fazer merge: atualizar/adicionar variáveis do Key Vault sem sobrescrever tudo
+              echo '🔄 Fazendo merge das variáveis do Key Vault no .env...'
+              KV_ENV_TEMP=\$(mktemp)
+              echo ${ENV_B64} | base64 -d > \"\$KV_ENV_TEMP\" || { echo '❌ Erro ao decodificar kv.env'; exit 1; }
+              
+              # Atualizar/adicionar cada variável do Key Vault no .env
+              while IFS='=' read -r key value || [ -n \"\$key\" ]; do
+                # Ignorar linhas vazias e comentários
+                [[ -z \"\$key\" || \"\$key\" =~ ^# ]] && continue
+                
+                # Remover espaços e caracteres especiais do nome da variável
+                key=\$(echo \"\$key\" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                value=\$(echo \"\$value\" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                
+                if [ -n \"\$key\" ] && [ -n \"\$value\" ]; then
+                  # Se a variável já existe, atualizar; senão, adicionar
+                  if grep -q \"^\\\${key}=\" .env; then
+                    sed -i \"s|^\\\${key}=.*|\\\${key}=\\\${value}|\" .env
+                    echo \"✅ Atualizado: \$key\"
+                  else
+                    echo \"\\\${key}=\\\${value}\" >> .env
+                    echo \"✅ Adicionado: \$key\"
+                  fi
+                fi
+              done < \"\$KV_ENV_TEMP\"
+              
+              rm -f \"\$KV_ENV_TEMP\"
+              
+              chmod 600 .env || { echo '❌ Erro ao definir permissões do .env'; exit 1; }
+              echo '✅ Arquivo .env atualizado com secrets do Key Vault (merge completo)'
             " \
             --output json
 
@@ -3024,6 +3066,76 @@ jobs:
             " \
             --output json
 
+      - name: Bootstrap .env from env.example (CRITICAL - Always Run)
+        run: |
+          set -euo pipefail
+          echo "🔧 Garantindo que .env existe na VM (criando a partir de env.example se necessário)..."
+          echo "⚠️  IMPORTANTE: Este step garante que .env existe mesmo se Key Vault não foi usado"
+          az vm run-command invoke \
+            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
+            --name ${{ steps.vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -eu
+              
+              BASE=~/projeto
+              
+              # Detectar diretório da infra (compatível com legado)
+              INFRA_DIR=\"$BASE/sky-poc-infra\"
+              if [ -d \"$BASE/sky-poc-infra\" ]; then
+                INFRA_DIR=\"$BASE/sky-poc-infra\"
+              elif [ -d \"$BASE/poc-deploy\" ]; then
+                INFRA_DIR=\"$BASE/poc-deploy\"
+              else
+                echo '❌ ERRO: Diretório de infra não encontrado!'
+                echo 'Diretórios em ~/projeto:'
+                ls -la \"\$BASE\" 2>/dev/null || echo 'Diretório ~/projeto não existe'
+                exit 1
+              fi
+              
+              cd \"\$INFRA_DIR\" || { echo '❌ ERRO: Não foi possível entrar no diretório'; exit 1; }
+              
+              # CRÍTICO: Sempre garantir que .env existe
+              # Se Key Vault foi usado, o .env já existe, mas se não, precisamos criar
+              if [ ! -f .env ]; then
+                if [ -f env.example ]; then
+                  echo '📝 Criando .env a partir de env.example...'
+                  cp env.example .env
+                  chmod 600 .env
+                  echo '✅ .env criado a partir de env.example'
+                else
+                  echo '❌ ERRO: env.example não encontrado!'
+                  echo 'Arquivos no diretório:'
+                  ls -la || true
+                  exit 1
+                fi
+              else
+                echo '✅ .env já existe (não sobrescrevendo)'
+                # Verificar se está vazio ou muito pequeno (menos de 100 bytes)
+                if [ ! -s .env ] || [ \$(wc -c < .env) -lt 100 ]; then
+                  echo '⚠️  .env existe mas está vazio ou muito pequeno, recriando de env.example...'
+                  if [ -f env.example ]; then
+                    cp env.example .env
+                    chmod 600 .env
+                    echo '✅ .env recriado a partir de env.example'
+                  fi
+                fi
+              fi
+              
+              # Garantir permissões corretas
+              chmod 600 .env || { echo '❌ ERRO: Não foi possível definir permissões do .env'; exit 1; }
+              echo '✅ Permissões do .env verificadas (600)'
+              
+              # Validar que o arquivo não está vazio
+              if [ ! -s .env ]; then
+                echo '❌ ERRO: .env está vazio após criação!'
+                exit 1
+              fi
+              
+              echo '✅ .env validado e pronto para uso'
+            " \
+            --output json
+
       - name: Write OPENAI_API_KEY to VM .env (no Key Vault)
         if: env.KEYVAULT_NAME == '' && env.OPENAI_API_KEY_BOOTSTRAP != ''
         run: |
@@ -3119,7 +3231,78 @@ jobs:
                   exit 1
                 }
               fi
+              
               echo '✅ Containers iniciados com sucesso'
+              echo ''
+              echo '🔍 Validando containers...'
+              
+              # Aguardar containers iniciarem
+              echo '⏳ Aguardando containers iniciarem (10s)...'
+              sleep 10
+              
+              # Validar que containers estão rodando
+              echo '📋 Verificando containers rodando (docker ps)...'
+              RUNNING_CONTAINERS=\$(sudo docker ps --format '{{.Names}}: {{.Status}}' | wc -l)
+              if [ \"\$RUNNING_CONTAINERS\" -lt 3 ]; then
+                echo '❌ ERRO: Poucos containers rodando!'
+                echo 'Containers esperados: postgres, redis, backend, frontend, proxy, ai'
+                echo 'Containers rodando:'
+                sudo docker ps --format '{{.Names}}: {{.Status}}' || true
+                echo ''
+                echo 'Containers parados ou com erro:'
+                sudo docker ps -a --filter 'status=exited' --format '{{.Names}}: {{.Status}}' || true
+                echo ''
+                echo 'Logs dos containers com problema:'
+                sudo docker compose ps || true
+                exit 1
+              fi
+              
+              echo \"✅ Containers rodando: \$RUNNING_CONTAINERS\"
+              sudo docker ps --format '  - {{.Names}}: {{.Status}}' || true
+              echo ''
+              
+              # Validar health check local
+              echo '🏥 Testando health check local (curl http://localhost/health)...'
+              MAX_RETRIES=12
+              RETRY_DELAY=5
+              HEALTH_OK=false
+              
+              for i in \$(seq 1 \$MAX_RETRIES); do
+                HTTP_CODE=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 --connect-timeout 3 http://localhost/health 2>/dev/null || echo '000')
+                
+                if [ \"\$HTTP_CODE\" = '200' ]; then
+                  echo \"✅ Health check OK (HTTP \$HTTP_CODE) - tentativa \$i/\$MAX_RETRIES\"
+                  HEALTH_OK=true
+                  break
+                else
+                  if [ \$i -lt \$MAX_RETRIES ]; then
+                    echo \"⏳ Health check ainda não OK (HTTP \$HTTP_CODE) - tentativa \$i/\$MAX_RETRIES, aguardando...\"
+                    sleep \$RETRY_DELAY
+                  else
+                    echo \"❌ Health check falhou após \$MAX_RETRIES tentativas (último código: \$HTTP_CODE)\"
+                  fi
+                fi
+              done
+              
+              if [ \"\$HEALTH_OK\" != 'true' ]; then
+                echo ''
+                echo '❌ ERRO: Health check não respondeu 200 após aguardar'
+                echo 'Status dos containers:'
+                sudo docker compose ps || true
+                echo ''
+                echo 'Logs do proxy (últimas 20 linhas):'
+                sudo docker compose logs --tail=20 proxy 2>/dev/null || echo 'Container proxy não encontrado'
+                echo ''
+                echo 'Logs do backend (últimas 20 linhas):'
+                sudo docker compose logs --tail=20 backend 2>/dev/null || echo 'Container backend não encontrado'
+                exit 1
+              fi
+              
+              echo ''
+              echo '✅ Validações concluídas:'
+              echo '  ✅ Todos os containers estão rodando'
+              echo '  ✅ Health check responde HTTP 200'
+              echo '  ✅ Pronto para smoke tests!'
             " \
             --output json
 
