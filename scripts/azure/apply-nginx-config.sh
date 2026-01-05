@@ -1,5 +1,7 @@
 #!/bin/bash
-# Aplica nginx.conf HTTP-only se certificados SSL não existirem
+# DEVOPS: Aplica nginx.conf HTTP-only ou HTTPS baseado na presença de certificados SSL
+# Se certificados existirem, usa nginx.conf.secure (HTTPS com redirect HTTP->HTTPS)
+# Se não existirem, usa nginx.conf.http-only (HTTP apenas)
 # Garante que nginx sempre funcione
 
 set -eu
@@ -18,6 +20,7 @@ cd "$PROJECT_DIR" || {
 
 NGINX_CONF="docker/nginx/nginx.conf"
 NGINX_HTTP_ONLY="docker/nginx/nginx.conf.http-only"
+NGINX_SECURE="docker/nginx/nginx.conf.secure"
 CERTS_DIR="certs"
 
 echo "=========================================="
@@ -32,13 +35,28 @@ mkdir -p docker/nginx
 HAS_CERTS=false
 if [ -d "$CERTS_DIR" ] && [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
     HAS_CERTS=true
-    echo "✅ Certificados SSL encontrados"
+    echo "✅ Certificados SSL encontrados em $CERTS_DIR"
 else
-    echo "⚠️  Certificados SSL não encontrados"
+    echo "⚠️  Certificados SSL não encontrados em $CERTS_DIR"
+    echo "💡 Dica: Execute scripts/azure/generate-self-signed-certs.sh para gerar certificados auto-assinados (POC)"
 fi
 
-# Se não tem certificados, usar HTTP-only
-if [ "$HAS_CERTS" = "false" ]; then
+# Aplicar configuração baseada na presença de certificados
+if [ "$HAS_CERTS" = "true" ]; then
+    echo "🔒 Aplicando configuração HTTPS..."
+    if [ -f "$NGINX_SECURE" ]; then
+        # Fazer backup do nginx.conf atual
+        if [ -f "$NGINX_CONF" ]; then
+            cp "$NGINX_CONF" "${NGINX_CONF}.backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+        fi
+        # Copiar nginx.conf.secure para nginx.conf
+        cp "$NGINX_SECURE" "$NGINX_CONF"
+        echo "✅ nginx.conf HTTPS aplicado (redirect HTTP->HTTPS habilitado)"
+    else
+        echo "❌ ERRO: $NGINX_SECURE não encontrado"
+        exit 1
+    fi
+else
     echo "⚠️  Certificados SSL não encontrados - usando configuração HTTP-only"
     if [ -f "$NGINX_HTTP_ONLY" ]; then
         echo "Aplicando configuração HTTP-only..."
@@ -51,26 +69,30 @@ if [ "$HAS_CERTS" = "false" ]; then
         echo "✅ nginx.conf HTTP-only aplicado (sem redirect HTTPS)"
     else
         # Criar nginx.conf HTTP-only básico se não existir
-        echo "Criando nginx.conf HTTP-only..."
+        echo "Criando nginx.conf HTTP-only básico..."
         cat > "$NGINX_CONF" << 'NGINXEOF'
 server {
   listen 80;
   server_name _;
   
-  location /api/ {
-    proxy_pass http://backend:8000;
+  resolver 127.0.0.11 ipv6=off valid=10s;
+  set $frontend_upstream "frontend:3000";
+  set $backend_upstream "backend:8000";
+  
+  location /api/v1/ {
+    proxy_pass http://$backend_upstream;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   }
   
   location /health {
-    proxy_pass http://backend:8000/health;
+    proxy_pass http://$backend_upstream/health;
     access_log off;
   }
   
   location / {
-    proxy_pass http://frontend:3000;
+    proxy_pass http://$frontend_upstream;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -78,13 +100,6 @@ server {
 }
 NGINXEOF
         echo "✅ nginx.conf HTTP-only criado"
-    fi
-else
-    # Se tem certificados, verificar se nginx.conf está configurado para HTTPS
-    if grep -q "return 301 https" "$NGINX_CONF" && ! grep -q "# return 301 https" "$NGINX_CONF"; then
-        echo "✅ nginx.conf configurado para HTTPS"
-    else
-        echo "⚠️  nginx.conf não está redirecionando para HTTPS"
     fi
 fi
 
