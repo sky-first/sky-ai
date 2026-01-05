@@ -2407,9 +2407,10 @@ jobs:
           echo ""
           
           # Passa parâmetros adicionais para diagnóstico automático
+          # Timeout aumentado para 120s (conforme recomendação)
           if bash "$SCRIPT_PATH" \
             "${{ steps.vm-ip.outputs.vm_public_ip }}" \
-            30 \
+            120 \
             "${{ steps.vm-info.outputs.resource_group }}" \
             "${{ steps.vm-info.outputs.vm_name }}"; then
             echo ""

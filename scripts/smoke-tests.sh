@@ -136,9 +136,16 @@ check_service_readiness() {
     local elapsed=0
     
     echo "🔍 Verificando readiness dos serviços (timeout: ${max_wait}s)..."
+    echo "   (Aguardando containers iniciarem e nginx ficar pronto)"
     
     while [ $elapsed -lt $max_wait ]; do
-        local http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 --connect-timeout 2 "http://$vm_ip/health" 2>/dev/null || echo "000")
+        # Curl melhorado conforme recomendação
+        local http_code=$(curl -s \
+            --connect-timeout 5 \
+            --max-time 10 \
+            -o /dev/null \
+            -w "%{http_code}" \
+            "http://${vm_ip}/health" 2>/dev/null || echo "000")
         
         if VALID_CODE=$(validate_http_code "$http_code"); then
             # 200 = health check OK, 404 = serviço responde mas rota não existe (ainda é sinal de vida)
@@ -151,12 +158,13 @@ check_service_readiness() {
         # Mostra progresso a cada 15 segundos
         if [ $((elapsed % 15)) -eq 0 ] && [ $elapsed -gt 0 ]; then
             echo "⏳ Aguardando serviços... (${elapsed}s/${max_wait}s)"
+            echo "   (Testando: http://${vm_ip}/health -> código: $http_code)"
         fi
         sleep $check_interval
         elapsed=$((elapsed + check_interval))
     done
     
-    log_warning "Timeout: serviços não ficaram prontos em ${max_wait}s (continuando testes...)"
+    log_error "Timeout: serviços não ficaram prontos em ${max_wait}s"
     return 1
 }
 
@@ -253,6 +261,27 @@ collect_diagnostics() {
         
         if [ -n "$PROXY_STATUS" ] && [ "$PROXY_STATUS" != "null" ] && echo "$PROXY_STATUS" | grep -q "proxy"; then
             echo "✅ Proxy container: $PROXY_STATUS"
+            
+            # Verificar se nginx está escutando em 0.0.0.0:80
+            echo ""
+            echo "6️⃣ Verificando se nginx está escutando em 0.0.0.0:80..."
+            NGINX_LISTEN=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
+                --command-id RunShellScript \
+                --scripts 'sudo docker exec ai_saas_proxy nginx -T 2>/dev/null | grep -E "listen.*80" | head -1 || echo "Não encontrado"' \
+                --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if echo "$NGINX_LISTEN" | grep -q "listen.*80"; then
+                echo "✅ Nginx configurado para escutar na porta 80"
+                echo "   Config: $NGINX_LISTEN"
+                # Verificar se está escutando em 0.0.0.0 (não 127.0.0.1)
+                if echo "$NGINX_LISTEN" | grep -qE "listen\s+80|listen\s+\*:80|listen\s+0\.0\.0\.0:80"; then
+                    echo "✅ Nginx escutando em 0.0.0.0:80 (correto)"
+                elif echo "$NGINX_LISTEN" | grep -q "127.0.0.1"; then
+                    echo "❌ PROBLEMA: Nginx escutando apenas em 127.0.0.1 (deve ser 0.0.0.0:80)"
+                fi
+            else
+                echo "⚠️  Não foi possível verificar configuração do nginx"
+            fi
         else
             echo "❌ Proxy container NÃO está rodando"
             echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
@@ -294,8 +323,28 @@ echo "Timeout: ${TIMEOUT}s"
 echo ""
 
 # 1. Verificar readiness dos serviços (com timeout inteligente)
+# CRÍTICO: Abortar se serviços não estão prontos (evita testes em cascata)
 if ! check_service_readiness "$VM_IP" 120; then
-    log_warning "Serviços podem não estar prontos, mas continuando testes..."
+    log_error "Serviços não ficaram prontos - abortando smoke tests"
+    echo ""
+    echo "💡 Isso indica que:"
+    echo "  1. Containers não iniciaram"
+    echo "  2. Nginx/proxy não está rodando"
+    echo "  3. Aplicação não está respondendo"
+    echo ""
+    
+    # Executar diagnóstico antes de abortar
+    if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
+        echo "🔍 Executando diagnóstico automático antes de abortar..."
+        set +e
+        collect_diagnostics "$VM_IP" "$RESOURCE_GROUP" "$VM_NAME" || {
+            echo "⚠️  Alguns comandos de diagnóstico falharam, mas informações coletadas acima"
+        }
+        set -e
+        echo ""
+    fi
+    
+    exit 1
 fi
 
 echo ""
@@ -311,23 +360,30 @@ RETRY_DELAY=3
 for i in $(seq 1 $MAX_RETRIES); do
     echo -n "Tentativa $i/$MAX_RETRIES: Testando porta 80... "
     
-    # Captura código HTTP e stderr separadamente para diagnóstico
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 --connect-timeout 3 "http://$VM_IP/" 2>&1 || echo "000")
+    # Curl melhorado conforme recomendação
+    HTTP_CODE=$(curl -s \
+        --connect-timeout 5 \
+        --max-time 10 \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "http://${VM_IP}:80" 2>/dev/null || echo "000")
     
     # Limpa o código (remove qualquer texto de erro que possa ter vindo)
     HTTP_CODE_CLEAN=$(echo "$HTTP_CODE" | grep -oE '[0-9]{3}' | head -1 || echo "000")
     
     # Log detalhado apenas na primeira tentativa para debugging
     if [ "$i" -eq 1 ] && [ "$HTTP_CODE_CLEAN" = "000" ]; then
-        echo "(código bruto: '${HTTP_CODE:0:20}' -> limpo: '$HTTP_CODE_CLEAN')"
+        echo "(código: '$HTTP_CODE_CLEAN')"
     fi
     
     if VALID_CODE=$(validate_http_code "$HTTP_CODE_CLEAN"); then
-        # Aceita qualquer código HTTP válido (200-599) como sinal de que porta está acessível
-        if [ "$VALID_CODE" -ge 200 ] && [ "$VALID_CODE" -lt 400 ] 2>/dev/null; then
-            log_success "Porta 80 acessível (HTTP $VALID_CODE)"
-        else
+        # Valida código HTTP
+        if [ "$VALID_CODE" = "200" ]; then
+            log_success "Porta 80 OK (HTTP $VALID_CODE)"
+        elif [ "$VALID_CODE" -ge 200 ] && [ "$VALID_CODE" -lt 400 ]; then
             log_warning "Porta 80 responde mas retornou HTTP $VALID_CODE"
+        else
+            log_warning "Porta 80 responde mas retornou HTTP $VALID_CODE (erro do servidor)"
         fi
         PORT_80_ACCESSIBLE=true
         break
@@ -348,12 +404,12 @@ if [ "$PORT_80_ACCESSIBLE" = false ]; then
     echo "  - Porta: 80"
     echo "  - Tentativas: $MAX_RETRIES"
     echo ""
-    echo "💡 Possíveis causas:"
-    echo "  1. Containers ainda não iniciaram completamente"
-    echo "  2. Nginx/proxy não está rodando"
-    echo "  3. NSG bloqueando porta 80"
-    echo "  4. Firewall da VM bloqueando porta 80"
-    echo "  5. Serviços não foram deployados corretamente"
+    echo "💡 Principais causas (em 90% dos casos):"
+    echo "  1. ❌ NGINX/Proxy não está rodando"
+    echo "  2. ❌ App escutando só em 127.0.0.1 (deve ser 0.0.0.0:80)"
+    echo "  3. ❌ NSG do Azure bloqueando porta 80"
+    echo "  4. ❌ Firewall da VM bloqueando porta 80"
+    echo "  5. ❌ Containers não iniciaram completamente"
     echo ""
     # Coletar diagnóstico se informações disponíveis (com tratamento de erro)
     if [ -n "$RESOURCE_GROUP" ] || [ -n "$VM_NAME" ]; then
