@@ -2310,14 +2310,15 @@ jobs:
       - name: Run Smoke Tests
         run: |
           set -euo pipefail
-          chmod +x scripts/smoke-tests.sh
+          SCRIPT_PATH="${GITHUB_WORKSPACE}/scripts/smoke-tests.sh"
+          chmod +x "$SCRIPT_PATH"
           
           echo "=========================================="
           echo "🧪 Executando Smoke Tests"
           echo "=========================================="
           echo ""
           
-          if bash scripts/smoke-tests.sh "${{ steps.vm-ip.outputs.vm_public_ip }}" 30; then
+          if bash "$SCRIPT_PATH" "${{ steps.vm-ip.outputs.vm_public_ip }}" 30; then
             echo ""
             echo "✅ Todos os smoke tests passaram!"
           else
