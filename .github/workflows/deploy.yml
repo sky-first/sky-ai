@@ -3068,7 +3068,7 @@ jobs:
 
       - name: Bootstrap .env from env.example (CRITICAL - Always Run)
         run: |
-          set -euo pipefail
+          set -eo pipefail
           echo "🔧 Garantindo que .env existe na VM (criando a partir de env.example se necessário)..."
           echo "⚠️  IMPORTANTE: Este step garante que .env existe mesmo se Key Vault não foi usado"
           az vm run-command invoke \
@@ -3076,24 +3076,25 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -eu
+              set -e
               
-              BASE=~/projeto
+              # Expandir ~ para o home directory
+              BASE=\"\${HOME}/projeto\"
               
               # Detectar diretório da infra (compatível com legado)
-              INFRA_DIR=\"$BASE/sky-poc-infra\"
-              if [ -d \"$BASE/sky-poc-infra\" ]; then
-                INFRA_DIR=\"$BASE/sky-poc-infra\"
-              elif [ -d \"$BASE/poc-deploy\" ]; then
-                INFRA_DIR=\"$BASE/poc-deploy\"
+              INFRA_DIR=\"\${BASE}/sky-poc-infra\"
+              if [ -d \"\${BASE}/sky-poc-infra\" ]; then
+                INFRA_DIR=\"\${BASE}/sky-poc-infra\"
+              elif [ -d \"\${BASE}/poc-deploy\" ]; then
+                INFRA_DIR=\"\${BASE}/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infra não encontrado!'
                 echo 'Diretórios em ~/projeto:'
-                ls -la \"\$BASE\" 2>/dev/null || echo 'Diretório ~/projeto não existe'
+                ls -la \"\${BASE}\" 2>/dev/null || echo 'Diretório ~/projeto não existe'
                 exit 1
               fi
               
-              cd \"\$INFRA_DIR\" || { echo '❌ ERRO: Não foi possível entrar no diretório'; exit 1; }
+              cd \"\${INFRA_DIR}\" || { echo '❌ ERRO: Não foi possível entrar no diretório'; exit 1; }
               
               # CRÍTICO: Sempre garantir que .env existe
               # Se Key Vault foi usado, o .env já existe, mas se não, precisamos criar
