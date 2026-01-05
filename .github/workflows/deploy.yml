@@ -2182,23 +2182,57 @@ jobs:
       - name: Get VM Public IP
         id: vm-ip
         run: |
-          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
-          if [ -z "$VM_IP" ]; then
-            echo "⚠️  VM IP não encontrado no output do Terraform"
+          # Função para validar se IP é público (não RFC1918)
+          is_public_ip() {
+            local ip="$1"
+            # Valida formato básico de IP
+            if ! echo "$ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+              return 1
+            fi
+            # Rejeita IPs privados (RFC1918)
+            if echo "$ip" | grep -qE '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)'; then
+              return 1
+            fi
+            return 0
+          }
+          
+          VM_IP=""
+          
+          # Tentar via Terraform output primeiro
+          TF_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          if [ -n "$TF_IP" ] && is_public_ip "$TF_IP"; then
+            VM_IP="$TF_IP"
+            echo "✅ IP obtido via Terraform output: $VM_IP"
+          else
+            if [ -n "$TF_IP" ]; then
+              echo "⚠️  Terraform retornou IP inválido/privado: $TF_IP"
+            else
+              echo "⚠️  VM IP não encontrado no output do Terraform"
+            fi
             echo "Tentando obter via Azure CLI..."
-            VM_IP=$(az vm show -d \
+            
+            AZ_IP=$(az vm show -d \
               -g "${{ needs.detect-environment.outputs.resource_group }}" \
               -n "${{ needs.detect-environment.outputs.vm_name }}" \
               --query publicIps -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$AZ_IP" ] && is_public_ip "$AZ_IP"; then
+              VM_IP="$AZ_IP"
+              echo "✅ IP obtido via Azure CLI: $VM_IP"
+            elif [ -n "$AZ_IP" ]; then
+              echo "⚠️  Azure CLI retornou IP inválido/privado: $AZ_IP"
+            fi
           fi
           
           if [ -z "$VM_IP" ]; then
-            echo "❌ ERRO: Não foi possível obter o IP da VM"
+            echo "❌ ERRO: Não foi possível obter um IP público válido da VM"
+            echo "Terraform output: ${TF_IP:-vazio}"
+            echo "Azure CLI: ${AZ_IP:-vazio}"
             exit 1
           fi
           
           echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "✅ VM Public IP validado: $VM_IP"
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
 
       - name: Save State Backup
@@ -2278,27 +2312,64 @@ jobs:
       - name: Get VM Public IP
         id: vm-ip
         run: |
-          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
-          if [ -z "$VM_IP" ]; then
-            echo "⚠️  VM IP não encontrado no output do Terraform"
+          # Função para validar se IP é público (não RFC1918)
+          is_public_ip() {
+            local ip="$1"
+            # Valida formato básico de IP
+            if ! echo "$ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+              return 1
+            fi
+            # Rejeita IPs privados (RFC1918)
+            if echo "$ip" | grep -qE '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)'; then
+              return 1
+            fi
+            return 0
+          }
+          
+          VM_IP=""
+          
+          # Tentar via Terraform output primeiro
+          TF_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          if [ -n "$TF_IP" ] && is_public_ip "$TF_IP"; then
+            VM_IP="$TF_IP"
+            echo "✅ IP obtido via Terraform output: $VM_IP"
+          else
+            if [ -n "$TF_IP" ]; then
+              echo "⚠️  Terraform retornou IP inválido/privado: $TF_IP"
+            else
+              echo "⚠️  VM IP não encontrado no output do Terraform"
+            fi
             echo "Tentando obter via Azure CLI..."
+            
             RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
             VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+            
             if [ -n "$RESOURCE_GROUP" ] && [ -n "$VM_NAME" ]; then
-              VM_IP=$(az vm show -d \
+              AZ_IP=$(az vm show -d \
                 -g "$RESOURCE_GROUP" \
                 -n "$VM_NAME" \
                 --query publicIps -o tsv 2>/dev/null || echo "")
+              
+              if [ -n "$AZ_IP" ] && is_public_ip "$AZ_IP"; then
+                VM_IP="$AZ_IP"
+                echo "✅ IP obtido via Azure CLI: $VM_IP"
+              elif [ -n "$AZ_IP" ]; then
+                echo "⚠️  Azure CLI retornou IP inválido/privado: $AZ_IP"
+              fi
+            else
+              echo "⚠️  Resource Group ou VM Name não encontrados no Terraform output"
             fi
           fi
           
           if [ -z "$VM_IP" ]; then
-            echo "❌ ERRO: Não foi possível obter o IP da VM"
+            echo "❌ ERRO: Não foi possível obter um IP público válido da VM"
+            echo "Terraform output: ${TF_IP:-vazio}"
+            echo "Azure CLI: ${AZ_IP:-vazio}"
             exit 1
           fi
           
           echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "✅ VM Public IP validado: $VM_IP"
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
 
       - name: Wait for Services to Start
@@ -2316,6 +2387,8 @@ jobs:
           echo "=========================================="
           echo "🧪 Executando Smoke Tests"
           echo "=========================================="
+          echo "IP da VM: ${{ steps.vm-ip.outputs.vm_public_ip }}"
+          echo "Script: $SCRIPT_PATH"
           echo ""
           
           if bash "$SCRIPT_PATH" "${{ steps.vm-ip.outputs.vm_public_ip }}" 30; then

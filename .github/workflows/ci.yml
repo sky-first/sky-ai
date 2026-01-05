@@ -11,17 +11,26 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'infra/**'
+      - 'docker/**'
       - '.github/workflows/**'
       - '.github/actions/**'
       - 'docker-compose*.yml'
       - 'scripts/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'env.example'
   push:
     branches: [staging, main]
     paths:
       - 'infra/**'
+      - 'docker/**'
       - '.github/workflows/**'
+      - '.github/actions/**'
       - 'docker-compose*.yml'
       - 'scripts/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'env.example'
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
