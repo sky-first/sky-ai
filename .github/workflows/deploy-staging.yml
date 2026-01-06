@@ -1,0 +1,345 @@
+name: Deploy to Staging
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch para deploy'
+        required: false
+        default: 'staging'
+
+concurrency:
+  group: deploy-staging-ai
+  cancel-in-progress: false
+
+env:
+  TERRAFORM_VERSION: '1.9.0'
+  TF_WORKING_DIR: 'infra/azure'
+  ENVIRONMENT: 'staging'
+  REPO_TYPE: 'ai'
+  REPO_DIR: 'sky-poc-ai'
+
+jobs:
+  get-vm-info:
+    name: Get VM Information
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      vm_name: ${{ steps.vm-info.outputs.vm_name }}
+      resource_group: ${{ steps.vm-info.outputs.resource_group }}
+      vm_ip: ${{ steps.vm-info.outputs.vm_ip }}
+      git_branch: ${{ steps.detect.outputs.branch }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_BACKEND_RESOURCE_GROUP: ${{ secrets.TF_BACKEND_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+      TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+      INFRA_REPO: ${{ secrets.INFRA_REPO || 'sky-first/sky-poc-infra' }}
+    steps:
+      - name: Validate Required Secrets
+        run: |
+          set -euo pipefail
+          echo "=========================================="
+          echo "🔐 Validando Secrets Obrigatórios"
+          echo "=========================================="
+          
+          REQUIRED_SECRETS=(
+            "AZURE_SUBSCRIPTION_ID"
+            "AZURE_TENANT_ID"
+            "AZURE_CLIENT_ID"
+            "TF_BACKEND_RESOURCE_GROUP"
+            "TF_BACKEND_STORAGE_ACCOUNT"
+            "TF_BACKEND_CONTAINER"
+            "TF_BACKEND_KEY_PREFIX"
+          )
+          
+          MISSING_SECRETS=()
+          for secret in "${REQUIRED_SECRETS[@]}"; do
+            if [ -z "${!secret:-}" ]; then
+              MISSING_SECRETS+=("$secret")
+            fi
+          done
+          
+          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
+            echo "❌ ERRO: Secrets obrigatórios não configurados:"
+            printf '  - %s\n' "${MISSING_SECRETS[@]}"
+            echo ""
+            echo "Configure os secrets no GitHub:"
+            echo "  Settings > Secrets and variables > Actions > New repository secret"
+            exit 1
+          fi
+          
+          echo "✅ Todos os secrets obrigatórios estão configurados"
+          echo ""
+
+      - name: Detect Branch
+        id: detect
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BRANCH="${{ github.event.inputs.branch }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "Branch detectada: ${BRANCH}"
+
+      - name: Checkout Infrastructure Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INFRA_REPO }}
+          ref: ${{ steps.detect.outputs.branch }}
+          path: infra-repo
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Azure Authentication
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get VM Information
+        id: vm-info
+        working-directory: infra-repo/${{ env.TF_WORKING_DIR }}
+        run: |
+          set -euo pipefail
+          
+          ENV="${{ env.ENVIRONMENT }}"
+          
+          echo "=========================================="
+          echo "📋 Obtendo Informações da VM"
+          echo "=========================================="
+          echo "Environment: ${ENV}"
+          echo ""
+          
+          # Configurar backend
+          cat > backend.hcl <<EOF
+          resource_group_name  = "${TF_BACKEND_RESOURCE_GROUP}"
+          storage_account_name = "${TF_BACKEND_STORAGE_ACCOUNT}"
+          container_name       = "${TF_BACKEND_CONTAINER}"
+          key                  = "${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${ENV}.tfstate"
+          use_azuread_auth     = true
+          EOF
+          
+          echo "Inicializando Terraform..."
+          terraform init -input=false -backend-config=backend.hcl
+          
+          echo "Selecionando workspace: ${ENV}"
+          terraform workspace select ${ENV} || terraform workspace new ${ENV}
+          
+          echo "Obtendo outputs do Terraform..."
+          VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          
+          if [ -z "$VM_NAME" ] || [ -z "$RESOURCE_GROUP" ]; then
+            echo "❌ ERRO: Não foi possível obter informações da VM"
+            echo "VM_NAME: ${VM_NAME:-vazio}"
+            echo "RESOURCE_GROUP: ${RESOURCE_GROUP:-vazio}"
+            exit 1
+          fi
+          
+          echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
+          echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
+          echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "✅ Informações da VM obtidas:"
+          echo "  VM Name: ${VM_NAME}"
+          echo "  Resource Group: ${RESOURCE_GROUP}"
+          echo "  VM IP: ${VM_IP:-não disponível}"
+
+  deploy:
+    name: Deploy to VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: get-vm-info
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      REPO_OWNER: ${{ github.repository_owner }}
+      CURRENT_REPO: ${{ github.repository }}
+    steps:
+      - name: Azure Authentication
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Repository on VM
+        run: |
+          set -euo pipefail
+          
+          BRANCH="${{ needs.get-vm-info.outputs.git_branch }}"
+          REPO_OWNER="${{ env.REPO_OWNER }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          REPO_DIR="${{ env.REPO_DIR }}"
+          
+          # Construir URL do repositório
+          if [ -n "${{ secrets.GH_PAT }}" ]; then
+            REPO_URL="https://x-access-token:${{ secrets.GH_PAT }}@github.com/${REPO_OWNER}/${REPO_NAME}.git"
+            echo "Usando GH_PAT para autenticação"
+          else
+            REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+            echo "Usando acesso público (ou GITHUB_TOKEN)"
+          fi
+          
+          echo "=========================================="
+          echo "📦 Atualizando Repositório na VM"
+          echo "=========================================="
+          echo "Repositório: ${REPO_NAME}"
+          echo "Branch: ${BRANCH}"
+          echo "Diretório na VM: ${REPO_DIR}"
+          echo ""
+          
+          az vm run-command invoke \
+            --resource-group ${{ needs.get-vm-info.outputs.resource_group }} \
+            --name ${{ needs.get-vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -eu
+              
+              cd ~/projeto || { mkdir -p ~/projeto && cd ~/projeto; }
+              
+              REPO_DIR='${REPO_DIR}'
+              BRANCH='${BRANCH}'
+              REPO_URL='${REPO_URL}'
+              
+              if [ -d \"\${REPO_DIR}\" ]; then
+                echo 'Atualizando repositório existente...'
+                cd \"\${REPO_DIR}\"
+                git fetch origin || { echo '❌ Erro ao fazer fetch'; exit 1; }
+                
+                if git ls-remote --heads origin \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  echo 'OK: Branch \${BRANCH} encontrada'
+                  git checkout -B \${BRANCH} origin/\${BRANCH} || { echo '❌ Erro ao fazer checkout'; exit 1; }
+                  git pull origin \${BRANCH} || { echo '❌ Erro ao fazer pull'; exit 1; }
+                  echo '✅ Repositório atualizado com sucesso'
+                else
+                  echo 'ERRO: Branch \${BRANCH} não encontrada no repositório remoto'
+                  echo 'Branches disponíveis:'
+                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
+                  exit 1
+                fi
+                cd ..
+              else
+                echo 'Clonando repositório...'
+                if git ls-remote --heads \"\${REPO_URL}\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  echo 'OK: Branch \${BRANCH} encontrada, clonando...'
+                  git clone -b \${BRANCH} \"\${REPO_URL}\" \"\${REPO_DIR}\" || { echo '❌ Erro ao clonar'; exit 1; }
+                  echo '✅ Repositório clonado com sucesso'
+                else
+                  echo 'ERRO: Branch \${BRANCH} não encontrada no repositório'
+                  echo 'URL: \${REPO_URL}'
+                  exit 1
+                fi
+              fi
+              
+              # Criar symlink se necessário (compatibilidade)
+              if [ ! -d ai ] && [ \"\${REPO_DIR}\" == \"sky-poc-ai\" ]; then
+                ln -s sky-poc-ai ai 2>/dev/null || true
+              fi
+            " \
+            --output json
+
+      - name: Restart Containers
+        run: |
+          set -euo pipefail
+          
+          echo "=========================================="
+          echo "🔄 Reiniciando Containers"
+          echo "=========================================="
+          
+          az vm run-command invoke \
+            --resource-group ${{ needs.get-vm-info.outputs.resource_group }} \
+            --name ${{ needs.get-vm-info.outputs.vm_name }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -eu
+              
+              cd ~/projeto
+              if [ -d sky-poc-infra ]; then
+                cd sky-poc-infra
+              elif [ -d poc-deploy ]; then
+                cd poc-deploy
+              else
+                echo '❌ ERRO: Diretório de infraestrutura não encontrado'
+                exit 1
+              fi
+              
+              if [ ! -f docker-compose.yml ]; then
+                echo '❌ ERRO: docker-compose.yml não encontrado'
+                exit 1
+              fi
+              
+              # Usar deploy sequencial se script existir
+              if [ -f scripts/azure/sequential-deploy.sh ]; then
+                echo 'Usando deploy sequencial com health checks...'
+                bash scripts/azure/sequential-deploy.sh \"\$(pwd)\" || {
+                  echo '❌ ERRO: Deploy sequencial falhou'
+                  echo 'Logs dos containers:'
+                  sudo docker compose logs --tail=50
+                  exit 1
+                }
+              else
+                echo 'Script de deploy sequencial não encontrado, usando método padrão...'
+                sudo docker compose down || echo 'Nenhum container rodando para parar'
+                sudo docker compose up -d --build || {
+                  echo '❌ ERRO: Falha ao iniciar containers'
+                  echo 'Logs dos containers:'
+                  sudo docker compose logs --tail=50
+                  exit 1
+                }
+              fi
+              
+              echo '✅ Containers reiniciados com sucesso'
+              echo ''
+              echo 'Status dos containers:'
+              sudo docker compose ps
+            " \
+            --output json
+
+      - name: Health Check
+        run: |
+          set -euo pipefail
+          
+          VM_IP="${{ needs.get-vm-info.outputs.vm_ip }}"
+          
+          if [ -z "$VM_IP" ]; then
+            echo "⚠️  IP da VM não disponível, pulando health check"
+            exit 0
+          fi
+          
+          echo "=========================================="
+          echo "🏥 Health Check"
+          echo "=========================================="
+          echo "Aguardando serviços iniciarem..."
+          sleep 15
+          
+          # Verificar AI service (porta 8001)
+          if curl -f -s --max-time 10 "http://${VM_IP}:8001/health" > /dev/null 2>&1; then
+            echo "✅ AI Service respondendo em http://${VM_IP}:8001/health"
+          else
+            echo "⚠️  AI Service não está respondendo (pode estar iniciando ainda)"
+            echo "Verifique os logs na VM se o problema persistir"
+          fi
+
