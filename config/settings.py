@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     max_sql_length: int = 10000
     query_timeout_seconds: int = 300
     
+    # Bootstrap suggestions
+    bootstrap_variation_window_seconds: int = 300  # Frequência de variação das sugestões (5 minutos)
+    
     class Config:
         # Allow running from both repo root and ia-do-projeto/ without duplicating secrets.
         env_file = (".env", "../.env")

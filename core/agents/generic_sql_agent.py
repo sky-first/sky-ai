@@ -119,7 +119,11 @@ def build_generic_sql_graph(
     llm_formatter: LLMProvider,
 ):
     """
-    Monta o grafo LangGraph com 3 nós:
+    Sistema de Query - Executor de Perguntas
+    
+    Monta o grafo LangGraph com 3 nós que executam perguntas do usuário
+    (seja clicando em sugestão do Sherlock ou digitando manualmente):
+    
     - orchestrator → escolhe logical table
     - specialist  → gera SQL + executa
     - formatter   → gera resposta natural language
