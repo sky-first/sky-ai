@@ -23,6 +23,8 @@ data "azurerm_resource_group" "existing" {
 }
 
 # 1. Resource Group
+# IMPORTANTE: Este Resource Group pode ser compartilhado entre múltiplos ambientes (staging/prod)
+# Quando múltiplos workspaces usam o mesmo resource_group_name, o primeiro cria e os outros referenciam
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
   location = var.location
@@ -31,10 +33,14 @@ resource "azurerm_resource_group" "main" {
     Environment = var.environment
     Project     = "AI-SaaS"
     Workspace   = terraform.workspace
+    ManagedBy   = "terraform"
   }
 
-  # prevent_destroy removido: Terraform não permite expressões condicionais em lifecycle blocks
-  # Para proteger recursos em produção, use: terraform destroy -target=... ou proteção via políticas Azure
+  lifecycle {
+    # Ignorar mudanças nas tags do Resource Group quando compartilhado entre ambientes
+    # Cada workspace pode ter tags diferentes, mas não devem sobrescrever as tags do outro
+    ignore_changes = [tags]
+  }
 }
 
 # 2. Virtual Network

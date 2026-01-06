@@ -39,10 +39,11 @@ try {
     Write-Host "Subscription ID: $SubscriptionId" -ForegroundColor Green
 
     # Determinar nome do Resource Group baseado no ambiente
+    # IMPORTANTE: staging e prod compartilham o mesmo Resource Group "skyfirstlabs-poc"
     $ResourceGroupName = switch ($Environment) {
-        "staging" { "rg-ai-saas-staging" }
-        "prod" { "rg-ai-saas-prod" }
-        "poc-sky" { "rg-ai-saas-poc-sky" }
+        "staging" { "skyfirstlabs-poc" }
+        "prod" { "skyfirstlabs-poc" }
+        "poc-sky" { "poc-sky" }
     }
 
     Write-Host "`nVerificando se Resource Group existe no Azure..." -ForegroundColor Yellow

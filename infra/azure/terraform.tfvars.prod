@@ -1,12 +1,12 @@
 # Configurações para ambiente PROD
 # Usado com workspace: prod
+# IMPORTANTE: Compartilha o Resource Group "skyfirstlabs-poc" com staging
+# Cada ambiente tem sua própria VM, VNet, NSG e outros recursos (nomes únicos por ambiente)
 
 environment         = "prod"
-# IMPORTANTE: Se a VM já existe, use o resource group existente
-# Verificar com: az vm show -d -g <rg> -n ai-saas-vm --query resourceGroup -o tsv
-resource_group_name = "rg-ai-saas-prod"  # Ajustar se necessário
+resource_group_name = "skyfirstlabs-poc"  # Compartilhado com staging
 location            = "eastus"
-vm_name             = "ai-saas-vm"      # Nome da VM existente
+vm_name             = "skyfirstlabs-prod"
 vm_size             = "Standard_B2s"    # 2 vCPU, 4GB RAM (tamanho atual da VM)
 admin_username      = "azureuser"
 

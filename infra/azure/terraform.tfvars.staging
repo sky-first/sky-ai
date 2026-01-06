@@ -1,20 +1,20 @@
 # Configurações para ambiente STAGING
 # Usado com workspace: staging
+# IMPORTANTE: Compartilha o Resource Group "skyfirstlabs-poc" com produção
+# Cada ambiente tem sua própria VM, VNet, NSG e outros recursos (nomes únicos por ambiente)
 
 environment         = "staging"
-resource_group_name = "rg-ai-saas-staging"
+resource_group_name = "skyfirstlabs-poc"  # Compartilhado com prod
 location            = "eastus"
-vm_name             = "ai-saas-staging"
+vm_name             = "skyfirstlabs-staging"
 vm_size             = "Standard_B2ms"  # 2 vCPU, 8GB RAM
 admin_username      = "azureuser"
 
 # Chave pública SSH
 ssh_public_key = "../../keys/azure/id_rsa.pub"
 
-# Compatibilidade com recursos legados:
-# Em alguns ambientes, a NIC foi criada como "ai-saas-nic" (sem sufixo do ambiente).
-# Isso evita o Terraform tentar criar "ai-saas-nic-staging" e falhar com PublicIPAddressInUse.
-nic_name_override = "ai-saas-nic"
+# NIC será criada com nome padrão: ai-saas-nic-staging
+# Cada ambiente tem sua própria NIC (nomes únicos por ambiente)
 
 # Git e Deploy
 git_branch  = "staging"

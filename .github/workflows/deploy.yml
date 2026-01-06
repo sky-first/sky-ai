@@ -2689,7 +2689,9 @@ jobs:
           fi
 
       - name: Select Workspace
-        run: terraform workspace select ${{ needs.detect-environment.outputs.workspace }}
+        run: |
+          terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
+          terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
       - name: Get VM Public IP
         id: vm-ip
@@ -2804,6 +2806,22 @@ jobs:
           echo "✅ Informações da VM obtidas:"
           echo "  Resource Group: ${RESOURCE_GROUP:-não disponível}"
           echo "  VM Name: ${VM_NAME:-não disponível}"
+
+      - name: Get VM Information
+        id: vm-info
+        run: |
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+          VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
+          VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
+          
+          echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
+          echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
+          echo "vm_public_ip=${VM_IP}" >> $GITHUB_OUTPUT
+          
+          echo "✅ Informações da VM obtidas para smoke tests:"
+          echo "  Resource Group: ${RESOURCE_GROUP:-não disponível}"
+          echo "  VM Name: ${VM_NAME:-não disponível}"
+          echo "  VM IP: ${VM_IP:-não disponível}"
 
       - name: Wait for Services to Start
         run: |
@@ -3512,13 +3530,32 @@ jobs:
               fi
               
               # Garantir que diretório existe (CRÍTICO)
+              # IMPORTANTE: az vm run-command executa como root, então precisamos garantir
+              # que o diretório tenha permissões corretas para azureuser
               echo ''
               echo '📁 Criando/verificando diretório do projeto...'
+              
+              # Criar diretório se não existir e corrigir permissões
               if [ ! -d /home/azureuser/projeto ]; then
                 mkdir -p /home/azureuser/projeto || { echo \"❌ ERRO: Falha ao criar diretório /home/azureuser/projeto\"; exit 1; }
                 echo '✅ Diretório criado: /home/azureuser/projeto'
               else
                 echo '✅ Diretório já existe: /home/azureuser/projeto'
+              fi
+              
+              # CRÍTICO: Corrigir proprietário e permissões do diretório
+              # az vm run-command executa como root, mas precisamos que azureuser tenha acesso
+              chown -R azureuser:azureuser /home/azureuser/projeto 2>/dev/null || {
+                echo \"⚠️  Aviso: Não foi possível alterar proprietário do diretório (pode já estar correto)\"
+              }
+              chmod 755 /home/azureuser/projeto 2>/dev/null || true
+              
+              # Verificar permissões antes de continuar
+              if [ ! -w /home/azureuser/projeto ]; then
+                echo \"❌ ERRO: Diretório /home/azureuser/projeto não tem permissão de escrita\"
+                echo \"Permissões atuais:\"
+                ls -ld /home/azureuser/projeto || true
+                exit 1
               fi
               
               cd /home/azureuser/projeto || { echo \"❌ ERRO: Não foi possível entrar no diretório /home/azureuser/projeto\"; exit 1; }
@@ -3772,6 +3809,22 @@ jobs:
               echo ''
               echo 'Estrutura de diretórios:'
               ls -la /home/azureuser/projeto/ | head -20
+              
+              # CRÍTICO: Corrigir permissões de TODOS os diretórios clonados
+              # az vm run-command executa como root, mas precisamos que azureuser tenha acesso
+              echo ''
+              echo '🔧 Corrigindo permissões dos diretórios...'
+              chown -R azureuser:azureuser /home/azureuser/projeto 2>/dev/null || {
+                echo \"⚠️  Aviso: Não foi possível alterar proprietário de alguns arquivos (pode ser normal)\"
+              }
+              
+              # Verificar permissões finais
+              echo ''
+              echo '📋 Permissões finais:'
+              ls -ld /home/azureuser/projeto || true
+              if [ -d /home/azureuser/projeto/sky-poc-infra ]; then
+                ls -ld /home/azureuser/projeto/sky-poc-infra || true
+              fi
               
               # Verificar ERRORS (sempre usar ${ERRORS:-0} para garantir valor padrão com set -u)
               FINAL_ERRORS=\${ERRORS:-0}
