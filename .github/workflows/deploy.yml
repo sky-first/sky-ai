@@ -3771,13 +3771,14 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra"
-                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
-                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"\${BRANCH}\" && echo \"yes\" || echo \"no\")
+                if [ \"\${BRANCH_EXISTS}\" = \"yes\" ]; then
+                  echo \"OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra\"
+                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório sky-poc-infra"
-                  echo "Branches disponíveis:"
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório sky-poc-infra\"
+                  echo \"Branches disponíveis:\"
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
                   exit 1
                 fi
@@ -3789,13 +3790,14 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada no repositório remoto"
-                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
-                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"\${BRANCH}\" && echo \"yes\" || echo \"no\")
+                if [ \"\${BRANCH_EXISTS}\" = \"yes\" ]; then
+                  echo \"OK: Branch \${BRANCH} encontrada no repositório remoto\"
+                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório remoto"
-                  echo "Branches disponíveis:"
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório remoto\"
+                  echo \"Branches disponíveis:\"
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
                   exit 1
                 fi
@@ -3829,16 +3831,17 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada no backend"
-                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
-                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"\${BRANCH}\" && echo \"yes\" || echo \"no\")
+                if [ \"\${BRANCH_EXISTS}\" = \"yes\" ]; then
+                  echo \"OK: Branch \${BRANCH} encontrada no backend\"
+                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no backend"
-                  echo "Branches disponíveis no repositório backend:"
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no backend\"
+                  echo \"Branches disponíveis no repositório backend:\"
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy.\"
                   exit 1
                 fi
                 cd ..
@@ -3871,16 +3874,17 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada no frontend"
-                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
-                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"\${BRANCH}\" && echo \"yes\" || echo \"no\")
+                if [ \"\${BRANCH_EXISTS}\" = \"yes\" ]; then
+                  echo \"OK: Branch \${BRANCH} encontrada no frontend\"
+                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no frontend"
-                  echo "Branches disponíveis no repositório frontend:"
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no frontend\"
+                  echo \"Branches disponíveis no repositório frontend:\"
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy.\"
                   exit 1
                 fi
                 cd ..
@@ -3912,16 +3916,17 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada no IA"
-                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
-                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"\${BRANCH}\" && echo \"yes\" || echo \"no\")
+                if [ \"\${BRANCH_EXISTS}\" = \"yes\" ]; then
+                  echo \"OK: Branch \${BRANCH} encontrada no IA\"
+                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no IA"
-                  echo "Branches disponíveis no repositório IA:"
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no IA\"
+                  echo \"Branches disponíveis no repositório IA:\"
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy.\"
                   exit 1
                 fi
                 cd ..
