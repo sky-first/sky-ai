@@ -1988,6 +1988,46 @@ jobs:
           set -euo pipefail
           echo "Validando plan para mudanças destrutivas..."
           
+          # CRÍTICO: Definir todas as variáveis ANTES de usar (evita erro "unbound variable" com set -euo pipefail)
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          ALLOW_DESTROY="${{ needs.detect-environment.outputs.allow_destroy }}"
+          
+          # Extrair valores do tfvars ANTES de qualquer uso
+          if [ -f "$TFVARS_FILE" ]; then
+            RG_NAME_NEW=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            VM_NAME_NEW=$(grep "^vm_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          else
+            RG_NAME_NEW=""
+            VM_NAME_NEW=""
+          fi
+          
+          # Tentar obter do terraform state/output
+          RG_NAME_FROM_STATE=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+          VM_NAME_FROM_STATE=$(terraform output -raw vm_name 2>/dev/null || echo "")
+          
+          # Usar valores do tfvars (novos) ou do state (atuais)
+          RG_NAME_CURRENT="${RG_NAME_FROM_STATE:-${RG_NAME_NEW}}"
+          VM_NAME_CURRENT="${VM_NAME_FROM_STATE:-${VM_NAME_NEW}}"
+          
+          # Fallback final baseado no ambiente
+          if [ -z "$VM_NAME_CURRENT" ]; then
+            case "$ENV" in
+              staging) VM_NAME_CURRENT="skyfirstlabs-staging" ;;
+              prod) VM_NAME_CURRENT="skyfirstlabs-prod" ;;
+              poc-sky) VM_NAME_CURRENT="poc-sky" ;;
+              *) VM_NAME_CURRENT="poc-sky" ;;
+            esac
+          fi
+          
+          echo "Valores detectados:"
+          echo "  Environment: $ENV"
+          echo "  Resource Group (novo): ${RG_NAME_NEW:-<não definido>}"
+          echo "  Resource Group (atual no state): ${RG_NAME_FROM_STATE:-<não encontrado>}"
+          echo "  VM Name (novo): ${VM_NAME_NEW:-<não definido>}"
+          echo "  VM Name (atual no state): ${VM_NAME_FROM_STATE:-<não encontrado>}"
+          echo ""
+          
           # Verificar se o plan contém mudanças destrutivas (delete)
           # Ignorar null_resource pois são recursos efêmeros que são recriados frequentemente
           DESTROY_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource")] | length' || echo "0")
@@ -2002,58 +2042,118 @@ jobs:
             done
             echo ""
             
+            # Verificar se é migração de Resource Group (não destruição real)
+            IS_MIGRATION=false
+            if [ -n "$RG_NAME_FROM_STATE" ] && [ -n "$RG_NAME_NEW" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
+              echo "🔍 DETECÇÃO: Migração de Resource Group detectada!"
+              echo "   Resource Group atual (no state): $RG_NAME_FROM_STATE"
+              echo "   Resource Group novo (no tfvars): $RG_NAME_NEW"
+              echo "   Isso é uma MIGRAÇÃO, não destruição real"
+              IS_MIGRATION=true
+            fi
+            
             # Verificar se os recursos que serão destruídos já existem no Azure
             # Se existirem, pode ser apenas replacement (não é realmente destrutivo)
             echo "Verificando se recursos já existem no Azure..."
             RESOURCES_EXIST_IN_AZURE=true
-            ENV="${{ needs.detect-environment.outputs.environment }}"
-            RG_NAME=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
             
-            if [ -z "$RG_NAME" ]; then
-              # Tentar extrair do tfvars
-              TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-              if [ -f "$TFVARS_FILE" ]; then
-                RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-              fi
-            fi
+            # Verificar no Resource Group atual (se é migração) ou novo
+            RG_TO_CHECK="${RG_NAME_FROM_STATE:-${RG_NAME_NEW}}"
             
-            if [ -n "$RG_NAME" ]; then
-              echo "Verificando recursos no Resource Group: $RG_NAME"
+            if [ -n "$RG_TO_CHECK" ]; then
+              echo "Verificando recursos no Resource Group: $RG_TO_CHECK"
               
               # Verificar VM
               if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_linux_virtual_machine"; then
-                VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "poc-sky")
-                if az vm show -g "$RG_NAME" -n "$VM_NAME" --query id -o tsv > /dev/null 2>&1; then
-                  echo "  ✅ VM '$VM_NAME' existe no Azure (replacement será apenas atualização)"
+                # Verificar se VM existe no RG atual (migração) ou novo
+                VM_TO_CHECK="${VM_NAME_FROM_STATE:-${VM_NAME_NEW:-$VM_NAME_CURRENT}}"
+                
+                # Se é migração, verificar também no RG novo
+                if [ "$IS_MIGRATION" = "true" ] && [ -n "$RG_NAME_NEW" ]; then
+                  if az vm show -g "$RG_NAME_NEW" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ VM '$VM_TO_CHECK' já existe no Resource Group destino '$RG_NAME_NEW'"
+                    echo "  ℹ️  Isso é uma migração - recursos já estão no destino"
+                    RESOURCES_EXIST_IN_AZURE=true
+                  elif az vm show -g "$RG_NAME_FROM_STATE" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ VM '$VM_TO_CHECK' existe no Resource Group origem '$RG_NAME_FROM_STATE'"
+                    echo "  ℹ️  Será migrada para '$RG_NAME_NEW' (não destruída)"
+                    RESOURCES_EXIST_IN_AZURE=true
+                  else
+                    echo "  ⚠️  VM '$VM_TO_CHECK' NÃO existe em nenhum Resource Group"
+                    RESOURCES_EXIST_IN_AZURE=false
+                  fi
                 else
-                  echo "  ⚠️  VM '$VM_NAME' NÃO existe no Azure"
-                  RESOURCES_EXIST_IN_AZURE=false
+                  # Não é migração, verificar normalmente
+                  if az vm show -g "$RG_TO_CHECK" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ VM '$VM_TO_CHECK' existe no Azure (replacement será apenas atualização)"
+                  else
+                    echo "  ⚠️  VM '$VM_TO_CHECK' NÃO existe no Azure"
+                    RESOURCES_EXIST_IN_AZURE=false
+                  fi
                 fi
               fi
               
               # Verificar Bastion
               if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_bastion_host"; then
                 BASTION_NAME="ai-saas-bastion-${ENV}"
-                if az network bastion show -g "$RG_NAME" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
-                  echo "  ✅ Bastion '$BASTION_NAME' existe no Azure (replacement será apenas atualização)"
+                
+                # Se é migração, verificar em ambos os RGs
+                if [ "$IS_MIGRATION" = "true" ] && [ -n "$RG_NAME_NEW" ] && [ -n "$RG_NAME_FROM_STATE" ]; then
+                  if az network bastion show -g "$RG_NAME_NEW" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Bastion '$BASTION_NAME' já existe no Resource Group destino '$RG_NAME_NEW'"
+                  elif az network bastion show -g "$RG_NAME_FROM_STATE" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Bastion '$BASTION_NAME' existe no Resource Group origem '$RG_NAME_FROM_STATE'"
+                    echo "  ℹ️  Será migrado para '$RG_NAME_NEW' (não destruído)"
+                  else
+                    echo "  ⚠️  Bastion '$BASTION_NAME' NÃO existe em nenhum Resource Group"
+                  fi
                 else
-                  echo "  ⚠️  Bastion '$BASTION_NAME' NÃO existe no Azure"
+                  # Verificar normalmente
+                  if az network bastion show -g "$RG_TO_CHECK" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Bastion '$BASTION_NAME' existe no Azure (replacement será apenas atualização)"
+                  else
+                    echo "  ⚠️  Bastion '$BASTION_NAME' NÃO existe no Azure"
+                  fi
                 fi
               fi
               
               # Verificar Resource Group
               if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_resource_group"; then
-                if az group show -n "$RG_NAME" --query id -o tsv > /dev/null 2>&1; then
-                  echo "  ✅ Resource Group '$RG_NAME' existe no Azure"
-                  echo "  ⚠️  Replacement do RG geralmente é apenas atualização de tags/nome (Azure não destrói realmente)"
+                # Se é migração, verificar ambos os RGs
+                if [ "$IS_MIGRATION" = "true" ]; then
+                  if [ -n "$RG_NAME_FROM_STATE" ] && az group show -n "$RG_NAME_FROM_STATE" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Resource Group origem '$RG_NAME_FROM_STATE' existe no Azure"
+                  fi
+                  if [ -n "$RG_NAME_NEW" ] && az group show -n "$RG_NAME_NEW" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Resource Group destino '$RG_NAME_NEW' existe no Azure"
+                    echo "  ℹ️  Migração: recursos serão movidos para este RG"
+                  elif [ -n "$RG_NAME_NEW" ]; then
+                    echo "  ℹ️  Resource Group destino '$RG_NAME_NEW' será criado (migração)"
+                  fi
                 else
-                  echo "  ❌ Resource Group '$RG_NAME' NÃO existe no Azure"
-                  RESOURCES_EXIST_IN_AZURE=false
+                  # Verificação normal
+                  if az group show -n "$RG_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
+                    echo "  ✅ Resource Group '$RG_TO_CHECK' existe no Azure"
+                    echo "  ⚠️  Replacement do RG geralmente é apenas atualização de tags/nome (Azure não destrói realmente)"
+                  else
+                    echo "  ❌ Resource Group '$RG_TO_CHECK' NÃO existe no Azure"
+                    RESOURCES_EXIST_IN_AZURE=false
+                  fi
                 fi
               fi
               
               echo ""
-              if [ "$RESOURCES_EXIST_IN_AZURE" = "true" ]; then
+              
+              # Se é migração de Resource Group, permitir sempre
+              if [ "$IS_MIGRATION" = "true" ]; then
+                echo "✅ MIGRAÇÃO DE RESOURCE GROUP DETECTADA"
+                echo "   Resource Group origem: $RG_NAME_FROM_STATE"
+                echo "   Resource Group destino: $RG_NAME_NEW"
+                echo ""
+                echo "ℹ️  Isso é uma MIGRAÇÃO, não destruição real."
+                echo "ℹ️  Recursos serão movidos para o novo Resource Group."
+                echo "ℹ️  Continuando com apply... (migração é permitida)"
+              elif [ "$RESOURCES_EXIST_IN_AZURE" = "true" ]; then
                 echo "✅ Todos os recursos que serão 'destruídos' já existem no Azure."
                 echo "⚠️  Isso indica que são replacements (atualizações), não destruições reais."
                 echo "⚠️  O Azure geralmente atualiza recursos sem realmente destruí-los em replacements."
@@ -2063,7 +2163,7 @@ jobs:
                 echo "❌ Alguns recursos não existem no Azure - isso pode ser realmente destrutivo!"
                 echo ""
                 # Se allow_destroy for false, falhar
-                if [ "${{ needs.detect-environment.outputs.allow_destroy }}" != "true" ]; then
+                if [ "$ALLOW_DESTROY" != "true" ]; then
                   echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
                   echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
                   exit 1
@@ -2074,9 +2174,26 @@ jobs:
               fi
             else
               echo "⚠️  Não foi possível verificar se recursos existem (RG não encontrado)"
+              echo "   Tentou obter de: terraform output e $TFVARS_FILE"
               echo ""
-              # Se allow_destroy for false, falhar
-              if [ "${{ needs.detect-environment.outputs.allow_destroy }}" != "true" ]; then
+              
+              # Tentar verificar se pelo menos o tfvars tem valores válidos
+              if [ -f "$TFVARS_FILE" ]; then
+                echo "   Tentando extrair informações do tfvars para diagnóstico..."
+                RG_FROM_TFVARS=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+                if [ -n "$RG_FROM_TFVARS" ]; then
+                  echo "   Resource Group no tfvars: $RG_FROM_TFVARS"
+                  echo "   ⚠️  Pode ser que o Resource Group não exista ainda (será criado)"
+                fi
+              fi
+              echo ""
+              
+              # Verificar se é migração mesmo sem RG no state
+              if [ -n "$RG_NAME_NEW" ] && [ -n "$RG_NAME_FROM_STATE" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
+                echo "✅ MIGRAÇÃO DE RESOURCE GROUP DETECTADA (mesmo sem RG no state)"
+                echo "   Resource Group destino: $RG_NAME_NEW"
+                echo "ℹ️  Continuando com apply... (migração é permitida)"
+              elif [ "$ALLOW_DESTROY" != "true" ]; then
                 echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
                 echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
                 exit 1
