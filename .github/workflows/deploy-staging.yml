@@ -47,7 +47,7 @@ jobs:
       TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
       TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
-      INFRA_REPO: ${{ secrets.INFRA_REPO || 'sky-first/sky-poc-infra' }}
+      REPO_OWNER: ${{ github.repository_owner }}
     steps:
       - name: Validate Required Secrets
         run: |
@@ -97,13 +97,63 @@ jobs:
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
           echo "Branch detectada: ${BRANCH}"
 
+      - name: Set Infrastructure Repository
+        id: infra-repo
+        run: |
+          if [ -n "${{ secrets.INFRA_REPO }}" ]; then
+            INFRA_REPO="${{ secrets.INFRA_REPO }}"
+          else
+            INFRA_REPO="${{ github.repository_owner }}/sky-poc-infra"
+          fi
+          echo "infra_repo=${INFRA_REPO}" >> $GITHUB_OUTPUT
+          echo "Repositório de infraestrutura: ${INFRA_REPO}"
+
+      - name: Validate Infrastructure Repository Access
+        run: |
+          set -euo pipefail
+          INFRA_REPO="${{ steps.infra-repo.outputs.infra_repo }}"
+          BRANCH="${{ steps.detect.outputs.branch }}"
+          
+          echo "=========================================="
+          echo "🔍 Validando Acesso ao Repositório de Infraestrutura"
+          echo "=========================================="
+          echo "Repositório: ${INFRA_REPO}"
+          echo "Branch: ${BRANCH}"
+          echo ""
+          
+          # Verificar se o repositório existe e está acessível
+          if [ -n "${{ secrets.GH_PAT }}" ]; then
+            AUTH_TOKEN="${{ secrets.GH_PAT }}"
+            echo "Usando GH_PAT para autenticação"
+          else
+            AUTH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            echo "Usando GITHUB_TOKEN para autenticação"
+          fi
+          
+          # Verificar se a branch existe no repositório
+          if git ls-remote --heads "https://${AUTH_TOKEN}@github.com/${INFRA_REPO}.git" "${BRANCH}" 2>/dev/null | grep -q "${BRANCH}"; then
+            echo "✅ Repositório acessível e branch '${BRANCH}' encontrada"
+          else
+            echo "❌ ERRO: Repositório '${INFRA_REPO}' não encontrado ou branch '${BRANCH}' não existe"
+            echo ""
+            echo "Possíveis causas:"
+            echo "  1. O repositório não existe ou foi movido/renomeado"
+            echo "  2. O token não tem permissões para acessar o repositório"
+            echo "  3. A branch '${BRANCH}' não existe no repositório"
+            echo ""
+            echo "Verificando branches disponíveis..."
+            git ls-remote --heads "https://${AUTH_TOKEN}@github.com/${INFRA_REPO}.git" 2>/dev/null | sed 's/.*refs\/heads\///' || echo "Não foi possível listar branches (repositório pode não existir ou não estar acessível)"
+            exit 1
+          fi
+
       - name: Checkout Infrastructure Repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.INFRA_REPO }}
+          repository: ${{ steps.infra-repo.outputs.infra_repo }}
           ref: ${{ steps.detect.outputs.branch }}
           path: infra-repo
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
