@@ -3,7 +3,7 @@
 # VM: poc-sky (Standard_D2s_v3 - 2 vCPU, 8GB RAM)
 
 environment         = "poc-sky"
-resource_group_name = "POC-SKY"
+resource_group_name = "poc-sky"  # IMPORTANTE: usar minúsculas conforme Azure Portal
 location            = "westeurope"  # VM já existe nesta região
 vm_name             = "poc-sky"
 vm_size             = "Standard_D2s_v3"  # 2 vCPU, 8GB RAM (mais potente)

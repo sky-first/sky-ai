@@ -2267,7 +2267,36 @@ jobs:
                     if [ "$PLAN_STILL_CREATES_RG" = "true" ]; then
                       echo "⚠️  Plan ainda tenta criar RG após refresh-only."
                       echo "⚠️  Isso pode ser por diferença de nome/tags (Azure é case-insensitive, Terraform não)."
-                      echo "⚠️  Continuando com apply (Azure não destrói realmente em replacements de RG)."
+                      
+                      # CRÍTICO: Verificar se plan vai destruir recursos dependentes (VM, Bastion, etc.)
+                      echo ""
+                      echo "🔍 Verificando se plan vai destruir recursos críticos (VM, Bastion)..."
+                      CRITICAL_RESOURCES_DESTROYED=false
+                      if command -v jq >/dev/null 2>&1; then
+                        DESTROYED_VM=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' || echo "0")
+                        if [ "$DESTROYED_VM" != "0" ] && [ "$DESTROYED_VM" != "" ]; then
+                          CRITICAL_RESOURCES_DESTROYED=true
+                        fi
+                      else
+                        if terraform show tfplan 2>/dev/null | grep -qE "(azurerm_linux_virtual_machine.main|azurerm_bastion_host.main).*(will be destroyed|must be replaced)"; then
+                          CRITICAL_RESOURCES_DESTROYED=true
+                        fi
+                      fi
+                      
+                      if [ "$CRITICAL_RESOURCES_DESTROYED" = "true" ]; then
+                        echo "❌ ERRO CRÍTICO: Plan vai destruir recursos críticos (VM ou Bastion)!"
+                        echo "❌ Isso é DESTRUTIVO e NÃO é permitido sem allow_destroy=true"
+                        echo ""
+                        echo "Recursos que serão destruídos:"
+                        terraform show -json tfplan | jq -r '.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace")) | "  - \(.address) (\(.type))"' || terraform show tfplan 2>/dev/null | grep -E "(azurerm_linux_virtual_machine.main|azurerm_bastion_host.main).*(will be destroyed|must be replaced)" || true
+                        echo ""
+                        echo "❌ FALHANDO WORKFLOW para proteger recursos críticos."
+                        echo "❌ Se realmente precisa fazer isso, execute o workflow com allow_destroy=true"
+                        exit 1
+                      else
+                        echo "✅ Nenhum recurso crítico será destruído"
+                        echo "⚠️  Continuando com apply (Azure não destrói realmente em replacements de RG)"
+                      fi
                     else
                       echo "✅ Auto-correção OK: plan não tenta criar RG após refresh-only"
                     fi
@@ -2315,18 +2344,50 @@ jobs:
                       -out=tfplan \
                       -no-color
                     
-                    echo "Revalidando se plan ainda tenta criar RG..."
+                    echo "Revalidando se plan ainda tenta criar RG e se vai destruir recursos críticos..."
+                    
+                    # Verificar se ainda tenta criar RG
+                    PLAN_STILL_CREATES_RG_AFTER_IMPORT=false
                     if command -v jq >/dev/null 2>&1; then
                       if terraform show -json tfplan | \
                         jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
-                        echo "⚠️  Ainda tenta criar RG mesmo após import (pode ser diferença de nome/tags)."
-                        echo "⚠️  Continuando com apply (Azure não destrói realmente em replacements de RG)."
+                        PLAN_STILL_CREATES_RG_AFTER_IMPORT=true
                       fi
                     else
                       if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
-                        echo "⚠️  Ainda tenta criar RG mesmo após import (pode ser diferença de nome/tags)."
-                        echo "⚠️  Continuando com apply (Azure não destrói realmente em replacements de RG)."
+                        PLAN_STILL_CREATES_RG_AFTER_IMPORT=true
                       fi
+                    fi
+                    
+                    # CRÍTICO: Verificar se plan vai destruir recursos críticos
+                    CRITICAL_RESOURCES_DESTROYED=false
+                    if command -v jq >/dev/null 2>&1; then
+                      DESTROYED_VM=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' || echo "0")
+                      if [ "$DESTROYED_VM" != "0" ] && [ "$DESTROYED_VM" != "" ]; then
+                        CRITICAL_RESOURCES_DESTROYED=true
+                      fi
+                    else
+                      if terraform show tfplan 2>/dev/null | grep -qE "(azurerm_linux_virtual_machine.main|azurerm_bastion_host.main).*(will be destroyed|must be replaced)"; then
+                        CRITICAL_RESOURCES_DESTROYED=true
+                      fi
+                    fi
+                    
+                    if [ "$CRITICAL_RESOURCES_DESTROYED" = "true" ]; then
+                      echo "❌ ERRO CRÍTICO: Plan vai destruir recursos críticos (VM ou Bastion) mesmo após import!"
+                      echo "❌ Isso é DESTRUTIVO e NÃO é permitido sem allow_destroy=true"
+                      echo ""
+                      echo "Recursos que serão destruídos:"
+                      terraform show -json tfplan | jq -r '.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace")) | "  - \(.address) (\(.type))"' || terraform show tfplan 2>/dev/null | grep -E "(azurerm_linux_virtual_machine.main|azurerm_bastion_host.main).*(will be destroyed|must be replaced)" || true
+                      echo ""
+                      echo "❌ FALHANDO WORKFLOW para proteger recursos críticos."
+                      echo "❌ Possível causa: diferença de nome/case do Resource Group no estado vs Azure"
+                      echo "❌ Solução: Corrigir o estado do Terraform para usar o nome correto do RG"
+                      exit 1
+                    elif [ "$PLAN_STILL_CREATES_RG_AFTER_IMPORT" = "true" ]; then
+                      echo "⚠️  Ainda tenta criar RG mesmo após import (pode ser diferença de nome/tags)."
+                      echo "⚠️  Mas nenhum recurso crítico será destruído - continuando..."
+                    else
+                      echo "✅ Plan corrigido após import - nenhum problema detectado"
                     fi
                     
                     echo "✅ Processo de import/replan concluído"
@@ -2338,6 +2399,30 @@ jobs:
                 echo "OK: Plan não tenta criar Resource Group (já existe no estado ou não será criado)"
               fi
             fi
+          fi
+          
+          # CRÍTICO: Última verificação antes do apply - garantir que não vai destruir recursos críticos
+          echo ""
+          echo "🔍 Verificação final: recursos críticos que serão destruídos..."
+          CRITICAL_DESTROYED=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+          
+          if [ "$CRITICAL_DESTROYED" != "0" ] && [ "$CRITICAL_DESTROYED" != "" ]; then
+            echo "❌ ERRO CRÍTICO: Plan final vai destruir $CRITICAL_DESTROYED recurso(s) crítico(s)!"
+            echo ""
+            echo "Recursos que serão destruídos:"
+            terraform show -json tfplan | jq -r '.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace")) | "  - \(.address) (\(.type))"' || true
+            echo ""
+            
+            if [ "${{ needs.detect-environment.outputs.allow_destroy }}" = "true" ]; then
+              echo "⚠️  AVISO: allow_destroy=true - recursos críticos serão destruídos!"
+              echo "⚠️  Continuando com apply..."
+            else
+              echo "❌ FALHANDO WORKFLOW para proteger recursos críticos."
+              echo "❌ Se realmente precisa fazer isso, execute o workflow com allow_destroy=true"
+              exit 1
+            fi
+          else
+            echo "✅ Nenhum recurso crítico será destruído - seguro para aplicar"
           fi
           
           # Aplicar usando o plan file (mais seguro que -auto-approve)
