@@ -3736,7 +3736,7 @@ jobs:
               # CRÍTICO: Corrigir proprietário e permissões do diretório
               # az vm run-command executa como root, mas precisamos que azureuser tenha acesso
               chown -R azureuser:azureuser /home/azureuser/projeto 2>/dev/null || {
-                echo \"⚠️  Aviso: Não foi possível alterar proprietário do diretório (pode já estar correto)\"
+                echo \"⚠️  Aviso: Não foi possível alterar proprietário do diretório - pode já estar correto\"
               }
               chmod 755 /home/azureuser/projeto 2>/dev/null || true
               
@@ -3749,7 +3749,8 @@ jobs:
               fi
               
               cd /home/azureuser/projeto || { echo \"❌ ERRO: Não foi possível entrar no diretório /home/azureuser/projeto\"; exit 1; }
-              echo \"📂 Diretório atual: \$(pwd)\"
+              echo '📂 Diretório atual:'
+              pwd
               echo ''
               
               BRANCH='${{ steps.vm-info.outputs.git_branch }}'
