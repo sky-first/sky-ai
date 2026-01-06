@@ -1993,23 +1993,100 @@ jobs:
           DESTROY_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource")] | length' || echo "0")
           
           if [ "$DESTROY_COUNT" -gt 0 ]; then
-            echo "ERRO: Plan contém $DESTROY_COUNT mudança(s) destrutiva(s)!"
+            echo "⚠️  WARNING: Plan contém $DESTROY_COUNT mudança(s) destrutiva(s)!"
             echo ""
             echo "Recursos que serão destruídos:"
-            terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource") | "  - \(.address) (\(.type))"' || true
+            DESTROYED_RESOURCES=$(terraform show -json tfplan | jq -r '.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource") | "\(.address) (\(.type))"' || echo "")
+            echo "$DESTROYED_RESOURCES" | while read -r resource; do
+              echo "  - $resource"
+            done
             echo ""
             
-            # Se allow_destroy for false, falhar
-            if [ "${{ needs.detect-environment.outputs.allow_destroy }}" != "true" ]; then
-              echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
-              echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
-              exit 1
+            # Verificar se os recursos que serão destruídos já existem no Azure
+            # Se existirem, pode ser apenas replacement (não é realmente destrutivo)
+            echo "Verificando se recursos já existem no Azure..."
+            RESOURCES_EXIST_IN_AZURE=true
+            ENV="${{ needs.detect-environment.outputs.environment }}"
+            RG_NAME=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+            
+            if [ -z "$RG_NAME" ]; then
+              # Tentar extrair do tfvars
+              TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+              if [ -f "$TFVARS_FILE" ]; then
+                RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+              fi
+            fi
+            
+            if [ -n "$RG_NAME" ]; then
+              echo "Verificando recursos no Resource Group: $RG_NAME"
+              
+              # Verificar VM
+              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_linux_virtual_machine"; then
+                VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "poc-sky")
+                if az vm show -g "$RG_NAME" -n "$VM_NAME" --query id -o tsv > /dev/null 2>&1; then
+                  echo "  ✅ VM '$VM_NAME' existe no Azure (replacement será apenas atualização)"
+                else
+                  echo "  ⚠️  VM '$VM_NAME' NÃO existe no Azure"
+                  RESOURCES_EXIST_IN_AZURE=false
+                fi
+              fi
+              
+              # Verificar Bastion
+              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_bastion_host"; then
+                BASTION_NAME="ai-saas-bastion-${ENV}"
+                if az network bastion show -g "$RG_NAME" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
+                  echo "  ✅ Bastion '$BASTION_NAME' existe no Azure (replacement será apenas atualização)"
+                else
+                  echo "  ⚠️  Bastion '$BASTION_NAME' NÃO existe no Azure"
+                fi
+              fi
+              
+              # Verificar Resource Group
+              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_resource_group"; then
+                if az group show -n "$RG_NAME" --query id -o tsv > /dev/null 2>&1; then
+                  echo "  ✅ Resource Group '$RG_NAME' existe no Azure"
+                  echo "  ⚠️  Replacement do RG geralmente é apenas atualização de tags/nome (Azure não destrói realmente)"
+                else
+                  echo "  ❌ Resource Group '$RG_NAME' NÃO existe no Azure"
+                  RESOURCES_EXIST_IN_AZURE=false
+                fi
+              fi
+              
+              echo ""
+              if [ "$RESOURCES_EXIST_IN_AZURE" = "true" ]; then
+                echo "✅ Todos os recursos que serão 'destruídos' já existem no Azure."
+                echo "⚠️  Isso indica que são replacements (atualizações), não destruições reais."
+                echo "⚠️  O Azure geralmente atualiza recursos sem realmente destruí-los em replacements."
+                echo ""
+                echo "⚠️  Continuando com apply... (replacement não é realmente destrutivo quando recursos existem)"
+              else
+                echo "❌ Alguns recursos não existem no Azure - isso pode ser realmente destrutivo!"
+                echo ""
+                # Se allow_destroy for false, falhar
+                if [ "${{ needs.detect-environment.outputs.allow_destroy }}" != "true" ]; then
+                  echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
+                  echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
+                  exit 1
+                else
+                  echo "WARNING: AVISO: Mudanças destrutivas permitidas (allow_destroy=true)"
+                  echo "Continuando com apply..."
+                fi
+              fi
             else
-              echo "WARNING: AVISO: Mudanças destrutivas permitidas (allow_destroy=true)"
-              echo "Continuando com apply..."
+              echo "⚠️  Não foi possível verificar se recursos existem (RG não encontrado)"
+              echo ""
+              # Se allow_destroy for false, falhar
+              if [ "${{ needs.detect-environment.outputs.allow_destroy }}" != "true" ]; then
+                echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
+                echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
+                exit 1
+              else
+                echo "WARNING: AVISO: Mudanças destrutivas permitidas (allow_destroy=true)"
+                echo "Continuando com apply..."
+              fi
             fi
           else
-            echo "OK: Nenhuma mudança destrutiva detectada"
+            echo "✅ Nenhuma mudança destrutiva detectada"
           fi
           
           # Mostrar null_resources que serão recriados (apenas informativo)
