@@ -2515,24 +2515,20 @@ jobs:
               echo "=== DIAGNÓSTICO: Estrutura de Diretórios na VM ==="
               
               # Verificar diretório home - usar caminho absoluto para garantir
-              HOME_DIR="/home/azureuser"
-              if [ -n "${HOME:-}" ]; then
-                HOME_DIR="$HOME"
-              fi
+              HOME_DIR="${HOME:-/home/azureuser}"
               echo "📂 Home directory: $HOME_DIR"
               
-              # Listar possíveis locais (usar caminhos absolutos)
-              POSSIBLE_BASES=(
-                "/home/azureuser/projeto"
-                "$HOME_DIR/projeto"
-                "/home/azureuser"
-                "$HOME_DIR"
-              )
+              # Listar possíveis locais (usar apenas sintaxe POSIX)
+              POSSIBLE_BASES="
+              /home/azureuser/projeto
+              $HOME_DIR/projeto
+              /home/azureuser
+              $HOME_DIR
+              "
               
               INFRA_DIR=""
-              FOUND_BASE=""
               
-              for BASE in "${POSSIBLE_BASES[@]}"; do
+              for BASE in $POSSIBLE_BASES; do
                 if [ -d "$BASE" ]; then
                   echo ""
                   echo "📁 Verificando: $BASE"
@@ -2540,12 +2536,11 @@ jobs:
                   ls -la "$BASE" 2>/dev/null | head -10 || echo "   (sem permissão ou vazio)"
                   
                   # Procurar por diretórios de infra
-                  for DIR_NAME in "sky-poc-infra" "poc-deploy"; do
+                  for DIR_NAME in sky-poc-infra poc-deploy; do
                     if [ -d "$BASE/$DIR_NAME" ]; then
                       echo "   ✅ Encontrado: $BASE/$DIR_NAME"
                       if [ -z "$INFRA_DIR" ]; then
                         INFRA_DIR="$BASE/$DIR_NAME"
-                        FOUND_BASE="$BASE"
                       fi
                     fi
                   done
@@ -2560,7 +2555,7 @@ jobs:
                 echo "❌ Nenhum diretório de infraestrutura encontrado"
                 echo ""
                 echo "Locais verificados:"
-                for BASE in "${POSSIBLE_BASES[@]}"; do
+                for BASE in $POSSIBLE_BASES; do
                   echo "  - $BASE/sky-poc-infra"
                   echo "  - $BASE/poc-deploy"
                 done
@@ -2585,7 +2580,7 @@ jobs:
                 ls -lh .env
                 echo ""
                 echo "Tamanho do arquivo: $(wc -c < .env) bytes"
-                echo "Permissões: $(stat -c '%a' .env 2>/dev/null || stat -f '%A' .env 2>/dev/null || echo 'N/A')"
+                echo "Permissões: $(stat -c \"%a\" .env 2>/dev/null || stat -f \"%A\" .env 2>/dev/null || echo \"N/A\")"
               else
                 echo "⚠️  Arquivo .env NÃO encontrado"
                 
