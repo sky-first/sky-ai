@@ -1,7 +1,20 @@
 # api/routes/connection_query.py
 """
-Endpoint para fazer queries diretamente usando uma DataConnection.
-Ideal para integração com backend do produto.
+Rotas de Query e Sugestões
+
+Arquitetura dos Agentes:
+- Sherlock (bootstrap): Gera sugestões inteligentes quando usuário abre o chat
+  - Investiga dados disponíveis
+  - Coleta estatísticas reais (row_count, totals, date ranges)
+  - Gera greeting + cards de sugestões personalizadas
+  - Varia sugestões a cada N minutos (configurável, default: 5 minutos)
+
+- Sistema de Query (graph): Executa perguntas usando orchestrator → specialist → formatter
+  - Orchestrator: Escolhe quais tabelas usar
+  - Specialist: Gera SQL e executa
+  - Formatter: Formata resposta em linguagem natural
+
+- Davinci: Gera planos de dashboards (ver davinci_dashboard_agent.py)
 """
 from __future__ import annotations
 
@@ -19,6 +32,7 @@ import asyncio
 import time
 import hashlib
 from typing import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from api.schemas import (
     QueryRequest,
@@ -68,6 +82,17 @@ _dashboard_plan_cache: Dict[str, Tuple[DashboardPlanResponse, datetime]] = {}
 DASHBOARD_PLAN_CACHE_TTL_MINUTES = 60  # Planos válidos por 60 minutos (mais longo que bootstrap)
 DASHBOARD_PLAN_MAX_CACHE_SIZE = 50  # Menor que bootstrap (planos são maiores)
 
+# ============================================================================
+# Cache para estatísticas de tabelas (separado do cache de bootstrap)
+# ============================================================================
+_table_stats_cache: Dict[str, Tuple[Dict[str, Any], datetime]] = {}
+TABLE_STATS_CACHE_TTL_MINUTES = 5  # Stats mudam mais rápido que schema
+TABLE_STATS_MAX_CACHE_SIZE = 50
+
+# ✅ NOVO: Frequência de variação das sugestões (configurável via env)
+from config.settings import settings
+BOOTSTRAP_VARIATION_WINDOW_SECONDS = settings.bootstrap_variation_window_seconds
+
 
 def _get_cache_key(
     connection_id: str,
@@ -75,7 +100,7 @@ def _get_cache_key(
     crew_ids: Optional[List[str]],
     is_personal: bool,
     language: str,
-    time_window_30s: Optional[int] = None,
+    time_window: Optional[int] = None,
 ) -> str:
     """
     Gera chave única para o cache baseada nos parâmetros relevantes.
@@ -86,15 +111,15 @@ def _get_cache_key(
         crew_ids: Lista de crew_ids (será ordenada para consistência)
         is_personal: Se está em modo personal
         language: Idioma das sugestões
-        time_window_30s: Janela de tempo de 30 segundos (opcional, para variação)
+        time_window: Janela de tempo em segundos (opcional, para variação)
         
     Returns:
         String única que identifica esta combinação de parâmetros
     """
     # Ordenar crew_ids para garantir consistência (mesma chave para mesma combinação)
     crew_ids_str = ",".join(sorted(crew_ids or []))
-    # ✅ INCLUIR time_window_30s na chave para variação a cada 30 segundos
-    time_part = f":{time_window_30s}" if time_window_30s is not None else ""
+    # ✅ INCLUIR time_window na chave para variação periódica
+    time_part = f":{time_window}" if time_window is not None else ""
     return f"bootstrap:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{language}{time_part}"
 
 
@@ -158,6 +183,40 @@ def _set_cached_bootstrap(cache_key: str, response: ChatBootstrapResponse):
                 "cache_size": len(_bootstrap_cache),
             },
         )
+
+
+def _get_table_stats_cache_key(connection_id: str, space_id: str, crew_ids: Optional[List[str]]) -> str:
+    """Gera chave única para cache de estatísticas."""
+    crew_ids_str = ",".join(sorted(crew_ids or []))
+    return f"table_stats:{connection_id}:{space_id}:{crew_ids_str}"
+
+
+def _get_cached_table_stats(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Retorna estatísticas do cache se ainda válidas."""
+    if cache_key not in _table_stats_cache:
+        return None
+    
+    cached_stats, cached_time = _table_stats_cache[cache_key]
+    age = datetime.now() - cached_time
+    
+    if age > timedelta(minutes=TABLE_STATS_CACHE_TTL_MINUTES):
+        del _table_stats_cache[cache_key]
+        return None
+    
+    return cached_stats
+
+
+def _set_cached_table_stats(cache_key: str, stats: Dict[str, Any]):
+    """Armazena estatísticas no cache."""
+    _table_stats_cache[cache_key] = (stats, datetime.now())
+    
+    # Limpar cache antigo se exceder tamanho máximo
+    if len(_table_stats_cache) > TABLE_STATS_MAX_CACHE_SIZE:
+        oldest_key = min(
+            _table_stats_cache.keys(),
+            key=lambda k: _table_stats_cache[k][1],
+        )
+        del _table_stats_cache[oldest_key]
 
 
 def _get_dashboard_plan_cache_key(
@@ -460,6 +519,326 @@ def _safe_json_loads(text: str) -> Optional[dict]:
     return None
 
 
+async def _get_table_metadata_stats(
+    data_source: Any,  # BaseDataSource, mas usando Any para evitar import circular
+    table_name: str,
+    schema: str,
+    connection_type: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Obtém row_count via metadados do sistema (INFORMATION_SCHEMA).
+    Muito mais rápido que COUNT(*) e sem custo de processamento.
+    """
+    try:
+        full_name = f"{schema}.{table_name}" if schema else table_name
+        
+        if connection_type == "bigquery":
+            # BigQuery: usar __TABLES__ para row_count (mais rápido que COUNT)
+            table_only = table_name.split('.')[-1]
+            query = f"""
+                SELECT 
+                    table_id as table_name,
+                    row_count,
+                    size_bytes,
+                    TIMESTAMP_MILLIS(creation_time) as last_modified
+                FROM `{schema}.__TABLES__`
+                WHERE table_id = '{table_only}'
+                LIMIT 1
+            """
+        elif connection_type == "postgres":
+            # PostgreSQL pg_stat_user_tables (mais rápido)
+            table_only = table_name.split('.')[-1]
+            query = f"""
+                SELECT 
+                    schemaname,
+                    relname as table_name,
+                    n_live_tup as row_count,
+                    pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size
+                FROM pg_stat_user_tables
+                WHERE relname = '{table_only}'
+                LIMIT 1
+            """
+        else:
+            return None
+        
+        # Executar com timeout curto
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(executor, data_source.run_query, query),
+                timeout=3.0  # 3 segundos máximo
+            )
+        
+        if result and len(result) > 0:
+            row = result[0]
+            return {
+                "row_count": int(row.get("row_count", 0)),
+                "size_bytes": row.get("size_bytes") or row.get("size"),
+                "last_modified": row.get("last_modified"),
+            }
+    except (FutureTimeoutError, asyncio.TimeoutError):
+        log_event("table_metadata_stats_timeout", {"table": table_name})
+    except Exception as e:
+        log_event("table_metadata_stats_error", {
+            "table": table_name,
+            "error": str(e)[:200]
+        })
+    
+    return None
+
+
+async def _get_table_sample_stats(
+    data_source: Any,  # BaseDataSource, mas usando Any para evitar import circular
+    table_name: str,
+    schema: str,
+    columns: List[Dict[str, Any]],
+    row_count: int,
+    connection_type: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Coleta estatísticas básicas usando sampling para tabelas grandes.
+    Sempre limita o número de linhas processadas.
+    """
+    try:
+        full_name = f"{schema}.{table_name}" if schema else table_name
+        
+        # Identificar colunas numéricas (amount, total, value, etc.)
+        amount_cols = [
+            c.get("name") for c in columns
+            if any(keyword in (c.get("name", "") or "").lower()
+                   for keyword in ["amount", "total", "value", "revenue", "price", "cost"])
+            and any(t in (c.get("type", "") or "").upper()
+                   for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "INT64", "FLOAT64"])
+        ]
+        
+        # Identificar colunas de data
+        date_cols = [
+            c.get("name") for c in columns
+            if "DATE" in (c.get("type", "") or "").upper()
+        ]
+        
+        stats = {}
+        
+        # Se tabela é muito grande (> 1M linhas), usar sampling
+        use_sampling = row_count > 1_000_000
+        
+        # Query para estatísticas de valores (apenas se houver coluna de amount)
+        if amount_cols:
+            amount_col = amount_cols[0]
+            
+            if use_sampling and connection_type == "bigquery":
+                # BigQuery: TABLESAMPLE SYSTEM (1 PERCENT)
+                query = f"""
+                    SELECT 
+                        COUNT(*) as sample_count,
+                        SUM({amount_col}) as total,
+                        AVG({amount_col}) as avg,
+                        MIN({amount_col}) as min_val,
+                        MAX({amount_col}) as max_val
+                    FROM `{full_name}` TABLESAMPLE SYSTEM (1 PERCENT)
+                    WHERE {amount_col} IS NOT NULL
+                    LIMIT 1
+                """
+            elif use_sampling and connection_type == "postgres":
+                # PostgreSQL: TABLESAMPLE SYSTEM (1)
+                query = f"""
+                    SELECT 
+                        COUNT(*) as sample_count,
+                        SUM({amount_col}) as total,
+                        AVG({amount_col}) as avg,
+                        MIN({amount_col}) as min_val,
+                        MAX({amount_col}) as max_val
+                    FROM {full_name} TABLESAMPLE SYSTEM (1)
+                    WHERE {amount_col} IS NOT NULL
+                    LIMIT 1
+                """
+            else:
+                # Para tabelas menores, query completa mas limitada
+                if connection_type == "bigquery":
+                    query = f"""
+                        SELECT 
+                            COUNT(*) as sample_count,
+                            SUM({amount_col}) as total,
+                            AVG({amount_col}) as avg,
+                            MIN({amount_col}) as min_val,
+                            MAX({amount_col}) as max_val
+                        FROM `{full_name}`
+                        WHERE {amount_col} IS NOT NULL
+                        LIMIT 1
+                    """
+                else:
+                    query = f"""
+                        SELECT 
+                            COUNT(*) as sample_count,
+                            SUM({amount_col}) as total,
+                            AVG({amount_col}) as avg,
+                            MIN({amount_col}) as min_val,
+                            MAX({amount_col}) as max_val
+                        FROM {full_name}
+                        WHERE {amount_col} IS NOT NULL
+                        LIMIT 1
+                    """
+            
+            try:
+                loop = asyncio.get_event_loop()
+                with ThreadPoolExecutor() as executor:
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(executor, data_source.run_query, query),
+                        timeout=5.0  # 5 segundos máximo
+                    )
+                
+                if result and len(result) > 0:
+                    row = result[0]
+                    stats["amount_stats"] = {
+                        "total": float(row.get("total", 0)) if row.get("total") else None,
+                        "avg": float(row.get("avg", 0)) if row.get("avg") else None,
+                        "min": float(row.get("min_val", 0)) if row.get("min_val") else None,
+                        "max": float(row.get("max_val", 0)) if row.get("max_val") else None,
+                        "sample_count": int(row.get("sample_count", 0)),
+                        "is_sampled": use_sampling,
+                    }
+            except (FutureTimeoutError, asyncio.TimeoutError):
+                pass  # Se timeout, continua sem essas stats
+            except Exception:
+                pass  # Se erro, continua sem essas stats
+        
+        # Query para range de datas (apenas se houver coluna de data)
+        if date_cols:
+            date_col = date_cols[0]
+            
+            if connection_type == "bigquery":
+                query = f"""
+                    SELECT 
+                        MIN({date_col}) as min_date,
+                        MAX({date_col}) as max_date
+                    FROM `{full_name}`
+                    WHERE {date_col} IS NOT NULL
+                    LIMIT 1
+                """
+            else:
+                query = f"""
+                    SELECT 
+                        MIN({date_col}) as min_date,
+                        MAX({date_col}) as max_date
+                    FROM {full_name}
+                    WHERE {date_col} IS NOT NULL
+                    LIMIT 1
+                """
+            
+            try:
+                loop = asyncio.get_event_loop()
+                with ThreadPoolExecutor() as executor:
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(executor, data_source.run_query, query),
+                        timeout=5.0
+                    )
+                
+                if result and len(result) > 0:
+                    row = result[0]
+                    if row.get("min_date") and row.get("max_date"):
+                        stats["date_range"] = {
+                            "min": str(row.get("min_date")),
+                            "max": str(row.get("max_date")),
+                        }
+            except (FutureTimeoutError, asyncio.TimeoutError):
+                pass
+            except Exception:
+                pass
+        
+        return stats if stats else None
+        
+    except Exception as e:
+        log_event("table_sample_stats_error", {
+            "table": table_name,
+            "error": str(e)[:200]
+        })
+        return None
+
+
+async def _collect_table_statistics_optimized(
+    data_source: Any,  # BaseDataSource, mas usando Any para evitar import circular
+    tables: List[Dict[str, Any]],
+    connection_id: str,
+    connection_type: str,
+    max_tables: int = 3
+) -> Dict[str, Any]:
+    """
+    Coleta estatísticas otimizadas seguindo melhores práticas do mercado:
+    - Usa metadados do sistema (rápido, sem custo)
+    - Sampling para tabelas grandes
+    - Sempre limita linhas processadas
+    - Timeout curto e fail-safe
+    """
+    stats = {}
+    
+    # 1. Identificar tabelas principais (fact tables)
+    fact_keywords = ["invoice", "payment", "order", "transaction", "event", "sale", "purchase"]
+    fact_tables = [
+        t for t in tables
+        if any(keyword in (t.get("name", "") or "").lower() 
+               for keyword in fact_keywords)
+    ][:max_tables]  # Limitar a 3 tabelas
+    
+    if not fact_tables:
+        return stats
+    
+    # 2. Coletar metadados em paralelo (row_count via INFORMATION_SCHEMA)
+    metadata_tasks = []
+    for table in fact_tables:
+        schema = table.get("schema", "")
+        name = table.get("name", "")
+        task = _get_table_metadata_stats(data_source, name, schema, connection_type)
+        metadata_tasks.append((table, task))
+    
+    # Executar todas as queries de metadados em paralelo
+    metadata_results = await asyncio.gather(*[task for _, task in metadata_tasks], return_exceptions=True)
+    
+    # 3. Para cada tabela com metadados válidos, coletar stats adicionais
+    sample_tasks = []
+    for (table, _), metadata_result in zip(metadata_tasks, metadata_results):
+        if isinstance(metadata_result, Exception):
+            continue
+        
+        if not metadata_result or metadata_result.get("row_count", 0) == 0:
+            continue
+        
+        schema = table.get("schema", "")
+        name = table.get("name", "")
+        full_name = f"{schema}.{name}" if schema else name
+        columns = table.get("columns", [])
+        row_count = metadata_result.get("row_count", 0)
+        
+        # Incluir row_count nos stats
+        stats[full_name] = {
+            "row_count": row_count,
+            "size_bytes": metadata_result.get("size_bytes"),
+            "last_modified": metadata_result.get("last_modified"),
+        }
+        
+        # Coletar stats adicionais apenas se tabela não for muito grande
+        # e tiver menos de 10M linhas (evitar queries muito lentas)
+        if 0 < row_count < 10_000_000:
+            task = _get_table_sample_stats(data_source, name, schema, columns, row_count, connection_type)
+            sample_tasks.append((full_name, task))
+    
+    # Executar queries de sample em paralelo (máximo 3)
+    if sample_tasks:
+        sample_results = await asyncio.gather(
+            *[task for _, task in sample_tasks], 
+            return_exceptions=True
+        )
+        
+        # Adicionar stats de sample aos stats principais
+        for (full_name, _), sample_result in zip(sample_tasks, sample_results):
+            if isinstance(sample_result, Exception):
+                continue
+            
+            if sample_result and full_name in stats:
+                stats[full_name].update(sample_result)
+    
+    return stats
+
+
 def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapResponse:
     if lang == "pt":
         greeting = "Como posso te ajudar com seus dados?"
@@ -499,7 +878,11 @@ async def chat_bootstrap(
     db: Session = Depends(get_db),
 ) -> ChatBootstrapResponse:
     """
+    Sherlock - Gerador de Sugestões Inteligentes
+    
     Generate greeting + suggestion cards for a new chat session.
+    This is the "Sherlock" agent that investigates available data and suggests
+    relevant business questions the user can click on.
     
     Supports both Personal and Collaborative modes:
     - Personal mode (is_personal=True): Suggestions based on all crews/spaces user belongs to
@@ -543,20 +926,19 @@ async def chat_bootstrap(
         # Se falhar, usar lista vazia (apenas dados públicos)
         resolved_crew_ids = []
 
-    # ✅ Calcular time_window_30s ANTES de gerar a chave do cache
-    # Isso garante que a chave mude a cada 30 segundos, forçando variação
+    # ✅ Calcular time_window baseado em configuração (5 minutos por padrão)
     current_time = datetime.now()
-    time_window_30s = int(current_time.timestamp() // 30)  # Janela de 30 segundos
+    time_window = int(current_time.timestamp() // BOOTSTRAP_VARIATION_WINDOW_SECONDS)
 
     # ✅ NOVA: Verificar cache antes de gerar sugestões
-    # A chave inclui time_window_30s para variação a cada 30 segundos
+    # A chave inclui time_window para variação periódica
     cache_key = _get_cache_key(
         connection_id=connection_id,
         space_id=body.space_id,
         crew_ids=resolved_crew_ids,
         is_personal=bool(body.is_personal),
         language=lang,
-        time_window_30s=time_window_30s,  # ✅ INCLUIR na chave para variação
+        time_window=time_window,  # ✅ MUDANÇA: usa time_window (5 min por padrão)
     )
     
     cached_response = _get_cached_bootstrap(cache_key)
@@ -639,6 +1021,110 @@ async def chat_bootstrap(
     max_tables_in_prompt = min(12, len(tables))
     _logical, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
 
+    # ✅ NOVO: Coletar estatísticas dos dados reais (seguindo melhores práticas)
+    table_statistics = {}
+    stats_cache_key = _get_table_stats_cache_key(connection_id, body.space_id, resolved_crew_ids)
+    
+    # Verificar cache de estatísticas primeiro
+    cached_stats = _get_cached_table_stats(stats_cache_key)
+    if cached_stats:
+        table_statistics = cached_stats
+        log_event("bootstrap_table_stats_cache_hit", {
+            "connection_id": connection_id,
+            "num_tables_with_stats": len(table_statistics)
+        })
+    else:
+        # Coletar estatísticas (com timeout total de 8 segundos)
+        try:
+            # Criar DataSource temporário
+            conn_result = db.execute(
+                text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
+                {"id": connection_id}
+            ).first()
+            
+            if conn_result:
+                class TempDataConnection:
+                    def __init__(self, id, name, type, config):
+                        self.id = id
+                        self.name = name
+                        self.type = type
+                        self.config = config if isinstance(config, dict) else json.loads(config) if isinstance(config, str) else {}
+                
+                conn_config = conn_result[3]
+                if isinstance(conn_config, str):
+                    try:
+                        conn_config = json.loads(conn_config)
+                    except:
+                        conn_config = {}
+                elif conn_config is None:
+                    conn_config = {}
+                
+                data_conn = TempDataConnection(
+                    id=str(conn_result[0]),
+                    name=conn_result[1],
+                    type=conn_result[2] or "bigquery",
+                    config=conn_config
+                )
+                
+                data_source = DataSourceFactory.build_from_dataconnection(data_conn)
+                connection_type = conn_result[2] or "bigquery"
+                
+                # Coletar estatísticas com timeout total
+                table_statistics = await asyncio.wait_for(
+                    _collect_table_statistics_optimized(
+                        data_source=data_source,
+                        tables=tables[:5],  # Apenas primeiras 5 tabelas
+                        connection_id=connection_id,
+                        connection_type=connection_type,
+                        max_tables=3  # Máximo 3 tabelas principais
+                    ),
+                    timeout=8.0  # Timeout total de 8 segundos
+                )
+                
+                # Armazenar no cache
+                _set_cached_table_stats(stats_cache_key, table_statistics)
+                
+                log_event("bootstrap_table_stats_collected", {
+                    "connection_id": connection_id,
+                    "num_tables_with_stats": len(table_statistics),
+                })
+        except (asyncio.TimeoutError, FutureTimeoutError):
+            log_event("bootstrap_table_stats_timeout", {
+                "connection_id": connection_id
+            })
+            # Continuar sem stats se timeout
+        except Exception as e:
+            log_event("bootstrap_table_stats_error", {
+                "connection_id": connection_id,
+                "error": str(e)[:200]
+            })
+            # Continuar sem stats se erro (fail-safe)
+    
+    # Formatar estatísticas para o prompt
+    stats_summary = ""
+    if table_statistics:
+        stats_lines = []
+        for table_name, stats in table_statistics.items():
+            lines = [f"📊 {table_name}:"]
+            if "row_count" in stats:
+                row_count = stats["row_count"]
+                lines.append(f"  • Total de registros: {row_count:,}")
+            if "amount_stats" in stats:
+                amt = stats["amount_stats"]
+                if amt.get("total") is not None:
+                    lines.append(f"  • Valor total: {amt['total']:,.2f}")
+                if amt.get("avg") is not None:
+                    lines.append(f"  • Valor médio: {amt['avg']:,.2f}")
+                if amt.get("is_sampled"):
+                    lines.append(f"  • (Estatísticas baseadas em amostra)")
+            if "date_range" in stats:
+                dr = stats["date_range"]
+                lines.append(f"  • Período: {dr['min']} até {dr['max']}")
+            stats_lines.append("\n".join(lines))
+        
+        if stats_lines:
+            stats_summary = "\n\n".join(stats_lines)
+
     # ✅ NOVA: Contexto de permissões para o LLM (agnóstico)
     mode_context = ""
     if body.is_personal:
@@ -666,15 +1152,13 @@ async def chat_bootstrap(
         "- Ensure suggestions will return meaningful data when executed.\n"
     )
 
-    # ✅ Calcular seed baseado em janela de 30 segundos para variação mais frequente
-    # Usa timestamp dividido por 30 segundos para criar janelas que mudam rapidamente
-    # NOTA: time_window_30s já foi calculado acima para a chave do cache
+    # ✅ Calcular seed baseado em janela de tempo configurável
     # Combinar com hash do schema para mais estabilidade e variação entre conexões
     schema_hash = hashlib.md5(schema_summary.encode()).hexdigest()
-    combined_seed = f"{connection_id}_{schema_hash}_{time_window_30s}"
+    combined_seed = f"{connection_id}_{schema_hash}_{time_window}"
     variation_seed = int(hashlib.md5(combined_seed.encode()).hexdigest()[:8], 16) % 6
     
-    # Mapear seed para diferentes ênfases que rotacionam a cada 30 segundos
+    # Mapear seed para diferentes ênfases que rotacionam periodicamente
     emphasis_hints = [
         "Focus on performance metrics and KPIs (revenue, sales, growth rates, efficiency, profitability, ROI).",
         "Focus on comparative analysis (compare performance across regions, products, customer segments, categories).",
@@ -688,8 +1172,32 @@ async def chat_bootstrap(
 
     user = (
         f"N={body.max_suggestions}\n"
-        f"User has access to {len(tables)} tables (filtered by permissions). Schema (sample):\n"
-        f"{schema_summary}\n\n"
+        f"User has access to {len(tables)} tables (filtered by permissions).\n\n"
+        f"Schema (sample):\n{schema_summary}\n\n"
+    )
+    
+    # ✅ Adicionar estatísticas reais se disponíveis
+    if stats_summary:
+        user += (
+            f"REAL DATA STATISTICS (use these to generate personalized, data-driven suggestions):\n"
+            f"{stats_summary}\n\n"
+            f"CRITICAL: Use these real statistics to make suggestions more specific and relevant.\n"
+            f"For example:\n"
+        )
+        # Adicionar exemplos baseados nas stats reais
+        first_table_stats = list(table_statistics.values())[0] if table_statistics else {}
+        if first_table_stats.get("row_count"):
+            user += f"- If a table has {first_table_stats['row_count']:,} rows, suggest 'How many X do we have?'\n"
+        if first_table_stats.get("amount_stats", {}).get("total"):
+            user += f"- If there's a total amount, suggest 'What is the total revenue?' or 'What is the average value?'\n"
+        if first_table_stats.get("date_range"):
+            user += f"- If there's a date range, suggest questions about that time period\n"
+        user += (
+            f"- Make suggestions that will return meaningful data based on these statistics\n"
+            f"- Personalize the greeting to mention the data available (e.g., 'You have X invoices, Y customers')\n\n"
+        )
+    
+    user += (
         f"Context: {mode_context}\n\n"
         "Generate greeting + STRATEGIC BUSINESS QUESTIONS based ONLY on the accessible tables shown above.\n"
         "\n"
@@ -873,7 +1381,8 @@ async def chat_bootstrap(
                 "mode": "personal" if body.is_personal else "collaborative",
                 "cached": False,
                 "variation_seed": variation_seed,
-                "time_window_30s": time_window_30s,
+                "time_window_seconds": BOOTSTRAP_VARIATION_WINDOW_SECONDS,  # ✅ NOVO
+                "has_table_stats": len(table_statistics) > 0,  # ✅ NOVO
             },
         )
         

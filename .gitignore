@@ -61,6 +61,10 @@ ENV/
 *.log
 logs/
 
+# Temporary discovery/analysis files
+discovered_schema*.json
+*_schema_from_db.json
+
 # Celery
 celerybeat-schedule
 celerybeat.pid
