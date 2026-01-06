@@ -3701,6 +3701,9 @@ jobs:
               bash << 'SCRIPT_EOF'
               set -eo pipefail
               
+              # CRÍTICO: Definir HOME (Azure Run Command executa como root e $HOME pode não estar definido)
+              export HOME=\${HOME:-/root}
+              
               echo '=========================================='
               echo '📥 Atualizando código na VM'
               echo '=========================================='
@@ -4061,13 +4064,31 @@ jobs:
                 exit 1
               fi
               
-              # Verificar exit code explícito no JSON
-              EXIT_CODE=$(echo "$UPDATE_OUTPUT" | jq -r '.value[0].code // "0"' 2>/dev/null || echo "0")
-              if [ "$EXIT_CODE" != "0" ] && [ "$EXIT_CODE" != "null" ]; then
-                echo "❌ ERRO: Script retornou exit code: $EXIT_CODE"
-                echo "$VM_MESSAGE" | head -50
+              # Verificar se há erros no stderr ou na mensagem
+              # Extrair conteúdo do stderr (linhas após [stderr])
+              STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -10)
+              
+              if [ -n "$STDERR_CONTENT" ] && echo "$STDERR_CONTENT" | grep -qiE "fatal|error|ERRO"; then
+                echo "❌ ERRO detectado no stderr:"
+                echo ""
+                echo "$STDERR_CONTENT"
+                echo ""
+                echo "❌ Falhando workflow devido a erros no stderr"
                 exit 1
               fi
+              
+              # Verificar se há palavras-chave de erro na mensagem completa
+              if echo "$VM_MESSAGE" | grep -qiE "fatal:|error:|ERRO:"; then
+                echo "❌ ERRO detectado na mensagem:"
+                echo ""
+                echo "$VM_MESSAGE" | grep -iE "fatal:|error:|ERRO:" | head -10
+                echo ""
+                echo "❌ Falhando workflow devido a erros detectados"
+                exit 1
+              fi
+              
+              # NOTA: O campo "code" no JSON do Azure é "ProvisioningState/succeeded", não exit code
+              # Não usar esse campo para detectar erros
             fi
           else
             # Se jq não estiver disponível, verificar manualmente na saída
@@ -4335,6 +4356,9 @@ jobs:
                 cd \"\$BASE\" || { echo \"❌ ERRO: Não foi possível entrar no diretório \$BASE\"; exit 1; }
                 
                 # Configurar Git
+                # CRÍTICO: Definir HOME (Azure Run Command executa como root)
+                export HOME=\${HOME:-/root}
+                
                 GITHUB_TOKEN='${GITHUB_TOKEN}'
                 if [ -n \"\$GITHUB_TOKEN\" ]; then
                   git config --global url.\"https://x-access-token:\${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\"
