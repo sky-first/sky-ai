@@ -2514,16 +2514,19 @@ jobs:
               
               echo "=== DIAGNÓSTICO: Estrutura de Diretórios na VM ==="
               
-              # Verificar diretório home
-              HOME_DIR=$(eval echo ~$USER 2>/dev/null || echo "$HOME" || echo "/home/azureuser")
+              # Verificar diretório home - usar caminho absoluto para garantir
+              HOME_DIR="/home/azureuser"
+              if [ -n "${HOME:-}" ]; then
+                HOME_DIR="$HOME"
+              fi
               echo "📂 Home directory: $HOME_DIR"
               
-              # Listar possíveis locais
+              # Listar possíveis locais (usar caminhos absolutos)
               POSSIBLE_BASES=(
-                "$HOME_DIR/projeto"
                 "/home/azureuser/projeto"
-                "$HOME_DIR"
+                "$HOME_DIR/projeto"
                 "/home/azureuser"
+                "$HOME_DIR"
               )
               
               INFRA_DIR=""
@@ -2626,13 +2629,63 @@ jobs:
             echo ""
             echo "⚠️  Continuando com smoke tests (aplicação está funcionando)"
           elif echo "$ENV_CHECK" | grep -q "NOT_FOUND"; then
-            echo "⚠️  Arquivo .env não encontrado e env.example também não está disponível"
-            echo "   Como a aplicação está funcionando, as variáveis podem estar configuradas de outra forma"
-            echo ""
-            echo "Diagnóstico completo:"
-            echo "$ENV_CHECK"
-            echo ""
-            echo "⚠️  Continuando com smoke tests (aplicação está funcionando)"
+            echo "❌ Arquivo .env NÃO existe na VM"
+            echo "   Tentando criar a partir de env.example..."
+            
+            # Tentar criar .env novamente de forma mais robusta
+            CREATE_RESULT=$(az vm run-command invoke \
+              -g "$RESOURCE_GROUP" \
+              -n "$VM_NAME" \
+              --command-id RunShellScript \
+              --scripts '
+                set -eu
+                # Usar caminho absoluto para garantir que funciona
+                BASE="/home/azureuser/projeto"
+                if [ ! -d "$BASE" ]; then
+                  # Tentar com HOME se diferente
+                  BASE="${HOME:-/home/azureuser}/projeto"
+                fi
+                
+                if [ -d "$BASE/sky-poc-infra" ]; then
+                  INFRA_DIR="$BASE/sky-poc-infra"
+                elif [ -d "$BASE/poc-deploy" ]; then
+                  INFRA_DIR="$BASE/poc-deploy"
+                else
+                  echo "NOT_FOUND_DIR"
+                  echo "Base não encontrada: $BASE"
+                  exit 1
+                fi
+                
+                cd "$INFRA_DIR"
+                
+                if [ -f .env ]; then
+                  echo "EXISTS"
+                  exit 0
+                fi
+                
+                if [ -f env.example ]; then
+                  cp env.example .env
+                  chmod 600 .env
+                  echo "CREATED"
+                  ls -lh .env
+                else
+                  echo "NO_EXAMPLE"
+                  exit 1
+                fi
+              ' \
+              --query "value[0].message" -o tsv 2>/dev/null || echo "")
+            
+            if echo "$CREATE_RESULT" | grep -q "EXISTS\|CREATED"; then
+              echo "✅ .env criado/verificado com sucesso!"
+              echo "$CREATE_RESULT"
+            else
+              echo "❌ Falha ao criar .env"
+              echo "   Output: $CREATE_RESULT"
+              echo ""
+              echo "⚠️  Como a aplicação está funcionando (http://${{ steps.vm-info.outputs.vm_public_ip || 'VM_IP' }}/login),"
+              echo "   as variáveis podem estar configuradas diretamente nos containers."
+              echo "   Continuando com smoke tests..."
+            fi
           else
             echo "⚠️  Não foi possível verificar .env"
             echo ""
@@ -2944,8 +2997,8 @@ jobs:
             --command-id RunShellScript \
             --scripts "
               set -eu
-              BASE=~/projeto
-              mkdir -p \"$BASE\" || { echo '❌ Erro ao criar diretório ~/projeto'; exit 1; }
+              BASE=\"/home/azureuser/projeto\"
+              mkdir -p \"$BASE\" || { echo '❌ Erro ao criar diretório /home/azureuser/projeto'; exit 1; }
 
               # Detectar diretório da infra (compatível com legado)
               INFRA_DIR=\"$BASE/sky-poc-infra\"
@@ -3015,7 +3068,7 @@ jobs:
             --scripts "
               set -eu
 
-              BASE=~/projeto
+              BASE=\"/home/azureuser/projeto\"
               INFRA_DIR=\"$BASE/sky-poc-infra\"
               if [ -d \"$BASE/sky-poc-infra\" ]; then
                 INFRA_DIR=\"$BASE/sky-poc-infra\"
@@ -3077,9 +3130,9 @@ jobs:
               
               echo 'Updating code on VM...'
               
-              cd ~/projeto 2>/dev/null || {
-                mkdir -p ~/projeto || { echo "❌ Erro ao criar diretório ~/projeto"; exit 1; }
-                cd ~/projeto || { echo "❌ Erro ao entrar no diretório ~/projeto"; exit 1; }
+              cd /home/azureuser/projeto 2>/dev/null || {
+                mkdir -p /home/azureuser/projeto || { echo "❌ Erro ao criar diretório /home/azureuser/projeto"; exit 1; }
+                cd /home/azureuser/projeto || { echo "❌ Erro ao entrar no diretório /home/azureuser/projeto"; exit 1; }
               }
               
               BRANCH='${{ steps.vm-info.outputs.git_branch }}'
@@ -3268,12 +3321,12 @@ jobs:
               
               echo 'Validando estrutura de diretórios...'
               
-              if [ ! -d ~/projeto ]; then
-                echo '❌ ERRO: Diretório ~/projeto não encontrado'
+              if [ ! -d /home/azureuser/projeto ]; then
+                echo '❌ ERRO: Diretório /home/azureuser/projeto não encontrado'
                 exit 1
               fi
               
-              cd ~/projeto
+              cd /home/azureuser/projeto
               
               if [ ! -d poc-deploy ] && [ ! -d sky-poc-infra ]; then
                 echo '❌ ERRO: Diretório poc-deploy ou sky-poc-infra não encontrado'
@@ -3340,8 +3393,8 @@ jobs:
                 INFRA_DIR=\"\${BASE}/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infra não encontrado!'
-                echo 'Diretórios em ~/projeto:'
-                ls -la \"\${BASE}\" 2>/dev/null || echo 'Diretório ~/projeto não existe'
+                echo 'Diretórios em /home/azureuser/projeto:'
+                ls -la \"\${BASE}\" 2>/dev/null || echo 'Diretório /home/azureuser/projeto não existe'
                 exit 1
               fi
               
@@ -3399,13 +3452,13 @@ jobs:
             --command-id RunShellScript \
             --scripts "
               set -euo pipefail
-              BASE=~/projeto
+              BASE=\"/home/azureuser/projeto\"
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
                 INFRA_DIR=\"\$BASE/sky-poc-infra\"
               elif [ -d \"\$BASE/poc-deploy\" ]; then
                 INFRA_DIR=\"\$BASE/poc-deploy\"
               else
-                echo '❌ ERRO: Diretório de infraestrutura não encontrado em ~/projeto'
+                echo '❌ ERRO: Diretório de infraestrutura não encontrado em /home/azureuser/projeto'
                 exit 1
               fi
 
@@ -3448,69 +3501,146 @@ jobs:
             --scripts "
               set -eu
               
-              cd ~/projeto
-              if [ -d poc-deploy ]; then
-                cd poc-deploy
-              elif [ -d sky-poc-infra ]; then
-                cd sky-poc-infra
+              echo '=========================================='
+              echo '🚀 Iniciando Deploy dos Containers'
+              echo '=========================================='
+              echo ''
+              
+              # Usar caminho absoluto
+              BASE=\"/home/azureuser/projeto\"
+              INFRA_DIR=\"\"
+              
+              if [ -d \"\$BASE/sky-poc-infra\" ]; then
+                INFRA_DIR=\"\$BASE/sky-poc-infra\"
+              elif [ -d \"\$BASE/poc-deploy\" ]; then
+                INFRA_DIR=\"\$BASE/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infraestrutura não encontrado'
+                echo '   Procurou em: \$BASE/sky-poc-infra'
+                echo '   E em: \$BASE/poc-deploy'
                 exit 1
               fi
+              
+              cd \"\$INFRA_DIR\" || {
+                echo '❌ ERRO: Não foi possível entrar no diretório: \$INFRA_DIR'
+                exit 1
+              }
+              
+              echo '📁 Diretório: \$(pwd)'
+              echo ''
               
               if [ ! -f docker-compose.yml ]; then
-                echo '❌ ERRO: docker-compose.yml não encontrado'
+                echo '❌ ERRO: docker-compose.yml não encontrado em \$(pwd)'
+                echo 'Arquivos no diretório:'
+                ls -la | head -20
                 exit 1
               fi
               
-              # Usar deploy sequencial se script existir
+              echo '✅ docker-compose.yml encontrado'
+              echo ''
+              
+              # Verificar se script de deploy sequencial existe
               if [ -f scripts/azure/sequential-deploy.sh ]; then
+                echo '✅ Script de deploy sequencial encontrado'
                 echo 'Usando deploy sequencial com health checks...'
+                echo ''
+                chmod +x scripts/azure/sequential-deploy.sh
                 bash scripts/azure/sequential-deploy.sh \"\$(pwd)\" || {
+                  echo ''
                   echo '❌ ERRO: Deploy sequencial falhou'
-                  echo 'Logs dos containers:'
-                  sudo docker compose logs --tail=50
+                  echo ''
+                  echo 'Status dos containers:'
+                  sudo docker compose ps || sudo docker ps --format 'table {{.Names}}\t{{.Status}}' || true
+                  echo ''
+                  echo 'Containers parados ou com erro:'
+                  sudo docker ps -a --filter 'status=exited' --format 'table {{.Names}}\t{{.Status}}\t{{.ExitCode}}' || true
+                  echo ''
+                  echo 'Logs dos containers (últimas 30 linhas):'
+                  sudo docker compose logs --tail=30 2>/dev/null || true
                   exit 1
                 }
               else
-                echo 'Script de deploy sequencial não encontrado, usando método padrão...'
-                # Fallback: método antigo
+                echo '⚠️  Script de deploy sequencial não encontrado'
+                echo 'Usando método padrão (docker compose up)...'
+                echo ''
+                
+                # Parar containers existentes
+                echo 'Parando containers existentes...'
                 sudo docker compose down || echo 'Nenhum container rodando para parar'
-                sudo docker compose up -d --build || { 
+                echo ''
+                
+                # Iniciar containers
+                echo 'Iniciando containers...'
+                if ! sudo docker compose up -d --build; then
+                  echo ''
                   echo '❌ ERRO: Falha ao iniciar containers'
-                  echo 'Logs dos containers:'
-                  sudo docker compose logs --tail=50
+                  echo ''
+                  echo 'Status dos containers:'
+                  sudo docker compose ps || sudo docker ps --format 'table {{.Names}}\t{{.Status}}' || true
+                  echo ''
+                  echo 'Containers parados ou com erro:'
+                  sudo docker ps -a --filter 'status=exited' --format 'table {{.Names}}\t{{.Status}}\t{{.ExitCode}}' || true
+                  echo ''
+                  echo 'Logs dos containers (últimas 50 linhas):'
+                  sudo docker compose logs --tail=50 2>/dev/null || true
                   exit 1
-                }
+                fi
+                
+                echo ''
+                echo 'Aguardando containers iniciarem (15s)...'
+                sleep 15
               fi
               
-              echo '✅ Containers iniciados com sucesso'
               echo ''
-              echo '🔍 Validando containers...'
+              echo '=========================================='
+              echo '🔍 Validação Final dos Containers'
+              echo '=========================================='
+              echo ''
               
-              # Aguardar containers iniciarem
-              echo '⏳ Aguardando containers iniciarem (10s)...'
-              sleep 10
+              # Aguardar um pouco mais para garantir que tudo iniciou
+              echo '⏳ Aguardando containers estabilizarem (20s)...'
+              sleep 20
               
               # Validar que containers estão rodando
-              echo '📋 Verificando containers rodando (docker ps)...'
-              RUNNING_CONTAINERS=\$(sudo docker ps --format '{{.Names}}: {{.Status}}' | wc -l)
-              if [ \"\$RUNNING_CONTAINERS\" -lt 3 ]; then
-                echo '❌ ERRO: Poucos containers rodando!'
-                echo 'Containers esperados: postgres, redis, backend, frontend, proxy, ai'
-                echo 'Containers rodando:'
-                sudo docker ps --format '{{.Names}}: {{.Status}}' || true
+              echo '📋 Verificando containers rodando...'
+              RUNNING_CONTAINERS=\$(sudo docker ps --format '{{.Names}}' 2>/dev/null | wc -l || echo '0')
+              
+              echo ''
+              echo 'Status dos containers:'
+              sudo docker compose ps || sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
+              echo ''
+              
+              # Verificar containers críticos
+              CRITICAL_CONTAINERS=(\"ai_saas_postgres_prod\" \"ai_saas_redis_prod\" \"ai_saas_backend_prod\" \"ai_saas_proxy\")
+              MISSING=\"\"
+              
+              for container in \"\${CRITICAL_CONTAINERS[@]}\"; do
+                if ! sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q \"^\${container}\$\"; then
+                  MISSING=\"\${MISSING} \${container}\"
+                fi
+              done
+              
+              if [ -n \"\$MISSING\" ]; then
+                echo '❌ ERRO: Containers críticos não estão rodando:\$MISSING'
                 echo ''
                 echo 'Containers parados ou com erro:'
-                sudo docker ps -a --filter 'status=exited' --format '{{.Names}}: {{.Status}}' || true
+                sudo docker ps -a --filter 'status=exited' --format 'table {{.Names}}\t{{.Status}}\t{{.ExitCode}}' || true
                 echo ''
                 echo 'Logs dos containers com problema:'
-                sudo docker compose ps || true
+                for container in \$MISSING; do
+                  echo \"--- Logs de \$container ---\"
+                  sudo docker logs \"\$container\" --tail=30 2>/dev/null || true
+                  echo ''
+                done
                 exit 1
               fi
               
-              echo \"✅ Containers rodando: \$RUNNING_CONTAINERS\"
-              sudo docker ps --format '  - {{.Names}}: {{.Status}}' || true
+              if [ \"\$RUNNING_CONTAINERS\" -lt 3 ]; then
+                echo '⚠️  AVISO: Poucos containers rodando (\$RUNNING_CONTAINERS)'
+                echo '   Mas containers críticos estão OK, continuando...'
+              else
+                echo \"✅ Containers rodando: \$RUNNING_CONTAINERS\"
+              fi
               echo ''
               
               # Validar health check local
