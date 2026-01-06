@@ -3053,7 +3053,7 @@ jobs:
             -n "$VM_NAME" \
             --command-id RunShellScript \
             --scripts '
-              #!/bin/bash
+              bash -c "
               set -eu
               
               echo "=== DIAGNÓSTICO: Estrutura de Diretórios na VM ==="
@@ -3142,6 +3142,7 @@ jobs:
                   ls -la .env* 2>/dev/null || echo "  (nenhum arquivo .env* encontrado)"
                 fi
               fi
+              "
             ' \
             --output json 2>/dev/null || echo '{"value":[{"message":"ERROR"}]}')
           
@@ -3177,27 +3178,27 @@ jobs:
               -n "$VM_NAME" \
               --command-id RunShellScript \
               --scripts '
-                #!/bin/bash
+                bash -c "
                 set -e
                 # Usar caminho absoluto consistente
-                BASE="/home/azureuser/projeto"
+                BASE=\"/home/azureuser/projeto\"
                 
-                if [ -d "$BASE/sky-poc-infra" ]; then
-                  INFRA_DIR="$BASE/sky-poc-infra"
-                elif [ -d "$BASE/poc-deploy" ]; then
-                  INFRA_DIR="$BASE/poc-deploy"
+                if [ -d \"\$BASE/sky-poc-infra\" ]; then
+                  INFRA_DIR=\"\$BASE/sky-poc-infra\"
+                elif [ -d \"\$BASE/poc-deploy\" ]; then
+                  INFRA_DIR=\"\$BASE/poc-deploy\"
                 else
-                  echo "NOT_FOUND_DIR"
-                  echo "❌ Diretório de infra não encontrado em $BASE"
-                  echo "   Procurou em: $BASE/sky-poc-infra"
-                  echo "   E em: $BASE/poc-deploy"
+                  echo \"NOT_FOUND_DIR\"
+                  echo \"❌ Diretório de infra não encontrado em \$BASE\"
+                  echo \"   Procurou em: \$BASE/sky-poc-infra\"
+                  echo \"   E em: \$BASE/poc-deploy\"
                   exit 1
                 fi
                 
-                cd "$INFRA_DIR"
+                cd \"\$INFRA_DIR\"
                 
                 if [ -f .env ]; then
-                  echo "EXISTS"
+                  echo \"EXISTS\"
                   exit 0
                 fi
                 
@@ -3697,7 +3698,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              #!/bin/bash
+              bash -c '
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
@@ -4022,6 +4023,7 @@ jobs:
               
               echo ''
               echo '✅ Código atualizado com sucesso!'
+              '
             " \
             --output json 2>&1)
           
@@ -4088,10 +4090,10 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              #!/bin/bash
+              bash -c '
               set -eu
               
-              echo 'Validando estrutura de diretórios...'
+              echo \"Validando estrutura de diretórios...\"
               
               if [ ! -d /home/azureuser/projeto ]; then
                 echo '❌ ERRO: Diretório /home/azureuser/projeto não encontrado'
@@ -4138,7 +4140,8 @@ jobs:
                 exit 1
               fi
               
-              echo '✅ Todos os caminhos validados'
+              echo \"✅ Todos os caminhos validados\"
+              '
             " \
             --output json
 
@@ -4152,7 +4155,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              #!/bin/bash
+              bash -c '
               set -eo pipefail
               
               # Usar caminho absoluto consistente (não depender de $HOME)
@@ -4214,6 +4217,7 @@ jobs:
               fi
               
               echo '✅ .env validado e pronto para uso'
+              '
             " \
             --output json 2>&1)
           
@@ -4258,7 +4262,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              #!/bin/bash
+              bash -c '
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               BASE=\"/home/azureuser/projeto\"
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
@@ -4307,7 +4311,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              #!/bin/bash
+              bash -c '
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
