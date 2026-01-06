@@ -3482,24 +3482,58 @@ jobs:
 
       - name: Update Code on VM
         run: |
+          set -euo pipefail
+          
+          # Obter token do GitHub (necessário para clonar repositórios privados)
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          
+          echo "🔐 Configurando autenticação Git na VM..."
+          
           az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -e
+              set -euo pipefail
               
-              echo 'Updating code on VM...'
+              echo '=========================================='
+              echo '📥 Atualizando código na VM'
+              echo '=========================================='
+              echo ''
               
-              cd /home/azureuser/projeto 2>/dev/null || {
-                mkdir -p /home/azureuser/projeto || { echo "❌ Erro ao criar diretório /home/azureuser/projeto"; exit 1; }
-                cd /home/azureuser/projeto || { echo "❌ Erro ao entrar no diretório /home/azureuser/projeto"; exit 1; }
-              }
+              # Configurar Git para usar token (se fornecido)
+              GITHUB_TOKEN='${GITHUB_TOKEN}'
+              if [ -n \"\$GITHUB_TOKEN\" ]; then
+                echo '🔐 Configurando autenticação Git...'
+                git config --global url.\"https://x-access-token:\${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\"
+                echo '✅ Git configurado para usar token'
+              else
+                echo '⚠️  GITHUB_TOKEN não fornecido - repositórios públicos funcionarão, privados podem falhar'
+              fi
+              
+              # Garantir que diretório existe (CRÍTICO)
+              echo ''
+              echo '📁 Criando/verificando diretório do projeto...'
+              if [ ! -d /home/azureuser/projeto ]; then
+                mkdir -p /home/azureuser/projeto || { echo \"❌ ERRO: Falha ao criar diretório /home/azureuser/projeto\"; exit 1; }
+                echo '✅ Diretório criado: /home/azureuser/projeto'
+              else
+                echo '✅ Diretório já existe: /home/azureuser/projeto'
+              fi
+              
+              cd /home/azureuser/projeto || { echo \"❌ ERRO: Não foi possível entrar no diretório /home/azureuser/projeto\"; exit 1; }
+              echo \"📂 Diretório atual: \$(pwd)\"
+              echo ''
               
               BRANCH='${{ steps.vm-info.outputs.git_branch }}'
               REPO='${{ steps.vm-info.outputs.github_repo }}'
               REPO_OWNER=$(echo \${REPO} | cut -d'/' -f1)
               REPO_NAME=$(echo \${REPO} | cut -d'/' -f2)
+              
+              echo \"📋 Configuração:\"
+              echo \"   Repositório: \${REPO}\"
+              echo \"   Branch: \${BRANCH}\"
+              echo \"\"
               
               # Verificar primeiro por sky-poc-infra (estrutura atual)
               if [ -d sky-poc-infra ]; then
@@ -3683,9 +3717,77 @@ jobs:
                 ln -s sky-poc-ai ia 2>/dev/null || true
               fi
               
-              echo 'Code updated successfully'
+              echo ''
+              echo '=========================================='
+              echo '✅ Validação Final'
+              echo '=========================================='
+              
+              # Validar que diretórios críticos existem
+              ERRORS=0
+              if [ ! -d sky-poc-infra ] && [ ! -d poc-deploy ]; then
+                echo '❌ ERRO: sky-poc-infra ou poc-deploy não encontrado'
+                ERRORS=$((ERRORS + 1))
+              fi
+              
+              INFRA_DIR=''
+              if [ -d sky-poc-infra ]; then
+                INFRA_DIR='sky-poc-infra'
+              elif [ -d poc-deploy ]; then
+                INFRA_DIR='poc-deploy'
+              fi
+              
+              if [ -n \"\$INFRA_DIR\" ]; then
+                cd \"\$INFRA_DIR\"
+                if [ ! -f docker-compose.yml ]; then
+                  echo \"❌ ERRO: docker-compose.yml não encontrado em \$(pwd)\"
+                  ERRORS=$((ERRORS + 1))
+                else
+                  echo \"✅ docker-compose.yml encontrado em \$(pwd)\"
+                fi
+                cd ..
+              fi
+              
+              if [ ! -d sky-poc-backend ]; then
+                echo '❌ ERRO: sky-poc-backend não encontrado'
+                ERRORS=$((ERRORS + 1))
+              else
+                echo '✅ sky-poc-backend encontrado'
+              fi
+              
+              if [ ! -d sky-poc-frontend ]; then
+                echo '❌ ERRO: sky-poc-frontend não encontrado'
+                ERRORS=$((ERRORS + 1))
+              else
+                echo '✅ sky-poc-frontend encontrado'
+              fi
+              
+              if [ ! -d sky-poc-ai ]; then
+                echo '⚠️  AVISO: sky-poc-ai não encontrado (pode ser opcional)'
+              else
+                echo '✅ sky-poc-ai encontrado'
+              fi
+              
+              echo ''
+              echo 'Estrutura de diretórios:'
+              ls -la /home/azureuser/projeto/ | head -20
+              
+              if [ \$ERRORS -gt 0 ]; then
+                echo ''
+                echo \"❌ ERRO: \${ERRORS} problema(s) encontrado(s) - falhando\"
+                exit 1
+              fi
+              
+              echo ''
+              echo '✅ Código atualizado com sucesso!'
             " \
-            --output json
+            --output json 2>&1 | tee update-code-output.txt || {
+              echo "❌ ERRO: Falha ao atualizar código na VM"
+              echo "Logs completos:"
+              cat update-code-output.txt || true
+              exit 1
+            }
+          
+          echo "✅ Código atualizado na VM com sucesso"
 
       - name: Validate Docker Compose Paths
         run: |
