@@ -3053,6 +3053,7 @@ jobs:
             -n "$VM_NAME" \
             --command-id RunShellScript \
             --scripts '
+              #!/bin/bash
               set -eu
               
               echo "=== DIAGNÓSTICO: Estrutura de Diretórios na VM ==="
@@ -3176,6 +3177,7 @@ jobs:
               -n "$VM_NAME" \
               --command-id RunShellScript \
               --scripts '
+                #!/bin/bash
                 set -e
                 # Usar caminho absoluto consistente
                 BASE="/home/azureuser/projeto"
@@ -3554,6 +3556,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eu
               BASE=\"/home/azureuser/projeto\"
               mkdir -p \"$BASE\" || { echo '❌ Erro ao criar diretório /home/azureuser/projeto'; exit 1; }
@@ -3624,6 +3627,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eu
 
               BASE=\"/home/azureuser/projeto\"
@@ -3693,6 +3697,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
@@ -4037,20 +4042,37 @@ jobs:
             exit 1
           fi
           
-          # Verificar se há erros na resposta da VM (apenas se jq estiver disponível)
+          # CRÍTICO: Verificar se há erros na resposta da VM (mesmo que o comando tenha retornado sucesso)
+          # O az vm run-command pode retornar sucesso mesmo quando o script interno falha
           if command -v jq >/dev/null 2>&1; then
             if echo "$UPDATE_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
               VM_MESSAGE=$(echo "$UPDATE_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
-              if echo "$VM_MESSAGE" | grep -qiE "ERRO|ERROR|❌|falhou|failed"; then
+              
+              # Verificar se há erros na mensagem (stdout ou stderr)
+              if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
                 echo "❌ ERRO detectado na resposta da VM:"
-                echo "$VM_MESSAGE"
+                echo ""
+                echo "Mensagem completa:"
+                echo "$VM_MESSAGE" | head -100
+                echo ""
+                echo "❌ Falhando workflow devido a erros no script da VM"
+                exit 1
+              fi
+              
+              # Verificar exit code explícito no JSON
+              EXIT_CODE=$(echo "$UPDATE_OUTPUT" | jq -r '.value[0].code // "0"' 2>/dev/null || echo "0")
+              if [ "$EXIT_CODE" != "0" ] && [ "$EXIT_CODE" != "null" ]; then
+                echo "❌ ERRO: Script retornou exit code: $EXIT_CODE"
+                echo "$VM_MESSAGE" | head -50
                 exit 1
               fi
             fi
           else
             # Se jq não estiver disponível, verificar manualmente na saída
-            if echo "$UPDATE_OUTPUT" | grep -qiE '"code":\s*[^0]|"level":\s*"Error"'; then
-              echo "⚠️  Possível erro detectado na resposta (jq não disponível para validação completa)"
+            if echo "$UPDATE_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option|"code":\s*[^0]|"level":\s*"Error")'; then
+              echo "❌ ERRO detectado na resposta (sem jq para validação detalhada):"
+              echo "$UPDATE_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
+              exit 1
             fi
           fi
           
@@ -4066,6 +4088,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eu
               
               echo 'Validando estrutura de diretórios...'
@@ -4124,12 +4147,13 @@ jobs:
           set -eo pipefail
           echo "🔧 Garantindo que .env existe na VM (criando a partir de env.example se necessário)..."
           echo "⚠️  IMPORTANTE: Este step garante que .env existe mesmo se Key Vault não foi usado"
-          az vm run-command invoke \
+          BOOTSTRAP_OUTPUT=$(az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -e
+              #!/bin/bash
+              set -eo pipefail
               
               # Usar caminho absoluto consistente (não depender de $HOME)
               BASE=\"/home/azureuser/projeto\"
@@ -4191,7 +4215,38 @@ jobs:
               
               echo '✅ .env validado e pronto para uso'
             " \
-            --output json
+            --output json 2>&1)
+          
+          # Verificar erros no output
+          echo "$BOOTSTRAP_OUTPUT"
+          
+          if command -v jq >/dev/null 2>&1; then
+            if echo "$BOOTSTRAP_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
+              BOOTSTRAP_MESSAGE=$(echo "$BOOTSTRAP_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
+              
+              if echo "$BOOTSTRAP_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
+                echo ""
+                echo "❌ ERRO detectado no Bootstrap .env:"
+                echo "$BOOTSTRAP_MESSAGE" | head -100
+                echo ""
+                echo "❌ Falhando workflow"
+                exit 1
+              fi
+              
+              EXIT_CODE=$(echo "$BOOTSTRAP_OUTPUT" | jq -r '.value[0].code // "0"' 2>/dev/null || echo "0")
+              if [ "$EXIT_CODE" != "0" ] && [ "$EXIT_CODE" != "null" ]; then
+                echo "❌ ERRO: Bootstrap retornou exit code: $EXIT_CODE"
+                echo "$BOOTSTRAP_MESSAGE" | head -50
+                exit 1
+              fi
+            fi
+          else
+            if echo "$BOOTSTRAP_OUTPUT" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
+              echo "❌ ERRO detectado no Bootstrap .env:"
+              echo "$BOOTSTRAP_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
+              exit 1
+            fi
+          fi
 
       - name: Write OPENAI_API_KEY to VM .env (no Key Vault)
         if: env.KEYVAULT_NAME == '' && env.OPENAI_API_KEY_BOOTSTRAP != ''
@@ -4203,6 +4258,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               BASE=\"/home/azureuser/projeto\"
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
@@ -4251,6 +4307,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
+              #!/bin/bash
               set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
@@ -4262,14 +4319,76 @@ jobs:
               BASE=\"/home/azureuser/projeto\"
               INFRA_DIR=\"\"
               
+              # Se diretório não existir, tentar clonar os repositórios (fallback se step anterior falhou)
+              if [ ! -d \"\$BASE/sky-poc-infra\" ] && [ ! -d \"\$BASE/poc-deploy\" ]; then
+                echo '⚠️  Diretório de infraestrutura não encontrado - tentando clonar repositórios...'
+                echo ''
+                
+                # Criar diretório se não existir
+                mkdir -p \"\$BASE\" || { echo \"❌ ERRO: Falha ao criar diretório \$BASE\"; exit 1; }
+                chown -R azureuser:azureuser \"\$BASE\" 2>/dev/null || true
+                cd \"\$BASE\" || { echo \"❌ ERRO: Não foi possível entrar no diretório \$BASE\"; exit 1; }
+                
+                # Configurar Git
+                GITHUB_TOKEN='${GITHUB_TOKEN}'
+                if [ -n \"\$GITHUB_TOKEN\" ]; then
+                  git config --global url.\"https://x-access-token:\${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\"
+                fi
+                
+                # Clonar repositórios
+                BRANCH='${{ steps.vm-info.outputs.git_branch }}'
+                REPO='${{ steps.vm-info.outputs.github_repo }}'
+                REPO_OWNER=\$(echo \${REPO} | cut -d'/' -f1)
+                
+                echo \"📥 Clonando repositórios (branch: \${BRANCH})...\"
+                
+                # Clonar infra
+                if git ls-remote --heads \"https://github.com/\${REPO}.git\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  git clone -b \${BRANCH} \"https://github.com/\${REPO}.git\" sky-poc-infra || { echo \"❌ Erro ao clonar sky-poc-infra\"; exit 1; }
+                else
+                  echo \"❌ Branch \${BRANCH} não encontrada no repositório \${REPO}\"
+                  exit 1
+                fi
+                
+                # Clonar backend
+                if git ls-remote --heads \"https://github.com/\${REPO_OWNER}/sky-poc-backend.git\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  git clone -b \${BRANCH} \"https://github.com/\${REPO_OWNER}/sky-poc-backend.git\" sky-poc-backend || { echo \"❌ Erro ao clonar backend\"; exit 1; }
+                else
+                  echo \"⚠️  Branch \${BRANCH} não encontrada no backend (continuando...)\"
+                fi
+                
+                # Clonar frontend
+                if git ls-remote --heads \"https://github.com/\${REPO_OWNER}/sky-poc-frontend.git\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  git clone -b \${BRANCH} \"https://github.com/\${REPO_OWNER}/sky-poc-frontend.git\" sky-poc-frontend || { echo \"❌ Erro ao clonar frontend\"; exit 1; }
+                else
+                  echo \"⚠️  Branch \${BRANCH} não encontrada no frontend (continuando...)\"
+                fi
+                
+                # Clonar IA
+                if git ls-remote --heads \"https://github.com/\${REPO_OWNER}/sky-poc-ai.git\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                  git clone -b \${BRANCH} \"https://github.com/\${REPO_OWNER}/sky-poc-ai.git\" sky-poc-ai || { echo \"❌ Erro ao clonar IA\"; exit 1; }
+                else
+                  echo \"⚠️  Branch \${BRANCH} não encontrada no IA (continuando...)\"
+                fi
+                
+                # Corrigir permissões
+                chown -R azureuser:azureuser \"\$BASE\" 2>/dev/null || true
+                
+                echo '✅ Repositórios clonados com sucesso'
+                echo ''
+              fi
+              
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
                 INFRA_DIR=\"\$BASE/sky-poc-infra\"
               elif [ -d \"\$BASE/poc-deploy\" ]; then
                 INFRA_DIR=\"\$BASE/poc-deploy\"
               else
-                echo '❌ ERRO: Diretório de infraestrutura não encontrado'
+                echo '❌ ERRO: Diretório de infraestrutura não encontrado após tentativa de clone'
                 echo \"   Procurou em: \$BASE/sky-poc-infra\"
                 echo \"   E em: \$BASE/poc-deploy\"
+                echo ''
+                echo 'Estrutura do diretório:'
+                ls -la \"\$BASE\" 2>/dev/null || echo 'Diretório não existe'
                 exit 1
               fi
               
