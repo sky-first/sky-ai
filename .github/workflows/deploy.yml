@@ -3723,7 +3723,9 @@ jobs:
               echo '=========================================='
               
               # Validar que diretórios críticos existem
+              # CRÍTICO: Inicializar ERRORS no início para evitar 'unbound variable' com set -u
               ERRORS=0
+              
               if [ ! -d sky-poc-infra ] && [ ! -d poc-deploy ]; then
                 echo '❌ ERRO: sky-poc-infra ou poc-deploy não encontrado'
                 ERRORS=$((ERRORS + 1))
@@ -3771,9 +3773,11 @@ jobs:
               echo 'Estrutura de diretórios:'
               ls -la /home/azureuser/projeto/ | head -20
               
-              if [ \$ERRORS -gt 0 ]; then
+              # Verificar ERRORS (sempre usar ${ERRORS:-0} para garantir valor padrão com set -u)
+              FINAL_ERRORS=\${ERRORS:-0}
+              if [ \"\$FINAL_ERRORS\" -gt 0 ]; then
                 echo ''
-                echo \"❌ ERRO: \${ERRORS} problema(s) encontrado(s) - falhando\"
+                echo \"❌ ERRO: \${FINAL_ERRORS} problema(s) encontrado(s) - falhando\"
                 exit 1
               fi
               
