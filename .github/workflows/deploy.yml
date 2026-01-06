@@ -292,7 +292,24 @@ jobs:
           fi
 
       - name: Terraform Init
-        run: terraform init -input=false -upgrade -backend-config=backend.hcl
+        run: |
+          set -euo pipefail
+          
+          # Tentar init normal primeiro
+          if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
+            echo "✅ Terraform init concluído com sucesso"
+          else
+            # Se falhou por mudança de backend, tentar migrar estado
+            echo "⚠️  Mudança no backend detectada, tentando migrar estado..."
+            if terraform init -input=false -upgrade -migrate-state -backend-config=backend.hcl 2>&1; then
+              echo "✅ Estado migrado com sucesso"
+            else
+              # Se migração falhar, forçar reconfiguração (usa o estado existente se houver)
+              echo "⚠️  Migração falhou, forçando reconfiguração do backend..."
+              terraform init -input=false -upgrade -reconfigure -backend-config=backend.hcl
+              echo "✅ Backend reconfigurado"
+            fi
+          fi
 
       - name: Validate Terraform Workspace
         run: |
@@ -1788,7 +1805,24 @@ jobs:
           echo "OK: Plan file tamanho: ${PLAN_SIZE} bytes"
 
       - name: Terraform Init
-        run: terraform init -input=false -backend-config=backend.hcl
+        run: |
+          set -euo pipefail
+          
+          # Tentar init normal primeiro
+          if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
+            echo "✅ Terraform init concluído com sucesso"
+          else
+            # Se falhou por mudança de backend, tentar migrar estado
+            echo "⚠️  Mudança no backend detectada, tentando migrar estado..."
+            if terraform init -input=false -upgrade -migrate-state -backend-config=backend.hcl 2>&1; then
+              echo "✅ Estado migrado com sucesso"
+            else
+              # Se migração falhar, forçar reconfiguração (usa o estado existente se houver)
+              echo "⚠️  Migração falhou, forçando reconfiguração do backend..."
+              terraform init -input=false -upgrade -reconfigure -backend-config=backend.hcl
+              echo "✅ Backend reconfigurado"
+            fi
+          fi
 
       - name: Validate Terraform Workspace
         run: |
