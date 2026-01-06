@@ -25,13 +25,18 @@ OUTPUT=$(az vm run-command invoke \
     --scripts '
       set -euo pipefail
       
-      BASE=~/projeto
-      if [ -d "$BASE/sky-poc-infra" ]; then
-        INFRA_DIR="$BASE/sky-poc-infra"
-      elif [ -d "$BASE/poc-deploy" ]; then
-        INFRA_DIR="$BASE/poc-deploy"
+      # Usar caminho absoluto e fallback para compatibilidade
+      BASE=\"/home/azureuser/projeto\"
+      if [ ! -d \"$BASE\" ]; then
+        BASE=\"${HOME:-/home/azureuser}/projeto\"
+      fi
+      
+      if [ -d \"$BASE/sky-poc-infra\" ]; then
+        INFRA_DIR=\"$BASE/sky-poc-infra\"
+      elif [ -d \"$BASE/poc-deploy\" ]; then
+        INFRA_DIR=\"$BASE/poc-deploy\"
       else
-        echo "❌ ERRO: Diretório não encontrado"
+        echo \"❌ ERRO: Diretório não encontrado em $BASE (nem sky-poc-infra nem poc-deploy)\"
         exit 1
       fi
       

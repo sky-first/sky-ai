@@ -315,6 +315,7 @@ resource "azurerm_bastion_host" "main" {
   # Alinhar com o recurso existente no Azure para evitar replacement (delete+create)
   sku = "Standard"
 
+
   ip_configuration {
     # Alinhar com o recurso existente no Azure para evitar replacement (delete+create)
     name                 = "bastion_ip_config"

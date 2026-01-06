@@ -4,7 +4,12 @@
 
 set -euo pipefail
 
-BASE=~/projeto
+# Usar caminho absoluto por padrão e fallback para compatibilidade
+BASE="/home/azureuser/projeto"
+if [ ! -d "$BASE" ]; then
+    BASE="${HOME:-/home/azureuser}/projeto"
+fi
+
 if [ -d "$BASE/sky-poc-infra" ]; then
     INFRA_DIR="$BASE/sky-poc-infra"
 elif [ -d "$BASE/poc-deploy" ]; then

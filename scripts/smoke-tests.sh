@@ -303,7 +303,32 @@ collect_diagnostics() {
             echo "7️⃣ Verificando docker compose ps (todos os containers)..."
             COMPOSE_STATUS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
                 --command-id RunShellScript \
-                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && sudo docker compose ps 2>/dev/null || echo "ERRO: docker compose não disponível ou diretório não encontrado"' \
+                --scripts '
+                  set -eu
+                  # Usar caminho absoluto e tentar múltiplos diretórios
+                  BASE="/home/azureuser/projeto"
+                  if [ -d "$BASE/sky-poc-infra" ]; then
+                    INFRA_DIR="$BASE/sky-poc-infra"
+                  elif [ -d "$BASE/poc-deploy" ]; then
+                    INFRA_DIR="$BASE/poc-deploy"
+                  else
+                    echo "ERRO: Diretório de infraestrutura não encontrado em $BASE"
+                    exit 0
+                  fi
+                  cd "$INFRA_DIR" || {
+                    echo "ERRO: Não foi possível entrar em $INFRA_DIR"
+                    exit 0
+                  }
+                  if command -v docker >/dev/null 2>&1; then
+                    if docker compose version >/dev/null 2>&1; then
+                      sudo docker compose ps 2>/dev/null || echo "ERRO: docker compose ps falhou"
+                    else
+                      echo "ERRO: docker compose não está disponível (plugin ausente)"
+                    fi
+                  else
+                    echo "ERRO: docker não está instalado na VM"
+                  fi
+                ' \
                 --query "value[0].message" -o tsv 2>/dev/null || echo "")
             
             if [ -n "$COMPOSE_STATUS" ] && [ "$COMPOSE_STATUS" != "null" ]; then
@@ -316,15 +341,10 @@ collect_diagnostics() {
                 fi
             else
                 echo "⚠️  Não foi possível verificar docker compose ps"
-                echo "   Verificando se diretório do projeto existe..."
-                DIR_CHECK=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
-                    --command-id RunShellScript \
-                    --scripts 'test -d ~/projeto/sky-poc-infra && echo "EXISTS" || echo "NOT_FOUND"' \
-                    --query "value[0].message" -o tsv 2>/dev/null || echo "")
-                if echo "$DIR_CHECK" | grep -q "NOT_FOUND"; then
-                    echo "❌ Diretório ~/projeto/sky-poc-infra NÃO existe!"
-                    echo "   ⚠️  ISSO É PROVAVELMENTE A CAUSA DO PROBLEMA!"
-                fi
+                echo "   Isso pode indicar:"
+                echo "     - Docker não está instalado na VM"
+                echo "     - docker compose plugin não está disponível"
+                echo "     - Diretório de infraestrutura não foi clonado (sky-poc-infra/poc-deploy)"
             fi
             
             echo ""
@@ -405,7 +425,24 @@ collect_diagnostics() {
             echo "🔟 Verificando logs do docker compose (últimas 50 linhas)..."
             COMPOSE_LOGS=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
                 --command-id RunShellScript \
-                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && sudo docker compose logs --tail=50 2>&1 | tail -50 || echo "Erro ao obter logs"' \
+                --scripts '
+                  set -eu
+                  BASE="/home/azureuser/projeto"
+                  if [ -d "$BASE/sky-poc-infra" ]; then
+                    INFRA_DIR="$BASE/sky-poc-infra"
+                  elif [ -d "$BASE/poc-deploy" ]; then
+                    INFRA_DIR="$BASE/poc-deploy"
+                  else
+                    echo "ERRO: Diretório de infraestrutura não encontrado em $BASE"
+                    exit 0
+                  fi
+                  cd "$INFRA_DIR" || exit 0
+                  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                    sudo docker compose logs --tail=50 2>&1 | tail -50 || echo "Erro ao obter logs"
+                  else
+                    echo "ERRO: docker compose não está disponível na VM"
+                  fi
+                ' \
                 --query "value[0].message" -o tsv 2>/dev/null || echo "")
             
             if [ -n "$COMPOSE_LOGS" ] && [ "$COMPOSE_LOGS" != "null" ]; then
@@ -422,7 +459,24 @@ collect_diagnostics() {
             echo "1️⃣1️⃣ Verificando se .env existe..."
             ENV_CHECK=$(az vm run-command invoke -g "$resource_group" -n "$vm_name" \
                 --command-id RunShellScript \
-                --scripts 'cd ~/projeto/sky-poc-infra 2>/dev/null && test -f .env && echo "EXISTS" || echo "NOT_FOUND"' \
+                --scripts '
+                  set -eu
+                  BASE="/home/azureuser/projeto"
+                  if [ -d "$BASE/sky-poc-infra" ]; then
+                    INFRA_DIR="$BASE/sky-poc-infra"
+                  elif [ -d "$BASE/poc-deploy" ]; then
+                    INFRA_DIR="$BASE/poc-deploy"
+                  else
+                    echo "NOT_FOUND"
+                    exit 0
+                  fi
+                  cd "$INFRA_DIR" || { echo "NOT_FOUND"; exit 0; }
+                  if [ -f .env ]; then
+                    echo "EXISTS"
+                  else
+                    echo "NOT_FOUND"
+                  fi
+                ' \
                 --query "value[0].message" -o tsv 2>/dev/null || echo "")
             
             if echo "$ENV_CHECK" | grep -q "EXISTS"; then
