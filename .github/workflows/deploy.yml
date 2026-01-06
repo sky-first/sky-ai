@@ -3755,8 +3755,9 @@ jobs:
               
               BRANCH='${{ steps.vm-info.outputs.git_branch }}'
               REPO='${{ steps.vm-info.outputs.github_repo }}'
-              REPO_OWNER=\$(echo \${REPO} | cut -d'/' -f1)
-              REPO_NAME=\$(echo \${REPO} | cut -d'/' -f2)
+              # Extrair owner e name usando substituição de padrão (mais simples que cut)
+              REPO_OWNER=\${REPO%%/*}
+              REPO_NAME=\${REPO##*/}
               
               echo \"📋 Configuração:\"
               echo \"   Repositório: \${REPO}\"
@@ -3968,11 +3969,12 @@ jobs:
               
               if [ -n \"\$INFRA_DIR\" ]; then
                 cd \"\$INFRA_DIR\"
+                CURRENT_DIR=\$(pwd)
                 if [ ! -f docker-compose.yml ]; then
-                  echo \"❌ ERRO: docker-compose.yml não encontrado em \$(pwd)\"
+                  echo \"❌ ERRO: docker-compose.yml não encontrado em \${CURRENT_DIR}\"
                   ERRORS=$((ERRORS + 1))
                 else
-                  echo \"✅ docker-compose.yml encontrado em \$(pwd)\"
+                  echo \"✅ docker-compose.yml encontrado em \${CURRENT_DIR}\"
                 fi
                 cd ..
               fi
