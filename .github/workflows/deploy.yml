@@ -3698,8 +3698,8 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              bash -c '
-              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
+              bash << 'SCRIPT_EOF'
+              set -eo pipefail
               
               echo '=========================================='
               echo '📥 Atualizando código na VM'
@@ -3751,8 +3751,8 @@ jobs:
               
               BRANCH='${{ steps.vm-info.outputs.git_branch }}'
               REPO='${{ steps.vm-info.outputs.github_repo }}'
-              REPO_OWNER=$(echo \${REPO} | cut -d'/' -f1)
-              REPO_NAME=$(echo \${REPO} | cut -d'/' -f2)
+              REPO_OWNER=\$(echo \${REPO} | cut -d'/' -f1)
+              REPO_NAME=\$(echo \${REPO} | cut -d'/' -f2)
               
               echo \"📋 Configuração:\"
               echo \"   Repositório: \${REPO}\"
@@ -4023,7 +4023,7 @@ jobs:
               
               echo ''
               echo '✅ Código atualizado com sucesso!'
-              '
+              SCRIPT_EOF
             " \
             --output json 2>&1)
           
@@ -4090,7 +4090,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              bash -c '
+              bash << 'SCRIPT_EOF'
               set -eu
               
               echo \"Validando estrutura de diretórios...\"
@@ -4141,7 +4141,7 @@ jobs:
               fi
               
               echo \"✅ Todos os caminhos validados\"
-              '
+              SCRIPT_EOF
             " \
             --output json
 
@@ -4155,7 +4155,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              bash -c '
+              bash << 'SCRIPT_EOF'
               set -eo pipefail
               
               # Usar caminho absoluto consistente (não depender de $HOME)
@@ -4169,11 +4169,11 @@ jobs:
                 INFRA_DIR=\"\${BASE}/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infra não encontrado!'
-                echo '   Procurou em: \${BASE}/sky-poc-infra'
-                echo '   E em: \${BASE}/poc-deploy'
+                echo \"   Procurou em: \${BASE}/sky-poc-infra\"
+                echo \"   E em: \${BASE}/poc-deploy\"
                 echo ''
-                echo 'Diretórios em \${BASE}:'
-                ls -la \"\${BASE}\" 2>/dev/null || echo '   Diretório \${BASE} não existe'
+                echo \"Diretórios em \${BASE}:\"
+                ls -la \"\${BASE}\" 2>/dev/null || echo \"   Diretório \${BASE} não existe\"
                 exit 1
               fi
               
@@ -4217,7 +4217,7 @@ jobs:
               fi
               
               echo '✅ .env validado e pronto para uso'
-              '
+              SCRIPT_EOF
             " \
             --output json 2>&1)
           
@@ -4262,8 +4262,8 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              bash -c '
-              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
+              bash << 'SCRIPT_EOF'
+              set -eo pipefail
               BASE=\"/home/azureuser/projeto\"
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
                 INFRA_DIR=\"\$BASE/sky-poc-infra\"
@@ -4301,6 +4301,7 @@ jobs:
 
               chmod 600 .env || true
               echo '✅ .env atualizado com OPENAI_API_KEY (valor oculto)'
+              SCRIPT_EOF
             " \
             --output json
 
@@ -4311,8 +4312,8 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              bash -c '
-              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
+              bash << 'SCRIPT_EOF'
+              set -eo pipefail
               
               echo '=========================================='
               echo '🚀 Iniciando Deploy dos Containers'
@@ -4570,6 +4571,7 @@ jobs:
               echo '  ✅ Todos os containers estão rodando'
               echo '  ✅ Health check responde HTTP 200'
               echo '  ✅ Pronto para smoke tests!'
+              SCRIPT_EOF
             " \
             --output json
 
