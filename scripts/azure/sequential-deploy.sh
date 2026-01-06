@@ -190,10 +190,11 @@ if ! sudo docker compose up -d backend; then
     exit 1
 fi
 
-# Aguardar backend ficar healthy (com mais tentativas)
+# Aguardar backend ficar healthy (com mais tentativas) - compatível POSIX
 echo "Aguardando backend ficar healthy..."
 sleep 15
-for i in {1..12}; do
+i=1
+while [ $i -le 12 ]; do
     if curl -f -s http://localhost:8000/health > /dev/null 2>&1 || curl -f -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
         echo "✅ Backend está healthy (tentativa $i/12)"
         break
@@ -209,6 +210,7 @@ for i in {1..12}; do
         echo "  Aguardando backend... (tentativa $i/12)"
         sleep 5
     fi
+    i=$((i + 1))
 done
 echo ""
 

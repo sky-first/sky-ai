@@ -2793,7 +2793,7 @@ jobs:
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
 
       - name: Get VM Information for Diagnostics
-        id: vm-info
+        id: vm-info-diagnostics
         run: |
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
@@ -2977,13 +2977,9 @@ jobs:
               -n "$VM_NAME" \
               --command-id RunShellScript \
               --scripts '
-                set -eu
-                # Usar caminho absoluto para garantir que funciona
+                set -e
+                # Usar caminho absoluto consistente
                 BASE="/home/azureuser/projeto"
-                if [ ! -d "$BASE" ]; then
-                  # Tentar com HOME se diferente
-                  BASE="${HOME:-/home/azureuser}/projeto"
-                fi
                 
                 if [ -d "$BASE/sky-poc-infra" ]; then
                   INFRA_DIR="$BASE/sky-poc-infra"
@@ -2991,7 +2987,9 @@ jobs:
                   INFRA_DIR="$BASE/poc-deploy"
                 else
                   echo "NOT_FOUND_DIR"
-                  echo "Base não encontrada: $BASE"
+                  echo "❌ Diretório de infra não encontrado em $BASE"
+                  echo "   Procurou em: $BASE/sky-poc-infra"
+                  echo "   E em: $BASE/poc-deploy"
                   exit 1
                 fi
                 
@@ -3036,7 +3034,7 @@ jobs:
 
       - name: Run Smoke Tests
         run: |
-          set -euo pipefail
+          set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
           SCRIPT_PATH="${GITHUB_WORKSPACE}/scripts/smoke-tests.sh"
           chmod +x "$SCRIPT_PATH"
           
@@ -3482,19 +3480,21 @@ jobs:
 
       - name: Update Code on VM
         run: |
-          set -euo pipefail
+          set -eo pipefail  # Removido -u para evitar problemas com variáveis não inicializadas
           
           # Obter token do GitHub (necessário para clonar repositórios privados)
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           
           echo "🔐 Configurando autenticação Git na VM..."
           
-          az vm run-command invoke \
+          # Executar comando e capturar saída
+          # CRÍTICO: Não usar set -u dentro do script da VM para evitar erros com variáveis não inicializadas
+          UPDATE_OUTPUT=$(az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -euo pipefail
+              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
               echo '📥 Atualizando código na VM'
@@ -3784,18 +3784,47 @@ jobs:
               echo ''
               echo '✅ Código atualizado com sucesso!'
             " \
-            --output json 2>&1 | tee update-code-output.txt || {
-              echo "❌ ERRO: Falha ao atualizar código na VM"
-              echo "Logs completos:"
-              cat update-code-output.txt || true
-              exit 1
-            }
+            --output json 2>&1)
+          
+          # Capturar exit code corretamente (PIPESTATUS pode não estar disponível em todos os shells)
+          UPDATE_EXIT_CODE=$?
+          set -e  # Reabilitar exit on error
+          
+          # Salvar output para debug
+          echo "$UPDATE_OUTPUT" > update-code-output.txt
+          cat update-code-output.txt
+          
+          # Verificar se o comando foi bem-sucedido
+          if [ "$UPDATE_EXIT_CODE" -ne 0 ]; then
+            echo "❌ ERRO: Falha ao atualizar código na VM (exit code: $UPDATE_EXIT_CODE)"
+            echo ""
+            echo "Logs completos:"
+            echo "$UPDATE_OUTPUT"
+            exit 1
+          fi
+          
+          # Verificar se há erros na resposta da VM (apenas se jq estiver disponível)
+          if command -v jq >/dev/null 2>&1; then
+            if echo "$UPDATE_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
+              VM_MESSAGE=$(echo "$UPDATE_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
+              if echo "$VM_MESSAGE" | grep -qiE "ERRO|ERROR|❌|falhou|failed"; then
+                echo "❌ ERRO detectado na resposta da VM:"
+                echo "$VM_MESSAGE"
+                exit 1
+              fi
+            fi
+          else
+            # Se jq não estiver disponível, verificar manualmente na saída
+            if echo "$UPDATE_OUTPUT" | grep -qiE '"code":\s*[^0]|"level":\s*"Error"'; then
+              echo "⚠️  Possível erro detectado na resposta (jq não disponível para validação completa)"
+            fi
+          fi
           
           echo "✅ Código atualizado na VM com sucesso"
 
       - name: Validate Docker Compose Paths
         run: |
-          set -euo pipefail
+          set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
           echo "Validando caminhos do Docker Compose na VM..."
           
           az vm run-command invoke \
@@ -3868,19 +3897,22 @@ jobs:
             --scripts "
               set -e
               
-              # Expandir ~ para o home directory
-              BASE=\"\${HOME}/projeto\"
+              # Usar caminho absoluto consistente (não depender de $HOME)
+              BASE=\"/home/azureuser/projeto\"
               
               # Detectar diretório da infra (compatível com legado)
-              INFRA_DIR=\"\${BASE}/sky-poc-infra\"
+              INFRA_DIR=\"\"
               if [ -d \"\${BASE}/sky-poc-infra\" ]; then
                 INFRA_DIR=\"\${BASE}/sky-poc-infra\"
               elif [ -d \"\${BASE}/poc-deploy\" ]; then
                 INFRA_DIR=\"\${BASE}/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infra não encontrado!'
-                echo 'Diretórios em /home/azureuser/projeto:'
-                ls -la \"\${BASE}\" 2>/dev/null || echo 'Diretório /home/azureuser/projeto não existe'
+                echo '   Procurou em: \${BASE}/sky-poc-infra'
+                echo '   E em: \${BASE}/poc-deploy'
+                echo ''
+                echo 'Diretórios em \${BASE}:'
+                ls -la \"\${BASE}\" 2>/dev/null || echo '   Diretório \${BASE} não existe'
                 exit 1
               fi
               
@@ -3930,14 +3962,14 @@ jobs:
       - name: Write OPENAI_API_KEY to VM .env (no Key Vault)
         if: env.KEYVAULT_NAME == '' && env.OPENAI_API_KEY_BOOTSTRAP != ''
         run: |
-          set -euo pipefail
+          set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
           echo "KEYVAULT_NAME vazio; injetando OPENAI_API_KEY diretamente no .env da VM (via GitHub Secret)..."
           az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -euo pipefail
+              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               BASE=\"/home/azureuser/projeto\"
               if [ -d \"\$BASE/sky-poc-infra\" ]; then
                 INFRA_DIR=\"\$BASE/sky-poc-infra\"
@@ -3985,7 +4017,7 @@ jobs:
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -eu
+              set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
               
               echo '=========================================='
               echo '🚀 Iniciando Deploy dos Containers'
@@ -4002,21 +4034,21 @@ jobs:
                 INFRA_DIR=\"\$BASE/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infraestrutura não encontrado'
-                echo '   Procurou em: \$BASE/sky-poc-infra'
-                echo '   E em: \$BASE/poc-deploy'
+                echo \"   Procurou em: \$BASE/sky-poc-infra\"
+                echo \"   E em: \$BASE/poc-deploy\"
                 exit 1
               fi
               
               cd \"\$INFRA_DIR\" || {
-                echo '❌ ERRO: Não foi possível entrar no diretório: \$INFRA_DIR'
+                echo \"❌ ERRO: Não foi possível entrar no diretório: \$INFRA_DIR\"
                 exit 1
               }
               
-              echo '📁 Diretório: \$(pwd)'
+              echo \"📁 Diretório: \$(pwd)\"
               echo ''
               
               if [ ! -f docker-compose.yml ]; then
-                echo '❌ ERRO: docker-compose.yml não encontrado em \$(pwd)'
+                echo \"❌ ERRO: docker-compose.yml não encontrado em \$(pwd)\"
                 echo 'Arquivos no diretório:'
                 ls -la | head -20
                 exit 1
@@ -4096,46 +4128,55 @@ jobs:
               sudo docker compose ps || sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
               echo ''
               
-              # Verificar containers críticos
-              CRITICAL_CONTAINERS=(\"ai_saas_postgres_prod\" \"ai_saas_redis_prod\" \"ai_saas_backend_prod\" \"ai_saas_proxy\")
+              # Verificar containers críticos (usando lista separada por espaço para compatibilidade POSIX)
               MISSING=\"\"
               
-              for container in \"\${CRITICAL_CONTAINERS[@]}\"; do
+              # Verificar cada container crítico individualmente
+              for container in ai_saas_postgres_prod ai_saas_redis_prod ai_saas_backend_prod ai_saas_proxy; do
                 if ! sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q \"^\${container}\$\"; then
-                  MISSING=\"\${MISSING} \${container}\"
+                  if [ -z \"\$MISSING\" ]; then
+                    MISSING=\"\${container}\"
+                  else
+                    MISSING=\"\${MISSING} \${container}\"
+                  fi
                 fi
               done
               
               if [ -n \"\$MISSING\" ]; then
-                echo '❌ ERRO: Containers críticos não estão rodando:\$MISSING'
+                echo \"❌ ERRO: Containers críticos não estão rodando: \$MISSING\"
                 echo ''
                 echo 'Containers parados ou com erro:'
                 sudo docker ps -a --filter 'status=exited' --format 'table {{.Names}}\t{{.Status}}\t{{.ExitCode}}' || true
                 echo ''
                 echo 'Logs dos containers com problema:'
-                for container in \$MISSING; do
-                  echo \"--- Logs de \$container ---\"
-                  sudo docker logs \"\$container\" --tail=30 2>/dev/null || true
-                  echo ''
+                # Iterar sobre containers faltando (usando echo e xargs para compatibilidade POSIX)
+                echo \"\$MISSING\" | tr ' ' '\n' | while read -r container; do
+                  if [ -n \"\$container\" ]; then
+                    echo \"--- Logs de \$container ---\"
+                    sudo docker logs \"\$container\" --tail=30 2>/dev/null || true
+                    echo ''
+                  fi
                 done
                 exit 1
               fi
               
               if [ \"\$RUNNING_CONTAINERS\" -lt 3 ]; then
-                echo '⚠️  AVISO: Poucos containers rodando (\$RUNNING_CONTAINERS)'
+                echo \"⚠️  AVISO: Poucos containers rodando (\$RUNNING_CONTAINERS)\"
                 echo '   Mas containers críticos estão OK, continuando...'
               else
                 echo \"✅ Containers rodando: \$RUNNING_CONTAINERS\"
               fi
               echo ''
               
-              # Validar health check local
+              # Validar health check local (usando contador POSIX-compatível)
               echo '🏥 Testando health check local (curl http://localhost/health)...'
               MAX_RETRIES=12
               RETRY_DELAY=5
               HEALTH_OK=false
               
-              for i in \$(seq 1 \$MAX_RETRIES); do
+              # Loop compatível com POSIX (não usar seq)
+              i=1
+              while [ \$i -le \$MAX_RETRIES ]; do
                 HTTP_CODE=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 --connect-timeout 3 http://localhost/health 2>/dev/null || echo '000')
                 
                 if [ \"\$HTTP_CODE\" = '200' ]; then
@@ -4150,6 +4191,7 @@ jobs:
                     echo \"❌ Health check falhou após \$MAX_RETRIES tentativas (último código: \$HTTP_CODE)\"
                   fi
                 fi
+                i=\$((i + 1))
               done
               
               if [ \"\$HEALTH_OK\" != 'true' ]; then
