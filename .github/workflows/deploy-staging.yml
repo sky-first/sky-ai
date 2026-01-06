@@ -15,7 +15,7 @@ on:
         default: 'staging'
 
 concurrency:
-  group: deploy-staging-ai
+  group: deploy-staging-all-services
   cancel-in-progress: false
 
 env:
