@@ -3135,7 +3135,26 @@ jobs:
               REPO_OWNER=$(echo \${REPO} | cut -d'/' -f1)
               REPO_NAME=$(echo \${REPO} | cut -d'/' -f2)
               
-              if [ -d poc-deploy ]; then
+              # Verificar primeiro por sky-poc-infra (estrutura atual)
+              if [ -d sky-poc-infra ]; then
+                echo 'Updating sky-poc-infra repository...'
+                cd sky-poc-infra
+                git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
+                
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
+                  echo "OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra"
+                  git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
+                  git pull origin \${BRANCH} || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                else
+                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório sky-poc-infra"
+                  echo "Branches disponíveis:"
+                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
+                  exit 1
+                fi
+                cd ..
+              elif [ -d poc-deploy ]; then
+                # Compatibilidade com estrutura antiga
                 echo 'Updating poc-deploy repository...'
                 cd poc-deploy
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
@@ -3153,20 +3172,20 @@ jobs:
                 fi
                 cd ..
               else
-                echo 'Cloning poc-deploy repository...'
+                echo 'Cloning sky-poc-infra repository...'
                 REPO_URL="https://github.com/\${REPO}.git"
                 # Validar que a branch existe antes de clonar
                 if git ls-remote --heads "\${REPO_URL}" \${BRANCH} | grep -q \${BRANCH}; then
-                  echo "OK: Branch \${BRANCH} encontrada, clonando..."
-                  git clone -b \${BRANCH} "\${REPO_URL}" poc-deploy || { echo "❌ Erro ao clonar repositório com branch \${BRANCH}"; exit 1; }
+                  echo "OK: Branch \${BRANCH} encontrada, clonando como sky-poc-infra..."
+                  git clone -b \${BRANCH} "\${REPO_URL}" sky-poc-infra || { echo "❌ Erro ao clonar repositório com branch \${BRANCH}"; exit 1; }
                 else
                   echo "ERRO: Branch \${BRANCH} não encontrada no repositório \${REPO_URL}"
                   echo "Branches disponíveis:"
                   git ls-remote --heads "\${REPO_URL}" | sed 's/.*refs\/heads\///' || true
                   exit 1
                 fi
-                if [ -d poc-deploy ]; then
-                  cd poc-deploy
+                if [ -d sky-poc-infra ]; then
+                  cd sky-poc-infra
                   git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
                   cd ..
                 fi
@@ -3323,16 +3342,16 @@ jobs:
               
               cd /home/azureuser/projeto
               
-              if [ ! -d poc-deploy ] && [ ! -d sky-poc-infra ]; then
-                echo '❌ ERRO: Diretório poc-deploy ou sky-poc-infra não encontrado'
+              if [ ! -d sky-poc-infra ] && [ ! -d poc-deploy ]; then
+                echo '❌ ERRO: Diretório sky-poc-infra ou poc-deploy não encontrado'
                 exit 1
               fi
               
               INFRA_DIR=''
-              if [ -d poc-deploy ]; then
-                INFRA_DIR='poc-deploy'
-              elif [ -d sky-poc-infra ]; then
+              if [ -d sky-poc-infra ]; then
                 INFRA_DIR='sky-poc-infra'
+              elif [ -d poc-deploy ]; then
+                INFRA_DIR='poc-deploy'
               fi
               
               cd \"\$INFRA_DIR\"
