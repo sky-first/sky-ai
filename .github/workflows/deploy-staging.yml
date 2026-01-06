@@ -216,9 +216,12 @@ jobs:
             --name ${{ needs.get-vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -eu
+              set -e
               
-              cd ~/projeto || { mkdir -p ~/projeto && cd ~/projeto; }
+              cd /home/azureuser/projeto 2>/dev/null || {
+                mkdir -p /home/azureuser/projeto || { echo '❌ Erro ao criar diretório /home/azureuser/projeto'; exit 1; }
+                cd /home/azureuser/projeto || { echo '❌ Erro ao entrar no diretório /home/azureuser/projeto'; exit 1; }
+              }
               
               REPO_DIR='${REPO_DIR}'
               BRANCH='${BRANCH}'
@@ -227,15 +230,16 @@ jobs:
               if [ -d \"\${REPO_DIR}\" ]; then
                 echo 'Atualizando repositório existente...'
                 cd \"\${REPO_DIR}\"
-                git fetch origin || { echo '❌ Erro ao fazer fetch'; exit 1; }
+                git fetch origin || { echo '❌ Erro ao fazer fetch do repositório'; exit 1; }
                 
-                if git ls-remote --heads origin \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
-                  echo 'OK: Branch \${BRANCH} encontrada'
-                  git checkout -B \${BRANCH} origin/\${BRANCH} || { echo '❌ Erro ao fazer checkout'; exit 1; }
-                  git pull origin \${BRANCH} || { echo '❌ Erro ao fazer pull'; exit 1; }
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --heads origin \${BRANCH} | grep -q \${BRANCH}; then
+                  echo \"OK: Branch \${BRANCH} encontrada\"
+                  git checkout \${BRANCH} || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
+                  git pull origin \${BRANCH} || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                   echo '✅ Repositório atualizado com sucesso'
                 else
-                  echo 'ERRO: Branch \${BRANCH} não encontrada no repositório remoto'
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório remoto\"
                   echo 'Branches disponíveis:'
                   git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
                   exit 1
@@ -243,19 +247,22 @@ jobs:
                 cd ..
               else
                 echo 'Clonando repositório...'
+                # Validar branch antes de clonar
                 if git ls-remote --heads \"\${REPO_URL}\" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
-                  echo 'OK: Branch \${BRANCH} encontrada, clonando...'
-                  git clone -b \${BRANCH} \"\${REPO_URL}\" \"\${REPO_DIR}\" || { echo '❌ Erro ao clonar'; exit 1; }
+                  echo \"OK: Branch \${BRANCH} encontrada, clonando...\"
+                  git clone -b \${BRANCH} \"\${REPO_URL}\" \"\${REPO_DIR}\" || { echo \"❌ Erro ao clonar repositório com branch \${BRANCH}\"; exit 1; }
                   echo '✅ Repositório clonado com sucesso'
                 else
-                  echo 'ERRO: Branch \${BRANCH} não encontrada no repositório'
-                  echo 'URL: \${REPO_URL}'
+                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório\"
+                  echo \"URL do repositório: \${REPO_URL}\"
+                  echo 'Branches disponíveis:'
+                  git ls-remote --heads \"\${REPO_URL}\" 2>/dev/null | sed 's/.*refs\/heads\///' || true
                   exit 1
                 fi
               fi
               
               # Criar symlink se necessário (compatibilidade)
-              if [ ! -d ai ] && [ \"\${REPO_DIR}\" == \"sky-poc-ai\" ]; then
+              if [ ! -d ai ] && [ -d sky-poc-ai ]; then
                 ln -s sky-poc-ai ai 2>/dev/null || true
               fi
             " \
@@ -274,13 +281,13 @@ jobs:
             --name ${{ needs.get-vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts "
-              set -eu
+              set -e
               
-              cd ~/projeto
-              if [ -d sky-poc-infra ]; then
-                cd sky-poc-infra
-              elif [ -d poc-deploy ]; then
-                cd poc-deploy
+              BASE=\"/home/azureuser/projeto\"
+              if [ -d \"\${BASE}/sky-poc-infra\" ]; then
+                cd \"\${BASE}/sky-poc-infra\"
+              elif [ -d \"\${BASE}/poc-deploy\" ]; then
+                cd \"\${BASE}/poc-deploy\"
               else
                 echo '❌ ERRO: Diretório de infraestrutura não encontrado'
                 exit 1
