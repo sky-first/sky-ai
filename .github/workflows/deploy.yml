@@ -3686,18 +3686,14 @@ jobs:
         run: |
           set -eo pipefail  # Removido -u para evitar problemas com variáveis não inicializadas
 
-          # Obter token do GitHub (necessário para clonar repositórios privados)
-          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-
-          echo "🔐 Configurando autenticação Git na VM..."
-
-          # Preparar script com substituições de variáveis
-          TOKEN_VAL="${{ secrets.GITHUB_TOKEN }}"
+          # Preparar token robusto (usar GH_PAT se disponível para cross-repo access)
+          TOKEN_VAL="${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}"
           BRANCH_VAL="${{ steps.vm-info.outputs.git_branch }}"
           REPO_VAL="${{ steps.vm-info.outputs.github_repo }}"
 
           # Criar script temporário com variáveis exportadas no topo
           echo "#!/bin/bash" > /tmp/vm-update-script.sh
+          # Re-exportar como GITHUB_TOKEN para compatibilidade com o script .sh
           echo "export GITHUB_TOKEN='$TOKEN_VAL'" >> /tmp/vm-update-script.sh
           echo "export BRANCH='$BRANCH_VAL'" >> /tmp/vm-update-script.sh
           echo "export REPO='$REPO_VAL'" >> /tmp/vm-update-script.sh
