@@ -12,7 +12,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
     os.environ["DATABASE_URL"] = "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
 
 from api.routes import connection_query, connection_discover  # noqa: E402
-from api.routes import data_ingestion, pipeline  # noqa: E402
+from api.routes import data_ingestion, pipeline, widget_titles  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -80,3 +80,6 @@ app.include_router(data_ingestion.router)
 
 # Rotas de pipeline
 app.include_router(pipeline.router)
+
+# Rotas de widgets (sugestão de títulos)
+app.include_router(widget_titles.router)
