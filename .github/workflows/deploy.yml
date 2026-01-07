@@ -3771,13 +3771,13 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
                 
                 # Tentativa direta de checkout com tratamento de erro
-                git checkout "\${BRANCH}" || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório sky-poc-infra"
-                  echo "Branches disponíveis:"
+                git checkout \"\${BRANCH}\" || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório sky-poc-infra\"
+                  echo \"Branches disponíveis:\"
                   git branch -r || true
                   exit 1
                 }
-                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
+                git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               elif [ -d poc-deploy ]; then
                 # Compatibilidade com estrutura antiga
@@ -3786,22 +3786,22 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
                 
                 # Tentativa direta de checkout com tratamento de erro
-                git checkout "\${BRANCH}" || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório remoto"
-                  echo "Branches disponíveis:"
+                git checkout \"\${BRANCH}\" || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório remoto\"
+                  echo \"Branches disponíveis:\"
                   git branch -r || true
                   exit 1
                 }
-                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               else
                 echo 'Cloning sky-poc-infra repository...'
                 REPO_URL="https://github.com/\${REPO}.git"
                 # Tentativa de clonagem direta com a branch específica
-                echo "Clonando sky-poc-infra (branch: \${BRANCH})..."
-                git clone -b "\${BRANCH}" "\${REPO_URL}" sky-poc-infra || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório \${REPO_URL}"
-                  echo "Dica: Verifique se a branch existe no repositório remoto."
+                echo \"Clonando sky-poc-infra (branch: \${BRANCH})...\"
+                git clone -b \"\${BRANCH}\" \"\${REPO_URL}\" sky-poc-infra || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório \${REPO_URL}\"
+                  echo \"Dica: Verifique se a branch existe no repositório remoto.\"
                   exit 1
                 }
                 if [ -d sky-poc-infra ]; then
@@ -3820,23 +3820,23 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
                 # Tentativa direta de checkout com tratamento de erro
-                git checkout "\${BRANCH}" || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no backend"
-                  echo "Branches disponíveis:"
+                git checkout \"\${BRANCH}\" || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no backend\"
+                  echo \"Branches disponíveis:\"
                   git branch -r || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy.\"
                   exit 1
                 }
-                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               else
                 echo 'Cloning backend repository...'
                 # Tentativa de clonagem direta com a branch específica
-                echo "Clonando backend (branch: \${BRANCH})..."
-                git clone -b "\${BRANCH}" "\${BACKEND_REPO_URL}" sky-poc-backend || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório backend (\${BACKEND_REPO_URL})"
-                  echo "Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy."
+                echo \"Clonando backend (branch: \${BRANCH})...\"
+                git clone -b \"\${BRANCH}\" \"\${BACKEND_REPO_URL}\" sky-poc-backend || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório backend (\${BACKEND_REPO_URL})\"
+                  echo \"Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy.\"
                   exit 1
                 }
               fi
@@ -3853,23 +3853,23 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
                 # Tentativa direta de checkout com tratamento de erro
-                git checkout "\${BRANCH}" || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no frontend"
-                  echo "Branches disponíveis:"
+                git checkout \"\${BRANCH}\" || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no frontend\"
+                  echo \"Branches disponíveis:\"
                   git branch -r || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy.\"
                   exit 1
                 }
-                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               else
                 echo 'Cloning frontend repository...'
                 # Tentativa de clonagem direta com a branch específica
-                echo "Clonando frontend (branch: \${BRANCH})..."
-                git clone -b "\${BRANCH}" "\${FRONTEND_REPO_URL}" sky-poc-frontend || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório frontend (\${FRONTEND_REPO_URL})"
-                  echo "Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy."
+                echo \"Clonando frontend (branch: \${BRANCH})...\"
+                git clone -b \"\${BRANCH}\" \"\${FRONTEND_REPO_URL}\" sky-poc-frontend || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório frontend (\${FRONTEND_REPO_URL})\"
+                  echo \"Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy.\"
                   exit 1
                 }
               fi
@@ -3885,23 +3885,23 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
                 # Tentativa direta de checkout com tratamento de erro
-                git checkout "\${BRANCH}" || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no IA"
-                  echo "Branches disponíveis:"
+                git checkout \"\${BRANCH}\" || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no IA\"
+                  echo \"Branches disponíveis:\"
                   git branch -r || true
-                  echo ""
-                  echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
+                  echo \"\"
+                  echo \"Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy.\"
                   exit 1
                 }
-                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               else
                 echo 'Cloning IA repository...'
                 # Tentativa de clonagem direta com a branch específica
-                echo "Clonando IA (branch: \${BRANCH})..."
-                git clone -b "\${BRANCH}" "\${IA_REPO_URL}" sky-poc-ai || {
-                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório IA (\${IA_REPO_URL})"
-                  echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
+                echo \"Clonando IA (branch: \${BRANCH})...\"
+                git clone -b \"\${BRANCH}\" \"\${IA_REPO_URL}\" sky-poc-ai || {
+                  echo \"❌ Erro: Branch \${BRANCH} não encontrada no repositório IA (\${IA_REPO_URL})\"
+                  echo \"Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy.\"
                   exit 1
                 }
               fi
