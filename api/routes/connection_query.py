@@ -24,8 +24,8 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import text, create_engine
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 import os
 import json
 import asyncio
@@ -66,7 +66,7 @@ from core.security.audit import log_query_audit
 from core.security.progressive_escalation import detect_progressive_escalation
 from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
-from db.base import SessionLocal
+from db.base import SyncSessionLocal
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
@@ -319,7 +319,7 @@ def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
         )
 
 
-def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[dict]:
+async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str) -> list[dict]:
     """
     Backend-compatible catalog loader.
 
@@ -330,13 +330,11 @@ def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[di
     # Some environments end up with `db` bound to a different DATABASE_URL than `db.base.engine`
     # (due to import timing / dotenv overrides). We use `db.base.engine` here as the single source of truth.
     try:
-        from db.base import engine
-
-        with engine.connect() as raw_conn:
-            tables = raw_conn.execute(
-                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
-                {"cid": connection_id},
-            ).scalar_one_or_none()
+        result = await db.execute(
+            text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+            {"cid": connection_id},
+        )
+        tables = result.scalar_one_or_none()
         if isinstance(tables, list):
             return [t for t in tables if isinstance(t, dict)]
         return []
@@ -345,8 +343,8 @@ def _load_connection_metadata_tables(db: Session, connection_id: str) -> list[di
         return []
 
 
-def _filter_tables_by_permissions(
-    db: Session,
+async def _filter_tables_by_permissions(
+    db: AsyncSession,
     connection_id: str,
     space_id: str,
     tables: list[dict],
@@ -381,8 +379,6 @@ def _filter_tables_by_permissions(
     
     # Com crew_ids: verificar permissões em table_metadata
     try:
-        from db.base import engine
-        
         # Extrair nomes de tabelas (normalizados)
         table_names = set()
         for t in tables:
@@ -399,29 +395,28 @@ def _filter_tables_by_permissions(
             return tables  # Se não conseguimos extrair nomes, retornar todas
         
         # Buscar tabelas permitidas em table_metadata
-        with engine.connect() as raw_conn:
-            # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
-            query = text("""
-                SELECT DISTINCT table_name
-                FROM table_metadata
-                WHERE space_id = CAST(:space_id AS uuid)
-                  AND data_connection_id = CAST(:conn_id AS uuid)
-                  AND (
-                    crew_id IS NULL
-                    OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
-                  )
-            """)
-            
-            result = raw_conn.execute(
-                query,
-                {
-                    "space_id": space_id,
-                    "conn_id": connection_id,
-                    "crew_ids": crew_ids,
-                }
-            )
-            
-            allowed_table_names = {row[0] for row in result}
+        # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
+        query = text("""
+            SELECT DISTINCT table_name
+            FROM table_metadata
+            WHERE space_id = CAST(:space_id AS uuid)
+              AND data_connection_id = CAST(:conn_id AS uuid)
+              AND (
+                crew_id IS NULL
+                OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
+              )
+        """)
+        
+        result = await db.execute(
+            query,
+            {
+                "space_id": space_id,
+                "conn_id": connection_id,
+                "crew_ids": crew_ids,
+            }
+        )
+        
+        allowed_table_names = {row[0] for row in result}
         
         # Filtrar tabelas baseado em allowed_table_names
         filtered_tables = []
@@ -468,8 +463,8 @@ def _filter_tables_by_permissions(
         return tables
 
 
-def _get_allowed_tables_for_validation(
-    db: Session,
+async def _get_allowed_tables_for_validation(
+    db: AsyncSession,
     connection_id: str,
     space_id: str,
     crew_ids: Optional[List[str]] = None,
@@ -480,7 +475,7 @@ def _get_allowed_tables_for_validation(
     """
     try:
         # Carregar tabelas do connection_metadata
-        all_tables = _load_connection_metadata_tables(
+        all_tables = await _load_connection_metadata_tables(
             db=db,
             connection_id=connection_id
         )
@@ -489,7 +484,7 @@ def _get_allowed_tables_for_validation(
             return []
         
         # Filtrar por permissões
-        filtered_tables = _filter_tables_by_permissions(
+        filtered_tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=space_id,
@@ -935,7 +930,7 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
 async def chat_bootstrap(
     connection_id: str,
     body: ChatBootstrapRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> ChatBootstrapResponse:
     """
     Sherlock - Gerador de Sugestões Inteligentes
@@ -1097,10 +1092,11 @@ async def chat_bootstrap(
         # Coletar estatísticas (com timeout total de 8 segundos)
         try:
             # Criar DataSource temporário
-            conn_result = db.execute(
+            result = await db.execute(
                 text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
                 {"id": connection_id}
-            ).first()
+            )
+            conn_result = result.first()
             
             if conn_result:
                 class TempDataConnection:
@@ -1467,7 +1463,7 @@ async def chat_bootstrap(
 async def dashboards_plan(
     connection_id: str,
     body: DashboardPlanRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> DashboardPlanResponse:
     """
     Generate a dashboard plan ("Davinci") for the given connection.
@@ -1622,7 +1618,7 @@ async def list_available_tables(
     user_id: Optional[str] = Query(None, description="ID do usuário (opcional)"),
     crew_ids: Optional[List[str]] = Query(None, description="Lista de crew_ids (opcional)"),
     is_personal: bool = Query(False, description="Modo personal (acesso a todos os crews)"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Lista todas as tabelas disponíveis para uma conexão, respeitando permissões do usuário.
@@ -1644,7 +1640,7 @@ async def list_available_tables(
     resolved_crew_ids = crew_ids or []
     if user_id:
         try:
-            resolved_crew_ids = resolve_crew_ids_for_context(
+            resolved_crew_ids = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=UUID(user_id),
                 space_id=UUID(space_id) if space_id else None,
@@ -1716,8 +1712,8 @@ async def list_available_tables(
     }
 
 
-def load_agent_config_from_connection(
-    db: Session,
+async def load_agent_config_from_connection(
+    db: AsyncSession,
     space_id: str,
     connection_id: str,
     crew_ids: Optional[List[str]] = None,
@@ -1732,8 +1728,6 @@ def load_agent_config_from_connection(
         connection_id: ID da conexão
         crew_ids: Lista opcional de crew_ids para filtrar por permissões do usuário
     """
-    from db.base import engine
-    
     log_event(
         "load_agent_config_start",
         {
@@ -1746,86 +1740,87 @@ def load_agent_config_from_connection(
     # Prefer backend-native catalog (poc backend writes to connection_metadata.tables).
     # This avoids relying on the AI Engine's legacy `table_metadata` table, which may not exist in the same DB.
     try:
-        with engine.connect() as raw_conn:
-            tables_json = raw_conn.execute(
-                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
-                {"cid": connection_id},
-            ).scalar_one_or_none()
+        result = await db.execute(
+            text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+            {"cid": connection_id},
+        )
+        tables_json = result.scalar_one_or_none()
 
-            if isinstance(tables_json, list) and len(tables_json) > 0:
-                # Load connection config for project_id fallback
-                conn_result = raw_conn.execute(
-                    text("SELECT config FROM data_connections WHERE id = :id"),
-                    {"id": connection_id},
-                ).first()
-                config = conn_result[0] if conn_result else {}
-                if isinstance(config, str):
-                    config = json.loads(config)
-                elif config is None:
-                    config = {}
+        if isinstance(tables_json, list) and len(tables_json) > 0:
+            # Load connection config for project_id fallback
+            conn_result = await db.execute(
+                text("SELECT config FROM data_connections WHERE id = :id"),
+                {"id": connection_id},
+            )
+            row = conn_result.first()
+            config = row[0] if row else {}
+            if isinstance(config, str):
+                config = json.loads(config)
+            elif config is None:
+                config = {}
 
-                project_id = None
-                if isinstance(config, dict):
-                    project_id = config.get("project_id") or config.get("gcp_project_id")
+            project_id = None
+            if isinstance(config, dict):
+                project_id = config.get("project_id") or config.get("gcp_project_id")
 
-                table_schemas: list[TableSchema] = []
-                for t in tables_json:
-                    if not isinstance(t, dict):
-                        continue
-                    schema = str(t.get("schema") or "").strip()
-                    name = str(t.get("name") or "").strip()
-                    if not name:
-                        continue
+            table_schemas: list[TableSchema] = []
+            for t in tables_json:
+                if not isinstance(t, dict):
+                    continue
+                schema = str(t.get("schema") or "").strip()
+                name = str(t.get("name") or "").strip()
+                if not name:
+                    continue
 
-                    # Physical name for BigQuery: project.dataset.table (best-effort)
-                    if schema and project_id:
-                        physical_name = f"{project_id}.{schema}.{name}"
-                    elif schema:
-                        physical_name = f"{schema}.{name}"
-                    else:
-                        physical_name = name
+                # Physical name for BigQuery: project.dataset.table (best-effort)
+                if schema and project_id:
+                    physical_name = f"{project_id}.{schema}.{name}"
+                elif schema:
+                    physical_name = f"{schema}.{name}"
+                else:
+                    physical_name = name
 
-                    logical_name = _normalize_logical_name(name)
-                    cols = t.get("columns") or []
-                    columns = []
-                    if isinstance(cols, list):
-                        for c in cols:
-                            if not isinstance(c, dict):
-                                continue
-                            cname = c.get("name")
-                            if not cname:
-                                continue
-                            columns.append(
-                                {
-                                    "name": str(cname),
-                                    "type": str(c.get("type") or c.get("data_type") or "STRING"),
-                                    "nullable": bool(c.get("nullable", True)),
-                                }
-                            )
-
-                    table_schemas.append(
-                        TableSchema(
-                            logical_name=logical_name,
-                            physical_name=physical_name,
-                            columns=columns,
+                logical_name = _normalize_logical_name(name)
+                cols = t.get("columns") or []
+                columns = []
+                if isinstance(cols, list):
+                    for c in cols:
+                        if not isinstance(c, dict):
+                            continue
+                        cname = c.get("name")
+                        if not cname:
+                            continue
+                        columns.append(
+                            {
+                                "name": str(cname),
+                                "type": str(c.get("type") or c.get("data_type") or "STRING"),
+                                "nullable": bool(c.get("nullable", True)),
+                            }
                         )
-                    )
 
-                if table_schemas:
-                    agent = AgentConfig(
-                        id=f"agent-conn-{connection_id}",
-                        name=f"Agent for connection {connection_id}",
-                        tables=table_schemas,
+                table_schemas.append(
+                    TableSchema(
+                        logical_name=logical_name,
+                        physical_name=physical_name,
+                        columns=columns,
                     )
-                    log_event(
-                        "load_agent_config_from_connection_metadata",
-                        {
-                            "space_id": space_id,
-                            "connection_id": connection_id,
-                            "num_tables": len(table_schemas),
-                        },
-                    )
-                    return agent
+                )
+
+            if table_schemas:
+                agent = AgentConfig(
+                    id=f"agent-conn-{connection_id}",
+                    name=f"Agent for connection {connection_id}",
+                    tables=table_schemas,
+                )
+                log_event(
+                    "load_agent_config_from_connection_metadata",
+                    {
+                        "space_id": space_id,
+                        "connection_id": connection_id,
+                        "num_tables": len(table_schemas),
+                    },
+                )
+                return agent
     except Exception as e:
         log_event(
             "load_agent_config_connection_metadata_error",
@@ -1860,11 +1855,11 @@ def load_agent_config_from_connection(
     query_sql += " ORDER BY table_name, column_name"
     
     # Buscar metadados via SQL direto (compatível com UUID)
-    with engine.connect() as raw_conn:
-        result = raw_conn.execute(
-            text(query_sql),
-            query_params
-        ).fetchall()
+    db_result = await db.execute(
+        text(query_sql),
+        query_params
+    )
+    result = db_result.fetchall()
     
     log_event(
         "load_agent_config_metadata_query",
@@ -1933,16 +1928,16 @@ def load_agent_config_from_connection(
         return dataset
     
     # Buscar config da conexão
-    with engine.connect() as raw_conn:
-        conn_result = raw_conn.execute(
-            text("SELECT config FROM data_connections WHERE id = :id"),
-            {"id": connection_id}
-        ).first()
-        config = conn_result[0] if conn_result else {}
-        if isinstance(config, str):
-            config = json.loads(config)
-        elif config is None:
-            config = {}
+    conn_result = await db.execute(
+        text("SELECT config FROM data_connections WHERE id = :id"),
+        {"id": connection_id}
+    )
+    row = conn_result.first()
+    config = row[0] if row else {}
+    if isinstance(config, str):
+        config = json.loads(config)
+    elif config is None:
+        config = {}
     
     log_event(
         "load_agent_config_connection_config",
@@ -2019,7 +2014,7 @@ def load_agent_config_from_connection(
 async def query_connection(
     connection_id: str,
     body: QueryRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     """
     Faz uma pergunta usando uma DataConnection diretamente.
@@ -2064,6 +2059,15 @@ async def query_connection(
             was_rate_limited=True,
         )
         raise HTTPException(status_code=429, detail=error)
+    
+    # Inicializar variáveis PII (serão atualizadas mais tarde)
+    pii_prompt_result = None
+    pii_detected_in_prompt = False
+    pii_detected_in_response = False
+    pii_blocked = False
+    all_pii_types = []
+    max_pii_severity = None
+    all_pii_patterns = []
     
     # ✅ CAMADA 2: Detecção prompt injection
     is_malicious, pattern = detect_prompt_injection(body.question)
@@ -2176,12 +2180,73 @@ async def query_connection(
             )
         )
     
+    # ✅ CAMADA 3: Detecção de PII no prompt
+    from core.security.pii_scanner import scan_text_for_pii
+    
+    pii_prompt_result = scan_text_for_pii(body.question)
+    pii_detected_in_prompt = pii_prompt_result.detected
+    if pii_prompt_result.should_block:
+        pii_blocked = True
+    
+    if pii_blocked:
+        # Bloquear e registrar
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=body.crew_ids,
+            thread_id=thread_id,
+            question=body.question,
+            pii_detected_in_prompt=True,
+            pii_types=[t.value for t in pii_prompt_result.pii_types],
+            pii_severity=pii_prompt_result.severity.value if pii_prompt_result.severity else None,
+            pii_patterns_matched=pii_prompt_result.patterns_matched,
+            pii_blocked=True,
+        )
+        
+        log_event(
+            "pii_detected_in_prompt",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "pii_types": [t.value for t in pii_prompt_result.pii_types],
+                "severity": pii_prompt_result.severity.value if pii_prompt_result.severity else None,
+            }
+        )
+        
+        # Mensagem de erro apropriada
+        from core.i18n.i18n import detect_language
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = "en"
+        
+        message = {
+            "pt": "Não posso processar informações pessoais sensíveis. Por favor, reformule sua pergunta sem incluir dados pessoais.",
+            "es": "No puedo procesar información personal sensible. Por favor, reformula tu pregunta sin incluir datos personales.",
+            "en": "I cannot process sensitive personal information. Please rephrase your question without including personal data."
+        }.get(lang, "I cannot process sensitive personal information. Please rephrase your question without including personal data.")
+        
+        return QueryResponse(
+            answer=message,
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error="pii_blocked",
+            )
+        )
+    
     # Verificar se conexão existe
-    conn_result = db.execute(
+    result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
         text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
         {"id": connection_id}
-    ).first()
+    )
+    conn_result = result.first()
     
     if not conn_result:
         raise HTTPException(status_code=404, detail=f"Conexão {connection_id} não encontrada")
@@ -2190,7 +2255,7 @@ async def query_connection(
     crew_ids = body.crew_ids or []
     if body.user_id:
         try:
-            resolved_crew_ids = resolve_crew_ids_for_context(
+            resolved_crew_ids = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=UUID(body.user_id),
                 space_id=UUID(body.space_id) if body.space_id else None,
@@ -2223,7 +2288,7 @@ async def query_connection(
     
     # Carregar AgentConfig automaticamente com filtro de permissões
     try:
-        agent_config = load_agent_config_from_connection(
+        agent_config = await load_agent_config_from_connection(
             db=db,
             space_id=body.space_id,
             connection_id=connection_id,
@@ -2395,7 +2460,7 @@ async def query_connection(
     # Buscar contexto RAG com crew_ids resolvidos
     retrieval_context: list[str] = []
     try:
-        retrieval_context = build_retrieval_context_for_question(
+        retrieval_context = await build_retrieval_context_for_question(
             db=db,
             embedding_provider=embedding_provider,
             space_id=body.space_id,
@@ -2431,7 +2496,7 @@ async def query_connection(
         
         # Criar factory que retorna uma nova sessão (não reutilizar a sessão do FastAPI)
         def db_session_factory():
-            return SessionLocal()
+            return SyncSessionLocal()
         
         app = build_generic_sql_graph(
             agent_config=agent_config,
@@ -2550,6 +2615,72 @@ async def query_connection(
     
     data_sample = data[:15] if isinstance(data, list) else []
     
+    # ✅ CAMADA 4: Detecção de PII na resposta
+    from core.security.pii_scanner import scan_text_for_pii, scan_data_for_pii
+    
+    pii_response_text_result = scan_text_for_pii(answer) if answer else None
+    pii_response_data_result = scan_data_for_pii(data_sample) if data_sample else None
+    
+    pii_detected_in_response = (
+        (pii_response_text_result and pii_response_text_result.detected) or
+        (pii_response_data_result and pii_response_data_result.detected)
+    )
+    
+    # Se detectar PII crítico na resposta, bloquear
+    if pii_response_text_result and pii_response_text_result.should_block:
+        # Substituir resposta por mensagem genérica
+        from core.i18n.i18n import detect_language
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = detected_language or "en"
+        answer = {
+            "pt": "Não posso exibir informações pessoais sensíveis nos resultados.",
+            "es": "No puedo mostrar información personal sensible en los resultados.",
+            "en": "I cannot display sensitive personal information in the results."
+        }.get(lang, "I cannot display sensitive personal information in the results.")
+        pii_blocked = True
+    
+    if pii_response_data_result and pii_response_data_result.should_block:
+        # Filtrar dados sensíveis
+        data_sample = []
+        pii_blocked = True
+    
+    # Combinar tipos PII detectados
+    if pii_prompt_result and pii_prompt_result.pii_types:
+        all_pii_types.extend([t.value for t in pii_prompt_result.pii_types])
+    if pii_response_text_result and pii_response_text_result.pii_types:
+        all_pii_types.extend([t.value for t in pii_response_text_result.pii_types])
+    if pii_response_data_result and pii_response_data_result.pii_types:
+        all_pii_types.extend([t.value for t in pii_response_data_result.pii_types])
+    all_pii_types = list(set(all_pii_types))  # Remover duplicatas
+    
+    # Determinar severidade máxima
+    severities = []
+    if pii_prompt_result and pii_prompt_result.severity:
+        severities.append(pii_prompt_result.severity.value)
+    if pii_response_text_result and pii_response_text_result.severity:
+        severities.append(pii_response_text_result.severity.value)
+    if pii_response_data_result and pii_response_data_result.severity:
+        severities.append(pii_response_data_result.severity.value)
+    
+    max_pii_severity = None
+    if "block" in severities:
+        max_pii_severity = "block"
+    elif "warn" in severities:
+        max_pii_severity = "warn"
+    elif "info" in severities:
+        max_pii_severity = "info"
+    
+    # Combinar padrões
+    if pii_prompt_result and pii_prompt_result.patterns_matched:
+        all_pii_patterns.extend(pii_prompt_result.patterns_matched)
+    if pii_response_text_result and pii_response_text_result.patterns_matched:
+        all_pii_patterns.extend(pii_response_text_result.patterns_matched)
+    if pii_response_data_result and pii_response_data_result.patterns_matched:
+        all_pii_patterns.extend(pii_response_data_result.patterns_matched)
+    all_pii_patterns = list(set(all_pii_patterns))[:10]  # Remover duplicatas e limitar
+    
     meta = QueryResultMeta(
         detected_language=detected_language,
         chosen_table=chosen_table,
@@ -2598,6 +2729,13 @@ async def query_connection(
         detected_language=detected_language,
         chosen_tables=chosen_datasets,
         answer_preview=answer[:500],
+        # Campos PII
+        pii_detected_in_prompt=pii_detected_in_prompt,
+        pii_detected_in_response=pii_detected_in_response,
+        pii_types=all_pii_types if all_pii_types else None,
+        pii_severity=max_pii_severity,
+        pii_patterns_matched=all_pii_patterns if all_pii_patterns else None,
+        pii_blocked=pii_blocked,
     )
     
     return QueryResponse(
@@ -2760,7 +2898,7 @@ async def _stream_connection_query(
         
         # Carregar AgentConfig
         try:
-            agent_config = load_agent_config_from_connection(
+            agent_config = await load_agent_config_from_connection(
                 db=db,
                 space_id=body.space_id,
                 connection_id=connection_id,
@@ -2845,7 +2983,7 @@ async def _stream_connection_query(
             }
             
             def db_session_factory():
-                return SessionLocal()
+                return SyncSessionLocal()
             
             app = build_generic_sql_graph(
                 agent_config=agent_config,
@@ -3089,7 +3227,7 @@ async def _stream_connection_query(
 async def query_connection_stream(
     connection_id: str,
     body: QueryRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Faz uma pergunta usando uma DataConnection com streaming de resposta.
@@ -3121,7 +3259,7 @@ async def query_connection_stream(
 async def validate_sql(
     connection_id: str,
     body: ValidateSQLRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> ValidateSQLResponse:
     """
     Valida SQL editado pelo usuário com validação AST e permissões.
@@ -3182,7 +3320,7 @@ async def validate_sql(
                 crew_ids = []
         
         # Obter tabelas permitidas
-        allowed_tables = _get_allowed_tables_for_validation(
+        allowed_tables = await _get_allowed_tables_for_validation(
             db=db,
             connection_id=connection_id,
             space_id=body.space_id or "",

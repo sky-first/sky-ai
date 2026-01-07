@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from typing import Optional, List, Dict
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import os
 import json
 from datetime import datetime
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -18,6 +21,10 @@ from db.models import (
     Space,
 )
 from core.logging_utils import log_event
+
+
+# ThreadPool para operações BigQuery (bloqueantes)
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 # ========== HELPERS BIGQUERY ==========
@@ -83,8 +90,23 @@ def _infer_dataset_from_config(config: dict) -> str:
     raise ValueError("Dataset not found in DataConnection.config (expected 'dataset' or 'default_schema').")
 
 
-def ingest_bigquery_metadata_for_connection(
-    db: Session,
+def _run_bq_query_sync(client: bigquery.Client, query: str) -> List[dict]:
+    """Executa query BigQuery de forma síncrona."""
+    job = client.query(query)
+    rows = list(job.result())
+    return [
+        {
+            "table_name": row.table_name,
+            "column_name": row.column_name,
+            "data_type": row.data_type,
+            "is_nullable": row.is_nullable,
+        }
+        for row in rows
+    ]
+
+
+async def ingest_bigquery_metadata_for_connection(
+    db: AsyncSession,
     data_connection: DataConnection,
     space: Space,
     crew_id: Optional[str] = None,
@@ -134,21 +156,22 @@ def ingest_bigquery_metadata_for_connection(
         {"connection_id": data_connection.id, "space_id": space.id, "dataset": full_dataset},
     )
 
-    # Executa query no INFORMATION_SCHEMA
-    job = client.query(query)
-    rows = list(job.result())
+    # Executa query no INFORMATION_SCHEMA (em thread separada)
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(_executor, _run_bq_query_sync, client, query)
 
     # Remove metadados antigos dessa conexão + space + crew (se houver)
-    delete_q = db.query(TableMetadata).filter(
+    delete_stmt = delete(TableMetadata).where(
         TableMetadata.data_connection_id == data_connection.id,
         TableMetadata.space_id == space.id,
     )
     if crew_id:
-        delete_q = delete_q.filter(TableMetadata.crew_id == crew_id)
+        delete_stmt = delete_stmt.where(TableMetadata.crew_id == crew_id)
     else:
-        delete_q = delete_q.filter(TableMetadata.crew_id.is_(None))
+        delete_stmt = delete_stmt.where(TableMetadata.crew_id.is_(None))
 
-    deleted = delete_q.delete(synchronize_session=False)
+    result = await db.execute(delete_stmt)
+    deleted = result.rowcount
 
     inserted = 0
     now = datetime.utcnow()
@@ -156,15 +179,15 @@ def ingest_bigquery_metadata_for_connection(
     # Agrupar colunas por tabela para detectar PKs (geralmente "id" ou similar)
     table_columns: Dict[str, List[str]] = {}
     for row in rows:
-        if row.table_name not in table_columns:
-            table_columns[row.table_name] = []
-        table_columns[row.table_name].append(row.column_name)
+        if row["table_name"] not in table_columns:
+            table_columns[row["table_name"]] = []
+        table_columns[row["table_name"]].append(row["column_name"])
 
     for row in rows:
         # Detectar se é PK (geralmente coluna "id" ou similar)
         is_pk = False
-        table_name_lower = row.table_name.lower()
-        col_name_lower = row.column_name.lower()
+        table_name_lower = row["table_name"].lower()
+        col_name_lower = row["column_name"].lower()
         
         # Normalizar nome da tabela (remover prefixos/sufixos comuns)
         normalized_table = table_name_lower
@@ -219,10 +242,10 @@ def ingest_bigquery_metadata_for_connection(
             data_connection_id=data_connection.id,
             space_id=space.id,
             crew_id=crew_id,
-            table_name=row.table_name,
-            column_name=row.column_name,
-            data_type=row.data_type,
-            is_nullable=(row.is_nullable == "YES"),
+            table_name=row["table_name"],
+            column_name=row["column_name"],
+            data_type=row["data_type"],
+            is_nullable=(row["is_nullable"] == "YES"),
             description=None,
             extra=extra if extra else None,
             created_at=now,
@@ -230,7 +253,7 @@ def ingest_bigquery_metadata_for_connection(
         db.add(tm)
         inserted += 1
 
-    db.commit()
+    await db.commit()
 
     log_event(
         "ingest_bq_metadata_done",
@@ -250,8 +273,8 @@ def ingest_bigquery_metadata_for_connection(
 
 # ========== ENTRYPOINT GENÉRICO ==========
 
-def ingest_metadata_for_connection(
-    db: Session,
+async def ingest_metadata_for_connection(
+    db: AsyncSession,
     data_connection: DataConnection,
     space: Space,
     crew_id: Optional[str] = None,
@@ -265,7 +288,7 @@ def ingest_metadata_for_connection(
     t = (data_connection.type or "").lower()
 
     if t == "bigquery":
-        return ingest_bigquery_metadata_for_connection(db, data_connection, space, crew_id)
+        return await ingest_bigquery_metadata_for_connection(db, data_connection, space, crew_id)
 
     # TODO: implementar outros tipos
     # elif t == "postgres":

@@ -3,13 +3,19 @@ from __future__ import annotations
 
 from typing import List, Sequence, Optional
 import os
-import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from db.models import TableMetadata, EmbeddingRecord
 from core.logging_utils import log_event
+
+
+# ThreadPool para operações OpenAI (bloqueantes)
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 # ========= PROVIDER GENÉRICO =========
@@ -20,6 +26,11 @@ class EmbeddingProvider:
     """
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         raise NotImplementedError
+    
+    async def embed_async(self, texts: Sequence[str]) -> List[List[float]]:
+        """Versão async do embed (usa ThreadPoolExecutor por padrão)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_executor, self.embed, texts)
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
@@ -73,8 +84,8 @@ def build_metadata_text(tm: TableMetadata) -> str:
 
 # ========= GERA EMBEDDINGS DE METADADOS =========
 
-def create_embeddings_for_table_metadata(
-    db: Session,
+async def create_embeddings_for_table_metadata(
+    db: AsyncSession,
     embedding_provider: EmbeddingProvider,
     space_id: str,
     crew_id: Optional[str] = None,
@@ -93,20 +104,22 @@ def create_embeddings_for_table_metadata(
         batch_size: Número de embeddings a processar por lote (padrão: 20)
         delay_between_batches: Delay em segundos entre lotes (padrão: 1.0s)
     """
-    q = db.query(TableMetadata).filter(TableMetadata.space_id == space_id)
+    query = select(TableMetadata).filter(TableMetadata.space_id == space_id)
 
     if crew_id:
-        q = q.filter(TableMetadata.crew_id == crew_id)
+        query = query.filter(TableMetadata.crew_id == crew_id)
     else:
-        q = q.filter(TableMetadata.crew_id.is_(None))
+        query = query.filter(TableMetadata.crew_id.is_(None))
 
     if data_connection_id:
-        q = q.filter(TableMetadata.data_connection_id == data_connection_id)
+        query = query.filter(TableMetadata.data_connection_id == data_connection_id)
 
     if limit:
-        q = q.limit(limit)
+        query = query.limit(limit)
 
-    rows: List[TableMetadata] = q.all()
+    result = await db.execute(query)
+    rows: List[TableMetadata] = list(result.scalars().all())
+    
     if not rows:
         log_event(
             "create_embeddings_no_metadata",
@@ -132,9 +145,9 @@ def create_embeddings_for_table_metadata(
         # Prepara textos do lote
         texts = [build_metadata_text(tm) for tm in batch]
         
-        # Gera embeddings do lote
+        # Gera embeddings do lote (async)
         try:
-            vectors = embedding_provider.embed(texts)
+            vectors = await embedding_provider.embed_async(texts)
         except Exception as e:
             log_event(
                 "create_embeddings_batch_error",
@@ -171,11 +184,11 @@ def create_embeddings_for_table_metadata(
         
         # Commit incremental após cada lote
         try:
-            db.commit()
+            await db.commit()
             created += batch_created
             print(f"✅ Lote {batch_num}/{total_batches} concluído: {batch_created} embeddings salvos (total: {created}/{total_rows})")
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             log_event(
                 "create_embeddings_batch_commit_error",
                 {
@@ -189,7 +202,7 @@ def create_embeddings_for_table_metadata(
         
         # Delay entre lotes (exceto no último)
         if i + batch_size < total_rows and delay_between_batches > 0:
-            time.sleep(delay_between_batches)
+            await asyncio.sleep(delay_between_batches)
 
     log_event(
         "create_embeddings_metadata_done",

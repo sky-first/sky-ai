@@ -1,32 +1,36 @@
 """Planet domain logic."""
 from typing import Optional, List
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from db.models import Planet as PlanetModel
 
 
-def get_planet(db: Session, planet_id: UUID) -> Optional[PlanetModel]:
+async def get_planet(db: AsyncSession, planet_id: UUID) -> Optional[PlanetModel]:
     """Get planet by ID."""
-    return db.query(PlanetModel).filter(PlanetModel.id == planet_id).first()
+    result = await db.execute(select(PlanetModel).filter(PlanetModel.id == planet_id))
+    return result.scalar_one_or_none()
 
 
-def list_planets(
-    db: Session,
+async def list_planets(
+    db: AsyncSession,
     space_id: Optional[UUID] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[PlanetModel]:
     """List planets, optionally filtered by space."""
-    query = db.query(PlanetModel).filter(PlanetModel.is_active == True)
+    query = select(PlanetModel).filter(PlanetModel.is_active == True)
     
     if space_id:
         query = query.filter(PlanetModel.space_id == space_id)
     
-    return query.offset(skip).limit(limit).all()
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
-def create_planet(
-    db: Session,
+async def create_planet(
+    db: AsyncSession,
     space_id: UUID,
     name: str,
     description: Optional[str] = None,
@@ -40,13 +44,13 @@ def create_planet(
         required_scopes=required_scopes or []
     )
     db.add(planet)
-    db.commit()
-    db.refresh(planet)
+    await db.commit()
+    await db.refresh(planet)
     return planet
 
 
-def update_planet(
-    db: Session,
+async def update_planet(
+    db: AsyncSession,
     planet_id: UUID,
     name: Optional[str] = None,
     description: Optional[str] = None,
@@ -54,7 +58,7 @@ def update_planet(
     is_active: Optional[bool] = None
 ) -> Optional[PlanetModel]:
     """Update a planet."""
-    planet = get_planet(db, planet_id)
+    planet = await get_planet(db, planet_id)
     if not planet:
         return None
     
@@ -67,7 +71,6 @@ def update_planet(
     if is_active is not None:
         planet.is_active = is_active
     
-    db.commit()
-    db.refresh(planet)
+    await db.commit()
+    await db.refresh(planet)
     return planet
-

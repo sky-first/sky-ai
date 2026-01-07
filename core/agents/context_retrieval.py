@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.rag.embeddings import EmbeddingProvider
-from core.rag.vector_store import search_embeddings
+from core.rag.vector_store import search_embeddings_async
 from core.logging_utils import log_event
 
 
-def build_retrieval_context_for_question(
-    db: Session,
+async def build_retrieval_context_for_question(
+    db: AsyncSession,
     embedding_provider: EmbeddingProvider,
     space_id: str,
     crew_ids: Optional[List[str]],
@@ -30,7 +30,7 @@ def build_retrieval_context_for_question(
 
     Tudo isso é empacotado em um texto único que o agente recebe.
     """
-    records = search_embeddings(
+    records = await search_embeddings_async(
         db=db,
         embedding_provider=embedding_provider,
         space_id=space_id,

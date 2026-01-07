@@ -15,26 +15,25 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging_utils import log_event
-from db.base import engine as db_engine
 from db.session import get_db
 
 router = APIRouter(prefix="/connections", tags=["connection_discover"])
 
 
-def _load_connection_metadata_tables(engine, connection_id: str) -> List[Dict[str, Any]]:
+async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str) -> List[Dict[str, Any]]:
     """
     Load tables catalog from backend `connection_metadata.tables` (JSON).
     Returns a list of dicts like: [{name, schema, columns:[...]}]
     """
     try:
-        with engine.connect() as conn:
-            tables = conn.execute(
-                text("SELECT tables FROM connection_metadata WHERE connection_id = :cid"),
-                {"cid": connection_id},
-            ).scalar_one_or_none()
+        result = await db.execute(
+            text("SELECT tables FROM connection_metadata WHERE connection_id = :cid"),
+            {"cid": connection_id},
+        )
+        tables = result.scalar_one_or_none()
 
         if isinstance(tables, list):
             return [t for t in tables if isinstance(t, dict)]
@@ -57,27 +56,26 @@ def _count_metadata_rows(tables: List[Dict[str, Any]]) -> int:
     return total
 
 
-def _get_last_metadata_update(engine, connection_id: str) -> Optional[datetime]:
+async def _get_last_metadata_update(db: AsyncSession, connection_id: str) -> Optional[datetime]:
     try:
-        with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT last_metadata_update FROM connection_metadata WHERE connection_id = :cid"
-                ),
-                {"cid": connection_id},
-            ).first()
+        result = await db.execute(
+            text(
+                "SELECT last_metadata_update FROM connection_metadata WHERE connection_id = :cid"
+            ),
+            {"cid": connection_id},
+        )
+        row = result.first()
         return row[0] if row else None
     except Exception:
         return None
 
 
-def _discover_tables_sync(connection_id: str) -> dict:
+async def _discover_tables_sync(db: AsyncSession, connection_id: str) -> dict:
     """
     Discovery is a no-op here: catalog is owned by the backend and already stored in DB.
     We just return current catalog counts, so the backend can treat this as successful.
     """
-    engine = db_engine
-    tables = _load_connection_metadata_tables(engine, connection_id)
+    tables = await _load_connection_metadata_tables(db, connection_id)
     return {
         "success": True,
         "connection_id": connection_id,
@@ -93,7 +91,7 @@ async def discover_tables(
     connection_id: str,
     space_id: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
     auto_generate_embeddings: bool = True,  # Novo parâmetro: gerar embeddings automaticamente
 ) -> dict:
@@ -121,42 +119,51 @@ async def discover_tables(
         
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
-            def _discover_and_embed():
-                from db.session import SessionLocal as BackgroundSessionLocal
-                bg_db = BackgroundSessionLocal()
-                try:
-                    _discover_tables_sync(connection_id=connection_id)
-                    if auto_generate_embeddings:
-                        try:
-                            # Ingerir metadados na tabela table_metadata (se necessário)
-                            run_metadata_ingestion(
-                                db=bg_db,
-                                space_id=space_id,
-                                connection_id=connection_id,
-                                crew_id=None,
-                            )
-                            # Gerar embeddings
-                            embedding_provider = create_embedding_provider()
-                            run_metadata_embeddings(
-                                db=bg_db,
-                                space_id=space_id,
-                                connection_id=connection_id,
-                                crew_id=None,
-                                embedding_provider=embedding_provider,
-                            )
-                        except Exception as e:
-                            log_event(
-                                "discover_auto_embed_error",
-                                {
-                                    "connection_id": connection_id,
-                                    "space_id": space_id,
-                                    "error": str(e)[:500],
-                                },
-                            )
-                finally:
-                    bg_db.close()
+            async def _discover_and_embed():
+                from db.session import get_db
+                from db.base import SessionLocal as AsyncSessionLocal
+                async with AsyncSessionLocal() as bg_db:
+                    try:
+                        await _discover_tables_sync(bg_db, connection_id=connection_id)
+                        if auto_generate_embeddings:
+                            try:
+                                # Ingerir metadados na tabela table_metadata (se necessário)
+                                await run_metadata_ingestion(
+                                    db=bg_db,
+                                    space_id=space_id,
+                                    connection_id=connection_id,
+                                    crew_id=None,
+                                )
+                                # Gerar embeddings
+                                embedding_provider = create_embedding_provider()
+                                await run_metadata_embeddings(
+                                    db=bg_db,
+                                    space_id=space_id,
+                                    connection_id=connection_id,
+                                    crew_id=None,
+                                    embedding_provider=embedding_provider,
+                                )
+                            except Exception as e:
+                                log_event(
+                                    "discover_auto_embed_error",
+                                    {
+                                        "connection_id": connection_id,
+                                        "space_id": space_id,
+                                        "error": str(e)[:500],
+                                    },
+                                )
+                    except Exception as e:
+                        log_event(
+                            "discover_background_error",
+                            {
+                                "connection_id": connection_id,
+                                "space_id": space_id,
+                                "error": str(e)[:500],
+                            },
+                        )
             
-            background_tasks.add_task(_discover_and_embed)
+            import asyncio
+            background_tasks.add_task(lambda: asyncio.run(_discover_and_embed()))
             return {
                 "message": "Discovery scheduled (backend catalog source-of-truth).",
                 "connection_id": connection_id,
@@ -165,14 +172,14 @@ async def discover_tables(
                 "auto_generate_embeddings": auto_generate_embeddings,
             }
 
-        result = _discover_tables_sync(connection_id=connection_id)
+        result = await _discover_tables_sync(db, connection_id=connection_id)
         result["space_id"] = space_id
         
         # Gerar embeddings automaticamente se solicitado
         if auto_generate_embeddings:
             try:
                 # Ingerir metadados na tabela table_metadata (se necessário)
-                inserted = run_metadata_ingestion(
+                inserted = await run_metadata_ingestion(
                     db=db,
                     space_id=space_id,
                     connection_id=connection_id,
@@ -181,7 +188,7 @@ async def discover_tables(
                 
                 # Gerar embeddings
                 embedding_provider = create_embedding_provider()
-                created = run_metadata_embeddings(
+                created = await run_metadata_embeddings(
                     db=db,
                     space_id=space_id,
                     connection_id=connection_id,
@@ -228,7 +235,7 @@ async def metadata_status(
         ge=0,
         description="TTL de metadados em segundos. Se 0, nunca considera stale.",
     ),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
     Retorna um status simples sobre a existência/freshness dos metadados para uma conexão.
@@ -244,13 +251,12 @@ async def metadata_status(
     - is_stale: bool
     - should_discover: bool (true quando não há metadados ou está stale)
     """
-    engine = db_engine
-    tables = _load_connection_metadata_tables(engine, connection_id)
+    tables = await _load_connection_metadata_tables(db, connection_id)
     tables_discovered = len(tables)
     metadata_rows = _count_metadata_rows(tables)
     has_metadata = tables_discovered > 0
 
-    last_update = _get_last_metadata_update(engine, connection_id)
+    last_update = await _get_last_metadata_update(db, connection_id)
 
     # 3) calcular stale
     age_seconds = None

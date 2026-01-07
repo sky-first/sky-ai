@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 import json
 from typing import AsyncGenerator
@@ -21,7 +21,7 @@ from core.agents.context_retrieval import build_retrieval_context_for_question
 from core.auth.service import resolve_crew_ids_for_context
 from core.logging_utils import log_event
 from db.session import get_db
-from db.base import SessionLocal
+from db.base import SyncSessionLocal
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 async def query_agent(
     agent_id: str,
     body: QueryRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     try:
         agent_config = get_agent_config(agent_id)
@@ -49,7 +49,7 @@ async def query_agent(
     resolved_crew_ids = body.crew_ids or []
     if body.user_id:
         try:
-            resolved_crew_ids = resolve_crew_ids_for_context(
+            resolved_crew_ids = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=UUID(body.user_id),
                 space_id=UUID(body.space_id) if body.space_id else None,
@@ -70,7 +70,7 @@ async def query_agent(
 
     retrieval_context: list[str] = []
     if body.space_id:
-        retrieval_context = build_retrieval_context_for_question(
+        retrieval_context = await build_retrieval_context_for_question(
             db=db,
             embedding_provider=embedding_provider,
             space_id=body.space_id,
@@ -98,9 +98,9 @@ async def query_agent(
     user_ctx.crew_ids = resolved_crew_ids
     user_ctx.user_id = body.user_id
     
-    # Criar factory de sessão
+    # Criar factory de sessão síncrona (para LangGraph)
     def db_session_factory():
-        return SessionLocal()
+        return SyncSessionLocal()
     
     # Obter data_source do agent_config
     if not hasattr(agent_config, 'data_source') or agent_config.data_source is None:
@@ -169,7 +169,7 @@ async def query_agent(
 async def _stream_agent_query(
     agent_id: str,
     body: QueryRequest,
-    db: Session,
+    db: AsyncSession,
 ) -> AsyncGenerator[str, None]:
     """
     Generator function that yields SSE events for streaming agent query responses.
@@ -193,7 +193,7 @@ async def _stream_agent_query(
         resolved_crew_ids = body.crew_ids or []
         if body.user_id:
             try:
-                resolved_crew_ids = resolve_crew_ids_for_context(
+                resolved_crew_ids = await resolve_crew_ids_for_context(
                     db=db,
                     user_id=UUID(body.user_id),
                     space_id=UUID(body.space_id) if body.space_id else None,
@@ -220,7 +220,7 @@ async def _stream_agent_query(
         retrieval_context: list[str] = []
         if body.space_id:
             try:
-                retrieval_context = build_retrieval_context_for_question(
+                retrieval_context = await build_retrieval_context_for_question(
                     db=db,
                     embedding_provider=embedding_provider,
                     space_id=body.space_id,
@@ -251,7 +251,7 @@ async def _stream_agent_query(
             }
             
             def db_session_factory():
-                return SessionLocal()
+                return SyncSessionLocal()
             
             app = build_generic_sql_graph(
                 agent_config=agent_config,
@@ -411,7 +411,7 @@ async def _stream_agent_query(
 async def query_agent_stream(
     agent_id: str,
     body: QueryRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Faz uma pergunta usando um Agent com streaming de resposta.

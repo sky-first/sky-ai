@@ -1,48 +1,50 @@
 """Space domain logic."""
 from typing import Optional, List
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from db.models import Space as SpaceModel
 
 
-def get_space(db: Session, space_id: UUID) -> Optional[SpaceModel]:
+async def get_space(db: AsyncSession, space_id: UUID) -> Optional[SpaceModel]:
     """Get space by ID."""
-    return db.query(SpaceModel).filter(SpaceModel.id == space_id).first()
+    result = await db.execute(select(SpaceModel).filter(SpaceModel.id == space_id))
+    return result.scalar_one_or_none()
 
 
-def list_spaces(db: Session, skip: int = 0, limit: int = 100) -> List[SpaceModel]:
+async def list_spaces(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[SpaceModel]:
     """List all active spaces."""
-    return (
-        db.query(SpaceModel)
+    result = await db.execute(
+        select(SpaceModel)
         .filter(SpaceModel.is_active == True)
         .offset(skip)
         .limit(limit)
-        .all()
     )
+    return list(result.scalars().all())
 
 
-def create_space(
-    db: Session,
+async def create_space(
+    db: AsyncSession,
     name: str,
     description: Optional[str] = None
 ) -> SpaceModel:
     """Create a new space."""
     space = SpaceModel(name=name, description=description)
     db.add(space)
-    db.commit()
-    db.refresh(space)
+    await db.commit()
+    await db.refresh(space)
     return space
 
 
-def update_space(
-    db: Session,
+async def update_space(
+    db: AsyncSession,
     space_id: UUID,
     name: Optional[str] = None,
     description: Optional[str] = None,
     is_active: Optional[bool] = None
 ) -> Optional[SpaceModel]:
     """Update a space."""
-    space = get_space(db, space_id)
+    space = await get_space(db, space_id)
     if not space:
         return None
     
@@ -53,7 +55,7 @@ def update_space(
     if is_active is not None:
         space.is_active = is_active
     
-    db.commit()
-    db.refresh(space)
+    await db.commit()
+    await db.refresh(space)
     return space
 

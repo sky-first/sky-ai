@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from db.models import DataConnection, Space
 from core.ingestion.db_metadata import ingest_metadata_for_connection
@@ -23,25 +24,29 @@ class SpaceNotFoundError(Exception):
     pass
 
 
-def _get_connection_and_space(
-    db: Session, connection_id: str, space_id: str
+async def _get_connection_and_space(
+    db: AsyncSession, connection_id: str, space_id: str
 ) -> tuple[DataConnection, Space]:
-    dc = db.query(DataConnection).filter(
-        DataConnection.id == connection_id,
-        DataConnection.space_id == space_id,
-    ).first()
+    result = await db.execute(
+        select(DataConnection).filter(
+            DataConnection.id == connection_id,
+            DataConnection.space_id == space_id,
+        )
+    )
+    dc = result.scalar_one_or_none()
     if not dc:
         raise ConnectionNotFoundError(f"DataConnection {connection_id} not found in space {space_id}")
 
-    space = db.query(Space).filter(Space.id == space_id).first()
+    result = await db.execute(select(Space).filter(Space.id == space_id))
+    space = result.scalar_one_or_none()
     if not space:
         raise SpaceNotFoundError(f"Space {space_id} not found")
 
     return dc, space
 
 
-def run_metadata_ingestion(
-    db: Session,
+async def run_metadata_ingestion(
+    db: AsyncSession,
     space_id: str,
     connection_id: str,
     crew_id: Optional[str] = None,
@@ -50,9 +55,9 @@ def run_metadata_ingestion(
     Executa apenas a ingestão de metadados (INFORMATION_SCHEMA -> TableMetadata)
     para uma conexão específica.
     """
-    dc, space = _get_connection_and_space(db, connection_id, space_id)
+    dc, space = await _get_connection_and_space(db, connection_id, space_id)
 
-    inserted = ingest_metadata_for_connection(
+    inserted = await ingest_metadata_for_connection(
         db=db,
         data_connection=dc,
         space=space,
@@ -71,8 +76,8 @@ def run_metadata_ingestion(
     return inserted
 
 
-def run_metadata_embeddings(
-    db: Session,
+async def run_metadata_embeddings(
+    db: AsyncSession,
     space_id: str,
     connection_id: str,
     crew_id: Optional[str] = None,
@@ -81,12 +86,12 @@ def run_metadata_embeddings(
     """
     Cria embeddings de metadados (TableMetadata -> EmbeddingRecord) para uma conexão específica.
     """
-    dc, space = _get_connection_and_space(db, connection_id, space_id)
+    dc, space = await _get_connection_and_space(db, connection_id, space_id)
 
     if embedding_provider is None:
         embedding_provider = OpenAIEmbeddingProvider()
 
-    created = create_embeddings_for_table_metadata(
+    created = await create_embeddings_for_table_metadata(
         db=db,
         embedding_provider=embedding_provider,
         space_id=space.id,
@@ -107,8 +112,8 @@ def run_metadata_embeddings(
     return created
 
 
-def run_full_refresh_for_connection(
-    db: Session,
+async def run_full_refresh_for_connection(
+    db: AsyncSession,
     space_id: str,
     connection_id: str,
     crew_id: Optional[str] = None,
@@ -123,13 +128,13 @@ def run_full_refresh_for_connection(
     if embedding_provider is None:
         embedding_provider = OpenAIEmbeddingProvider()
 
-    inserted = run_metadata_ingestion(
+    inserted = await run_metadata_ingestion(
         db=db,
         space_id=space_id,
         connection_id=connection_id,
         crew_id=crew_id,
     )
-    created = run_metadata_embeddings(
+    created = await run_metadata_embeddings(
         db=db,
         space_id=space_id,
         connection_id=connection_id,
