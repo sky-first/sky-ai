@@ -3771,7 +3771,9 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"refs/heads/\${BRANCH}\"; then
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
+
                   echo \"OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3789,7 +3791,9 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"refs/heads/\${BRANCH}\"; then
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
+
                   echo \"OK: Branch \${BRANCH} encontrada no repositório remoto\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3804,7 +3808,8 @@ jobs:
                 echo 'Cloning sky-poc-infra repository...'
                 REPO_URL="https://github.com/\${REPO}.git"
                 # Validar que a branch existe antes de clonar
-                if git ls-remote --heads "\${REPO_URL}" \${BRANCH} | grep -q \${BRANCH}; then
+                BRANCH_EXISTS=\$(git ls-remote --heads "\${REPO_URL}" \${BRANCH} | grep \${BRANCH} || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
                   echo "OK: Branch \${BRANCH} encontrada, clonando como sky-poc-infra..."
                   git clone -b \${BRANCH} "\${REPO_URL}" sky-poc-infra || { echo "❌ Erro ao clonar repositório com branch \${BRANCH}"; exit 1; }
                 else
@@ -3829,7 +3834,9 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"refs/heads/\${BRANCH}\"; then
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
+
                   echo \"OK: Branch \${BRANCH} encontrada no backend\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3845,7 +3852,8 @@ jobs:
               else
                 echo 'Cloning backend repository...'
                 # Validar branch antes de clonar
-                if git ls-remote --heads "\${BACKEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                BRANCH_EXISTS=\$(git ls-remote --heads "\${BACKEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
                   echo "OK: Branch \${BRANCH} encontrada no backend, clonando..."
                   git clone -b \${BRANCH} "\${BACKEND_REPO_URL}" sky-poc-backend || { echo "❌ Erro ao clonar repositório backend com branch \${BRANCH}"; exit 1; }
                 else
@@ -3871,7 +3879,9 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"refs/heads/\${BRANCH}\"; then
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
+
                   echo \"OK: Branch \${BRANCH} encontrada no frontend\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3887,7 +3897,8 @@ jobs:
               else
                 echo 'Cloning frontend repository...'
                 # Validar branch antes de clonar
-                if git ls-remote --heads "\${FRONTEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                BRANCH_EXISTS=\$(git ls-remote --heads "\${FRONTEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
                   echo "OK: Branch \${BRANCH} encontrada no frontend, clonando..."
                   git clone -b \${BRANCH} "\${FRONTEND_REPO_URL}" sky-poc-frontend || { echo "❌ Erro ao clonar repositório frontend com branch \${BRANCH}"; exit 1; }
                 else
@@ -3912,7 +3923,9 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep -q \"refs/heads/\${BRANCH}\"; then
+                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
+
                   echo \"OK: Branch \${BRANCH} encontrada no IA\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3928,7 +3941,8 @@ jobs:
               else
                 echo 'Cloning IA repository...'
                 # Validar branch antes de clonar
-                if git ls-remote --heads "\${IA_REPO_URL}" \${BRANCH} 2>/dev/null | grep -q \${BRANCH}; then
+                BRANCH_EXISTS=\$(git ls-remote --heads "\${IA_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
+                if [ -n \"\$BRANCH_EXISTS\" ]; then
                   echo "OK: Branch \${BRANCH} encontrada no IA, clonando..."
                   git clone -b \${BRANCH} "\${IA_REPO_URL}" sky-poc-ai || { echo "❌ Erro ao clonar repositório IA com branch \${BRANCH}"; exit 1; }
                 else
