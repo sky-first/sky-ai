@@ -65,7 +65,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ai_saas_backend_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: ${BACKEND_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -137,7 +137,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_worker_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: ${BACKEND_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -178,7 +178,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: ai_saas_beat_prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: ${BACKEND_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_HOST: redis
@@ -216,7 +216,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: ai_saas_migrate
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: ${BACKEND_DATABASE_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -253,8 +253,7 @@ services:
       dockerfile: sky-poc-infra/docker/ai/Dockerfile
     container_name: ai_saas_ai_prod
     environment:
-      # AI usa driver sync (psycopg2) — não reutilizar DATABASE_URL do backend (asyncpg)
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_saas_db}
+      DATABASE_URL: ${AI_DATABASE_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       # Se não setar CELERY_* explicitamente, o sky-poc-ai constrói a partir de REDIS_PASSWORD
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}

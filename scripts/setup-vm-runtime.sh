@@ -71,18 +71,29 @@ echo '🔐 Configurando variáveis de ambiente...'
 ensure_kv() {
   local key="$1"; local val="$2"
   if [ -z "$val" ]; then return; fi
+  
+  # Usar escape para caracteres especiais no sed
+  local escaped_val=$(echo "$val" | sed 's/[&/\]/\\&/g')
+  
   if grep -q "^${key}=" .env; then
-    sed -i "s|^${key}=.*|${key}=${val}|" .env
+    sed -i "s|^${key}=.*|${key}=${escaped_val}|" .env
   else
-    printf "%s=%s\n" "$key" "$val" >> .env
+    echo "${key}=${val}" >> .env
   fi
 }
+
+# Injetar segredos passados via variáveis de ambiente
+[ -n "$POSTGRES_PASSWORD" ] && { ensure_kv "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"; echo '✅ POSTGRES_PASSWORD configurada'; }
+[ -n "$REDIS_PASSWORD" ] && { ensure_kv "REDIS_PASSWORD" "$REDIS_PASSWORD"; echo '✅ REDIS_PASSWORD configurada'; }
+[ -n "$JWT_SECRET_KEY" ] && { ensure_kv "JWT_SECRET_KEY" "$JWT_SECRET_KEY"; echo '✅ JWT_SECRET_KEY configurada'; }
+[ -n "$ENCRYPTION_KEY" ] && { ensure_kv "ENCRYPTION_KEY" "$ENCRYPTION_KEY"; echo '✅ ENCRYPTION_KEY configurada'; }
+[ -n "$SENTRY_DSN" ] && { ensure_kv "SENTRY_DSN" "$SENTRY_DSN"; echo '✅ SENTRY_DSN configurada'; }
 
 if [ -n "$OPENAI_API_KEY_BOOTSTRAP" ]; then
   ensure_kv "OPENAI_API_KEY" "$OPENAI_API_KEY_BOOTSTRAP"
   ensure_kv "AI_SERVICE_URL" "http://ai:8001"
   ensure_kv "AI_SERVICE_TYPE" "real"
-  echo '✅ OPENAI_API_KEY configurada'
+  echo '✅ Configurações de IA prontas'
 fi
 
 # 4. Atualizar IPs no .env

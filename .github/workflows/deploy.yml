@@ -3287,176 +3287,21 @@ jobs:
             echo "$SECRET_VALUE"
           }
 
-          POSTGRES_PASSWORD=$(fetch_secret "${KV_POSTGRES_PASSWORD_SECRET}")
-          REDIS_PASSWORD=$(fetch_secret "${KV_REDIS_PASSWORD_SECRET}")
-          JWT_SECRET_KEY=$(fetch_secret "${KV_JWT_SECRET_SECRET}")
-          ENCRYPTION_KEY=$(fetch_secret "${KV_ENCRYPTION_KEY_SECRET}")
-          SENTRY_DSN=$(fetch_secret "${KV_SENTRY_DSN_SECRET}")
-          OPENAI_API_KEY=$(fetch_secret "${KV_OPENAI_API_KEY_SECRET}")
-
-          echo "# Generated from Key Vault ${KV_NAME}" > kv.env
-          wrote=false
-          write_if() {
-            local key="$1"; local val="$2"
-            if [ -n "$val" ]; then
-              echo "${key}=${val}" >> kv.env
-              wrote=true
-            fi
-          }
-
-          write_if "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
-          write_if "REDIS_PASSWORD" "$REDIS_PASSWORD"
-          write_if "JWT_SECRET_KEY" "$JWT_SECRET_KEY"
-          write_if "ENCRYPTION_KEY" "$ENCRYPTION_KEY"
-          write_if "SENTRY_DSN" "$SENTRY_DSN"
-          write_if "OPENAI_API_KEY" "$OPENAI_API_KEY"
+          echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> $GITHUB_ENV
+          echo "REDIS_PASSWORD=$REDIS_PASSWORD" >> $GITHUB_ENV
+          echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" >> $GITHUB_ENV
+          echo "ENCRYPTION_KEY=$ENCRYPTION_KEY" >> $GITHUB_ENV
+          echo "SENTRY_DSN=$SENTRY_DSN" >> $GITHUB_ENV
+          echo "OPENAI_API_KEY_KV=$OPENAI_API_KEY" >> $GITHUB_ENV
 
           if $wrote; then
             echo "has_secrets=true" >> $GITHUB_OUTPUT
           else
             echo "has_secrets=false" >> $GITHUB_OUTPUT
-            rm kv.env
           fi
 
-      - name: Write .env on VM from Key Vault
-        if: env.KEYVAULT_NAME != '' && steps.kv-secrets.outputs.has_secrets == 'true'
-        run: |
-          set -euo pipefail
-          echo "Pushing secrets to VM .env (fazendo merge com .env existente)..."
-          if [ ! -f kv.env ]; then
-            echo "ERRO: kv.env not found"
-            exit 1
-          fi
-          ENV_B64=$(base64 -w0 kv.env)
-          az vm run-command invoke \
-            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
-            --name ${{ steps.vm-info.outputs.vm_name }} \
-            --command-id RunShellScript \
-            --scripts "
-              #!/bin/bash
-              set -eu
-              BASE=\"/home/azureuser/projeto\"
-              mkdir -p \"$BASE\" || { echo '❌ Erro ao criar diretório /home/azureuser/projeto'; exit 1; }
-
-              # Detectar diretório da infra (compatível com legado)
-              INFRA_DIR=\"$BASE/sky-poc-infra\"
-              if [ -d \"$BASE/sky-poc-infra\" ]; then
-                INFRA_DIR=\"$BASE/sky-poc-infra\"
-              elif [ -d \"$BASE/poc-deploy\" ]; then
-                INFRA_DIR=\"$BASE/poc-deploy\"
-              else
-                mkdir -p \"$INFRA_DIR\" || { echo '❌ Erro ao criar diretório da infra'; exit 1; }
-              fi
-
-              cd \"\$INFRA_DIR\"
-              
-              # CRÍTICO: Garantir que .env existe antes de fazer merge
-              if [ ! -f .env ]; then
-                if [ -f env.example ]; then
-                  echo '📝 .env não existe, criando a partir de env.example...'
-                  cp env.example .env
-                else
-                  echo '⚠️  env.example não encontrado ainda (código pode não estar atualizado)'
-                  echo '📝 Criando .env mínimo com apenas as variáveis do Key Vault...'
-                  echo '# Arquivo .env criado automaticamente (env.example será usado no próximo step)' > .env
-                  echo '# Este arquivo será completado quando o código for atualizado' >> .env
-                fi
-              fi
-              
-              # Fazer merge: atualizar/adicionar variáveis do Key Vault sem sobrescrever tudo
-              echo '🔄 Fazendo merge das variáveis do Key Vault no .env...'
-              KV_ENV_TEMP=\$(mktemp)
-              echo ${ENV_B64} | base64 -d > \"\$KV_ENV_TEMP\" || { echo '❌ Erro ao decodificar kv.env'; exit 1; }
-              
-              # Atualizar/adicionar cada variável do Key Vault no .env
-              while IFS='=' read -r key value || [ -n \"\$key\" ]; do
-                # Ignorar linhas vazias e comentários
-                [[ -z \"\$key\" || \"\$key\" =~ ^# ]] && continue
-                
-                # Remover espaços e caracteres especiais do nome da variável
-                key=\$(echo \"\$key\" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                value=\$(echo \"\$value\" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                
-                if [ -n \"\$key\" ] && [ -n \"\$value\" ]; then
-                  # Se a variável já existe, atualizar; senão, adicionar
-                  if grep -q \"^\\\${key}=\" .env; then
-                    sed -i \"s|^\\\${key}=.*|\\\${key}=\\\${value}|\" .env
-                    echo \"✅ Atualizado: \$key\"
-                  else
-                    echo \"\\\${key}=\\\${value}\" >> .env
-                    echo \"✅ Adicionado: \$key\"
-                  fi
-                fi
-              done < \"\$KV_ENV_TEMP\"
-              
-              rm -f \"\$KV_ENV_TEMP\"
-              
-              chmod 600 .env || { echo '❌ Erro ao definir permissões do .env'; exit 1; }
-              echo '✅ Arquivo .env atualizado com secrets do Key Vault (merge completo)'
-            " \
-            --output json
-
-      - name: Validate .env File on VM
-        if: env.KEYVAULT_NAME != '' && steps.kv-secrets.outputs.has_secrets == 'true'
-        run: |
-          az vm run-command invoke \
-            --resource-group ${{ steps.vm-info.outputs.resource_group }} \
-            --name ${{ steps.vm-info.outputs.vm_name }} \
-            --command-id RunShellScript \
-            --scripts "
-              #!/bin/bash
-              set -eu
-
-              BASE=\"/home/azureuser/projeto\"
-              INFRA_DIR=\"$BASE/sky-poc-infra\"
-              if [ -d \"$BASE/sky-poc-infra\" ]; then
-                INFRA_DIR=\"$BASE/sky-poc-infra\"
-              elif [ -d \"$BASE/poc-deploy\" ]; then
-                INFRA_DIR=\"$BASE/poc-deploy\"
-              fi
-
-              ENV_FILE=\"$INFRA_DIR/.env\"
-              echo 'Validando arquivo .env na VM...'
-
-              if [ ! -f \"\$ENV_FILE\" ]; then
-                echo 'ERRO: Arquivo .env não encontrado'
-                echo \"Caminho esperado: \$ENV_FILE\"
-                exit 1
-              fi
-
-              if [ ! -s \"\$ENV_FILE\" ]; then
-                echo 'ERRO: Arquivo .env está vazio'
-                exit 1
-              fi
-
-              PERMS=\$(stat -c '%a' \"\$ENV_FILE\" 2>/dev/null || stat -f '%A' \"\$ENV_FILE\" 2>/dev/null || echo '')
-              if [ \"\$PERMS\" != '600' ]; then
-                echo \"WARNING: Permissões do .env incorretas: \$PERMS (esperado: 600)\"
-                chmod 600 \"\$ENV_FILE\" || echo 'WARNING: Não foi possível corrigir permissões'
-              fi
-
-              MISSING=''
-              for var in POSTGRES_PASSWORD REDIS_PASSWORD JWT_SECRET_KEY ENCRYPTION_KEY; do
-                if ! grep -q \"^\$var=\" \"\$ENV_FILE\"; then
-                  MISSING=\"\$MISSING \$var\"
-                fi
-              done
-
-              if [ -n \"\$MISSING\" ]; then
-                echo 'ERRO: Variáveis faltando no .env:'
-                for v in \$MISSING; do
-                  echo \"  - \$v\"
-                done
-                echo ''
-                echo 'Conteúdo do .env (sem valores):'
-                sed 's/=.*/=***/' \"\$ENV_FILE\" || true
-                exit 1
-              fi
-
-              echo 'OK: Arquivo .env validado com sucesso'
-              echo 'Variáveis críticas encontradas: 4'
-            " \
-            --output json
+      # Removidos steps redundantes de Write .env e Validate .env
+      # Agora tudo é tratado de forma robusta pelo standalone script setup-vm-runtime.sh
 
       - name: Update Code on VM
         run: |
@@ -3573,7 +3418,12 @@ jobs:
           echo "export GITHUB_TOKEN='$TOKEN_VAL'" >> /tmp/vm-runtime-script.sh
           echo "export BRANCH='$BRANCH_VAL'" >> /tmp/vm-runtime-script.sh
           echo "export REPO='$REPO_VAL'" >> /tmp/vm-runtime-script.sh
-          echo "export OPENAI_API_KEY_BOOTSTRAP='$OPENAI_KEY'" >> /tmp/vm-runtime-script.sh
+          echo "export OPENAI_API_KEY_BOOTSTRAP='${OPENAI_API_KEY_KV:-$OPENAI_KEY}'" >> /tmp/vm-runtime-script.sh
+          echo "export POSTGRES_PASSWORD='${POSTGRES_PASSWORD:-}'" >> /tmp/vm-runtime-script.sh
+          echo "export REDIS_PASSWORD='${REDIS_PASSWORD:-}'" >> /tmp/vm-runtime-script.sh
+          echo "export JWT_SECRET_KEY='${JWT_SECRET_KEY:-}'" >> /tmp/vm-runtime-script.sh
+          echo "export ENCRYPTION_KEY='${ENCRYPTION_KEY:-}'" >> /tmp/vm-runtime-script.sh
+          echo "export SENTRY_DSN='${SENTRY_DSN:-}'" >> /tmp/vm-runtime-script.sh
           echo "export VM_IP='${{ steps.vm-info.outputs.vm_public_ip }}'" >> /tmp/vm-runtime-script.sh
           echo "" >> /tmp/vm-runtime-script.sh
 
