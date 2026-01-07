@@ -3798,6 +3798,7 @@ jobs:
           echo "export BRANCH='$BRANCH_VAL'" >> /tmp/vm-runtime-script.sh
           echo "export REPO='$REPO_VAL'" >> /tmp/vm-runtime-script.sh
           echo "export OPENAI_API_KEY_BOOTSTRAP='$OPENAI_KEY'" >> /tmp/vm-runtime-script.sh
+          echo "export VM_IP='${{ steps.vm-info.outputs.vm_public_ip }}'" >> /tmp/vm-runtime-script.sh
           echo "" >> /tmp/vm-runtime-script.sh
 
           # Anexar o conteúdo do script

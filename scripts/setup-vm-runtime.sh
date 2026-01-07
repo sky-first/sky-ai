@@ -1,7 +1,6 @@
-#!/bin/bash
 # setup-vm-runtime.sh - Refactored script for VM maintenance
-# Handles .env bootstrap, secret injection, and container restart with health checks.
-# Version: 1.0.1 (added improved logging)
+# Handles .env bootstrap, IP updates, secret injection, and container restart with health checks.
+# Version: 1.0.2 (added automatic IP updates)
 
 set -eo pipefail
 
@@ -80,9 +79,29 @@ if [ -n "$OPENAI_API_KEY_BOOTSTRAP" ]; then
   echo '✅ OPENAI_API_KEY injetada'
 fi
 
+# 4. Atualizar IPs no .env (Single Source of Truth)
+if [ -n "$VM_IP" ]; then
+  echo "🌐 Atualizando endereços IP no .env ($VM_IP)..."
+  
+  # CORS_ORIGINS
+  CORS_VAL="http://$VM_IP,http://$VM_IP:3000,http://localhost:3000,http://localhost"
+  ensure_kv "CORS_ORIGINS" "$CORS_VAL"
+  
+  # NEXT_PUBLIC_API_URL (Path relativo /api/v1 é recomendado, mas mantendo compatibilidade com IP se necessário)
+  # Se o usuário quiser URL absoluta, atualizamos aqui. 
+  # Se estiver como /api/v1, o sed não vai encontrar o IP placeholder e não vai quebrar nada se usarmos a lógica correta.
+  
+  # Caso o valor atual contenha um IP (formato http://x.x.x.x/api/v1)
+  if grep -q "NEXT_PUBLIC_API_URL=http://" .env; then
+    sed -i "s|NEXT_PUBLIC_API_URL=http://[^/ ]*/api/v1|NEXT_PUBLIC_API_URL=http://$VM_IP/api/v1|g" .env
+  fi
+  
+  echo '✅ Endereços IP atualizados no .env'
+fi
+
 chmod 600 .env
 
-# 4. Validar Caminhos para Docker Compose
+# 5. Validar Caminhos para Docker Compose
 echo ''
 echo '📂 Validando caminhos...'
 for dir in "../sky-poc-backend" "../sky-poc-frontend" "../sky-poc-ai"; do
