@@ -3692,24 +3692,25 @@ jobs:
           echo "🔐 Configurando autenticação Git na VM..."
 
           # Preparar script com substituições de variáveis
-          GITHUB_TOKEN=\"${{ secrets.GITHUB_TOKEN }}\"
-          BRANCH=\"${{ steps.vm-info.outputs.git_branch }}\"
-          REPO=\"${{ steps.vm-info.outputs.github_repo }}\"
+          TOKEN_VAL="${{ secrets.GITHUB_TOKEN }}"
+          BRANCH_VAL="${{ steps.vm-info.outputs.git_branch }}"
+          REPO_VAL="${{ steps.vm-info.outputs.github_repo }}"
 
           # Criar script temporário com variáveis substituídas
-          cat scripts/update-vm-code.sh | \
-            sed \"s/\\\${GITHUB_TOKEN}/$GITHUB_TOKEN/g\" | \
-            sed \"s/\\\${BRANCH}/$BRANCH/g\" | \
-            sed \"s/\\\${REPO}/$REPO/g\" > /tmp/vm-update-script.sh
+          # Usamos um delimitador diferente no sed (|) para evitar conflitos com barras em nomes de repo
+          cat "${{ github.workspace }}/scripts/update-vm-code.sh" | \
+            sed "s|\${GITHUB_TOKEN}|$TOKEN_VAL|g" | \
+            sed "s|\${BRANCH}|$BRANCH_VAL|g" | \
+            sed "s|\${REPO}|$REPO_VAL|g" > /tmp/vm-update-script.sh
 
-          echo \"🔐 Executando script de atualização na VM...\"
+          echo "🔐 Executando script de atualização na VM..."
 
           # Executar script na VM usando @file syntax
           UPDATE_OUTPUT=$(az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
-            --scripts @/tmp/vm-update-script.sh \
+            --scripts "@/tmp/vm-update-script.sh" \
             --output json 2>&1)
 
 
