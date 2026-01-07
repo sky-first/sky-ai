@@ -3770,18 +3770,14 @@ jobs:
                 cd sky-poc-infra
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
                 
-                # Validar que a branch existe antes de fazer checkout
-                # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
-                  echo \"OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra\"
-                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
-                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
-                else
-                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório sky-poc-infra\"
-                  echo \"Branches disponíveis:\"
-                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
+                # Tentativa direta de checkout com tratamento de erro
+                git checkout "\${BRANCH}" || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório sky-poc-infra"
+                  echo "Branches disponíveis:"
+                  git branch -r || true
                   exit 1
-                fi
+                }
+                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}"; exit 1; }
                 cd ..
               elif [ -d poc-deploy ]; then
                 # Compatibilidade com estrutura antiga
@@ -3789,33 +3785,25 @@ jobs:
                 cd poc-deploy
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
                 
-                # Validar que a branch existe antes de fazer checkout
-                # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
-                  echo \"OK: Branch \${BRANCH} encontrada no repositório remoto\"
-                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
-                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
-                else
-                  echo \"ERRO: Branch \${BRANCH} não encontrada no repositório remoto\"
-                  echo \"Branches disponíveis:\"
-                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
+                # Tentativa direta de checkout com tratamento de erro
+                git checkout "\${BRANCH}" || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório remoto"
+                  echo "Branches disponíveis:"
+                  git branch -r || true
                   exit 1
-                fi
+                }
+                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
                 cd ..
               else
                 echo 'Cloning sky-poc-infra repository...'
                 REPO_URL="https://github.com/\${REPO}.git"
-                # Validar que a branch existe antes de clonar
-                # Validar que a branch existe antes de clonar
-                if git ls-remote --exit-code --heads "\${REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
-                  echo "OK: Branch \${BRANCH} encontrada, clonando como sky-poc-infra..."
-                  git clone -b \${BRANCH} "\${REPO_URL}" sky-poc-infra || { echo "❌ Erro ao clonar repositório com branch \${BRANCH}"; exit 1; }
-                else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório \${REPO_URL}"
-                  echo "Branches disponíveis:"
-                  git ls-remote --heads "\${REPO_URL}" | sed 's/.*refs\/heads\///' || true
+                # Tentativa de clonagem direta com a branch específica
+                echo "Clonando sky-poc-infra (branch: \${BRANCH})..."
+                git clone -b "\${BRANCH}" "\${REPO_URL}" sky-poc-infra || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório \${REPO_URL}"
+                  echo "Dica: Verifique se a branch existe no repositório remoto."
                   exit 1
-                fi
+                }
                 if [ -d sky-poc-infra ]; then
                   cd sky-poc-infra
                   git checkout \${BRANCH} || { echo "❌ Erro ao fazer checkout da branch \${BRANCH}"; exit 1; }
@@ -3831,37 +3819,26 @@ jobs:
                 cd sky-poc-backend
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
-                # Validar que a branch existe antes de fazer checkout
-                # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
-                  echo \"OK: Branch \${BRANCH} encontrada no backend\"
-                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
-                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
-                else
-                  echo \"ERRO: Branch \${BRANCH} não encontrada no backend\"
-                  echo \"Branches disponíveis no repositório backend:\"
-                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo \"\"
-                  echo \"Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy.\"
-                  exit 1
-                fi
-                cd ..
-              else
-                echo 'Cloning backend repository...'
-                # Validar branch antes de clonar
-                # Validar branch antes de clonar
-                if git ls-remote --exit-code --heads "\${BACKEND_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
-                  echo "OK: Branch \${BRANCH} encontrada no backend, clonando..."
-                  git clone -b \${BRANCH} "\${BACKEND_REPO_URL}" sky-poc-backend || { echo "❌ Erro ao clonar repositório backend com branch \${BRANCH}"; exit 1; }
-                else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório backend"
-                  echo "URL do repositório: \${BACKEND_REPO_URL}"
+                # Tentativa direta de checkout com tratamento de erro
+                git checkout "\${BRANCH}" || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no backend"
                   echo "Branches disponíveis:"
-                  git ls-remote --heads "\${BACKEND_REPO_URL}" 2>/dev/null | sed 's/.*refs\/heads\///' || true
+                  git branch -r || true
                   echo ""
                   echo "Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy."
                   exit 1
-                fi
+                }
+                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                cd ..
+              else
+                echo 'Cloning backend repository...'
+                # Tentativa de clonagem direta com a branch específica
+                echo "Clonando backend (branch: \${BRANCH})..."
+                git clone -b "\${BRANCH}" "\${BACKEND_REPO_URL}" sky-poc-backend || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório backend (\${BACKEND_REPO_URL})"
+                  echo "Crie a branch \${BRANCH} no repositório backend antes de fazer o deploy."
+                  exit 1
+                }
               fi
 
               # Compatibilidade com runs antigos (se algum script ainda usa ./backend)
@@ -3875,37 +3852,26 @@ jobs:
                 cd sky-poc-frontend
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
-                # Validar que a branch existe antes de fazer checkout
-                # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
-                  echo \"OK: Branch \${BRANCH} encontrada no frontend\"
-                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
-                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
-                else
-                  echo \"ERRO: Branch \${BRANCH} não encontrada no frontend\"
-                  echo \"Branches disponíveis no repositório frontend:\"
-                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo \"\"
-                  echo \"Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy.\"
-                  exit 1
-                fi
-                cd ..
-              else
-                echo 'Cloning frontend repository...'
-                # Validar branch antes de clonar
-                # Validar branch antes de clonar
-                if git ls-remote --exit-code --heads "\${FRONTEND_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
-                  echo "OK: Branch \${BRANCH} encontrada no frontend, clonando..."
-                  git clone -b \${BRANCH} "\${FRONTEND_REPO_URL}" sky-poc-frontend || { echo "❌ Erro ao clonar repositório frontend com branch \${BRANCH}"; exit 1; }
-                else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório frontend"
-                  echo "URL do repositório: \${FRONTEND_REPO_URL}"
+                # Tentativa direta de checkout com tratamento de erro
+                git checkout "\${BRANCH}" || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no frontend"
                   echo "Branches disponíveis:"
-                  git ls-remote --heads "\${FRONTEND_REPO_URL}" 2>/dev/null | sed 's/.*refs\/heads\///' || true
+                  git branch -r || true
                   echo ""
                   echo "Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy."
                   exit 1
-                fi
+                }
+                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                cd ..
+              else
+                echo 'Cloning frontend repository...'
+                # Tentativa de clonagem direta com a branch específica
+                echo "Clonando frontend (branch: \${BRANCH})..."
+                git clone -b "\${BRANCH}" "\${FRONTEND_REPO_URL}" sky-poc-frontend || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório frontend (\${FRONTEND_REPO_URL})"
+                  echo "Crie a branch \${BRANCH} no repositório frontend antes de fazer o deploy."
+                  exit 1
+                }
               fi
 
               if [ ! -d frontend ] && [ -d sky-poc-frontend ]; then
@@ -3918,37 +3884,26 @@ jobs:
                 cd sky-poc-ai
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
-                # Validar que a branch existe antes de fazer checkout
-                # Validar que a branch existe antes de fazer checkout
-                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
-                  echo \"OK: Branch \${BRANCH} encontrada no IA\"
-                  git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
-                  git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
-                else
-                  echo \"ERRO: Branch \${BRANCH} não encontrada no IA\"
-                  echo \"Branches disponíveis no repositório IA:\"
-                  git ls-remote --heads origin | sed 's/.*refs\/heads\///' || true
-                  echo \"\"
-                  echo \"Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy.\"
-                  exit 1
-                fi
-                cd ..
-              else
-                echo 'Cloning IA repository...'
-                # Validar branch antes de clonar
-                # Validar branch antes de clonar
-                if git ls-remote --exit-code --heads "\${IA_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
-                  echo "OK: Branch \${BRANCH} encontrada no IA, clonando..."
-                  git clone -b \${BRANCH} "\${IA_REPO_URL}" sky-poc-ai || { echo "❌ Erro ao clonar repositório IA com branch \${BRANCH}"; exit 1; }
-                else
-                  echo "ERRO: Branch \${BRANCH} não encontrada no repositório IA"
-                  echo "URL do repositório: \${IA_REPO_URL}"
+                # Tentativa direta de checkout com tratamento de erro
+                git checkout "\${BRANCH}" || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no IA"
                   echo "Branches disponíveis:"
-                  git ls-remote --heads "\${IA_REPO_URL}" 2>/dev/null | sed 's/.*refs\/heads\///' || true
+                  git branch -r || true
                   echo ""
                   echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
                   exit 1
-                fi
+                }
+                git pull origin "\${BRANCH}" || { echo "❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
+                cd ..
+              else
+                echo 'Cloning IA repository...'
+                # Tentativa de clonagem direta com a branch específica
+                echo "Clonando IA (branch: \${BRANCH})..."
+                git clone -b "\${BRANCH}" "\${IA_REPO_URL}" sky-poc-ai || {
+                  echo "❌ Erro: Branch \${BRANCH} não encontrada no repositório IA (\${IA_REPO_URL})"
+                  echo "Crie a branch \${BRANCH} no repositório IA antes de fazer o deploy."
+                  exit 1
+                }
               fi
 
               if [ ! -d ia ] && [ -d sky-poc-ai ]; then
