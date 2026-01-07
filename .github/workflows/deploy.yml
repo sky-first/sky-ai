@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Ambiente para deploy'
+        description: "Ambiente para deploy"
         required: true
         type: choice
         options:
@@ -18,7 +18,7 @@ on:
           - prod
           - poc-sky
       allow_destroy:
-        description: 'Permitir mudanças destrutivas'
+        description: "Permitir mudanças destrutivas"
         required: false
         type: boolean
         default: false
@@ -28,8 +28,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TERRAFORM_VERSION: '1.9.0'
-  TF_WORKING_DIR: 'infra/azure'
+  TERRAFORM_VERSION: "1.9.0"
+  TF_WORKING_DIR: "infra/azure"
 
 jobs:
   detect-environment:
@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando secrets obrigatórios do GitHub..."
-          
+
           REQUIRED_SECRETS=(
             "AZURE_SUBSCRIPTION_ID"
             "AZURE_TENANT_ID"
@@ -67,7 +67,7 @@ jobs:
             "TF_BACKEND_CONTAINER"
             "TF_BACKEND_KEY_PREFIX"
           )
-          
+
           MISSING_SECRETS=()
           for secret in "${REQUIRED_SECRETS[@]}"; do
             # Verificar se secret está definido (usando variável de ambiente)
@@ -75,7 +75,7 @@ jobs:
               MISSING_SECRETS+=("$secret")
             fi
           done
-          
+
           if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
             echo "ERRO: Secrets obrigatórios não configurados no GitHub:"
             printf '  - %s\n' "${MISSING_SECRETS[@]}"
@@ -93,7 +93,7 @@ jobs:
             echo "  - TF_BACKEND_KEY_PREFIX: Prefixo da chave do state (ex: poc-deploy)"
             exit 1
           fi
-          
+
           echo "OK: Todos os secrets obrigatórios estão configurados"
           echo ""
           echo "Secrets opcionais (Key Vault):"
@@ -107,7 +107,7 @@ jobs:
         id: detect
         run: |
           set -euo pipefail
-          
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             ENV="${{ github.event.inputs.environment }}"
             ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
@@ -129,7 +129,7 @@ jobs:
             echo "Evento não suportado: ${{ github.event_name }}"
             exit 1
           fi
-          
+
           echo "env=${ENV}" >> $GITHUB_OUTPUT
           echo "tfvars_file=terraform.tfvars.${ENV}" >> $GITHUB_OUTPUT
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando configuração do backend Terraform..."
-          
+
           # Verificar se Storage Account existe
           echo "Verificando Storage Account: ${TF_BACKEND_STORAGE_ACCOUNT}"
           if ! az storage account show \
@@ -208,7 +208,7 @@ jobs:
             exit 1
           fi
           echo "OK: Storage Account encontrado"
-          
+
           # Verificar se Container existe
           echo "Verificando Container: ${TF_BACKEND_CONTAINER}"
           if ! az storage container show \
@@ -230,7 +230,7 @@ jobs:
           else
             echo "OK: Container encontrado"
           fi
-          
+
           # Verificar permissões de escrita
           echo "Verificando permissões de escrita..."
           TEST_BLOB="terraform-test-$(date +%s).txt"
@@ -245,21 +245,21 @@ jobs:
             echo "Conceda permissão 'Storage Blob Data Contributor' para a App Registration"
             exit 1
           fi
-          
+
           # Limpar blob de teste
           az storage blob delete \
             --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
             --container-name "${TF_BACKEND_CONTAINER}" \
             --name "$TEST_BLOB" \
             --auth-mode login > /dev/null 2>&1 || true
-          
+
           echo "OK: Backend Terraform validado com sucesso"
 
       - name: Check Terraform State Lock
         run: |
           set -euo pipefail
           echo "Verificando lock do Terraform state..."
-          
+
           # Verificar se há lock preso no backend
           LOCK_INFO=$(az storage blob show \
             --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
@@ -267,7 +267,7 @@ jobs:
             --name ".terraform.tfstate.lock.info" \
             --auth-mode login \
             --query "properties.lastModified" -o tsv 2>/dev/null || echo "")
-          
+
           if [ -n "$LOCK_INFO" ]; then
             # Tentar calcular idade do lock (pode falhar em alguns sistemas)
             LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_INFO" +%s 2>/dev/null || echo 0)))
@@ -294,7 +294,7 @@ jobs:
       - name: Terraform Init
         run: |
           set -euo pipefail
-          
+
           # Tentar init normal primeiro
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
@@ -320,12 +320,12 @@ jobs:
         run: |
           set -euo pipefail
           WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
-          
+
           echo "Validando workspace Terraform: $WORKSPACE"
-          
+
           # Listar workspaces disponíveis
           WORKSPACES=$(terraform workspace list 2>/dev/null || echo "")
-          
+
           # Verificar se há workspaces corrompidos
           if echo "$WORKSPACES" | grep -q "error\|corrupt\|fatal"; then
             echo "ERRO: Workspace em estado inválido detectado"
@@ -337,7 +337,7 @@ jobs:
             echo "  terraform workspace delete <workspace-corrompido>"
             exit 1
           fi
-          
+
           # Verificar se workspace existe
           if echo "$WORKSPACES" | grep -qE "^\s*\*\s+${WORKSPACE}$|^\s+${WORKSPACE}$"; then
             echo "OK: Workspace $WORKSPACE existe"
@@ -354,7 +354,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Sincronizando recursos existentes com estado do Terraform ==="
-          
+
           # Verificar se jq está disponível (necessário para parsing JSON)
           if ! command -v jq >/dev/null 2>&1; then
             echo "Instalando jq..."
@@ -362,17 +362,17 @@ jobs:
               echo "WARNING: Não foi possível instalar jq, continuando sem refresh automático"
             }
           fi
-          
+
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
-          
+
           # Validar se arquivo tfvars existe
           if [ ! -f "$TFVARS_FILE" ]; then
             echo "WARNING: Arquivo tfvars não encontrado: $TFVARS_FILE"
             echo "Pulando sincronização de recursos existentes"
             exit 0
           fi
-          
+
           # Função helper para extrair variáveis do tfvars de forma robusta
           extract_var() {
             local var_name="$1"
@@ -382,7 +382,7 @@ jobs:
               sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
             echo "$value"
           }
-          
+
           # Extrair variáveis obrigatórias do arquivo tfvars
           ENVIRONMENT=$(extract_var "environment")
           RESOURCE_GROUP_NAME=$(extract_var "resource_group_name")
@@ -399,14 +399,14 @@ jobs:
               *) ENABLE_BASTION="true" ;;
             esac
           fi
-          
+
           # Validar variáveis obrigatórias
           if [ -z "$RESOURCE_GROUP_NAME" ]; then
             echo "WARNING: Não foi possível obter resource_group_name do tfvars"
             echo "Pulando sincronização de recursos existentes"
             exit 0
           fi
-          
+
           echo "Variáveis extraídas do tfvars:"
           echo "  - environment: ${ENVIRONMENT:-<não definido>}"
           echo "  - resource_group_name: ${RESOURCE_GROUP_NAME}"
@@ -414,17 +414,17 @@ jobs:
           echo "  - enable_bastion: ${ENABLE_BASTION}"
           echo "  - nic_name_override: ${NIC_NAME_OVERRIDE:-<vazio>}"
           echo ""
-          
+
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
-          
+
           # Verificar se Resource Group existe no Azure
           if ! az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
             echo "Resource Group não existe no Azure, será criado pelo Terraform"
             exit 0
           fi
-          
+
           echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
-          
+
           # Verificar se já está no estado do Terraform
           if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
             echo "✅ Resource Group já está no estado do Terraform"
@@ -638,7 +638,7 @@ jobs:
               exit 1
             fi
           fi
-          
+
           # ============================================================
           # Importação adicional: recursos que já existem no Azure mas
           # não estão no state (evita "already exists" no apply)
@@ -823,10 +823,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Configurando chave SSH a partir do GitHub Secret..."
-          
+
           # Criar diretório para chaves SSH (relativo ao workspace root)
           mkdir -p "${GITHUB_WORKSPACE}/keys/azure"
-          
+
           # Se o secret SSH_PUBLIC_KEY estiver definido, usar ele
           if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
             echo "Usando chave SSH do GitHub Secret..."
@@ -842,7 +842,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando chave SSH..."
-          
+
           # Verificar se ssh_public_key está definido no tfvars
           if grep -q "ssh_public_key" "${{ needs.detect-environment.outputs.tfvars_file }}"; then
             SSH_KEY_PATH=$(grep "ssh_public_key" "${{ needs.detect-environment.outputs.tfvars_file }}" | cut -d'"' -f2 || cut -d"'" -f2 || echo "")
@@ -896,25 +896,25 @@ jobs:
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           ENV="${{ needs.detect-environment.outputs.environment }}"
-          
+
           echo "=== Validação do arquivo tfvars ==="
           echo "Environment detectado: ${ENV}"
           echo "Arquivo esperado: ${TFVARS_FILE}"
           echo "Diretório de trabalho: $(pwd)"
           echo ""
-          
+
           # Verificar se o nome do arquivo está definido
           if [ -z "$TFVARS_FILE" ]; then
             echo "ERRO: Nome do arquivo tfvars está vazio"
             echo "Environment output: ${ENV}"
             exit 1
           fi
-          
+
           # Listar arquivos tfvars disponíveis para debug
           echo "Arquivos tfvars disponíveis:"
           ls -la terraform.tfvars.* 2>/dev/null || echo "  Nenhum arquivo encontrado"
           echo ""
-          
+
           # Verificar se o arquivo existe
           if [ ! -f "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo não encontrado: $TFVARS_FILE"
@@ -927,13 +927,13 @@ jobs:
             echo "  2. Verifique se o environment foi detectado corretamente"
             exit 1
           fi
-          
+
           # Verificar se o arquivo não está vazio
           if [ ! -s "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo está vazio: $TFVARS_FILE"
             exit 1
           fi
-          
+
           echo "OK: Arquivo validado: $TFVARS_FILE"
           echo "Tamanho: $(wc -l < "$TFVARS_FILE") linhas"
 
@@ -942,20 +942,20 @@ jobs:
         run: |
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          
+
           # Verificar novamente antes de executar (fail-fast)
           if [ ! -f "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
             exit 1
           fi
-          
+
           # Verificação crítica: se Resource Group existe no Azure, deve estar no estado
           # Extrair nome do Resource Group do tfvars
           RESOURCE_GROUP_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
             sed 's/.*= *"\([^"]*\)".*/\1/' | \
             sed "s/.*= *'\([^']*\)'.*/\1/" | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-          
+
           if [ -n "$RESOURCE_GROUP_NAME" ]; then
             echo "Verificando sincronização do Resource Group antes de gerar plan..."
             echo "Resource Group: $RESOURCE_GROUP_NAME"
@@ -1011,7 +1011,7 @@ jobs:
               echo "✅ Resource Group não existe no Azure - será criado pelo Terraform"
             fi
           fi
-          
+
           # Verificar e remover lock antes do plan (se necessário)
           echo "Verificando lock antes de executar terraform plan..."
           LOCK_BLOB=".terraform.tfstate.lock.info"
@@ -1048,7 +1048,7 @@ jobs:
           else
             echo "✅ Nenhum lock detectado"
           fi
-          
+
           # Executar terraform plan com detailed-exitcode
           # Exit codes: 0 = sem mudanças, 1 = erro, 2 = há mudanças (esperado)
           set +e  # Desabilitar exit on error temporariamente
@@ -1058,11 +1058,11 @@ jobs:
             -out=tfplan \
             -no-color \
             -detailed-exitcode 2>&1 | tee plan-output.txt
-          
+
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt || echo "")
           set -e  # Reabilitar exit on error
-          
+
           # Verificar se o erro foi devido a lock
           if [ $PLAN_EXIT_CODE -eq 1 ] && echo "$PLAN_OUTPUT" | grep -qi "state lock\|already locked"; then
             echo "⚠️  ERRO: Terraform plan falhou devido a lock do estado"
@@ -1091,7 +1091,7 @@ jobs:
             PLAN_EXIT_CODE=${PIPESTATUS[0]}
             set -e
           fi
-          
+
           # Tratar exit codes
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
             echo "ERRO: Terraform plan failed"
@@ -1108,14 +1108,14 @@ jobs:
             echo "ERRO: Exit code inesperado do terraform plan: $PLAN_EXIT_CODE"
             exit 1
           fi
-          
+
           # Verificação crítica APÓS gerar plan: se plan tenta criar Resource Group que já existe
           # Extrair Resource Group do tfvars novamente (não depender de variável anterior)
           PLAN_RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
             sed 's/.*= *"\([^"]*\)".*/\1/' | \
             sed "s/.*= *'\([^']*\)'.*/\1/" | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-          
+
           if [ -n "$PLAN_RG_NAME" ]; then
             echo "=== Verificação crítica do plan gerado ==="
             echo "Resource Group do tfvars: $PLAN_RG_NAME"
@@ -1320,12 +1320,12 @@ jobs:
           REPO="${{ github.repository }}"
           REPO_OWNER=$(echo "$REPO" | cut -d'/' -f1)
           REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
-          
+
           echo "Validando repositórios Git e branches..."
           echo "Branch alvo: $BRANCH"
           echo "Environment: $ENV"
           echo ""
-          
+
           # Se branch for "manual", usar branch do environment para validação
           VALIDATION_BRANCH="$BRANCH"
           if [[ "$BRANCH" == "manual" ]]; then
@@ -1347,13 +1347,13 @@ jobs:
             echo "Branch 'manual' detectado - usando branch '$VALIDATION_BRANCH' para validação (baseado no environment $ENV)"
             echo ""
           fi
-          
+
           # Configurar autenticação para repositórios privados
           # Priorizar GH_PAT (Personal Access Token) se disponível
           # GH_PAT tem acesso completo a repositórios privados
           GH_PAT="${{ secrets.GH_PAT }}"
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          
+
           # Função para URL-encode o token (necessário para caracteres especiais)
           urlencode() {
             local string="${1}"
@@ -1370,7 +1370,7 @@ jobs:
             done
             echo "${encoded}"
           }
-          
+
           if [ -n "$GH_PAT" ]; then
             echo "Usando GH_PAT para autenticação (acesso completo a repositórios privados)"
             # URL-encode o token para evitar problemas com caracteres especiais
@@ -1394,7 +1394,7 @@ jobs:
             GITHUB_URL_PREFIX="https://github.com/"
             AUTH_TYPE="NONE"
           fi
-          
+
           # Lista de repositórios a validar
           declare -A REPOS=(
             ["infra"]="${REPO}"
@@ -1402,7 +1402,7 @@ jobs:
             ["frontend"]="${REPO_OWNER}/${REPO_NAME/poc-deploy/frontend}"
             ["ia"]="${REPO_OWNER}/${REPO_NAME/poc-deploy/ia}"
           )
-          
+
           # Ajustar nomes se necessário (poc-deploy vs sky-poc-infra)
           if [[ "$REPO_NAME" == *"poc-deploy"* ]]; then
             REPOS["backend"]="${REPO_OWNER}/backend"
@@ -1413,14 +1413,14 @@ jobs:
             REPOS["frontend"]="${REPO_OWNER}/sky-poc-frontend"
             REPOS["ia"]="${REPO_OWNER}/sky-poc-ai"
           fi
-          
+
           # Debug: mostrar repositórios que serão validados
           echo "=== Repositórios a validar ==="
           for repo_type in "${!REPOS[@]}"; do
             echo "  $repo_type: ${REPOS[$repo_type]}"
           done
           echo ""
-          
+
           # Testar autenticação do PAT primeiro
           if [ "$AUTH_TYPE" = "PAT" ]; then
             echo "=== Testando autenticação PAT ==="
@@ -1440,7 +1440,7 @@ jobs:
             fi
             echo ""
           fi
-          
+
           for repo_type in "${!REPOS[@]}"; do
             repo="${REPOS[$repo_type]}"
             echo "Validando repositório $repo_type: $repo"
@@ -1591,7 +1591,7 @@ jobs:
             echo "  OK: Repositório $repo_type validado (branch $VALIDATION_BRANCH existe)"
             echo ""
           done
-          
+
           echo ""
           echo "OK: Todos os repositórios e branches validados com sucesso"
 
@@ -1599,7 +1599,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando dependências necessárias..."
-          
+
           # Verificar jq
           if ! command -v jq >/dev/null 2>&1; then
             echo "ERRO: jq não encontrado. Instalando..."
@@ -1609,7 +1609,7 @@ jobs:
             }
           fi
           echo "OK: jq encontrado: $(jq --version)"
-          
+
           # Verificar terraform (será instalado pelo setup, mas validar)
           if ! command -v terraform >/dev/null 2>&1; then
             echo "WARNING: Terraform não encontrado (será instalado no próximo step)"
@@ -1628,11 +1628,11 @@ jobs:
           set -euo pipefail
           REQUIRED_VERSION="1.2.0"
           CURRENT_VERSION=$(terraform version -json | jq -r '.terraform_version' 2>/dev/null || terraform version | head -1 | sed 's/Terraform v//')
-          
+
           echo "Verificando versão do Terraform..."
           echo "Versão atual: $CURRENT_VERSION"
           echo "Versão mínima requerida: $REQUIRED_VERSION"
-          
+
           # Comparar versões (requer versão >= 1.2.0)
           if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$CURRENT_VERSION" | sort -V | head -1)" != "$REQUIRED_VERSION" ]; then
             echo "ERRO: Versão do Terraform incompatível"
@@ -1642,7 +1642,7 @@ jobs:
             echo "Atualize o Terraform ou ajuste TERRAFORM_VERSION no workflow"
             exit 1
           fi
-          
+
           echo "OK: Versão do Terraform compatível: $CURRENT_VERSION"
 
       - name: Azure Authentication
@@ -1656,10 +1656,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Verificando configuração OIDC..."
-          
+
           # Tentar obter token (se OIDC estiver configurado, funcionará)
           TOKEN=$(az account get-access-token --query accessToken -o tsv 2>&1 || echo "")
-          
+
           if [ -z "$TOKEN" ] || [[ "$TOKEN" == *"error"* ]] || [[ "$TOKEN" == *"AADSTS"* ]]; then
             echo "ERRO: Falha na autenticação OIDC"
             echo ""
@@ -1675,18 +1675,18 @@ jobs:
             echo "  3. Verifique permissões da App Registration"
             exit 1
           fi
-          
+
           # Verificar subscription
           CURRENT_SUB=$(az account show --query id -o tsv 2>/dev/null || echo "")
           EXPECTED_SUB="${ARM_SUBSCRIPTION_ID}"
-          
+
           if [ "$CURRENT_SUB" != "$EXPECTED_SUB" ]; then
             echo "ERRO: Subscription incorreta"
             echo "Esperado: $EXPECTED_SUB"
             echo "Atual: $CURRENT_SUB"
             exit 1
           fi
-          
+
           echo "OK: Autenticação OIDC funcionando corretamente"
           echo "OK: Subscription configurada: $CURRENT_SUB"
 
@@ -1694,9 +1694,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando permissões Azure RBAC..."
-          
+
           SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
-          
+
           # Verificar se pode listar resource groups
           echo "Verificando permissões de leitura..."
           if ! az group list --query "[?name=='${TF_BACKEND_RESOURCE_GROUP}'].name" -o tsv > /dev/null 2>&1; then
@@ -1705,7 +1705,7 @@ jobs:
           else
             echo "OK: Permissão de leitura de resource groups OK"
           fi
-          
+
           # Verificar permissões básicas via role assignments
           echo "Verificando role assignments..."
           CLIENT_ID="${ARM_CLIENT_ID}"
@@ -1731,7 +1731,7 @@ jobs:
               echo "Recomendado: Contributor ou Owner no nível de subscription"
             fi
           fi
-          
+
           echo "OK: Validação de permissões RBAC concluída"
 
       - name: Write backend config
@@ -1749,7 +1749,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando configuração do backend Terraform..."
-          
+
           # Verificar se Storage Account existe
           echo "Verificando Storage Account: ${TF_BACKEND_STORAGE_ACCOUNT}"
           if ! az storage account show \
@@ -1761,7 +1761,7 @@ jobs:
             exit 1
           fi
           echo "OK: Storage Account encontrado"
-          
+
           # Verificar se Container existe
           echo "Verificando Container: ${TF_BACKEND_CONTAINER}"
           if ! az storage container show \
@@ -1782,7 +1782,7 @@ jobs:
           else
             echo "OK: Container encontrado"
           fi
-          
+
           echo "OK: Backend Terraform validado com sucesso"
 
       - name: Download Plan Artifact
@@ -1842,12 +1842,12 @@ jobs:
             echo "ERRO: Plan file não encontrado após download"
             exit 1
           fi
-          
+
           # Calcular checksum
           PLAN_CHECKSUM=$(sha256sum "$PLAN_FILE" | cut -d' ' -f1)
           echo "OK: Plan file checksum: ${PLAN_CHECKSUM}"
           echo "plan_checksum=${PLAN_CHECKSUM}" >> $GITHUB_OUTPUT
-          
+
           # Validar tamanho
           PLAN_SIZE=$(stat -f%z "$PLAN_FILE" 2>/dev/null || stat -c%s "$PLAN_FILE" 2>/dev/null || echo "0")
           if [ "$PLAN_SIZE" -eq 0 ]; then
@@ -1859,7 +1859,7 @@ jobs:
       - name: Terraform Init
         run: |
           set -euo pipefail
-          
+
           # Tentar init normal primeiro
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
@@ -1885,25 +1885,25 @@ jobs:
         run: |
           set -euo pipefail
           WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
-          
+
           echo "Validando workspace Terraform: $WORKSPACE"
-          
+
           # Listar workspaces disponíveis
           WORKSPACES=$(terraform workspace list 2>/dev/null || echo "")
-          
+
           # Verificar se há workspaces corrompidos
           if echo "$WORKSPACES" | grep -q "error\|corrupt\|fatal"; then
             echo "ERRO: Workspace em estado inválido detectado"
             exit 1
           fi
-          
+
           echo "OK: Workspaces válidos"
 
       - name: Select Workspace
         run: |
           set -euo pipefail
           WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
-          
+
           if terraform workspace select "$WORKSPACE" 2>/dev/null; then
             echo "OK: Workspace $WORKSPACE selecionado"
           else
@@ -1914,7 +1914,7 @@ jobs:
             fi
             echo "OK: Workspace $WORKSPACE criado"
           fi
-          
+
           # Verificar workspace atual
           CURRENT_WS=$(terraform workspace show)
           if [ "$CURRENT_WS" != "$WORKSPACE" ]; then
@@ -1927,25 +1927,25 @@ jobs:
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           ENV="${{ needs.detect-environment.outputs.environment }}"
-          
+
           echo "=== Validação do arquivo tfvars (terraform-apply) ==="
           echo "Environment: ${ENV}"
           echo "Arquivo esperado: ${TFVARS_FILE}"
           echo "Diretório de trabalho: $(pwd)"
           echo ""
-          
+
           # Verificar se o nome do arquivo está definido
           if [ -z "$TFVARS_FILE" ]; then
             echo "ERRO: Nome do arquivo tfvars está vazio"
             echo "Environment output: ${ENV}"
             exit 1
           fi
-          
+
           # Listar arquivos tfvars disponíveis para debug
           echo "Arquivos tfvars disponíveis:"
           ls -la terraform.tfvars.* 2>/dev/null || echo "  Nenhum arquivo encontrado"
           echo ""
-          
+
           if [ ! -f "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo não encontrado: $TFVARS_FILE"
             echo ""
@@ -1953,17 +1953,17 @@ jobs:
             ls -la *.tfvars* 2>/dev/null || echo "  Nenhum arquivo .tfvars encontrado"
             exit 1
           fi
-          
+
           if [ ! -s "$TFVARS_FILE" ]; then
             echo "ERRO: Arquivo vazio: $TFVARS_FILE"
             exit 1
           fi
-          
+
           # Validar sintaxe básica HCL
           if ! grep -q "=" "$TFVARS_FILE"; then
             echo "WARNING: Arquivo pode não conter variáveis válidas"
           fi
-          
+
           echo "OK: Arquivo $TFVARS_FILE validado"
           echo "Tamanho: $(wc -l < "$TFVARS_FILE") linhas"
 
@@ -1972,14 +1972,14 @@ jobs:
           set -euo pipefail
           CURRENT_WORKSPACE=$(terraform workspace show)
           EXPECTED_WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
-          
+
           if [ "$CURRENT_WORKSPACE" != "$EXPECTED_WORKSPACE" ]; then
             echo "ERRO: Workspace mismatch"
             echo "Esperado: $EXPECTED_WORKSPACE"
             echo "Atual: $CURRENT_WORKSPACE"
             exit 1
           fi
-          
+
           echo "OK: Workspace correto: $CURRENT_WORKSPACE"
 
       - name: Validate Plan for Destructive Changes
@@ -1987,12 +1987,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "Validando plan para mudanças destrutivas..."
-          
+
           # CRÍTICO: Definir todas as variáveis ANTES de usar (evita erro "unbound variable" com set -euo pipefail)
           ENV="${{ needs.detect-environment.outputs.environment }}"
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           ALLOW_DESTROY="${{ needs.detect-environment.outputs.allow_destroy }}"
-          
+
           # Extrair valores do tfvars ANTES de qualquer uso
           if [ -f "$TFVARS_FILE" ]; then
             RG_NAME_NEW=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
@@ -2001,15 +2001,15 @@ jobs:
             RG_NAME_NEW=""
             VM_NAME_NEW=""
           fi
-          
+
           # Tentar obter do terraform state/output
           RG_NAME_FROM_STATE=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME_FROM_STATE=$(terraform output -raw vm_name 2>/dev/null || echo "")
-          
+
           # Usar valores do tfvars (novos) ou do state (atuais)
           RG_NAME_CURRENT="${RG_NAME_FROM_STATE:-${RG_NAME_NEW}}"
           VM_NAME_CURRENT="${VM_NAME_FROM_STATE:-${VM_NAME_NEW}}"
-          
+
           # Fallback final baseado no ambiente
           if [ -z "$VM_NAME_CURRENT" ]; then
             case "$ENV" in
@@ -2019,7 +2019,7 @@ jobs:
               *) VM_NAME_CURRENT="poc-sky" ;;
             esac
           fi
-          
+
           echo "Valores detectados:"
           echo "  Environment: $ENV"
           echo "  Resource Group (novo): ${RG_NAME_NEW:-<não definido>}"
@@ -2027,11 +2027,11 @@ jobs:
           echo "  VM Name (novo): ${VM_NAME_NEW:-<não definido>}"
           echo "  VM Name (atual no state): ${VM_NAME_FROM_STATE:-<não encontrado>}"
           echo ""
-          
+
           # Verificar se o plan contém mudanças destrutivas (delete)
           # Ignorar null_resource pois são recursos efêmeros que são recriados frequentemente
           DESTROY_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? == "delete" and .type != "null_resource")] | length' || echo "0")
-          
+
           if [ "$DESTROY_COUNT" -gt 0 ]; then
             echo "⚠️  WARNING: Plan contém $DESTROY_COUNT mudança(s) destrutiva(s)!"
             echo ""
@@ -2205,27 +2205,27 @@ jobs:
           else
             echo "✅ Nenhuma mudança destrutiva detectada"
           fi
-          
+
           # Mostrar null_resources que serão recriados (apenas informativo)
           NULL_RECREATE_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.type == "null_resource" and (.change.actions | contains(["delete", "create"])))] | length' || echo "0")
           if [ "$NULL_RECREATE_COUNT" -gt 0 ]; then
             echo "INFO: $NULL_RECREATE_COUNT null_resource(s) serão recriados (comportamento esperado devido a triggers):"
             terraform show -json tfplan | jq -r '.resource_changes[]? | select(.type == "null_resource" and (.change.actions | contains(["delete", "create"]))) | "  - \(.address)"' || true
           fi
-          
+
           # Verificar se há mudanças que requerem recriação (destroy + create)
           # Ignorar null_resource na contagem de recriações críticas
           RECREATE_COUNT=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.type != "null_resource" and (.change.actions | contains(["delete", "create"])))] | length' || echo "0")
-          
+
           if [ "$RECREATE_COUNT" -gt 0 ]; then
             echo "WARNING: AVISO: Plan contém $RECREATE_COUNT recurso(s) que serão recriados (destroy + create)"
             terraform show -json tfplan | jq -r '.resource_changes[]? | select(.type != "null_resource" and (.change.actions | contains(["delete", "create"]))) | "  - \(.address) (\(.type))"' || true
           fi
-          
+
           # Contar total de mudanças
           TOTAL_CHANGES=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.change.actions[]? != "no-op")] | length' || echo "0")
           echo "Total de recursos com mudanças: $TOTAL_CHANGES"
-          
+
           echo "destroy_count=$DESTROY_COUNT" >> $GITHUB_OUTPUT
           echo "recreate_count=$RECREATE_COUNT" >> $GITHUB_OUTPUT
           echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
@@ -2234,23 +2234,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "Verificando se há recursos existentes que precisam ser importados..."
-          
+
           # Obter nome do Resource Group do terraform.tfvars
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           RESOURCE_GROUP_NAME=$(grep "resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | tr -d ' ' || echo "")
-          
+
           if [ -z "$RESOURCE_GROUP_NAME" ]; then
             echo "WARNING: Não foi possível obter resource_group_name do tfvars"
             echo "Pulando importação de recursos existentes"
             exit 0
           fi
-          
+
           echo "Resource Group: $RESOURCE_GROUP_NAME"
           SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
           NEEDS_IMPORT=false
           PLAN_REGENERATED=false
-          
+
           # Verificar se Resource Group existe no Azure
           if az group show --name "$RESOURCE_GROUP_NAME" --query id -o tsv > /dev/null 2>&1; then
             echo "Resource Group existe no Azure: $RESOURCE_GROUP_NAME"
@@ -2300,7 +2300,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Aplicando mudanças do Terraform..."
-          
+
           # Verificar se plan file existe
           if [ ! -f "tfplan" ]; then
             echo "ERRO: Plan file não encontrado"
@@ -2309,12 +2309,12 @@ jobs:
             ls -la || true
             exit 1
           fi
-          
+
           echo "Plan file encontrado, tamanho: $(du -h tfplan | cut -f1)"
-          
+
           # Verificação crítica: se plan tenta criar Resource Group, verificar se já existe no Azure
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          
+
           if [ -f "$TFVARS_FILE" ]; then
             # Extrair nome do Resource Group do tfvars
             RESOURCE_GROUP_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | \
@@ -2552,24 +2552,24 @@ jobs:
               fi
             fi
           fi
-          
+
           # CRÍTICO: Última verificação antes do apply - garantir que não vai destruir recursos críticos
           echo ""
           echo "🔍 Verificação final: recursos críticos que serão destruídos..."
-          
+
           # Re-detectar se é migração de Resource Group (mesma lógica da etapa de validação)
           ENV="${{ needs.detect-environment.outputs.environment }}"
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          
+
           # Extrair valores do tfvars
           RG_NAME_NEW=""
           if [ -f "$TFVARS_FILE" ]; then
             RG_NAME_NEW=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
           fi
-          
+
           # Tentar obter do terraform state/output
           RG_NAME_FROM_STATE=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
-          
+
           # Detectar se é migração
           IS_MIGRATION=false
           if [ -n "$RG_NAME_FROM_STATE" ] && [ -n "$RG_NAME_NEW" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
@@ -2578,9 +2578,9 @@ jobs:
             echo "   Resource Group novo (no tfvars): $RG_NAME_NEW"
             IS_MIGRATION=true
           fi
-          
+
           CRITICAL_DESTROYED=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
-          
+
           if [ "$CRITICAL_DESTROYED" != "0" ] && [ "$CRITICAL_DESTROYED" != "" ]; then
             echo "⚠️  Plan final vai destruir $CRITICAL_DESTROYED recurso(s) crítico(s)!"
             echo ""
@@ -2605,11 +2605,11 @@ jobs:
           else
             echo "✅ Nenhum recurso crítico será destruído - seguro para aplicar"
           fi
-          
+
           # Aplicar usando o plan file (mais seguro que -auto-approve)
           terraform apply tfplan 2>&1 | tee apply-output.txt
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
-          
+
           if [ $APPLY_EXIT_CODE -ne 0 ]; then
             echo "ERRO: Terraform apply failed"
             echo ""
@@ -2617,7 +2617,7 @@ jobs:
             echo "Verifique os logs do step 'Import Existing Resources' acima."
             exit 1
           fi
-          
+
           echo "OK: Terraform apply concluído com sucesso"
 
       - name: Get Terraform Outputs
@@ -2625,32 +2625,32 @@ jobs:
         run: |
           set -euo pipefail
           echo "Obtendo outputs do Terraform..."
-          
+
           terraform output -json > outputs.json || {
             echo "ERRO: Falha ao obter outputs do Terraform"
             terraform output
             exit 1
           }
-          
+
           VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
-          
+
           if [ -z "$VM_IP" ]; then
             echo "ERRO: vm_public_ip não encontrado nos outputs"
             echo "Outputs disponíveis:"
             terraform output
             exit 1
           fi
-          
+
           if [ -z "$VM_NAME" ]; then
             echo "WARNING: WARNING: vm_name não encontrado nos outputs"
           fi
-          
+
           if [ -z "$RESOURCE_GROUP" ]; then
             echo "WARNING: WARNING: resource_group_name não encontrado nos outputs"
           fi
-          
+
           echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
           echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
           echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
@@ -2665,7 +2665,7 @@ jobs:
         with:
           environment: ${{ needs.detect-environment.outputs.environment }}
           vm_ip: ${{ steps.outputs.vm_ip }}
-          timeout_minutes: '10'
+          timeout_minutes: "10"
 
       - name: Verify Health Check Status
         if: steps.health-check.outcome != 'success'
@@ -2718,9 +2718,9 @@ jobs:
             
             return 0
           }
-          
+
           VM_IP=""
-          
+
           # Tentar via Terraform output primeiro
           TF_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
           if [ -n "$TF_IP" ] && is_public_ip "$TF_IP"; then
@@ -2761,7 +2761,7 @@ jobs:
               fi
             fi
           fi
-          
+
           if [ -z "$VM_IP" ]; then
             echo "❌ ERRO: Não foi possível obter um IP público válido da VM"
             echo "Terraform output: ${TF_IP:-vazio}"
@@ -2771,7 +2771,7 @@ jobs:
             terraform output || true
             exit 1
           fi
-          
+
           echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "✅ VM Public IP validado: $VM_IP"
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
@@ -2781,12 +2781,12 @@ jobs:
           set -euo pipefail
           BACKUP_FILE="terraform-state-backup-$(date +%Y%m%d-%H%M%S).json"
           terraform state pull > "$BACKUP_FILE"
-          
+
           if [ ! -s "$BACKUP_FILE" ]; then
             echo "ERRO: Falha ao criar backup do state"
             exit 1
           fi
-          
+
           BACKUP_SIZE=$(stat -f%z "$BACKUP_FILE" 2>/dev/null || stat -c%s "$BACKUP_FILE" 2>/dev/null || echo "0")
           echo "OK: Backup criado: $BACKUP_FILE (${BACKUP_SIZE} bytes)"
 
@@ -2847,7 +2847,7 @@ jobs:
       - name: Terraform Init
         run: |
           set -euo pipefail
-          
+
           # Tentar init normal primeiro
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
@@ -2910,9 +2910,9 @@ jobs:
             
             return 0
           }
-          
+
           VM_IP=""
-          
+
           # Tentar via Terraform output primeiro
           TF_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
           if [ -n "$TF_IP" ] && is_public_ip "$TF_IP"; then
@@ -2960,7 +2960,7 @@ jobs:
               echo "⚠️  Resource Group ou VM Name não encontrados no Terraform output"
             fi
           fi
-          
+
           if [ -z "$VM_IP" ]; then
             echo "❌ ERRO: Não foi possível obter um IP público válido da VM"
             echo "Terraform output: ${TF_IP:-vazio}"
@@ -2970,7 +2970,7 @@ jobs:
             terraform output || true
             exit 1
           fi
-          
+
           echo "vm_public_ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "✅ VM Public IP validado: $VM_IP"
           echo "vm_public_ip=$VM_IP" >> $GITHUB_ENV
@@ -2980,10 +2980,10 @@ jobs:
         run: |
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
-          
+
           echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
           echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
-          
+
           echo "✅ Informações da VM obtidas:"
           echo "  Resource Group: ${RESOURCE_GROUP:-não disponível}"
           echo "  VM Name: ${VM_NAME:-não disponível}"
@@ -2994,11 +2994,11 @@ jobs:
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
           VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
-          
+
           echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
           echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
           echo "vm_public_ip=${VM_IP}" >> $GITHUB_OUTPUT
-          
+
           echo "✅ Informações da VM obtidas para smoke tests:"
           echo "  Resource Group: ${RESOURCE_GROUP:-não disponível}"
           echo "  VM Name: ${VM_NAME:-não disponível}"
@@ -3038,15 +3038,15 @@ jobs:
           set -euo pipefail
           echo "🔍 Verificando se arquivo .env existe na VM..."
           echo "📝 NOTA: Este é o arquivo .env CENTRALIZADO usado por todos os serviços (backend, frontend, IA)"
-          
+
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
-          
+
           if [ -z "$RESOURCE_GROUP" ] || [ -z "$VM_NAME" ]; then
             echo "⚠️  Resource Group ou VM Name não encontrados - pulando verificação"
             exit 0
           fi
-          
+
           # Executar diagnóstico completo na VM
           ENV_CHECK_RESULT=$(az vm run-command invoke \
             -g "$RESOURCE_GROUP" \
@@ -3145,13 +3145,13 @@ jobs:
               "
             ' \
             --output json 2>/dev/null || echo '{"value":[{"message":"ERROR"}]}')
-          
+
           # Extrair mensagem do resultado
           ENV_CHECK=$(echo "$ENV_CHECK_RESULT" | jq -r '.value[0].message' 2>/dev/null || echo "")
-          
+
           echo ""
           echo "=== RESULTADO DA VERIFICAÇÃO ==="
-          
+
           # Verificar resultado
           if echo "$ENV_CHECK" | grep -q "EXISTS"; then
             echo "✅ Arquivo .env existe na VM"
@@ -3239,7 +3239,7 @@ jobs:
           set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
           SCRIPT_PATH="${GITHUB_WORKSPACE}/scripts/smoke-tests.sh"
           chmod +x "$SCRIPT_PATH"
-          
+
           echo "=========================================="
           echo "🧪 Executando Smoke Tests"
           echo "=========================================="
@@ -3248,7 +3248,7 @@ jobs:
           echo "VM Name: ${{ steps.vm-info.outputs.vm_name }}"
           echo "Script: $SCRIPT_PATH"
           echo ""
-          
+
           # Passa parâmetros adicionais para diagnóstico automático
           # Timeout aumentado para 120s (conforme recomendação)
           if bash "$SCRIPT_PATH" \
@@ -3345,7 +3345,7 @@ jobs:
       - name: Terraform Init
         run: |
           set -euo pipefail
-          
+
           # Tentar init normal primeiro
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
@@ -3378,10 +3378,10 @@ jobs:
           VM_NAME=$(terraform output -raw vm_name 2>/dev/null || echo "")
           RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
           VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
-          
+
           ENV="${{ needs.detect-environment.outputs.environment }}"
           BRANCH_INPUT="${{ needs.detect-environment.outputs.branch }}"
-          
+
           if [[ "$BRANCH_INPUT" == "manual" ]]; then
             # Para poc-sky, usar staging; para outros ambientes, usar main
             if [[ "$ENV" == "poc-sky" ]]; then
@@ -3392,9 +3392,9 @@ jobs:
           else
             GIT_BRANCH="$BRANCH_INPUT"
           fi
-          
+
           GITHUB_REPO="${{ github.repository }}"
-          
+
           echo "vm_name=${VM_NAME}" >> $GITHUB_OUTPUT
           echo "resource_group=${RESOURCE_GROUP}" >> $GITHUB_OUTPUT
           echo "vm_ip=${VM_IP}" >> $GITHUB_OUTPUT
@@ -3406,9 +3406,9 @@ jobs:
         run: |
           set -euo pipefail
           KV_NAME="${KEYVAULT_NAME}"
-          
+
           echo "Validando Key Vault: $KV_NAME"
-          
+
           # Verificar se Key Vault existe
           if ! az keyvault show --name "$KV_NAME" --query id -o tsv > /dev/null 2>&1; then
             echo "ERRO: Key Vault não encontrado: $KV_NAME"
@@ -3428,9 +3428,9 @@ jobs:
             echo "  2. Ou remova KEYVAULT_NAME dos secrets do GitHub se não usar Key Vault"
             exit 1
           fi
-          
+
           echo "OK: Key Vault encontrado"
-          
+
           # Verificar permissões de leitura
           echo "Verificando permissões de leitura..."
           if ! az keyvault secret list --vault-name "$KV_NAME" --query "[].name" -o tsv > /dev/null 2>&1; then
@@ -3443,9 +3443,9 @@ jobs:
             echo "    --secret-permissions get list"
             exit 1
           fi
-          
+
           echo "OK: Permissões de leitura validadas"
-          
+
           # Verificar se secrets esperados existem (se nomes estiverem configurados)
           if [ -n "${KV_POSTGRES_PASSWORD_SECRET:-}" ]; then
             if ! az keyvault secret show --vault-name "$KV_NAME" --name "${KV_POSTGRES_PASSWORD_SECRET}" --query id -o tsv > /dev/null 2>&1; then
@@ -3462,7 +3462,7 @@ jobs:
               echo "OK: Secret encontrado: ${KV_OPENAI_API_KEY_SECRET}"
             fi
           fi
-          
+
           echo "OK: Key Vault $KV_NAME validado com sucesso"
 
       - name: Bootstrap OPENAI_API_KEY to Key Vault (optional)
@@ -3685,12 +3685,12 @@ jobs:
       - name: Update Code on VM
         run: |
           set -eo pipefail  # Removido -u para evitar problemas com variáveis não inicializadas
-          
+
           # Obter token do GitHub (necessário para clonar repositórios privados)
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          
+
           echo "🔐 Configurando autenticação Git na VM..."
-          
+
           # Executar comando e capturar saída
           # CRÍTICO: Não usar set -u dentro do script da VM para evitar erros com variáveis não inicializadas
           UPDATE_OUTPUT=$(az vm run-command invoke \
@@ -3771,9 +3771,8 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
-
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
                   echo \"OK: Branch \${BRANCH} encontrada no repositório sky-poc-infra\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3791,9 +3790,8 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
-
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
                   echo \"OK: Branch \${BRANCH} encontrada no repositório remoto\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3808,8 +3806,8 @@ jobs:
                 echo 'Cloning sky-poc-infra repository...'
                 REPO_URL="https://github.com/\${REPO}.git"
                 # Validar que a branch existe antes de clonar
-                BRANCH_EXISTS=\$(git ls-remote --heads "\${REPO_URL}" \${BRANCH} | grep \${BRANCH} || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
+                # Validar que a branch existe antes de clonar
+                if git ls-remote --exit-code --heads "\${REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
                   echo "OK: Branch \${BRANCH} encontrada, clonando como sky-poc-infra..."
                   git clone -b \${BRANCH} "\${REPO_URL}" sky-poc-infra || { echo "❌ Erro ao clonar repositório com branch \${BRANCH}"; exit 1; }
                 else
@@ -3834,9 +3832,8 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
-
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
                   echo \"OK: Branch \${BRANCH} encontrada no backend\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3852,8 +3849,8 @@ jobs:
               else
                 echo 'Cloning backend repository...'
                 # Validar branch antes de clonar
-                BRANCH_EXISTS=\$(git ls-remote --heads "\${BACKEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
+                # Validar branch antes de clonar
+                if git ls-remote --exit-code --heads "\${BACKEND_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
                   echo "OK: Branch \${BRANCH} encontrada no backend, clonando..."
                   git clone -b \${BRANCH} "\${BACKEND_REPO_URL}" sky-poc-backend || { echo "❌ Erro ao clonar repositório backend com branch \${BRANCH}"; exit 1; }
                 else
@@ -3879,9 +3876,8 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
-
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
                   echo \"OK: Branch \${BRANCH} encontrada no frontend\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3897,8 +3893,8 @@ jobs:
               else
                 echo 'Cloning frontend repository...'
                 # Validar branch antes de clonar
-                BRANCH_EXISTS=\$(git ls-remote --heads "\${FRONTEND_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
+                # Validar branch antes de clonar
+                if git ls-remote --exit-code --heads "\${FRONTEND_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
                   echo "OK: Branch \${BRANCH} encontrada no frontend, clonando..."
                   git clone -b \${BRANCH} "\${FRONTEND_REPO_URL}" sky-poc-frontend || { echo "❌ Erro ao clonar repositório frontend com branch \${BRANCH}"; exit 1; }
                 else
@@ -3923,9 +3919,8 @@ jobs:
                 git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
                 
                 # Validar que a branch existe antes de fazer checkout
-                BRANCH_EXISTS=\$(git ls-remote --heads origin \"\${BRANCH}\" 2>/dev/null | grep \"refs/heads/\${BRANCH}\" || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
-
+                # Validar que a branch existe antes de fazer checkout
+                if git ls-remote --exit-code --heads origin \"\${BRANCH}\" >/dev/null 2>&1; then
                   echo \"OK: Branch \${BRANCH} encontrada no IA\"
                   git checkout \"\${BRANCH}\" || { echo \"❌ Erro ao fazer checkout da branch \${BRANCH}\"; exit 1; }
                   git pull origin \"\${BRANCH}\" || { echo \"❌ Erro ao fazer pull da branch \${BRANCH}\"; exit 1; }
@@ -3941,8 +3936,8 @@ jobs:
               else
                 echo 'Cloning IA repository...'
                 # Validar branch antes de clonar
-                BRANCH_EXISTS=\$(git ls-remote --heads "\${IA_REPO_URL}" \${BRANCH} 2>/dev/null | grep \${BRANCH} || echo "")
-                if [ -n \"\$BRANCH_EXISTS\" ]; then
+                # Validar branch antes de clonar
+                if git ls-remote --exit-code --heads "\${IA_REPO_URL}" \${BRANCH} >/dev/null 2>&1; then
                   echo "OK: Branch \${BRANCH} encontrada no IA, clonando..."
                   git clone -b \${BRANCH} "\${IA_REPO_URL}" sky-poc-ai || { echo "❌ Erro ao clonar repositório IA com branch \${BRANCH}"; exit 1; }
                 else
@@ -4046,15 +4041,15 @@ jobs:
               SCRIPT_EOF
             " \
             --output json 2>&1)
-          
+
           # Capturar exit code corretamente (PIPESTATUS pode não estar disponível em todos os shells)
           UPDATE_EXIT_CODE=$?
           set -e  # Reabilitar exit on error
-          
+
           # Salvar output para debug
           echo "$UPDATE_OUTPUT" > update-code-output.txt
           cat update-code-output.txt
-          
+
           # Verificar se o comando foi bem-sucedido
           if [ "$UPDATE_EXIT_CODE" -ne 0 ]; then
             echo "❌ ERRO: Falha ao atualizar código na VM (exit code: $UPDATE_EXIT_CODE)"
@@ -4063,7 +4058,7 @@ jobs:
             echo "$UPDATE_OUTPUT"
             exit 1
           fi
-          
+
           # CRÍTICO: Verificar se há erros na resposta da VM (mesmo que o comando tenha retornado sucesso)
           # O az vm run-command pode retornar sucesso mesmo quando o script interno falha
           if command -v jq >/dev/null 2>&1; then
@@ -4115,14 +4110,14 @@ jobs:
               exit 1
             fi
           fi
-          
+
           echo "✅ Código atualizado na VM com sucesso"
 
       - name: Validate Docker Compose Paths
         run: |
           set -eo pipefail  # Removido -u para evitar problemas com variáveis opcionais
           echo "Validando caminhos do Docker Compose na VM..."
-          
+
           az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
@@ -4258,10 +4253,10 @@ jobs:
               SCRIPT_EOF
             " \
             --output json 2>&1)
-          
+
           # Verificar erros no output
           echo "$BOOTSTRAP_OUTPUT"
-          
+
           if command -v jq >/dev/null 2>&1; then
             if echo "$BOOTSTRAP_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
               BOOTSTRAP_MESSAGE=$(echo "$BOOTSTRAP_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
@@ -4665,7 +4660,7 @@ jobs:
       - name: Terraform Init
         run: |
           set -euo pipefail
-          
+
           # Tentar init normal primeiro
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
