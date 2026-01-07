@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.data_sources.base import BaseDataSource
@@ -10,14 +10,59 @@ from core.llm.providers import LLMProvider
 from core.sql.validator import ensure_safe_select
 from core.logging_utils import log_event
 
+# Import security config functions
+from core.security.security_config import (
+    SecurityConfig,
+    get_default_security_config,
+    filter_columns_by_security,
+    inject_row_filters_in_sql,
+    validate_sql_against_security,
+    build_security_prompt_instructions,
+)
+
 
 # ==================== HELPERS ====================
 
-def _build_schema_text(table: TableSchema) -> str:
+def _filter_table_schema_by_security(
+    table: TableSchema,
+    security_config: Optional[SecurityConfig]
+) -> TableSchema:
+    """
+    Filtra as colunas de uma tabela baseado nas regras de segurança.
+    Retorna uma cópia da tabela com apenas as colunas permitidas.
+    """
+    if not security_config:
+        return table
+    
+    if not getattr(table, "columns", None):
+        return table
+    
+    filtered_columns = filter_columns_by_security(
+        columns=table.columns,
+        table_name=table.logical_name,
+        security_config=security_config
+    )
+    
+    # Criar nova TableSchema com colunas filtradas
+    return TableSchema(
+        logical_name=table.logical_name,
+        physical_name=table.physical_name,
+        columns=filtered_columns,
+        description=getattr(table, "description", None),
+    )
+
+
+def _build_schema_text(table: TableSchema, security_config: Optional[SecurityConfig] = None) -> str:
     """
     Gera um texto legível do schema da tabela para o LLM.
     Usa logical_name só como rótulo, mas força o uso de physical_name.
+    
+    Se security_config for fornecido, filtra as colunas antes de gerar o texto.
     """
+    # Filtrar colunas se security_config foi fornecido
+    if security_config:
+        table = _filter_table_schema_by_security(table, security_config)
+    
     lines: List[str] = []
     lines.append(f"Logical table: {table.logical_name}")
     lines.append(f"Physical table: {table.physical_name}")
@@ -63,15 +108,21 @@ def _build_schema_text(table: TableSchema) -> str:
     return "\n".join(lines)
 
 
-def _build_multiple_schemas_text(tables: List[TableSchema], join_info: Optional[List[Dict[str, str]]] = None) -> str:
+def _build_multiple_schemas_text(
+    tables: List[TableSchema],
+    join_info: Optional[List[Dict[str, str]]] = None,
+    security_config: Optional[SecurityConfig] = None
+) -> str:
     """
     Gera texto legível para múltiplas tabelas com informações de JOIN.
+    
+    Se security_config for fornecido, filtra as colunas de cada tabela.
     """
     lines: List[str] = []
     lines.append("=== TABLES TO JOIN ===\n")
     
     for table in tables:
-        lines.append(_build_schema_text(table))
+        lines.append(_build_schema_text(table, security_config))
         lines.append("")  # linha em branco entre tabelas
     
     if join_info:
@@ -140,6 +191,12 @@ def run_specialist(
     - preenche state["sql"], state["data"] (ou state["impossible_reason"])
     """
     question = (state.get("question") or "").strip()
+    
+    # Obter security_config do state (enviado pelo backend via request)
+    security_config: Optional[SecurityConfig] = state.get("security_config")
+    if not security_config:
+        # Usar configuração padrão se não foi enviada
+        security_config = get_default_security_config()
 
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
     if state.get("answer"):
@@ -193,7 +250,7 @@ def run_specialist(
             )
             return state
         
-        schema_text = _build_multiple_schemas_text(tables, join_relationships)
+        schema_text = _build_multiple_schemas_text(tables, join_relationships, security_config)
         primary_table = tables[0]  # primeira tabela é a principal (FROM)
         
     else:
@@ -218,7 +275,7 @@ def run_specialist(
             )
             return state
 
-        schema_text = _build_schema_text(table)
+        schema_text = _build_schema_text(table, security_config)
         primary_table = table
 
     # 🔹 CONTEXTO DE RAG: metadados, docs, histórico etc.
@@ -240,6 +297,9 @@ def run_specialist(
             "\n\nSQL-SPECIFIC INSTRUCTIONS:\n"
             f"{sql_instructions}\n"
         )
+    
+    # 🔒 INSTRUÇÕES DE SEGURANÇA (RLS, colunas bloqueadas, etc.)
+    security_instructions_block = build_security_prompt_instructions(security_config)
     
     # Preparar orientações de agregação (comum para ambos os modos)
     aggregation_guidance = ""
@@ -303,6 +363,7 @@ def run_specialist(
                 f"Table schemas:\n{schema_text}\n"
                 f"{context_block}"
                 f"{sql_instructions_block}"
+                f"{security_instructions_block}"
                 f"{join_guidance}"
                 f"{aggregation_guidance}"
                 "Generate only the SQL query with JOINs (or IMPOSSIBLE: <reason>)."
@@ -338,6 +399,7 @@ def run_specialist(
                 f"Table schema:\n{schema_text}\n"
                 f"{context_block}"
                 f"{sql_instructions_block}"
+                f"{security_instructions_block}"
                 f"{aggregation_guidance}"
                 "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
             ),
@@ -399,7 +461,7 @@ def run_specialist(
         )
         return state
 
-    # === Validação de segurança (só SELECT, sem maldade) ===
+    # === Validação de segurança básica (só SELECT, sem maldade) ===
     safe_error = ensure_safe_select(sql)
     if safe_error:
         state["error"] = safe_error
@@ -411,6 +473,41 @@ def run_specialist(
                 "chosen_logical": chosen_logical,
                 "sql": sql[:500],
                 "error": safe_error,
+            },
+        )
+        return state
+
+    # === Injetar Row-Level Security (RLS) filters ===
+    # Isso adiciona cláusulas WHERE automáticas baseadas no security_config
+    sql_with_rls = inject_row_filters_in_sql(sql, security_config)
+    if sql_with_rls != sql:
+        log_event(
+            "specialist_rls_injected",
+            {
+                "agent_id": agent_config.id,
+                "original_sql": sql[:300],
+                "sql_with_rls": sql_with_rls[:300],
+            },
+        )
+        sql = sql_with_rls
+
+    # === Validação de segurança avançada (colunas, keywords, RLS) ===
+    is_valid, security_error = validate_sql_against_security(
+        sql=sql,
+        security_config=security_config,
+        allowed_tables=[primary_table.physical_name] + (
+            [t.physical_name for t in tables] if use_multiple_tables else []
+        )
+    )
+    if not is_valid:
+        state["error"] = f"Security validation failed: {security_error}"
+        state["sql"] = sql
+        log_event(
+            "specialist_security_validation_failed",
+            {
+                "agent_id": agent_config.id,
+                "sql": sql[:500],
+                "error": security_error,
             },
         )
         return state
