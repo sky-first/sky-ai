@@ -2424,6 +2424,9 @@ async def query_connection(
             "response_format": body.response_format,
             "sql_instructions": body.sql_instructions,
             "selected_datasets": body.selected_datasets,
+            # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
+            # Enviada pelo backend para cada usuário/space/crew
+            "security_config": body.security_config,
         }
         
         # Criar factory que retorna uma nova sessão (não reutilizar a sessão do FastAPI)
@@ -2837,6 +2840,8 @@ async def _stream_connection_query(
                 "response_format": body.response_format,
                 "sql_instructions": body.sql_instructions,
                 "selected_datasets": body.selected_datasets,
+                # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
+                "security_config": body.security_config,
             }
             
             def db_session_factory():
@@ -3251,6 +3256,28 @@ async def validate_sql(
                 is_valid=False,
                 error="SQL não pode ser vazio"
             )
+        
+        # ✅ NOVO: Validar SQL contra regras de segurança (se security_config foi enviado)
+        if body.security_config:
+            from core.security.security_config import (
+                validate_sql_against_security,
+                inject_row_filters_in_sql,
+                get_default_security_config,
+            )
+            
+            # Injetar row filters (RLS) se configurado
+            sql = inject_row_filters_in_sql(sql, body.security_config)
+            
+            # Validar SQL contra regras de segurança
+            is_valid, security_error = validate_sql_against_security(
+                sql=sql,
+                security_config=body.security_config,
+            )
+            if not is_valid:
+                return ValidateSQLResponse(
+                    is_valid=False,
+                    error=f"Violação de segurança: {security_error}"
+                )
         
         # Adicionar LIMIT se não existir (para evitar queries muito grandes)
         sql_upper = sql.upper()

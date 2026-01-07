@@ -4,6 +4,9 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+# Import SecurityConfig para uso no QueryRequest
+from core.security.security_config import SecurityConfig, TableSecurityConfig
+
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="Pergunta do usuário em linguagem natural.")
@@ -48,6 +51,13 @@ class QueryRequest(BaseModel):
     selected_datasets: Optional[List[str]] = Field(
         default=None,
         description="Lista de datasets/tabelas selecionados manualmente pelo usuário. Se fornecido, o orchestrator usará apenas essas tabelas ao invés de escolher automaticamente."
+    )
+    
+    # ✅ NOVO: Configuração de segurança dinâmica (enviada pelo backend)
+    security_config: Optional[SecurityConfig] = Field(
+        default=None,
+        description="Configuração de segurança enviada pelo backend. Inclui row_filters (RLS), "
+                    "allowed/blocked columns, e outras regras de segurança por tabela."
     )
 
 
@@ -308,6 +318,11 @@ class ValidateSQLRequest(BaseModel):
     is_personal: Optional[bool] = Field(
         default=False,
         description="Indica se está no modo personal."
+    )
+    # ✅ NOVO: Configuração de segurança dinâmica (enviada pelo backend)
+    security_config: Optional[SecurityConfig] = Field(
+        default=None,
+        description="Configuração de segurança para validar o SQL contra regras de RLS e colunas."
     )
 
 
