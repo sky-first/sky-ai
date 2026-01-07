@@ -1,12 +1,12 @@
 #!/bin/bash
 # setup-vm-runtime.sh - Refactored script for VM maintenance
 # Handles .env bootstrap, IP updates, secret injection, and container restart with health checks.
-# Version: 1.0.4 (Stabilization: robust paths, sudo management, and checklist logging)
+# Version: 1.0.5 (Fixed: Expand database URLs with real values before Docker Compose)
 
 set -eo pipefail
 
 echo "=========================================="
-echo "🚀 VM RUNTIME SETUP & MAINTENANCE (v1.0.4)"
+echo "🚀 VM RUNTIME SETUP & MAINTENANCE (v1.0.5)"
 echo "🕒 Started at: $(date)"
 echo "=========================================="
 echo ''
@@ -113,6 +113,97 @@ if [ -n "$VM_IP" ]; then
   fi
   
   echo '✅ Endereços IP sincronizados'
+fi
+
+# 4.5. Expandir URLs de banco de dados com valores reais
+# CRÍTICO: Docker Compose não expande sintaxe ${VAR:-default} quando variáveis não estão definidas
+# Precisamos expandir manualmente para garantir que as URLs estão completas antes do docker compose
+echo ''
+echo '🔧 Expandindo URLs de banco de dados com valores reais...'
+
+# Função helper para ler valores do .env de forma segura
+read_env_value() {
+  local key="$1"
+  local default="$2"
+  local val=$(grep "^${key}=" .env 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed "s/^[\"']//;s/[\"']$//" || echo "")
+  echo "${val:-$default}"
+}
+
+# Função para fazer URL-encoding de senhas com caracteres especiais
+# CRÍTICO: Senhas podem conter caracteres que quebram URLs (como @, :, /, #, etc.)
+url_encode_password() {
+  local password="$1"
+  # Usar Python para fazer URL-encoding seguro (disponível em todas as VMs Linux modernas)
+  python3 -c "import urllib.parse; print(urllib.parse.quote('$password', safe=''))" 2>/dev/null || \
+    echo "$password" | sed 's/:/%3A/g; s/@/%40/g; s/#/%23/g; s/\//%2F/g; s/\?/%3F/g; s/\[/%5B/g; s/\]/%5D/g; s/ /%20/g'
+}
+
+# Garantir que variáveis básicas existem (com valores padrão se necessário)
+if ! grep -q "^POSTGRES_USER=" .env; then
+  POSTGRES_USER_DEFAULT="${POSTGRES_USER:-postgres}"
+  ensure_kv "POSTGRES_USER" "$POSTGRES_USER_DEFAULT"
+  echo "✅ POSTGRES_USER configurada (padrão: $POSTGRES_USER_DEFAULT)"
+fi
+
+if ! grep -q "^POSTGRES_DB=" .env; then
+  POSTGRES_DB_DEFAULT="${POSTGRES_DB:-ai_saas_db}"
+  ensure_kv "POSTGRES_DB" "$POSTGRES_DB_DEFAULT"
+  echo "✅ POSTGRES_DB configurada (padrão: $POSTGRES_DB_DEFAULT)"
+fi
+
+# Ler valores do .env (após garantir que existem)
+POSTGRES_USER_VAL=$(read_env_value "POSTGRES_USER" "postgres")
+POSTGRES_PASSWORD_VAL=$(read_env_value "POSTGRES_PASSWORD" "")
+POSTGRES_DB_VAL=$(read_env_value "POSTGRES_DB" "ai_saas_db")
+
+# Validar que temos senha (não pode estar vazia ou com valor padrão placeholder)
+if [ -z "$POSTGRES_PASSWORD_VAL" ]; then
+  echo '❌ ERRO: POSTGRES_PASSWORD não está configurada no .env!'
+  echo '   Configure POSTGRES_PASSWORD antes de continuar.'
+  echo '   Dica: A variável deve ser passada via ambiente ou configurada manualmente.'
+  exit 1
+fi
+
+# Verificar se a senha não é um placeholder comum
+if [[ "$POSTGRES_PASSWORD_VAL" =~ ^(secure_password_here|password|postgres|changeme|changeit)$ ]]; then
+  echo "⚠️  AVISO: POSTGRES_PASSWORD parece ser um placeholder padrão: '${POSTGRES_PASSWORD_VAL:0:5}...'"
+  echo "   Recomendamos usar uma senha forte em produção."
+fi
+
+# Validar valores básicos
+if [ -z "$POSTGRES_USER_VAL" ]; then
+  echo '❌ ERRO: POSTGRES_USER está vazio!'
+  exit 1
+fi
+
+if [ -z "$POSTGRES_DB_VAL" ]; then
+  echo '❌ ERRO: POSTGRES_DB está vazio!'
+  exit 1
+fi
+
+# Construir URLs expandidas (asyncpg é o driver assíncrono usado pelo backend e AI)
+# CRÍTICO: Senhas podem conter caracteres especiais que quebram URLs (@, :, /, #, etc.)
+# Precisamos fazer URL-encoding da senha para garantir que a URL seja válida
+POSTGRES_PASSWORD_ENCODED=$(url_encode_password "$POSTGRES_PASSWORD_VAL")
+BACKEND_DB_URL="postgresql+asyncpg://${POSTGRES_USER_VAL}:${POSTGRES_PASSWORD_ENCODED}@postgres:5432/${POSTGRES_DB_VAL}"
+AI_DB_URL="postgresql+asyncpg://${POSTGRES_USER_VAL}:${POSTGRES_PASSWORD_ENCODED}@postgres:5432/${POSTGRES_DB_VAL}"
+
+# Atualizar URLs no .env (usando ensure_kv que já faz escape correto)
+ensure_kv "BACKEND_DATABASE_URL" "$BACKEND_DB_URL"
+ensure_kv "AI_DATABASE_URL" "$AI_DB_URL"
+
+echo "✅ BACKEND_DATABASE_URL expandida (usuário: $POSTGRES_USER_VAL, DB: $POSTGRES_DB_VAL)"
+echo "✅ AI_DATABASE_URL expandida (usuário: $POSTGRES_USER_VAL, DB: $POSTGRES_DB_VAL)"
+
+# Validação final: verificar que as URLs foram escritas corretamente
+if ! grep -q "^BACKEND_DATABASE_URL=postgresql" .env; then
+  echo '❌ ERRO: Falha ao escrever BACKEND_DATABASE_URL no .env!'
+  exit 1
+fi
+
+if ! grep -q "^AI_DATABASE_URL=postgresql" .env; then
+  echo '❌ ERRO: Falha ao escrever AI_DATABASE_URL no .env!'
+  exit 1
 fi
 
 chmod 600 .env
