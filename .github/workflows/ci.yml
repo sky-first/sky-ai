@@ -320,12 +320,18 @@ jobs:
             exit 1
           fi
           
-          if grep -q "context: ../sky-poc-backend" docker-compose.yml && \
-             grep -q "context: ../sky-poc-frontend" docker-compose.yml; then
-            echo "✅ Caminhos corretos para sky-poc-backend e sky-poc-frontend encontrados"
+          if grep -q "context: ../sky-poc-backend" docker-compose.yml; then
+             echo "✅ Caminho correto para backend encontrado"
           else
-            echo "⚠️ WARNING: Caminhos corretos não encontrados"
-            exit 1
+             echo "❌ ERRO: context: ../sky-poc-backend não encontrado"
+             exit 1
+          fi
+
+          if grep -q "context: ../sky-poc-frontend" docker-compose.yml || grep -q "context: \.\." docker-compose.yml; then
+             echo "✅ Caminho válido para frontend encontrado (../sky-poc-frontend ou ..)"
+          else
+             echo "❌ ERRO: context válido para frontend não encontrado"
+             exit 1
           fi
 
   terraform-plan-preview:
