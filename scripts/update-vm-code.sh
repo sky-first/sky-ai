@@ -9,13 +9,13 @@ echo '📥 Atualizando código na VM'
 echo '=========================================='
 echo ''
 
-# Configurar Git para usar token (se fornecido)
+# Configurar URL com token se fornecido
 if [ -n "$GITHUB_TOKEN" ]; then
-  echo '🔐 Configurando autenticação Git...'
-  git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-  echo '✅ Git configurado para usar token'
+  AUTH_REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com"
+  echo '🔐 Usando token para autenticação Git'
 else
-  echo '⚠️  GITHUB_TOKEN não fornecido - repositórios públicos funcionarão, privados podem falhar'
+  AUTH_REPO_URL="https://github.com"
+  echo '⚠️  GITHUB_TOKEN não fornecido - usando URLs públicas'
 fi
 
 # Garantir que diretório existe (CRÍTICO)
@@ -57,69 +57,45 @@ echo ""
 REPO_OWNER=${REPO%%/*}
 REPO_NAME=${REPO##*/}
 
-# Verificar primeiro por sky-poc-infra (estrutura atual)
+# 1. Infra / Poc-Deploy
 if [ -d sky-poc-infra ]; then
   echo 'Updating sky-poc-infra repository...'
   cd sky-poc-infra
+  git remote set-url origin "${AUTH_REPO_URL}/${REPO_OWNER}/sky-poc-infra.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
-  git checkout "${BRANCH}" || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório sky-poc-infra"
-    echo "Branches disponíveis:"
-    git branch -r || true
-    exit 1
-  }
+  git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no infra"; exit 1; }
   git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
   cd ..
 elif [ -d poc-deploy ]; then
   echo 'Updating poc-deploy repository...'
   cd poc-deploy
+  git remote set-url origin "${AUTH_REPO_URL}/${REPO_OWNER}/poc-deploy.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
-  git checkout "${BRANCH}" || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório remoto"
-    echo "Branches disponíveis:"
-    git branch -r || true
-    exit 1
-  }
+  git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no poc-deploy"; exit 1; }
   git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning sky-poc-infra repository...'
-  REPO_URL="https://github.com/${REPO}.git"
-  echo "Clonando sky-poc-infra (branch: ${BRANCH})..."
-  git clone -b "${BRANCH}" "${REPO_URL}" sky-poc-infra || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório ${REPO_URL}"
-    echo "Dica: Verifique se a branch existe no repositório remoto."
+  git clone -b "${BRANCH}" "${AUTH_REPO_URL}/${REPO_OWNER}/sky-poc-infra.git" sky-poc-infra || {
+    echo "❌ Erro: Falha ao clonar infra."
     exit 1
   }
-  if [ -d sky-poc-infra ]; then
-    cd sky-poc-infra
-    git checkout ${BRANCH} || { echo "❌ Erro ao fazer checkout da branch ${BRANCH}"; exit 1; }
-    cd ..
-  fi
 fi
 
-# Backend
-BACKEND_REPO_URL="https://github.com/${REPO_OWNER}/sky-poc-backend.git"
+# 2. Backend
+BACKEND_REPO="${REPO_OWNER}/sky-poc-backend"
 if [ -d sky-poc-backend ]; then
   echo 'Updating backend repository...'
   cd sky-poc-backend
+  git remote set-url origin "${AUTH_REPO_URL}/${BACKEND_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
-  git checkout "${BRANCH}" || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no backend"
-    echo "Branches disponíveis:"
-    git branch -r || true
-    echo ""
-    echo "Crie a branch ${BRANCH} no repositório backend antes de fazer o deploy."
-    exit 1
-  }
+  git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no backend"; exit 1; }
   git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning backend repository...'
-  echo "Clonando backend (branch: ${BRANCH})..."
-  git clone -b "${BRANCH}" "${BACKEND_REPO_URL}" sky-poc-backend || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório backend (${BACKEND_REPO_URL})"
-    echo "Crie a branch ${BRANCH} no repositório backend antes de fazer o deploy."
+  git clone -b "${BRANCH}" "${AUTH_REPO_URL}/${BACKEND_REPO}.git" sky-poc-backend || {
+    echo "❌ Erro: Falha ao clonar backend."
     exit 1
   }
 fi
@@ -128,28 +104,20 @@ if [ ! -d backend ] && [ -d sky-poc-backend ]; then
   ln -s sky-poc-backend backend 2>/dev/null || true
 fi
 
-# Frontend
-FRONTEND_REPO_URL="https://github.com/${REPO_OWNER}/sky-poc-frontend.git"
+# 3. Frontend
+FRONTEND_REPO="${REPO_OWNER}/sky-poc-frontend"
 if [ -d sky-poc-frontend ]; then
   echo 'Updating frontend repository...'
   cd sky-poc-frontend
+  git remote set-url origin "${AUTH_REPO_URL}/${FRONTEND_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
-  git checkout "${BRANCH}" || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no frontend"
-    echo "Branches disponíveis:"
-    git branch -r || true
-    echo ""
-    echo "Crie a branch ${BRANCH} no repositório frontend antes de fazer o deploy."
-    exit 1
-  }
+  git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no frontend"; exit 1; }
   git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning frontend repository...'
-  echo "Clonando frontend (branch: ${BRANCH})..."
-  git clone -b "${BRANCH}" "${FRONTEND_REPO_URL}" sky-poc-frontend || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório frontend (${FRONTEND_REPO_URL})"
-    echo "Crie a branch ${BRANCH} no repositório frontend antes de fazer o deploy."
+  git clone -b "${BRANCH}" "${AUTH_REPO_URL}/${FRONTEND_REPO}.git" sky-poc-frontend || {
+    echo "❌ Erro: Falha ao clonar frontend."
     exit 1
   }
 fi
@@ -158,28 +126,20 @@ if [ ! -d frontend ] && [ -d sky-poc-frontend ]; then
   ln -s sky-poc-frontend frontend 2>/dev/null || true
 fi
 
-# IA
-IA_REPO_URL="https://github.com/${REPO_OWNER}/sky-poc-ai.git"
+# 4. AI
+IA_REPO="${REPO_OWNER}/sky-poc-ai"
 if [ -d sky-poc-ai ]; then
-  echo 'Updating IA repository...'
+  echo 'Updating AI repository...'
   cd sky-poc-ai
+  git remote set-url origin "${AUTH_REPO_URL}/${IA_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
-  git checkout "${BRANCH}" || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no IA"
-    echo "Branches disponíveis:"
-    git branch -r || true
-    echo ""
-    echo "Crie a branch ${BRANCH} no repositório IA antes de fazer o deploy."
-    exit 1
-  }
+  git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no IA"; exit 1; }
   git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
   cd ..
 else
-  echo 'Cloning IA repository...'
-  echo "Clonando IA (branch: ${BRANCH})..."
-  git clone -b "${BRANCH}" "${IA_REPO_URL}" sky-poc-ai || {
-    echo "❌ Erro: Branch ${BRANCH} não encontrada no repositório IA (${IA_REPO_URL})"
-    echo "Crie a branch ${BRANCH} no repositório IA antes de fazer o deploy."
+  echo 'Cloning AI repository...'
+  git clone -b "${BRANCH}" "${AUTH_REPO_URL}/${IA_REPO}.git" sky-poc-ai || {
+    echo "❌ Erro: Falha ao clonar IA."
     exit 1
   }
 fi
@@ -200,43 +160,14 @@ if [ ! -d sky-poc-infra ] && [ ! -d poc-deploy ]; then
   ERRORS=$((ERRORS + 1))
 fi
 
-INFRA_DIR=''
-if [ -d sky-poc-infra ]; then
-  INFRA_DIR='sky-poc-infra'
-elif [ -d poc-deploy ]; then
-  INFRA_DIR='poc-deploy'
-fi
-
-if [ -n "$INFRA_DIR" ]; then
-  cd "$INFRA_DIR"
-  CURRENT_DIR=$(pwd)
-  if [ ! -f docker-compose.yml ]; then
-    echo "❌ ERRO: docker-compose.yml não encontrado em ${CURRENT_DIR}"
-    ERRORS=$((ERRORS + 1))
-  else
-    echo "✅ docker-compose.yml encontrado em ${CURRENT_DIR}"
-  fi
-  cd ..
-fi
-
 if [ ! -d sky-poc-backend ]; then
   echo '❌ ERRO: sky-poc-backend não encontrado'
   ERRORS=$((ERRORS + 1))
-else
-  echo '✅ sky-poc-backend encontrado'
 fi
 
 if [ ! -d sky-poc-frontend ]; then
   echo '❌ ERRO: sky-poc-frontend não encontrado'
   ERRORS=$((ERRORS + 1))
-else
-  echo '✅ sky-poc-frontend encontrado'
-fi
-
-if [ ! -d sky-poc-ai ]; then
-  echo '⚠️  AVISO: sky-poc-ai não encontrado (pode ser opcional)'
-else
-  echo '✅ sky-poc-ai encontrado'
 fi
 
 echo ''
@@ -245,21 +176,11 @@ ls -la /home/azureuser/projeto/ | head -20
 
 echo ''
 echo '🔧 Corrigindo permissões dos diretórios...'
-chown -R azureuser:azureuser /home/azureuser/projeto 2>/dev/null || {
-  echo "⚠️  Aviso: Não foi possível alterar proprietário de alguns arquivos - pode ser normal"
-}
+chown -R azureuser:azureuser /home/azureuser/projeto 2>/dev/null || true
 
-echo ''
-echo '📋 Permissões finais:'
-ls -ld /home/azureuser/projeto || true
-if [ -d /home/azureuser/projeto/sky-poc-infra ]; then
-  ls -ld /home/azureuser/projeto/sky-poc-infra || true
-fi
-
-FINAL_ERRORS=${ERRORS:-0}
-if [ "$FINAL_ERRORS" -gt 0 ]; then
+if [ "$ERRORS" -gt 0 ]; then
   echo ''
-  echo "❌ ERRO: ${FINAL_ERRORS} problema(s) encontrado(s) - falhando"
+  echo "❌ ERRO: ${ERRORS} problema(s) encontrado(s) - falhando"
   exit 1
 fi
 
