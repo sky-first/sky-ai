@@ -229,115 +229,31 @@ def _extract_table_name_from_question(question: str, tables: List[TableSchema]) 
 
 
 def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
-    names = [t.logical_name for t in tables]
-    if not names:
-        return (
-            "Não encontrei tabelas disponíveis para este contexto."
-            if lang.startswith("pt")
-            else "I couldn't find any available tables for this context."
-        )
-
-    shown = names[:30]
-    more = len(names) - len(shown)
-
-    if lang.startswith("pt"):
-        lines = [f"Você tem acesso a **{len(names)}** tabela(s) nesta conexão:"]
-        lines += [f"- `{n}`" for n in shown]
-        if more > 0:
-            lines.append(f"- ... e mais **{more}**")
-        lines.append("")
-        lines.append("Quer que eu mostre as colunas de qual tabela? (ex: `quais colunas tem dentro de silver_invoices_enriquecido`)")  # noqa: E501
-        return "\n".join(lines)
-
-    lines = [f"You have access to **{len(names)}** table(s) in this connection:"]
-    lines += [f"- `{n}`" for n in shown]
-    if more > 0:
-        lines.append(f"- ... plus **{more}** more")
-    lines.append("")
-    lines.append("Which table should I describe? (e.g., `what columns are in silver_invoices_enriquecido`)")  # noqa: E501
-    return "\n".join(lines)
+    # SECURITY: do not enumerate schema/tables from the orchestrator.
+    # Keep chat focused on business questions and prevent schema abuse.
+    if (lang or "").startswith("pt"):
+        return "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados."
+    if (lang or "").startswith("es"):
+        return "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos."
+    return "I can't help with that request. Please rephrase your question about your data."
 
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
-    cols = table.columns or []
-
-    if lang.startswith("pt"):
-        lines = [f"Tabela: `{table.logical_name}`", f"Total de colunas: **{len(cols)}**", ""]
-        lines.append("Colunas:")
-        for c in cols[:80]:
-            if isinstance(c, dict):
-                name = c.get("name") or c.get("column_name") or ""
-                ctype = c.get("type") or c.get("data_type") or ""
-                nullable = c.get("nullable", c.get("is_nullable", True))
-                desc = c.get("description")
-            else:
-                name = getattr(c, "name", "")
-                ctype = getattr(c, "type", "")
-                nullable = getattr(c, "nullable", getattr(c, "is_nullable", True))
-                desc = getattr(c, "description", None)
-            null_txt = "NULL" if nullable else "NOT NULL"
-            if desc:
-                lines.append(f"- `{name}` ({ctype}, {null_txt}) — {desc}")
-            else:
-                lines.append(f"- `{name}` ({ctype}, {null_txt})")
-        if len(cols) > 80:
-            lines.append(f"- ... e mais **{len(cols) - 80}** colunas")
-        return "\n".join(lines)
-
-    lines = [f"Table: `{table.logical_name}`", f"Total columns: **{len(cols)}**", ""]
-    lines.append("Columns:")
-    for c in cols[:80]:
-        if isinstance(c, dict):
-            name = c.get("name") or c.get("column_name") or ""
-            ctype = c.get("type") or c.get("data_type") or ""
-            nullable = c.get("nullable", c.get("is_nullable", True))
-            desc = c.get("description")
-        else:
-            name = getattr(c, "name", "")
-            ctype = getattr(c, "type", "")
-            nullable = getattr(c, "nullable", getattr(c, "is_nullable", True))
-            desc = getattr(c, "description", None)
-        null_txt = "NULL" if nullable else "NOT NULL"
-        if desc:
-            lines.append(f"- `{name}` ({ctype}, {null_txt}) — {desc}")
-        else:
-            lines.append(f"- `{name}` ({ctype}, {null_txt})")
-    if len(cols) > 80:
-        lines.append(f"- ... plus **{len(cols) - 80}** more columns")
-    return "\n".join(lines)
+    # SECURITY: do not enumerate columns from the orchestrator.
+    if (lang or "").startswith("pt"):
+        return "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados."
+    if (lang or "").startswith("es"):
+        return "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos."
+    return "I can't help with that request. Please rephrase your question about your data."
 
 
 def _format_catalog_capabilities(lang: str) -> str:
-    if lang.startswith("pt"):
-        return "\n".join(
-            [
-                "Eu posso te ajudar com:",
-                "",
-                "- **Catálogo de dados**: quais tabelas você pode ver e quais colunas existem em cada tabela.",
-                "- **Consultas (SQL)**: responder perguntas gerando SQL seguro (SELECT) e explicando o resultado.",
-                "- **Ajuda de modelagem**: sugerir tabelas para um objetivo, explicar joins/relacionamentos quando existirem.",
-                "",
-                "Exemplos:",
-                "- `quais dados eu posso ver?`",
-                "- `quais colunas tem dentro de silver_invoices_enriquecido?`",
-                "- `qual o total de invoices por customer?`",
-            ]
-        )
-
-    return "\n".join(
-        [
-            "I can help you with:",
-            "",
-            "- **Data catalog**: what tables you can access and what columns exist in a table.",
-            "- **SQL queries**: answer questions by generating safe read-only SQL (SELECT) and explaining results.",
-            "- **Modeling help**: suggest which tables to use, and explain joins/relationships when available.",
-            "",
-            "Examples:",
-            "- `what data can I access?`",
-            "- `what columns are in silver_invoices_enriquecido?`",
-            "- `what is the total invoices per customer?`",
-        ]
-    )
+    # SECURITY: keep responses focused on business outcomes, not schema exploration.
+    if (lang or "").startswith("pt"):
+        return "Me diga um objetivo de negócio (ex: faturamento mensal, top clientes, pagamentos por período) e eu gero a SQL."
+    if (lang or "").startswith("es"):
+        return "Dime un objetivo de negocio (p. ej., facturación mensual, top clientes, pagos por período) y generaré el SQL."
+    return "Tell me a business goal (e.g., monthly revenue, top customers, payments over time) and I will generate SQL."
 
 
 def run_orchestrator(
@@ -554,6 +470,12 @@ def run_orchestrator(
                     "error": str(e)[:500],
                 },
             )
+            # ✅ Fazer rollback se transação falhar para evitar "InFailedSqlTransaction"
+            try:
+                if db is not None:
+                    db.rollback()
+            except Exception:
+                pass
             retrieval_context = []
 
     # 🎯 Verificar se há datasets selecionados manualmente pelo usuário

@@ -8,6 +8,7 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.data_sources.base import BaseDataSource
 from core.llm.providers import LLMProvider
 from core.sql.validator import ensure_safe_select
+from core.sql.validator_advanced import AdvancedSQLValidator
 from core.logging_utils import log_event
 
 # Import security config functions
@@ -22,6 +23,60 @@ from core.security.security_config import (
 
 
 # ==================== HELPERS ====================
+
+def _build_secure_system_prompt(
+    physical_names: List[str],
+    use_multiple_tables: bool,
+    max_limit: int = 100,
+    max_columns: int = 10
+) -> dict:
+    """
+    Constrói system prompt com regras de segurança explícitas.
+    """
+    
+    security_rules = (
+        "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
+        "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
+        "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
+        "   Example: SELECT year, SUM(amount) FROM invoices GROUP BY year ORDER BY year LIMIT {max_limit}\n"
+        "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
+        "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
+        "4. NEVER use ; (semicolon) except at the very end - only one query\n"
+        "5. NEVER use comments -- or /* */\n"
+        "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
+        "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
+        "8. NEVER use subqueries that access unauthorized tables\n"
+        "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
+        "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
+        "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
+    ).format(max_limit=max_limit, max_columns=max_columns)
+    
+    if use_multiple_tables:
+        return {
+            "role": "system",
+            "content": (
+                "You are a SQL expert. Your job is to generate a single SELECT query "
+                "with JOINs to answer the user's question.\n\n"
+                f"{security_rules}"
+                f"Allowed physical table names: {', '.join(physical_names)}\n"
+                f"Main table (FROM): {physical_names[0]}\n"
+                "Use ONLY existing columns from the schemas provided.\n"
+                "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+            )
+        }
+    else:
+        return {
+            "role": "system",
+            "content": (
+                "You are a SQL expert. Your job is to generate a single SELECT query "
+                "to answer the user's question.\n\n"
+                f"{security_rules}"
+                f"The only allowed physical table name is: {physical_names[0]}\n"
+                "Use ONLY existing columns from the schema provided.\n"
+                "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+            )
+        }
+
 
 def _filter_table_schema_by_security(
     table: TableSchema,
@@ -333,28 +388,29 @@ def run_specialist(
                 "Look for columns ending in '_id' that might reference other tables."
             )
         
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a SQL expert. Your job is to generate a single SELECT query "
-                "with JOINs to answer the user's question using the given table schemas and "
-                "the additional context.\n\n"
-                "Rules:\n"
-                "- Use ONLY the provided physical table names.\n"
-                f"- Allowed physical table names: {', '.join(physical_names)}\n"
-                f"- Main table (FROM): {physical_names[0]}\n"
-                + ("- Use the JOIN relationships provided to connect the tables.\n" if join_relationships else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n")
-                + "- Use ONLY existing columns from the schemas.\n"
-                "- The query MUST be a single SELECT statement with JOINs.\n"
-                "- When the question asks for metrics, totals, performance, or temporal analysis, "
-                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
-                "- DO NOT modify data (no INSERT/UPDATE/DELETE/etc.).\n"
-                "- If the question cannot be answered with these tables and the provided context, "
-                "  respond with exactly:\n"
-                "  IMPOSSIBLE: <short explanation>\n"
-            ),
-        }
+        system_msg = _build_secure_system_prompt(
+            physical_names=physical_names,
+            use_multiple_tables=True,
+            max_limit=100,
+            max_columns=10
+        )
+        
+        # Adicionar instruções específicas de JOIN
+        join_instruction = (
+            "- Use the JOIN relationships provided to connect the tables.\n"
+            if join_relationships 
+            else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n"
+        )
+        
+        # Adicionar instruções de agregação
+        aggregation_instruction = (
+            "- When the question asks for metrics, totals, performance, or temporal analysis, "
+            "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+            "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
+        )
+        
+        # Atualizar content com instruções adicionais
+        system_msg["content"] += join_instruction + aggregation_instruction
 
         user_msg = {
             "role": "user",
@@ -371,26 +427,22 @@ def run_specialist(
         }
     else:
         # Modo tabela única (comportamento original)
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a SQL expert. Your job is to generate a single SELECT query "
-                "to answer the user's question using the given table schema and "
-                "the additional context.\n\n"
-                "Rules:\n"
-                "- Use ONLY the provided physical table name.\n"
-                f"- The only allowed physical table name is: {primary_table.physical_name}\n"
-                "- Use ONLY existing columns from the schema.\n"
-                "- The query MUST be a single SELECT statement.\n"
-                "- DO NOT modify data (no INSERT/UPDATE/DELETE/etc.).\n"
-                "- When the question asks for metrics, totals, performance, or temporal analysis, "
-                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
-                "- If the question cannot be answered with this table and the provided context, "
-                "  respond with exactly:\n"
-                "  IMPOSSIBLE: <short explanation>\n"
-            ),
-        }
+        system_msg = _build_secure_system_prompt(
+            physical_names=[primary_table.physical_name],
+            use_multiple_tables=False,
+            max_limit=100,
+            max_columns=10
+        )
+        
+        # Adicionar instruções de agregação
+        aggregation_instruction = (
+            "- When the question asks for metrics, totals, performance, or temporal analysis, "
+            "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+            "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
+        )
+        
+        # Atualizar content com instruções adicionais
+        system_msg["content"] += aggregation_instruction
 
         user_msg = {
             "role": "user",
@@ -477,40 +529,92 @@ def run_specialist(
         )
         return state
 
-    # === Injetar Row-Level Security (RLS) filters ===
-    # Isso adiciona cláusulas WHERE automáticas baseadas no security_config
-    sql_with_rls = inject_row_filters_in_sql(sql, security_config)
-    if sql_with_rls != sql:
-        log_event(
-            "specialist_rls_injected",
-            {
-                "agent_id": agent_config.id,
-                "original_sql": sql[:300],
-                "sql_with_rls": sql_with_rls[:300],
-            },
-        )
-        sql = sql_with_rls
+    # === Validação avançada (AST + permissões) ANTES de executar ===
+    try:
+        allowed_tables: List[str] = []
+        for t in (agent_config.tables or []):
+            if getattr(t, "physical_name", None):
+                allowed_tables.append(t.physical_name)
+            if getattr(t, "logical_name", None):
+                allowed_tables.append(t.logical_name)
 
-    # === Validação de segurança avançada (colunas, keywords, RLS) ===
-    is_valid, security_error = validate_sql_against_security(
-        sql=sql,
-        security_config=security_config,
-        allowed_tables=[primary_table.physical_name] + (
-            [t.physical_name for t in tables] if use_multiple_tables else []
+        # Heurística simples para tipo de conexão (BigQuery tende a ter project.dataset.table)
+        connection_type = "bigquery"
+        if allowed_tables and all(str(x).count(".") <= 1 for x in allowed_tables):
+            # schema.table (ou table) é mais típico de SQLAlchemy/Postgres
+            connection_type = "postgres"
+
+        validator = AdvancedSQLValidator(
+            allowed_tables=allowed_tables,
+            allowed_columns=None,
+            max_limit=100,
+            max_columns=10,
+            max_group_by=3,
         )
-    )
-    if not is_valid:
-        state["error"] = f"Security validation failed: {security_error}"
+        ok, validation_error = validator.validate(sql, connection_type)
+        if not ok:
+            state["error"] = validation_error or "SQL validation failed."
+            state["sql"] = sql
+            log_event(
+                "specialist_advanced_sql_rejected",
+                {
+                    "agent_id": agent_config.id,
+                    "chosen_logical": chosen_logical,
+                    "sql": sql[:500],
+                    "error": (validation_error or "")[:300],
+                    "connection_type": connection_type,
+                },
+            )
+            return state
+    except Exception as e:
+        # Falha no validador: fail closed (melhor seguro)
+        state["error"] = f"SQL validation error: {str(e)[:300]}"
         state["sql"] = sql
         log_event(
-            "specialist_security_validation_failed",
+            "specialist_advanced_sql_validator_error",
             {
                 "agent_id": agent_config.id,
-                "sql": sql[:500],
-                "error": security_error,
+                "chosen_logical": chosen_logical,
+                "error": str(e)[:500],
             },
         )
         return state
+
+    # === Injetar Row-Level Security (RLS) filters ===
+    # Isso adiciona cláusulas WHERE automáticas baseadas no security_config
+    if security_config:
+        sql_with_rls = inject_row_filters_in_sql(sql, security_config)
+        if sql_with_rls != sql:
+            log_event(
+                "specialist_rls_injected",
+                {
+                    "agent_id": agent_config.id,
+                    "original_sql": sql[:300],
+                    "sql_with_rls": sql_with_rls[:300],
+                },
+            )
+            sql = sql_with_rls
+
+        # === Validação de segurança contra security_config (colunas, keywords, RLS) ===
+        is_valid, security_error = validate_sql_against_security(
+            sql=sql,
+            security_config=security_config,
+            allowed_tables=[primary_table.physical_name] + (
+                [t.physical_name for t in tables] if use_multiple_tables else []
+            )
+        )
+        if not is_valid:
+            state["error"] = f"Security validation failed: {security_error}"
+            state["sql"] = sql
+            log_event(
+                "specialist_security_validation_failed",
+                {
+                    "agent_id": agent_config.id,
+                    "sql": sql[:500],
+                    "error": security_error,
+                },
+            )
+            return state
 
     # === Execução via data_source ===
     try:

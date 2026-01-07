@@ -12,7 +12,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
     os.environ["DATABASE_URL"] = "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
 
 from api.routes import connection_query, connection_discover  # noqa: E402
-from api.routes import data_ingestion, pipeline  # noqa: E402
+from api.routes import data_ingestion, pipeline, widget_titles  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -25,6 +25,18 @@ app = FastAPI(
 @app.on_event("startup")
 async def on_startup():
     log_event("app_startup", {"message": "DataAssistant API started"})
+    # Iniciar audit flusher (thread separada, não bloqueia)
+    from core.security.audit import start_audit_flusher
+    start_audit_flusher()
+    log_event("audit_flusher_started", {"message": "Audit log flusher started"})
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    # Parar audit flusher e fazer flush final
+    from core.security.audit import stop_audit_flusher
+    stop_audit_flusher()
+    log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
 
 
 @app.get("/health", tags=["health"])
@@ -80,3 +92,6 @@ app.include_router(data_ingestion.router)
 
 # Rotas de pipeline
 app.include_router(pipeline.router)
+
+# Rotas de widgets (sugestão de títulos)
+app.include_router(widget_titles.router)

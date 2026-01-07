@@ -60,6 +60,11 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
+from core.security.prompt_injection import detect_prompt_injection
+from core.security.rate_limiter_redis import _rate_limiter
+from core.security.audit import log_query_audit
+from core.security.progressive_escalation import detect_progressive_escalation
+from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SessionLocal
 
@@ -463,6 +468,61 @@ def _filter_tables_by_permissions(
         return tables
 
 
+def _get_allowed_tables_for_validation(
+    db: Session,
+    connection_id: str,
+    space_id: str,
+    crew_ids: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Obtém lista de nomes de tabelas permitidas para validação.
+    Retorna apenas os nomes (não objetos completos).
+    """
+    try:
+        # Carregar tabelas do connection_metadata
+        all_tables = _load_connection_metadata_tables(
+            db=db,
+            connection_id=connection_id
+        )
+        
+        if not all_tables:
+            return []
+        
+        # Filtrar por permissões
+        filtered_tables = _filter_tables_by_permissions(
+            db=db,
+            connection_id=connection_id,
+            space_id=space_id,
+            tables=all_tables,
+            crew_ids=crew_ids
+        )
+        
+        # Extrair apenas nomes
+        table_names = []
+        for table in filtered_tables:
+            schema = table.get("schema", "")
+            name = table.get("name", "")
+            if name:
+                # Retornar nome completo (schema.table) ou apenas nome
+                if schema:
+                    table_names.append(f"{schema}.{name}")
+                else:
+                    table_names.append(name)
+        
+        return table_names
+        
+    except Exception as e:
+        log_event(
+            "get_allowed_tables_for_validation_error",
+            {
+                "connection_id": connection_id,
+                "space_id": space_id,
+                "error": str(e)[:200],
+            }
+        )
+        return []
+
+
 def _schema_summary_from_tables(tables: list[dict], max_tables: int = 12) -> tuple[list[str], str]:
     logical_tables: list[str] = []
     lines: list[str] = []
@@ -843,26 +903,26 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     if lang == "pt":
         greeting = "Como posso te ajudar com seus dados?"
         suggestions: list[ChatBootstrapSuggestion] = [
-            ChatBootstrapSuggestion(title="Dados disponíveis", kind="question", question="Quais dados eu tenho acesso?"),
-            ChatBootstrapSuggestion(title="Tabelas", kind="question", question="Quais tabelas estão disponíveis neste catálogo?"),
-            ChatBootstrapSuggestion(title="Colunas", kind="question", question="Quais colunas tem dentro da tabela customers?"),
-            ChatBootstrapSuggestion(title="Exemplo", kind="question", question="Me dê exemplos de perguntas que eu posso fazer com meus dados."),
+            ChatBootstrapSuggestion(title="Faturamento mensal", kind="question", question="Qual é a performance de faturamento mensal?"),
+            ChatBootstrapSuggestion(title="Top clientes", kind="question", question="Quais clientes geram mais faturamento?"),
+            ChatBootstrapSuggestion(title="Status das faturas", kind="question", question="Qual é a análise de status das faturas?"),
+            ChatBootstrapSuggestion(title="Pagamentos por método", kind="question", question="Qual método de pagamento é mais utilizado?"),
         ]
     elif lang == "es":
         greeting = "¿Cómo puedo ayudarte con tus datos?"
         suggestions = [
-            ChatBootstrapSuggestion(title="Datos disponibles", kind="question", question="¿A qué datos tengo acceso?"),
-            ChatBootstrapSuggestion(title="Tablas", kind="question", question="¿Qué tablas están disponibles en este catálogo?"),
-            ChatBootstrapSuggestion(title="Columnas", kind="question", question="¿Qué columnas tiene la tabla customers?"),
-            ChatBootstrapSuggestion(title="Ejemplos", kind="question", question="Dame ejemplos de preguntas que puedo hacer con mis datos."),
+            ChatBootstrapSuggestion(title="Facturación mensual", kind="question", question="¿Cuál es el rendimiento de facturación mensual?"),
+            ChatBootstrapSuggestion(title="Top clientes", kind="question", question="¿Qué clientes generan más facturación?"),
+            ChatBootstrapSuggestion(title="Estado de facturas", kind="question", question="¿Cuál es el análisis del estado de las facturas?"),
+            ChatBootstrapSuggestion(title="Método de pago", kind="question", question="¿Qué método de pago se utiliza más?"),
         ]
     else:
         greeting = "How can I help you with your data?"
         suggestions = [
-            ChatBootstrapSuggestion(title="Available data", kind="question", question="What data do I have access to?"),
-            ChatBootstrapSuggestion(title="Tables", kind="question", question="Which tables are available in my catalog?"),
-            ChatBootstrapSuggestion(title="Columns", kind="question", question="What columns are inside the customers table?"),
-            ChatBootstrapSuggestion(title="Examples", kind="question", question="Give me examples of questions I can ask about my data."),
+            ChatBootstrapSuggestion(title="Monthly revenue", kind="question", question="What is the monthly billing performance?"),
+            ChatBootstrapSuggestion(title="Top customers", kind="question", question="Which customers generate the most revenue?"),
+            ChatBootstrapSuggestion(title="Invoice status", kind="question", question="What is the invoice status breakdown?"),
+            ChatBootstrapSuggestion(title="Payment method", kind="question", question="Which payment method is used the most?"),
         ]
 
     out = suggestions[:max_suggestions]
@@ -1978,10 +2038,142 @@ async def query_connection(
     }
     ```
     """
+    # Medir tempo de execução para auditoria
+    import time
+    start_time = time.time()
+    
     if not body.space_id:
         raise HTTPException(
             status_code=400,
             detail="space_id é obrigatório no body da requisição"
+        )
+    
+    # ✅ CAMADA 1: Rate limiting
+    user_key = body.user_id or f"conn_{connection_id}"
+    allowed, error = _rate_limiter.check_rate_limit(user_key, "query")
+    was_rate_limited = not allowed
+    if not allowed:
+        # Auditoria: rate limited
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=body.crew_ids,
+            thread_id=body.thread_id,
+            question=body.question,
+            was_rate_limited=True,
+        )
+        raise HTTPException(status_code=429, detail=error)
+    
+    # ✅ CAMADA 2: Detecção prompt injection
+    is_malicious, pattern = detect_prompt_injection(body.question)
+    prompt_injection_detected = is_malicious
+    prompt_injection_pattern = pattern if is_malicious else None
+    if is_malicious:
+        log_event(
+            "prompt_injection_detected",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "question_preview": body.question[:200],
+                "pattern": pattern,
+            }
+        )
+        # Auditoria: prompt injection detectado
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=body.crew_ids,
+            thread_id=body.thread_id,
+            question=body.question,
+            prompt_injection_detected=True,
+            prompt_injection_pattern=pattern,
+        )
+        
+        # Detectar idioma da pergunta para mensagem apropriada
+        from core.i18n.i18n import detect_language
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = "en"
+        
+        message = {
+            "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+            "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+            "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator."
+        }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+        
+        # Retornar como resposta normal para o frontend exibir corretamente
+        return QueryResponse(
+            answer=message,
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error="prompt_injection_blocked",
+            )
+        )
+    
+    # ✅ CAMADA 2.5: Detecção de Progressive Escalation
+    thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
+    escalation_detected, escalation_score, escalation_reason = detect_progressive_escalation(
+        user_id=body.user_id or "anonymous",
+        thread_id=thread_id,
+        question=body.question,
+        window_minutes=5,
+        max_schema_questions=5
+    )
+    
+    if escalation_detected:
+        log_event(
+            "progressive_escalation_detected",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "thread_id": thread_id,
+                "score": escalation_score,
+                "reason": escalation_reason,
+                "question_preview": body.question[:200],
+            }
+        )
+        # SECURITY: Block progressive schema exploration (predictable + restrictive).
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=body.crew_ids,
+            thread_id=thread_id,
+            question=body.question,
+            progressive_escalation_score=escalation_score,
+            progressive_escalation_detected=True,
+        )
+        from core.i18n.i18n import detect_language
+        try:
+            lang = detect_language(body.question or "")
+        except Exception:
+            lang = "en"
+        message = {
+            "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+            "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+            "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
+        }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+        
+        # Retornar como resposta normal para o frontend exibir corretamente
+        return QueryResponse(
+            answer=message,
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error="progressive_escalation_blocked",
+            )
         )
     
     # Verificar se conexão existe
@@ -2103,46 +2295,54 @@ async def query_connection(
         )
 
         if is_tables_question and logical_tables:
-            answer = (
-                f"You have access to **{len(logical_tables)}** table(s) in this connection:\n"
-                + "\n".join([f"- `{name}`" for name in logical_tables])
-                + "\n\nWhich table would you like to inspect columns for?"
+            # SECURITY: do not enumerate schema/tables via chat endpoint
+            from core.i18n.i18n import detect_language
+            try:
+                lang = detect_language(q_raw or "")
+            except Exception:
+                lang = "en"
+            message = {
+                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
+            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            return QueryResponse(
+                answer=message,
+                data_sample=[],
+                meta=QueryResultMeta(
+                    detected_language=lang,
+                    chosen_table=None,
+                    chosen_datasets=None,
+                    sql=None,
+                    num_rows=0,
+                    error="schema_question_blocked",
+                )
             )
-            meta = QueryResultMeta(
-                detected_language="en",
-                chosen_table=None,
-                chosen_datasets=logical_tables,
-                sql=None,
-                num_rows=0,
-                error=None,
-            )
-            return QueryResponse(answer=answer, data_sample=[], meta=meta)
 
         if is_examples_question and logical_tables:
-            # Generate examples that are guaranteed to be answerable with the available tables.
-            # Keep them per-table to avoid assuming joins.
-            picked = logical_tables[:6]
-            examples: list[str] = []
-            for t in picked:
-                examples.append(f"How many rows are in the `{t}` table?")
-            if len(picked) >= 1:
-                examples.append(f"Show me the latest 10 rows from `{picked[0]}`.")
-            if len(picked) >= 2:
-                examples.append(f"Give me a breakdown (count) by a key column in `{picked[1]}`.")
-
-            examples = examples[:8]
-            answer = "Here are some examples of questions you can ask:\n" + "\n".join(
-                [f"- {e}" for e in examples]
+            # SECURITY: do not guide schema exploration via chat endpoint
+            from core.i18n.i18n import detect_language
+            try:
+                lang = detect_language(q_raw or "")
+            except Exception:
+                lang = "en"
+            message = {
+                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
+            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            return QueryResponse(
+                answer=message,
+                data_sample=[],
+                meta=QueryResultMeta(
+                    detected_language=lang,
+                    chosen_table=None,
+                    chosen_datasets=None,
+                    sql=None,
+                    num_rows=0,
+                    error="examples_question_blocked",
+                )
             )
-            meta = QueryResultMeta(
-                detected_language="en",
-                chosen_table=None,
-                chosen_datasets=picked,
-                sql=None,
-                num_rows=0,
-                error=None,
-            )
-            return QueryResponse(answer=answer, data_sample=[], meta=meta)
     except Exception:
         # Never fail the main query path due to these heuristics.
         pass
@@ -2243,7 +2443,7 @@ async def query_connection(
             llm_formatter=llm_formatter,
         )
         
-        thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
+        # thread_id já definido acima (progressive escalation)
         final_state = app.invoke(
             state,
             config={"configurable": {"thread_id": thread_id}},
@@ -2264,6 +2464,40 @@ async def query_connection(
     chosen_tables = final_state.get("chosen_tables")  # List of tables (new)
     sql = final_state.get("sql")
     error = final_state.get("error")
+    
+    # ✅ CAMADA 3: Validação AST do SQL gerado
+    if sql:
+        # Obter tabelas permitidas (usar physical_name porque SQL usa physical)
+        allowed_tables = [t.physical_name for t in agent_config.tables]
+        # Também adicionar logical_name para compatibilidade
+        allowed_tables.extend([t.logical_name for t in agent_config.tables])
+        
+        # Obter tipo de conexão
+        connection_type = conn_result[2] or "bigquery"
+        
+        validator = AdvancedSQLValidator(
+            allowed_tables=allowed_tables,
+            allowed_columns=None,  # Opcional: filtrar colunas também
+            max_limit=100,
+            max_columns=10,
+            max_group_by=3
+        )
+        
+        is_valid, validation_error = validator.validate(sql, connection_type)
+        if not is_valid:
+            log_event(
+                "ai_generated_invalid_sql",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "sql": sql[:500],
+                    "error": validation_error,
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Generated SQL is invalid. Please try again.",
+            )
     
     # Debug: log all keys in final_state to see what's available
     log_event(
@@ -2338,6 +2572,34 @@ async def query_connection(
         },
     )
     
+    # ✅ AUDITORIA: Log completo da query (assíncrono, não bloqueia)
+    execution_time_ms = int((time.time() - start_time) * 1000)
+    
+    log_query_audit(
+        connection_id=connection_id,
+        user_id=body.user_id,
+        space_id=body.space_id,
+        crew_ids=crew_ids,
+        thread_id=thread_id,
+        question=body.question,
+        sql_generated=sql,
+        sql_executed=sql,  # Por enquanto igual ao gerado
+        sql_validated=True if sql else None,
+        validation_error=None,  # Se chegou aqui, passou validação
+        num_rows=len(data),
+        execution_time_ms=execution_time_ms,
+        has_error=bool(error),
+        error_message=error,
+        was_rate_limited=was_rate_limited,
+        prompt_injection_detected=prompt_injection_detected,
+        prompt_injection_pattern=prompt_injection_pattern,
+        progressive_escalation_score=escalation_score,
+        progressive_escalation_detected=escalation_detected,
+        detected_language=detected_language,
+        chosen_tables=chosen_datasets,
+        answer_preview=answer[:500],
+    )
+    
     return QueryResponse(
         answer=answer,
         data_sample=data_sample,
@@ -2354,6 +2616,116 @@ async def _stream_connection_query(
     Generator function that yields SSE events for streaming query responses.
     """
     try:
+        # Medir tempo para auditoria
+        start_time = time.time()
+
+        # ✅ CAMADA 1: Rate limiting (mesma regra do endpoint normal)
+        user_key = body.user_id or f"conn_{connection_id}"
+        allowed, error = _rate_limiter.check_rate_limit(user_key, "query")
+        if not allowed:
+            log_query_audit(
+                connection_id=connection_id,
+                user_id=body.user_id,
+                space_id=body.space_id,
+                crew_ids=body.crew_ids,
+                thread_id=body.thread_id,
+                question=body.question,
+                was_rate_limited=True,
+            )
+            yield f"data: {json.dumps({'type': 'error', 'message': error})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # ✅ CAMADA 2: Prompt injection (mesma regra do endpoint normal)
+        is_malicious, inj_pattern = detect_prompt_injection(body.question)
+        if is_malicious:
+            log_event(
+                "prompt_injection_detected_stream",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "question_preview": (body.question or "")[:200],
+                    "pattern": inj_pattern,
+                },
+            )
+            log_query_audit(
+                connection_id=connection_id,
+                user_id=body.user_id,
+                space_id=body.space_id,
+                crew_ids=body.crew_ids,
+                thread_id=body.thread_id,
+                question=body.question,
+                prompt_injection_detected=True,
+                prompt_injection_pattern=inj_pattern,
+            )
+            
+            # Detectar idioma da pergunta para mensagem apropriada
+            from core.i18n.i18n import detect_language
+            try:
+                lang = detect_language(body.question or "")
+            except:
+                lang = "en"
+            
+            message = {
+                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator."
+            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            
+            # Enviar como resposta normal para o frontend exibir corretamente
+            yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'prompt_injection_blocked'}, 'data_sample': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # ✅ CAMADA 2.5: Progressive escalation (registrar score)
+        thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
+        escalation_detected, escalation_score, escalation_reason = detect_progressive_escalation(
+            user_id=body.user_id or "anonymous",
+            thread_id=thread_id,
+            question=body.question,
+            window_minutes=5,
+            max_schema_questions=5,
+        )
+        if escalation_detected:
+            log_event(
+                "progressive_escalation_detected_stream",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "thread_id": thread_id,
+                    "score": escalation_score,
+                    "reason": escalation_reason,
+                    "question_preview": (body.question or "")[:200],
+                },
+            )
+            log_query_audit(
+                connection_id=connection_id,
+                user_id=body.user_id,
+                space_id=body.space_id,
+                crew_ids=body.crew_ids,
+                thread_id=thread_id,
+                question=body.question,
+                progressive_escalation_score=escalation_score,
+                progressive_escalation_detected=True,
+            )
+            from core.i18n.i18n import detect_language
+            try:
+                lang = detect_language(body.question or "")
+            except Exception:
+                lang = "en"
+            message = {
+                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
+                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
+                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
+            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            
+            # Enviar como resposta normal para o frontend exibir corretamente
+            yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'progressive_escalation_blocked'}, 'data_sample': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
         # Verificar se conexão existe
         conn_result = db.execute(
             text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
@@ -2484,8 +2856,7 @@ async def _stream_connection_query(
                 llm_specialist=llm_specialist,
                 llm_formatter=llm_formatter,
             )
-            
-            thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
+            # thread_id já definido acima
             
             # Executar até o specialist (orchestrator -> specialist)
             # Não executamos o formatter ainda, vamos fazer streaming dele
@@ -2511,6 +2882,49 @@ async def _stream_connection_query(
                             # Enviar evento quando SQL é gerado
                             sql = node_state.get("sql")
                             if sql:
+                                # ✅ CAMADA 3: Validar SQL gerado antes de expor ao cliente
+                                allowed_tables = [t.physical_name for t in agent_config.tables]
+                                allowed_tables.extend([t.logical_name for t in agent_config.tables])
+                                connection_type = conn_result[2] or "bigquery"
+                                validator = AdvancedSQLValidator(
+                                    allowed_tables=allowed_tables,
+                                    allowed_columns=None,
+                                    max_limit=100,
+                                    max_columns=10,
+                                    max_group_by=3,
+                                )
+                                ok, validation_error = validator.validate(sql, connection_type)
+                                if not ok:
+                                    log_event(
+                                        "ai_generated_invalid_sql_stream",
+                                        {
+                                            "connection_id": connection_id,
+                                            "user_id": body.user_id,
+                                            "sql": sql[:500],
+                                            "error": validation_error,
+                                        },
+                                    )
+                                    log_query_audit(
+                                        connection_id=connection_id,
+                                        user_id=body.user_id,
+                                        space_id=body.space_id,
+                                        crew_ids=crew_ids,
+                                        thread_id=thread_id,
+                                        question=body.question,
+                                        sql_generated=sql,
+                                        sql_executed=None,
+                                        sql_validated=False,
+                                        validation_error=validation_error,
+                                        execution_time_ms=int((time.time() - start_time) * 1000),
+                                        has_error=True,
+                                        error_message=validation_error,
+                                        progressive_escalation_score=escalation_score,
+                                        progressive_escalation_detected=escalation_detected,
+                                    )
+                                    yield f"data: {json.dumps({'type': 'error', 'message': 'Generated SQL is invalid. Please try again.'})}\n\n"
+                                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                                    return
+
                                 yield f"data: {json.dumps({'type': 'sql_generated', 'sql': sql})}\n\n"
             
             if not final_state:
@@ -2561,12 +2975,24 @@ async def _stream_connection_query(
             system_msg = {
                 "role": "system",
                 "content": (
-                    "You are a data analyst assistant.\n"
-                    "Your job is to explain query results in clear natural language.\n\n"
+                    "You are a data response narrator.\n"
+                    "Your ONLY job: translate query results into natural language.\n\n"
+                    "CRITICAL RULES:\n"
+                    "YOU MUST NOT:\n"
+                    "- Mention SQL, tables, columns, or technical database terms\n"
+                    "- Infer data beyond what was provided in the results\n"
+                    "- Create new queries or suggest queries\n"
+                    "- Explain how data was retrieved\n"
+                    "- Answer questions not answered by the results\n"
+                    "- Mention table names, column names, or database structure\n\n"
+                    "YOU MUST:\n"
+                    "- Only use the data provided in the results\n"
+                    "- Answer in the same language as the question\n"
+                    "- If data is insufficient, say 'Insufficient data to answer this question'\n"
+                    "- Keep the answer concise and objective (maximum 4 sentences)\n\n"
                     "CRITICAL LANGUAGE REQUIREMENT:\n"
                     f"- The user question is in language code '{lang}'.\n"
                     "- You MUST answer in the same language as the question.\n"
-                    "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
                 ),
             }
             
@@ -2613,6 +3039,35 @@ async def _stream_connection_query(
             
             yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': data_sample})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+            # ✅ AUDITORIA (stream): registrar ao final
+            try:
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                log_query_audit(
+                    connection_id=connection_id,
+                    user_id=body.user_id,
+                    space_id=body.space_id,
+                    crew_ids=crew_ids,
+                    thread_id=thread_id,
+                    question=body.question,
+                    sql_generated=sql,
+                    sql_executed=sql,
+                    sql_validated=True if sql else None,
+                    validation_error=None,
+                    num_rows=len(data) if isinstance(data, list) else None,
+                    execution_time_ms=execution_time_ms,
+                    has_error=False,
+                    error_message=None,
+                    prompt_injection_detected=False,
+                    prompt_injection_pattern=None,
+                    progressive_escalation_score=escalation_score,
+                    progressive_escalation_detected=escalation_detected,
+                    detected_language=lang,
+                    chosen_tables=chosen_datasets,
+                    answer_preview=(accumulated_answer or "")[:500],
+                )
+            except Exception:
+                pass
             
         except Exception as e:
             import traceback
@@ -2669,9 +3124,26 @@ async def validate_sql(
     db: Session = Depends(get_db),
 ) -> ValidateSQLResponse:
     """
-    Valida SQL executando uma query de teste (LIMIT 5).
-    Útil para validar SQL antes de aplicar em widgets.
+    Valida SQL editado pelo usuário com validação AST e permissões.
     """
+    
+    # ✅ CAMADA 1: Rate limiting (mais permissivo para validate)
+    user_key = body.user_id or f"conn_{connection_id}"
+    allowed, error = _rate_limiter.check_rate_limit(user_key, "validate")
+    if not allowed:
+        return ValidateSQLResponse(
+            is_valid=False,
+            error=error
+        )
+    
+    # ✅ CAMADA 2: Validação regex (rápida)
+    from core.sql.validator import validate_sql_strict
+    is_valid, error = validate_sql_strict(body.sql)
+    if not is_valid:
+        return ValidateSQLResponse(
+            is_valid=False,
+            error=error
+        )
     
     try:
         # Verificar se conexão existe
@@ -2684,6 +3156,61 @@ async def validate_sql(
             return ValidateSQLResponse(
                 is_valid=False,
                 error="Conexão não encontrada"
+            )
+        
+        # ✅ CAMADA 3: Resolver permissões
+        crew_ids = body.crew_ids or []
+        if body.user_id and body.space_id:
+            try:
+                resolved_crew_ids = resolve_crew_ids_for_context(
+                    db=db,
+                    user_id=UUID(body.user_id),
+                    space_id=UUID(body.space_id),
+                    request_crew_ids=body.crew_ids,
+                    is_personal=bool(getattr(body, 'is_personal', False))
+                )
+                crew_ids = [str(cid) for cid in resolved_crew_ids]
+            except Exception as e:
+                log_event(
+                    "validate_sql_resolve_crew_ids_error",
+                    {
+                        "connection_id": connection_id,
+                        "user_id": body.user_id,
+                        "error": str(e)[:200],
+                    }
+                )
+                crew_ids = []
+        
+        # Obter tabelas permitidas
+        allowed_tables = _get_allowed_tables_for_validation(
+            db=db,
+            connection_id=connection_id,
+            space_id=body.space_id or "",
+            crew_ids=crew_ids
+        )
+        
+        if not allowed_tables:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error="No tables available for this connection"
+            )
+        
+        # ✅ CAMADA 4: Validação AST + Permissões
+        connection_type = (conn_result[2] if conn_result else "bigquery") or "bigquery"
+        
+        validator = AdvancedSQLValidator(
+            allowed_tables=allowed_tables,
+            allowed_columns=None,  # Opcional: filtrar colunas também
+            max_limit=100,
+            max_columns=10,
+            max_group_by=3
+        )
+        
+        is_valid, error = validator.validate(body.sql, connection_type)
+        if not is_valid:
+            return ValidateSQLResponse(
+                is_valid=False,
+                error=error
             )
         
         # Criar DataSource
