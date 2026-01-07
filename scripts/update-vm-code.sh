@@ -69,7 +69,7 @@ if [ -d sky-poc-infra ]; then
   git remote set-url origin "${AUTH_REPO_URL}/${REPO_OWNER}/sky-poc-infra.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório sky-poc-infra"; exit 1; }
   git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no infra"; exit 1; }
-  git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
+  git reset --hard "origin/${BRANCH}" || { echo "❌ Erro ao fazer reset para a branch ${BRANCH}"; exit 1; }
   cd ..
 elif [ -d poc-deploy ]; then
   echo 'Updating poc-deploy repository...'
@@ -77,7 +77,7 @@ elif [ -d poc-deploy ]; then
   git remote set-url origin "${AUTH_REPO_URL}/${REPO_OWNER}/poc-deploy.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório poc-deploy"; exit 1; }
   git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no poc-deploy"; exit 1; }
-  git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
+  git reset --hard "origin/${BRANCH}" || { echo "❌ Erro ao fazer reset para a branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning sky-poc-infra repository...'
@@ -95,7 +95,7 @@ if [ -d sky-poc-backend ]; then
   git remote set-url origin "${AUTH_REPO_URL}/${BACKEND_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório backend"; exit 1; }
   git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no backend"; exit 1; }
-  git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
+  git reset --hard "origin/${BRANCH}" || { echo "❌ Erro ao fazer reset para a branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning backend repository...'
@@ -117,7 +117,7 @@ if [ -d sky-poc-frontend ]; then
   git remote set-url origin "${AUTH_REPO_URL}/${FRONTEND_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório frontend"; exit 1; }
   git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no frontend"; exit 1; }
-  git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
+  git reset --hard "origin/${BRANCH}" || { echo "❌ Erro ao fazer reset para a branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning frontend repository...'
@@ -139,7 +139,7 @@ if [ -d sky-poc-ai ]; then
   git remote set-url origin "${AUTH_REPO_URL}/${IA_REPO}.git"
   git fetch origin || { echo "❌ Erro ao fazer fetch do repositório IA"; exit 1; }
   git checkout "${BRANCH}" || { echo "❌ Erro: Branch ${BRANCH} não encontrada no IA"; exit 1; }
-  git pull origin "${BRANCH}" || { echo "❌ Erro ao fazer pull da branch ${BRANCH}"; exit 1; }
+  git reset --hard "origin/${BRANCH}" || { echo "❌ Erro ao fazer reset para a branch ${BRANCH}"; exit 1; }
   cd ..
 else
   echo 'Cloning AI repository...'
