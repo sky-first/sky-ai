@@ -48,6 +48,11 @@ echo '📂 Diretório atual:'
 pwd
 echo ''
 
+# Corrigir erro de "dubious ownership" do Git
+echo '🛡️  Configurando diretórios seguros para o Git...'
+git config --global --add safe.directory '*'
+echo ''
+
 echo "📋 Configuração:"
 echo "   Repositório: ${REPO}"
 echo "   Branch: ${BRANCH}"
