@@ -1,6 +1,6 @@
 # setup-vm-runtime.sh - Refactored script for VM maintenance
 # Handles .env bootstrap, IP updates, secret injection, and container restart with health checks.
-# Version: 1.0.2 (added automatic IP updates)
+# Version: 1.0.2 (trigger push: 2026-01-07 12:29)
 
 set -eo pipefail
 
