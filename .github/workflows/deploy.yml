@@ -3696,12 +3696,13 @@ jobs:
           BRANCH_VAL="${{ steps.vm-info.outputs.git_branch }}"
           REPO_VAL="${{ steps.vm-info.outputs.github_repo }}"
 
-          # Criar script temporário com variáveis substituídas
-          # Usamos um delimitador diferente no sed (|) para evitar conflitos com barras em nomes de repo
-          cat "${{ github.workspace }}/scripts/update-vm-code.sh" | \
-            sed "s|\${GITHUB_TOKEN}|$TOKEN_VAL|g" | \
-            sed "s|\${BRANCH}|$BRANCH_VAL|g" | \
-            sed "s|\${REPO}|$REPO_VAL|g" > /tmp/vm-update-script.sh
+          # Criar script temporário com variáveis exportadas no topo
+          echo "#!/bin/bash" > /tmp/vm-update-script.sh
+          echo "export GITHUB_TOKEN='$TOKEN_VAL'" >> /tmp/vm-update-script.sh
+          echo "export BRANCH='$BRANCH_VAL'" >> /tmp/vm-update-script.sh
+          echo "export REPO='$REPO_VAL'" >> /tmp/vm-update-script.sh
+          echo "" >> /tmp/vm-update-script.sh
+          cat "${{ github.workspace }}/scripts/update-vm-code.sh" | grep -v "^#!/bin/bash" >> /tmp/vm-update-script.sh
 
           echo "🔐 Executando script de atualização na VM..."
 
