@@ -2,7 +2,8 @@
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from db.session import get_db
 from api.schemas import ConnectionCreate, ConnectionResponse
 from api.dependencies import get_current_user
@@ -15,31 +16,31 @@ router = APIRouter(prefix="/connections", tags=["connections"])
 @router.get("", response_model=List[ConnectionResponse])
 async def list_connections(
     space_id: UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """List connections for a space."""
-    connections = (
-        db.query(DataConnection)
+    result = await db.execute(
+        select(DataConnection)
         .filter(DataConnection.space_id == space_id)
         .filter(DataConnection.is_active == True)
-        .all()
     )
+    connections = list(result.scalars().all())
     return connections
 
 
 @router.get("/{connection_id}", response_model=ConnectionResponse)
 async def get_connection(
     connection_id: UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """Get a connection by ID."""
-    connection = (
-        db.query(DataConnection)
+    result = await db.execute(
+        select(DataConnection)
         .filter(DataConnection.id == connection_id)
-        .first()
     )
+    connection = result.scalar_one_or_none()
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     return connection
@@ -48,7 +49,7 @@ async def get_connection(
 @router.post("", response_model=ConnectionResponse, status_code=201)
 async def create_connection(
     connection_data: ConnectionCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """Create a new data connection."""
@@ -63,7 +64,6 @@ async def create_connection(
         config=connection_data.config
     )
     db.add(connection)
-    db.commit()
-    db.refresh(connection)
+    await db.commit()
+    await db.refresh(connection)
     return connection
-

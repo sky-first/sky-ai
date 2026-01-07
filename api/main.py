@@ -9,7 +9,7 @@ from sqlalchemy import text
 # This project expects the AI Engine to read the same Postgres as the backend docker-compose.
 _db_url = os.getenv("DATABASE_URL", "")
 if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
-    os.environ["DATABASE_URL"] = "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
 
 from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import data_ingestion, pipeline, widget_titles  # noqa: E402
@@ -49,7 +49,7 @@ async def debug_db():
     """
     Local-dev helper to verify which DB the AI Engine is connected to.
     """
-    from db.base import DATABASE_URL, engine
+    from db.base import DATABASE_URL, SessionLocal
 
     safe_url = DATABASE_URL
     try:
@@ -63,12 +63,14 @@ async def debug_db():
     except Exception:
         safe_url = "<redacted>"
 
-    with engine.connect() as conn:
-        total_meta = conn.execute(text("select count(*) from connection_metadata")).scalar_one()
-        sample = conn.execute(
+    async with SessionLocal() as db:
+        result = await db.execute(text("select count(*) from connection_metadata"))
+        total_meta = result.scalar_one()
+        result = await db.execute(
             text("select count(*) from connection_metadata where connection_id = CAST(:cid AS uuid)"),
             {"cid": "1fd6fee8-bf03-4e82-9c85-419a228ef726"},
-        ).scalar_one()
+        )
+        sample = result.scalar_one()
 
     return {"database_url": safe_url, "connection_metadata_count": int(total_meta), "sample_connection_row": int(sample)}
 

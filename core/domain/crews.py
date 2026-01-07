@@ -1,32 +1,36 @@
 """Crew domain logic."""
 from typing import Optional, List
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from db.models import Crew as CrewModel
 
 
-def get_crew(db: Session, crew_id: UUID) -> Optional[CrewModel]:
+async def get_crew(db: AsyncSession, crew_id: UUID) -> Optional[CrewModel]:
     """Get crew by ID."""
-    return db.query(CrewModel).filter(CrewModel.id == crew_id).first()
+    result = await db.execute(select(CrewModel).filter(CrewModel.id == crew_id))
+    return result.scalar_one_or_none()
 
 
-def list_crews(
-    db: Session,
+async def list_crews(
+    db: AsyncSession,
     space_id: Optional[UUID] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[CrewModel]:
     """List crews, optionally filtered by space."""
-    query = db.query(CrewModel).filter(CrewModel.is_active == True)
+    query = select(CrewModel).filter(CrewModel.is_active == True)
     
     if space_id:
         query = query.filter(CrewModel.space_id == space_id)
     
-    return query.offset(skip).limit(limit).all()
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
-def create_crew(
-    db: Session,
+async def create_crew(
+    db: AsyncSession,
     space_id: UUID,
     name: str,
     description: Optional[str] = None
@@ -34,20 +38,20 @@ def create_crew(
     """Create a new crew."""
     crew = CrewModel(space_id=space_id, name=name, description=description)
     db.add(crew)
-    db.commit()
-    db.refresh(crew)
+    await db.commit()
+    await db.refresh(crew)
     return crew
 
 
-def update_crew(
-    db: Session,
+async def update_crew(
+    db: AsyncSession,
     crew_id: UUID,
     name: Optional[str] = None,
     description: Optional[str] = None,
     is_active: Optional[bool] = None
 ) -> Optional[CrewModel]:
     """Update a crew."""
-    crew = get_crew(db, crew_id)
+    crew = await get_crew(db, crew_id)
     if not crew:
         return None
     
@@ -58,7 +62,7 @@ def update_crew(
     if is_active is not None:
         crew.is_active = is_active
     
-    db.commit()
-    db.refresh(crew)
+    await db.commit()
+    await db.refresh(crew)
     return crew
 

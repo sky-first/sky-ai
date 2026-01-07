@@ -2,7 +2,7 @@
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from db.session import get_db
 from api.schemas import PlanetCreate, PlanetUpdate, PlanetResponse
 from api.dependencies import get_current_user
@@ -17,22 +17,22 @@ async def list_planets_endpoint(
     space_id: Optional[UUID] = Query(None),
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """List planets, optionally filtered by space."""
-    planets = list_planets(db, space_id=space_id, skip=skip, limit=limit)
+    planets = await list_planets(db, space_id=space_id, skip=skip, limit=limit)
     return planets
 
 
 @router.get("/{planet_id}", response_model=PlanetResponse)
 async def get_planet_endpoint(
     planet_id: UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """Get a planet by ID."""
-    planet = get_planet(db, planet_id)
+    planet = await get_planet(db, planet_id)
     if not planet:
         raise HTTPException(status_code=404, detail="Planet not found")
     return planet
@@ -41,7 +41,7 @@ async def get_planet_endpoint(
 @router.post("", response_model=PlanetResponse, status_code=201)
 async def create_planet_endpoint(
     planet_data: PlanetCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """Create a new planet."""
@@ -49,7 +49,7 @@ async def create_planet_endpoint(
     if not user_context.has_any_permission(["write", "admin"]):
         raise HTTPException(status_code=403, detail="Write permission required")
     
-    planet = create_planet(
+    planet = await create_planet(
         db,
         space_id=planet_data.space_id,
         name=planet_data.name,
@@ -63,7 +63,7 @@ async def create_planet_endpoint(
 async def update_planet_endpoint(
     planet_id: UUID,
     planet_data: PlanetUpdate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user_context: UserContext = Depends(get_current_user)
 ):
     """Update a planet."""
@@ -71,7 +71,7 @@ async def update_planet_endpoint(
     if not user_context.has_any_permission(["write", "admin"]):
         raise HTTPException(status_code=403, detail="Write permission required")
     
-    planet = update_planet(
+    planet = await update_planet(
         db,
         planet_id,
         name=planet_data.name,
@@ -82,4 +82,3 @@ async def update_planet_endpoint(
     if not planet:
         raise HTTPException(status_code=404, detail="Planet not found")
     return planet
-

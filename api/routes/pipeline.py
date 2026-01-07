@@ -5,7 +5,7 @@ Endpoints para execução de pipeline de IA de forma assíncrona.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
 from datetime import datetime
 import uuid
@@ -26,7 +26,7 @@ async def execute_pipeline(
     body: QueryRequest,
     connection_id: Optional[str] = None,
     agent_id: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None,
     run_async: bool = True,
 ) -> dict:
@@ -74,41 +74,40 @@ async def execute_pipeline(
             from api.routes.connection_query import query_connection
             from api.routes.agents import query_agent
             
-            # Criar uma nova sessão para o background task
-            from db.base import SessionLocal
-            bg_db = SessionLocal()
-            
-            try:
-                if connection_id:
-                    # Usar connection_query
-                    result = await query_connection(
-                        connection_id=connection_id,
-                        body=body,
-                        db=bg_db,
-                    )
-                elif agent_id:
-                    # Usar agent query
-                    result = await query_agent(
-                        agent_id=agent_id,
-                        body=body,
-                        db=bg_db,
-                    )
-                else:
-                    raise ValueError("connection_id ou agent_id deve ser fornecido")
-                
-                _pipeline_status[pipeline_id]["status"] = "completed"
-                _pipeline_status[pipeline_id]["result"] = {
-                    "answer": result.answer,
-                    "data_sample": result.data_sample,
-                    "meta": result.meta.dict() if hasattr(result.meta, 'dict') else result.meta,
-                }
-                _pipeline_status[pipeline_id]["logs"].append({
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "level": "info",
-                    "message": "Pipeline concluído com sucesso"
-                })
-            finally:
-                bg_db.close()
+            # Criar uma nova sessão async para o background task
+            from db.base import SessionLocal as AsyncSessionLocal
+            async with AsyncSessionLocal() as bg_db:
+                try:
+                    if connection_id:
+                        # Usar connection_query
+                        result = await query_connection(
+                            connection_id=connection_id,
+                            body=body,
+                            db=bg_db,
+                        )
+                    elif agent_id:
+                        # Usar agent query
+                        result = await query_agent(
+                            agent_id=agent_id,
+                            body=body,
+                            db=bg_db,
+                        )
+                    else:
+                        raise ValueError("connection_id ou agent_id deve ser fornecido")
+                    
+                    _pipeline_status[pipeline_id]["status"] = "completed"
+                    _pipeline_status[pipeline_id]["result"] = {
+                        "answer": result.answer,
+                        "data_sample": result.data_sample,
+                        "meta": result.meta.dict() if hasattr(result.meta, 'dict') else result.meta,
+                    }
+                    _pipeline_status[pipeline_id]["logs"].append({
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "level": "info",
+                        "message": "Pipeline concluído com sucesso"
+                    })
+                except Exception as e:
+                    raise
                 
         except Exception as e:
             _pipeline_status[pipeline_id]["status"] = "failed"
@@ -145,8 +144,7 @@ async def execute_pipeline(
         }
     else:
         # Executar síncrono
-        import asyncio
-        asyncio.run(_execute_pipeline_task())
+        await _execute_pipeline_task()
         return {
             "pipeline_id": pipeline_id,
             "status": _pipeline_status[pipeline_id]["status"],

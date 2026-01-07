@@ -1,9 +1,17 @@
 """Celery tasks for data ingestion."""
+import asyncio
 from celery import Celery
 from worker.celery_app import celery_app
 from typing import Dict, Any
-from sqlalchemy.orm import Session
-from db.session import SessionLocal
+
+
+def _run_async(coro):
+    """Helper para executar coroutines em Celery (síncrono)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @celery_app.task
@@ -17,19 +25,20 @@ def ingest_table_metadata(connection_id: str) -> Dict[str, Any]:
     Returns:
         Dictionary with ingestion results
     """
-    db = SessionLocal()
-    try:
-        # TODO: Implement metadata ingestion
-        # 1. Load connection config
-        # 2. Create data source instance
-        # 3. List tables
-        # 4. Get schema for each table
-        # 5. Store in TableMetadata
-        # 6. Generate embeddings for table descriptions
-        
-        return {"status": "success", "tables_ingested": 0}
-    finally:
-        db.close()
+    async def _ingest():
+        from db.base import SessionLocal
+        async with SessionLocal() as db:
+            # TODO: Implement metadata ingestion
+            # 1. Load connection config
+            # 2. Create data source instance
+            # 3. List tables
+            # 4. Get schema for each table
+            # 5. Store in TableMetadata
+            # 6. Generate embeddings for table descriptions
+            
+            return {"status": "success", "tables_ingested": 0}
+    
+    return _run_async(_ingest())
 
 
 @celery_app.task
@@ -44,17 +53,18 @@ def ingest_documents(space_id: str, document_paths: list[str]) -> Dict[str, Any]
     Returns:
         Dictionary with ingestion results
     """
-    db = SessionLocal()
-    try:
-        # TODO: Implement document ingestion
-        # 1. Parse documents (PDF, CSV, TXT)
-        # 2. Chunk documents
-        # 3. Generate embeddings
-        # 4. Store in Embedding table
-        
-        return {"status": "success", "documents_ingested": 0}
-    finally:
-        db.close()
+    async def _ingest():
+        from db.base import SessionLocal
+        async with SessionLocal() as db:
+            # TODO: Implement document ingestion
+            # 1. Parse documents (PDF, CSV, TXT)
+            # 2. Chunk documents
+            # 3. Generate embeddings
+            # 4. Store in Embedding table
+            
+            return {"status": "success", "documents_ingested": 0}
+    
+    return _run_async(_ingest())
 
 
 @celery_app.task
@@ -69,15 +79,15 @@ def ingest_api_descriptions(space_id: str, api_config: Dict[str, Any]) -> Dict[s
     Returns:
         Dictionary with ingestion results
     """
-    db = SessionLocal()
-    try:
-        # TODO: Implement API description ingestion
-        # 1. Fetch OpenAPI/Swagger schema
-        # 2. Extract endpoint descriptions
-        # 3. Generate embeddings
-        # 4. Store in Embedding table
-        
-        return {"status": "success", "endpoints_ingested": 0}
-    finally:
-        db.close()
-
+    async def _ingest():
+        from db.base import SessionLocal
+        async with SessionLocal() as db:
+            # TODO: Implement API description ingestion
+            # 1. Fetch OpenAPI/Swagger schema
+            # 2. Extract endpoint descriptions
+            # 3. Generate embeddings
+            # 4. Store in Embedding table
+            
+            return {"status": "success", "endpoints_ingested": 0}
+    
+    return _run_async(_ingest())

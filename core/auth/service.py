@@ -1,15 +1,15 @@
 """Authentication and authorization service."""
 from typing import List, Optional
 from uuid import UUID
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select
 
 from db.models import User
 from core.auth.models import UserContext, User as UserModel
 
 
-def resolve_user_permissions(
-    db: Session,
+async def resolve_user_permissions(
+    db: AsyncSession,
     user_id: UUID,
     space_id: Optional[UUID] = None,
     crew_id: Optional[UUID] = None
@@ -33,7 +33,7 @@ def resolve_user_permissions(
     try:
         # If a crew_id is provided, check membership in crew_members as a proxy for "read".
         if crew_id:
-            row = db.execute(
+            result = await db.execute(
                 text(
                     """
                     SELECT 1
@@ -44,12 +44,13 @@ def resolve_user_permissions(
                     """
                 ),
                 {"user_id": str(user_id), "crew_id": str(crew_id)},
-            ).first()
+            )
+            row = result.first()
             return ["read"] if row else []
 
         # If a space_id is provided, check membership in any crew within that space.
         if space_id:
-            row = db.execute(
+            result = await db.execute(
                 text(
                     """
                     SELECT 1
@@ -62,7 +63,8 @@ def resolve_user_permissions(
                     """
                 ),
                 {"user_id": str(user_id), "space_id": str(space_id)},
-            ).first()
+            )
+            row = result.first()
             return ["read"] if row else []
 
         # No scope provided; return empty.
@@ -71,8 +73,8 @@ def resolve_user_permissions(
         return []
 
 
-def get_user_context(
-    db: Session,
+async def get_user_context(
+    db: AsyncSession,
     user_id: UUID,
     space_id: Optional[UUID] = None,
     crew_id: Optional[UUID] = None
@@ -89,11 +91,12 @@ def get_user_context(
     Returns:
         UserContext with permissions
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalar_one_or_none()
     if not user:
         raise ValueError(f"User {user_id} not found")
     
-    permissions = resolve_user_permissions(db, user_id, space_id, crew_id)
+    permissions = await resolve_user_permissions(db, user_id, space_id, crew_id)
     
     # Our DB schema uses soft-delete instead of `is_active`.
     # Treat active as "not deleted".
@@ -116,8 +119,8 @@ def get_user_context(
     )
 
 
-def get_user_crew_ids_in_space(
-    db: Session,
+async def get_user_crew_ids_in_space(
+    db: AsyncSession,
     user_id: UUID,
     space_id: UUID
 ) -> List[str]:
@@ -133,7 +136,7 @@ def get_user_crew_ids_in_space(
         List[str]: List of crew IDs as strings
     """
     # Prefer membership-based access (crew_members) which exists in the current schema.
-    rows = db.execute(
+    result = await db.execute(
         text(
             """
             SELECT DISTINCT cm.crew_id
@@ -145,12 +148,13 @@ def get_user_crew_ids_in_space(
             """
         ),
         {"user_id": str(user_id), "space_id": str(space_id)},
-    ).fetchall()
+    )
+    rows = result.fetchall()
     return [str(row[0]) for row in rows]
 
 
-def get_user_all_crew_ids(
-    db: Session,
+async def get_user_all_crew_ids(
+    db: AsyncSession,
     user_id: UUID
 ) -> List[str]:
     """
@@ -164,7 +168,7 @@ def get_user_all_crew_ids(
         List[str]: List of all crew IDs as strings where user has permissions
     """
     # Prefer membership-based access (crew_members) which exists in the current schema.
-    rows = db.execute(
+    result = await db.execute(
         text(
             """
             SELECT DISTINCT cm.crew_id
@@ -175,12 +179,13 @@ def get_user_all_crew_ids(
             """
         ),
         {"user_id": str(user_id)},
-    ).fetchall()
+    )
+    rows = result.fetchall()
     return [str(row[0]) for row in rows]
 
 
-def resolve_crew_ids_for_context(
-    db: Session,
+async def resolve_crew_ids_for_context(
+    db: AsyncSession,
     user_id: UUID,
     space_id: Optional[UUID],
     request_crew_ids: Optional[List[str]],
@@ -205,11 +210,11 @@ def resolve_crew_ids_for_context(
     
     # Modo personal: retornar todos os crew_ids do usuário em todos os spaces
     if is_personal:
-        return get_user_all_crew_ids(db, user_id)
+        return await get_user_all_crew_ids(db, user_id)
     
     # Modo collaborative: retornar apenas crew_ids do space específico
     if space_id:
-        return get_user_crew_ids_in_space(db, user_id, space_id)
+        return await get_user_crew_ids_in_space(db, user_id, space_id)
     
     # Fallback: lista vazia (apenas dados públicos)
     return []

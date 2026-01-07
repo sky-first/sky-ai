@@ -1,12 +1,9 @@
 # db/session.py
 from __future__ import annotations
 
-from typing import Generator
-
+from typing import AsyncGenerator
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from dotenv import load_dotenv
 
 # Load env from current dir and project root (dev-friendly)
@@ -21,26 +18,44 @@ def _default_database_url() -> str:
     pg_port = os.getenv("POSTGRES_PORT")
     pg_db = os.getenv("POSTGRES_DB")
     if pg_user and pg_pass and pg_host and pg_port and pg_db:
-        return f"postgresql+psycopg2://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
+        # Usar asyncpg ao invés de psycopg2
+        return f"postgresql+asyncpg://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
     # Local dev default: matches sky-poc-backend docker postgres published port.
     # Override via DATABASE_URL or POSTGRES_* env vars for other environments.
-    return "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db"
+    return "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
 
 
-# Ex: postgresql+psycopg2://user:password@localhost:5432/mydb
+# Ex: postgresql+asyncpg://user:password@localhost:5432/mydb
+# Se DATABASE_URL tiver psycopg2, converter para asyncpg
 DATABASE_URL = os.getenv("DATABASE_URL") or _default_database_url()
+if DATABASE_URL.startswith("postgresql+psycopg2://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
+    # Se for postgresql:// sem driver, adicionar asyncpg
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
-engine = create_engine(
+engine = create_async_engine(
     DATABASE_URL,
     pool_pre_ping=True,
+    echo=False,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+)
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
