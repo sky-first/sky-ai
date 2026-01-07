@@ -141,15 +141,61 @@ def run_formatter(
 
     # 2) Caso o especialista tenha marcado como IMPOSSIBLE
     if impossible_reason and not data:
+        # Detectar se a pergunta é sobre permissões/schema (resposta mais amigável)
+        question_lower = question.lower()
+        is_permission_question = any([
+            "permiss" in question_lower,
+            "permission" in question_lower,
+            "acesso" in question_lower,
+            "access" in question_lower,
+            "pode ver" in question_lower,
+            "can see" in question_lower,
+            "pode acessar" in question_lower,
+            "can access" in question_lower,
+        ])
+        
+        if is_permission_question:
+            # Resposta direta e amigável para perguntas sobre permissões
+            if lang.startswith("pt"):
+                state["answer"] = (
+                    "Não tenho acesso a informações sobre permissões de usuários ou quem pode ver quais tabelas. "
+                    "Posso ajudar com perguntas sobre seus dados de faturamento, clientes, pagamentos, reembolsos e créditos. "
+                    "Por exemplo: 'Qual é o faturamento mensal?' ou 'Quais clientes geram mais receita?'"
+                )
+            elif lang.startswith("es"):
+                state["answer"] = (
+                    "No tengo acceso a información sobre permisos de usuarios o quién puede ver qué tablas. "
+                    "Puedo ayudar con preguntas sobre tus datos de facturación, clientes, pagos, reembolsos y créditos. "
+                    "Por ejemplo: '¿Cuál es la facturación mensual?' o '¿Qué clientes generan más ingresos?'"
+                )
+            else:
+                state["answer"] = (
+                    "I don't have access to information about user permissions or who can see which tables. "
+                    "I can help with questions about your billing, customers, payments, refunds, and credits data. "
+                    "For example: 'What is the monthly billing?' or 'Which customers generate the most revenue?'"
+                )
+            log_event(
+                "formatter_impossible_permission_question",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "lang": lang,
+                },
+            )
+            return state
+        
+        # Para outros casos de IMPOSSIBLE, usar LLM para gerar resposta
         system_msg = {
             "role": "system",
             "content": (
                 "You are a helpful assistant.\n"
                 "The model tried to answer a question with the available data/schema, "
                 "but it was marked as IMPOSSIBLE.\n\n"
-                "Your job is to explain this to the user in a SHORT and OBJECTIVE way "
-                f"(maximum 3 sentences) in the same language as the user's question "
-                f"(language code '{lang}').\n"
+                "Your job is to explain this to the user in a SHORT, FRIENDLY, and OBJECTIVE way "
+                f"(maximum 2-3 sentences) in the same language as the user's question "
+                f"(language code '{lang}').\n\n"
+                "IMPORTANT: Do NOT mention technical terms like 'schemas', 'metadata', 'permissions', or 'system tables'. "
+                "Instead, suggest what kind of business questions the user CAN ask about their data.\n"
             ),
         }
 
@@ -158,8 +204,8 @@ def run_formatter(
             "content": (
                 f"User question:\n{question}\n\n"
                 f"Reason why it was impossible to answer:\n{impossible_reason}\n\n"
-                "Explain briefly why it's not possible to answer with the current data/context "
-                "and, if relevant, what kind of additional data would be needed."
+                "Explain briefly why it's not possible to answer this question. "
+                "Then suggest 1-2 examples of questions the user CAN ask about their data (billing, customers, payments, etc.)."
             ),
         }
 
@@ -256,9 +302,22 @@ def run_formatter(
     system_msg = {
         "role": "system",
         "content": (
-            "You are a data analyst assistant.\n"
-            "Your job is to explain query results in clear natural language.\n\n"
-            "CRITICAL LANGUAGE REQUIREMENT:\n"
+            "You are a data response narrator.\n"
+            "Your ONLY job: translate query results into natural language.\n\n"
+            "CRITICAL RULES:\n"
+            "YOU MUST NOT:\n"
+            "- Mention SQL, tables, columns, or technical database terms\n"
+            "- Infer data beyond what was provided in the results\n"
+            "- Create new queries or suggest queries\n"
+            "- Explain how data was retrieved\n"
+            "- Answer questions not answered by the results\n"
+            "- Mention table names, column names, or database structure\n\n"
+            "YOU MUST:\n"
+            "- Only use the data provided in the results\n"
+            "- Answer in the same language as the question\n"
+            "- If data is insufficient, say 'Insufficient data to answer this question'\n"
+            "- Keep the answer concise and objective\n\n"
+            f"CRITICAL LANGUAGE REQUIREMENT:\n"
             f"- The user question is in language code '{lang}'.\n"
             "- You MUST answer in the same language as the question.\n"
             f"{length_guidance}"

@@ -25,6 +25,18 @@ app = FastAPI(
 @app.on_event("startup")
 async def on_startup():
     log_event("app_startup", {"message": "DataAssistant API started"})
+    # Iniciar audit flusher (thread separada, não bloqueia)
+    from core.security.audit import start_audit_flusher
+    start_audit_flusher()
+    log_event("audit_flusher_started", {"message": "Audit log flusher started"})
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    # Parar audit flusher e fazer flush final
+    from core.security.audit import stop_audit_flusher
+    stop_audit_flusher()
+    log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
 
 
 @app.get("/health", tags=["health"])
