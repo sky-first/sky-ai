@@ -1,9 +1,14 @@
 #!/bin/bash
+# setup-vm-runtime.sh - Refactored script for VM maintenance
+# Handles .env bootstrap, secret injection, and container restart with health checks.
+# Version: 1.0.1 (added improved logging)
+
 set -eo pipefail
 
-echo '=========================================='
-echo '🚀 Configurando e Iniciando Ambiente na VM'
-echo '=========================================='
+echo "=========================================="
+echo "🚀 VM RUNTIME SETUP & MAINTENANCE"
+echo "🕒 Started at: $(date)"
+echo "=========================================="
 echo ''
 
 # 1. Detectar Diretório do Projeto
