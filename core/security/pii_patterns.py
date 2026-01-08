@@ -218,7 +218,7 @@ CREDIT_CARD_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     (re.compile(r'\b\d{13,19}\b'), PIISeverity.WARN, PIIType.CREDIT_CARD),  # Pode ser falso positivo
     
     # Palavras-chave (múltiplos idiomas)
-    (re.compile(r'\b(cartão|card|credit\s+card|débito|debit|tarjeta|karte|carte|kort|クレジットカード|신용카드)\s*:?\s*[\d\s\-]+', 
+    (re.compile(r'\b(cartão|card|credit\s+card|débito|debit|tarjeta|karte|carte|kort|クレジットカード|신용카드)\s*:?\s*[\d\s\-]{12,}', 
                 re.IGNORECASE), PIISeverity.BLOCK, PIIType.CREDIT_CARD),
     (re.compile(r'\b(cvv|cvc|security\s+code|código\s+de\s+segurança|código\s+de\s+verificación|セキュリティコード)\s*:?\s*\d{3,4}', 
                 re.IGNORECASE), PIISeverity.BLOCK, PIIType.CREDIT_CARD),

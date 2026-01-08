@@ -98,6 +98,30 @@ def log_query_audit(
     _audit_buffer.append(log_entry)
 
 
+def log_security_alert(
+    connection_id: str,
+    user_id: Optional[str],
+    alert_type: str,  # 'PII_PROMPT', 'PROMPT_INJECTION', etc
+    severity: str,    # 'BLOCK', 'CRITICAL', 'HIGH'
+    details: Dict[str, Any],
+):
+    """
+    Registra um alerta de segurança no buffer.
+    """
+    log_entry = {
+        "_type": "alert",  # Marcador interno
+        "id": str(uuid4()),
+        "timestamp": datetime.now().isoformat(),
+        "connection_id": connection_id,
+        "user_id": user_id,
+        "alert_type": alert_type,
+        "severity": severity,
+        "details": details
+    }
+    _audit_buffer.append(log_entry)
+
+
+
 async def _ensure_audit_table_async() -> None:
     """
     Best-effort: cria a tabela/indexes se ainda não existirem.
@@ -176,6 +200,32 @@ async def _ensure_audit_table_async() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
                 )
             )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
+                )
+            )
+            
+            # --- Tabela security_alerts ---
+            await db.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS security_alerts (
+                        id UUID PRIMARY KEY,
+                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        user_id VARCHAR(255),
+                        connection_id UUID,
+                        alert_type VARCHAR(50),
+                        severity VARCHAR(20),
+                        details JSONB
+                    );
+                    """
+                )
+            )
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_user ON security_alerts(user_id);"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_type ON security_alerts(alert_type);"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON security_alerts(severity);"))
+            
             await db.commit()
         except Exception:
             await db.rollback()
@@ -210,7 +260,13 @@ async def _flush_audit_buffer_async():
                 # Garantir tabela existe (best-effort). Se migration já foi aplicada, é NO-OP.
                 await _ensure_audit_table_async()
 
-                insert_sql = text(
+                # Separa logs de auditoria normal de logs de alerta
+                audit_batch = [e for e in batch if e.get("_type") != "alert"]
+                alert_batch = [e for e in batch if e.get("_type") == "alert"]
+
+                # 1. Inserir AUDIT LOGS
+                if audit_batch:
+                    insert_sql = text(
                     """
                     INSERT INTO query_audit_log (
                         id, connection_id, user_id, space_id, crew_ids, thread_id,
@@ -255,40 +311,73 @@ async def _flush_audit_buffer_async():
                     """
                 )
 
-                for entry in batch:
-                    params = {
-                        "id": entry.get("id"),
-                        "connection_id": entry.get("connection_id"),
-                        "user_id": entry.get("user_id"),
-                        "space_id": entry.get("space_id"),
-                        "crew_ids": entry.get("crew_ids") or [],
-                        "thread_id": entry.get("thread_id"),
-                        "question": entry.get("question"),
-                        "sql_generated": entry.get("sql_generated"),
-                        "sql_executed": entry.get("sql_executed"),
-                        "sql_validated": entry.get("sql_validated"),
-                        "validation_error": entry.get("validation_error"),
-                        "num_rows": entry.get("num_rows"),
-                        "execution_time_ms": entry.get("execution_time_ms"),
-                        "has_error": entry.get("has_error"),
-                        "error_message": entry.get("error_message"),
-                        "was_rate_limited": bool(entry.get("was_rate_limited", False)),
-                        "prompt_injection_detected": bool(entry.get("prompt_injection_detected", False)),
-                        "prompt_injection_pattern": entry.get("prompt_injection_pattern"),
-                        "progressive_escalation_score": int(entry.get("progressive_escalation_score", 0) or 0),
-                        "progressive_escalation_detected": bool(entry.get("progressive_escalation_detected", False)),
-                        "detected_language": entry.get("detected_language"),
-                        "chosen_tables": entry.get("chosen_tables") or [],
-                        "answer_preview": entry.get("answer_preview"),
-                        # Campos PII
-                        "pii_detected_in_prompt": bool(entry.get("pii_detected_in_prompt", False)),
-                        "pii_detected_in_response": bool(entry.get("pii_detected_in_response", False)),
-                        "pii_types": entry.get("pii_types") or [],
-                        "pii_severity": entry.get("pii_severity"),
-                        "pii_patterns_matched": entry.get("pii_patterns_matched") or [],
-                        "pii_blocked": bool(entry.get("pii_blocked", False)),
-                    }
-                    await db.execute(insert_sql, params)
+
+
+                if audit_batch:
+                    for entry in audit_batch:
+                        params = {
+                            "id": entry.get("id"),
+                            "connection_id": entry.get("connection_id"),
+                            "user_id": entry.get("user_id"),
+                            "space_id": entry.get("space_id"),
+                            "crew_ids": entry.get("crew_ids") or [],
+                            "thread_id": entry.get("thread_id"),
+                            "question": entry.get("question"),
+                            "sql_generated": entry.get("sql_generated"),
+                            "sql_executed": entry.get("sql_executed"),
+                            "sql_validated": entry.get("sql_validated"),
+                            "validation_error": entry.get("validation_error"),
+                            "num_rows": entry.get("num_rows"),
+                            "execution_time_ms": entry.get("execution_time_ms"),
+                            "has_error": entry.get("has_error"),
+                            "error_message": entry.get("error_message"),
+                            "was_rate_limited": bool(entry.get("was_rate_limited", False)),
+                            "prompt_injection_detected": bool(entry.get("prompt_injection_detected", False)),
+                            "prompt_injection_pattern": entry.get("prompt_injection_pattern"),
+                            "progressive_escalation_score": int(entry.get("progressive_escalation_score", 0) or 0),
+                            "progressive_escalation_detected": bool(entry.get("progressive_escalation_detected", False)),
+                            "detected_language": entry.get("detected_language"),
+                            "chosen_tables": entry.get("chosen_tables") or [],
+                            "answer_preview": entry.get("answer_preview"),
+                            # Campos PII
+                            "pii_detected_in_prompt": bool(entry.get("pii_detected_in_prompt", False)),
+                            "pii_detected_in_response": bool(entry.get("pii_detected_in_response", False)),
+                            "pii_types": entry.get("pii_types") or [],
+                            "pii_severity": entry.get("pii_severity"),
+                            "pii_patterns_matched": entry.get("pii_patterns_matched") or [],
+                            "pii_blocked": bool(entry.get("pii_blocked", False)),
+                        }
+                        await db.execute(insert_sql, params)
+                
+                # 2. Inserir SECURITY ALERTS
+                if alert_batch:
+                    insert_alert_sql = text(
+                        """
+                        INSERT INTO security_alerts (
+                            id, user_id, connection_id, 
+                            alert_type, severity, details
+                        ) VALUES (
+                            CAST(:id AS uuid),
+                            :user_id,
+                            CAST(:connection_id AS uuid),
+                            :alert_type,
+                            :severity,
+                            :details
+                        )
+                        """
+                    )
+                    
+                    import json
+                    for entry in alert_batch:
+                        params = {
+                            "id": entry.get("id"),
+                            "user_id": entry.get("user_id"),
+                            "connection_id": entry.get("connection_id"),
+                            "alert_type": entry.get("alert_type"),
+                            "severity": entry.get("severity"),
+                            "details": json.dumps(entry.get("details")) if entry.get("details") else None
+                        }
+                        await db.execute(insert_alert_sql, params)
                 
                 await db.commit()
             except Exception as e:

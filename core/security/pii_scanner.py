@@ -176,6 +176,7 @@ def _is_aggregate_analysis_question(question: str) -> bool:
         r'\b(agrupado|grouped|groupé|gruppiert|raggruppato)',  # agrupado por
         r'\b(distribuição|distribution|distribución|répartition|verteilung)',  # distribuição
         r'\b(margem|margin|profit|receita|revenue)',  # margem, receita (geralmente agregado)
+        r'\b(impacto|impact|consolidado|consolidated)',  # impacto, consolidado
     ]
     
     # Padrões temporais/analíticos (genérico)
