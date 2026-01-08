@@ -233,6 +233,92 @@ for dir in $REPOS; do
   fi
 done
 
+# 5.5. Garantir que Dockerfiles do backend existem (CRÍTICO)
+echo ''
+echo '📦 Verificando Dockerfiles do backend...'
+
+BACKEND_DIR="$BASE/sky-poc-backend"
+
+if [ ! -d "$BACKEND_DIR" ]; then
+  echo "❌ ERRO: Diretório do backend não encontrado: $BACKEND_DIR"
+  echo "   O script update-vm-code.sh deve ter clonado o repositório antes"
+  exit 1
+fi
+
+# Criar diretório docker se não existir
+if [ ! -d "$BACKEND_DIR/docker" ]; then
+  echo "📁 Criando diretório docker no backend..."
+  mkdir -p "$BACKEND_DIR/docker"
+  chown -R azureuser:azureuser "$BACKEND_DIR/docker" 2>/dev/null || true
+fi
+
+# Criar Dockerfile para backend se não existir
+if [ ! -f "$BACKEND_DIR/docker/Dockerfile" ]; then
+  echo "📝 Criando Dockerfile para backend..."
+  cat > "$BACKEND_DIR/docker/Dockerfile" << 'DOCKERFILE_EOF'
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependências de sistema mínimas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependências do backend
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código do backend
+COPY . .
+
+# Expor porta
+EXPOSE 8000
+
+# Comando para produção
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+DOCKERFILE_EOF
+  echo "✅ Dockerfile criado"
+else
+  echo "✅ Dockerfile já existe"
+fi
+
+# Criar Dockerfile.worker para Celery se não existir
+if [ ! -f "$BACKEND_DIR/docker/Dockerfile.worker" ]; then
+  echo "📝 Criando Dockerfile.worker para Celery..."
+  cat > "$BACKEND_DIR/docker/Dockerfile.worker" << 'DOCKERFILE_WORKER_EOF'
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependências de sistema mínimas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependências do backend
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código do backend
+COPY . .
+
+# Comando para Celery worker/beat
+CMD ["celery", "-A", "src.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+DOCKERFILE_WORKER_EOF
+  echo "✅ Dockerfile.worker criado"
+else
+  echo "✅ Dockerfile.worker já existe"
+fi
+
+# Corrigir permissões dos Dockerfiles
+chown -R azureuser:azureuser "$BACKEND_DIR/docker" 2>/dev/null || true
+chmod 644 "$BACKEND_DIR/docker/Dockerfile" "$BACKEND_DIR/docker/Dockerfile.worker" 2>/dev/null || true
+
+echo "✅ Dockerfiles do backend verificados/criados"
+
 # 6. Reiniciar Containers
 echo ''
 echo '🚀 Reiniciando serviços via Docker Compose...'
