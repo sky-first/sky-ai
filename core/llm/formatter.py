@@ -155,24 +155,24 @@ def run_formatter(
         ])
         
         if is_permission_question:
-            # Resposta direta e amigável para perguntas sobre permissões
+            # Resposta direta e amigável para perguntas sobre permissões (agnóstico de domínio)
             if lang.startswith("pt"):
                 state["answer"] = (
                     "Não tenho acesso a informações sobre permissões de usuários ou quem pode ver quais tabelas. "
-                    "Posso ajudar com perguntas sobre seus dados de faturamento, clientes, pagamentos, reembolsos e créditos. "
-                    "Por exemplo: 'Qual é o faturamento mensal?' ou 'Quais clientes geram mais receita?'"
+                    "Posso ajudar com perguntas sobre seus dados e análises. "
+                    "Por exemplo: 'Qual é a performance mensal?' ou 'Quais são os principais resultados?'"
                 )
             elif lang.startswith("es"):
                 state["answer"] = (
                     "No tengo acceso a información sobre permisos de usuarios o quién puede ver qué tablas. "
-                    "Puedo ayudar con preguntas sobre tus datos de facturación, clientes, pagos, reembolsos y créditos. "
-                    "Por ejemplo: '¿Cuál es la facturación mensual?' o '¿Qué clientes generan más ingresos?'"
+                    "Puedo ayudar con preguntas sobre tus datos y análisis. "
+                    "Por ejemplo: '¿Cuál es el rendimiento mensual?' o '¿Cuáles son los principales resultados?'"
                 )
             else:
                 state["answer"] = (
                     "I don't have access to information about user permissions or who can see which tables. "
-                    "I can help with questions about your billing, customers, payments, refunds, and credits data. "
-                    "For example: 'What is the monthly billing?' or 'Which customers generate the most revenue?'"
+                    "I can help with questions about your data and analysis. "
+                    "For example: 'What is the monthly performance?' or 'What are the top results?'"
                 )
             log_event(
                 "formatter_impossible_permission_question",
@@ -205,7 +205,7 @@ def run_formatter(
                 f"User question:\n{question}\n\n"
                 f"Reason why it was impossible to answer:\n{impossible_reason}\n\n"
                 "Explain briefly why it's not possible to answer this question. "
-                "Then suggest 1-2 examples of questions the user CAN ask about their data (billing, customers, payments, etc.)."
+                "Then suggest 1-2 examples of questions the user CAN ask about their data (performance, metrics, analysis, etc.)."
             ),
         }
 
