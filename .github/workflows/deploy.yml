@@ -937,6 +937,108 @@ jobs:
           echo "OK: Arquivo validado: $TFVARS_FILE"
           echo "Tamanho: $(wc -l < "$TFVARS_FILE") linhas"
 
+      - name: Cleanup Bastion from State (if disabled)
+        run: |
+          set -euo pipefail
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          
+          echo "=== Limpeza de Bastion Host do Estado ==="
+          echo "Verificando se enable_bastion está desabilitado..."
+          
+          # Extrair valor de enable_bastion do tfvars
+          ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | \
+            sed 's/.*= *\([^#]*\).*/\1/' | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+            tr -d '"' | tr -d "'" || echo "true")
+          
+          echo "enable_bastion no tfvars: '$ENABLE_BASTION'"
+          
+          # Normalizar para true/false (case insensitive)
+          if echo "$ENABLE_BASTION" | grep -qiE "^(false|0|no|off)$"; then
+            ENABLE_BASTION="false"
+          else
+            ENABLE_BASTION="true"
+          fi
+          
+          echo "enable_bastion normalizado: $ENABLE_BASTION"
+          
+          # Se enable_bastion = false, verificar se Bastion existe no estado e remover
+          if [ "$ENABLE_BASTION" = "false" ]; then
+            echo ""
+            echo "⚠️  Bastion está DESABILITADO no tfvars (enable_bastion = false)"
+            echo "Verificando se Bastion existe no estado do Terraform..."
+            
+            # Verificar se Bastion existe no estado (pode estar como [0] ou sem índice)
+            BASTION_IN_STATE=false
+            if terraform state list 2>/dev/null | grep -q "azurerm_bastion_host.main"; then
+              BASTION_IN_STATE=true
+              BASTION_ADDRESS=$(terraform state list 2>/dev/null | grep "azurerm_bastion_host.main" | head -1 || echo "")
+            fi
+            
+            if [ "$BASTION_IN_STATE" = "true" ] && [ -n "$BASTION_ADDRESS" ]; then
+              echo "❌ Bastion Host encontrado no estado: $BASTION_ADDRESS"
+              echo "   Isso causará erro no plan (Terraform tentará destruir o recurso)"
+              echo ""
+              echo "🔧 Removendo Bastion Host do estado do Terraform..."
+              echo "   (O recurso permanecerá no Azure, mas não será mais gerenciado pelo Terraform)"
+              
+              set +e  # Desabilitar exit on error temporariamente
+              terraform state rm "$BASTION_ADDRESS" 2>&1
+              REMOVE_EXIT_CODE=$?
+              set -e  # Reabilitar exit on error
+              
+              if [ $REMOVE_EXIT_CODE -eq 0 ]; then
+                echo "✅ Bastion Host removido do estado com sucesso"
+                echo "   O recurso 'ai-saas-bastion-${ENV}' permanece no Azure (não gerenciado)"
+                echo "   Para removê-lo completamente, delete manualmente no Portal Azure se necessário"
+              else
+                echo "⚠️  Aviso: Falha ao remover Bastion do estado (exit code: $REMOVE_EXIT_CODE)"
+                echo "   Isso pode acontecer se o recurso já foi removido ou não existe"
+                echo "   Continuando mesmo assim..."
+              fi
+            else
+              echo "✅ Bastion Host NÃO está no estado do Terraform (OK)"
+              echo "   Nenhuma ação necessária"
+            fi
+            
+            # Também verificar e remover recursos relacionados (subnet e public IP do Bastion)
+            echo ""
+            echo "Verificando recursos relacionados do Bastion (subnet e public IP)..."
+            
+            # Subnet do Bastion
+            if terraform state list 2>/dev/null | grep -q "azurerm_subnet.bastion"; then
+              BASTION_SUBNET=$(terraform state list 2>/dev/null | grep "azurerm_subnet.bastion" | head -1 || echo "")
+              if [ -n "$BASTION_SUBNET" ]; then
+                echo "⚠️  Subnet do Bastion encontrada no estado: $BASTION_SUBNET"
+                echo "🔧 Removendo do estado..."
+                set +e
+                terraform state rm "$BASTION_SUBNET" 2>&1 || true
+                set -e
+                echo "✅ Subnet do Bastion removida do estado"
+              fi
+            fi
+            
+            # Public IP do Bastion
+            if terraform state list 2>/dev/null | grep -q "azurerm_public_ip.bastion"; then
+              BASTION_IP=$(terraform state list 2>/dev/null | grep "azurerm_public_ip.bastion" | head -1 || echo "")
+              if [ -n "$BASTION_IP" ]; then
+                echo "⚠️  Public IP do Bastion encontrada no estado: $BASTION_IP"
+                echo "🔧 Removendo do estado..."
+                set +e
+                terraform state rm "$BASTION_IP" 2>&1 || true
+                set -e
+                echo "✅ Public IP do Bastion removida do estado"
+              fi
+            fi
+            
+            echo ""
+            echo "✅ Limpeza de Bastion concluída"
+          else
+            echo "✅ Bastion está HABILITADO no tfvars (enable_bastion = true)"
+            echo "   Nenhuma ação necessária"
+          fi
+
       - name: Terraform Plan
         id: plan
         run: |
@@ -2301,6 +2403,9 @@ jobs:
           set -euo pipefail
           echo "Aplicando mudanças do Terraform..."
 
+          # CRÍTICO: Definir ALLOW_DESTROY no início do step
+          ALLOW_DESTROY="${{ needs.detect-environment.outputs.allow_destroy }}"
+
           # Verificar se plan file existe
           if [ ! -f "tfplan" ]; then
             echo "ERRO: Plan file não encontrado"
@@ -2594,7 +2699,7 @@ jobs:
               echo "ℹ️  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
               echo "ℹ️  Isso é uma operação de MIGRAÇÃO, não destruição real"
               echo "ℹ️  Continuando com apply..."
-            elif [ "${{ needs.detect-environment.outputs.allow_destroy }}" = "true" ]; then
+            elif [ "$ALLOW_DESTROY" = "true" ]; then
               echo "⚠️  AVISO: allow_destroy=true - recursos críticos serão destruídos!"
               echo "⚠️  Continuando com apply..."
             else
