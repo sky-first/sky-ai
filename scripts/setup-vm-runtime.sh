@@ -1,7 +1,7 @@
 #!/bin/bash
 # setup-vm-runtime.sh - Refactored script for VM maintenance
 # Handles .env bootstrap, IP updates, secret injection, and container restart with health checks.
-# Version: 1.0.6 (Fixed: Validate docker compose files and paths before execution, use absolute paths for --env-file)
+# Version: 1.0.6 (Fixed: Expand database URLs with real values + Validate docker compose files/paths before execution)
 
 set -eo pipefail
 
