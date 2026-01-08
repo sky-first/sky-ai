@@ -3432,12 +3432,77 @@ jobs:
 
           echo "🚀 Executando Setup de Runtime e Restart na VM..."
 
-          az vm run-command invoke \
+          # CRÍTICO: Capturar output e validar
+          RUNTIME_OUTPUT=$(az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
             --command-id RunShellScript \
             --scripts @/tmp/vm-runtime-script.sh \
-            --output json
+            --output json 2>&1)
+
+          # Capturar exit code
+          RUNTIME_EXIT_CODE=$?
+          set -e  # Reabilitar exit on error
+
+          # Salvar output para debug
+          echo "$RUNTIME_OUTPUT" > runtime-output.txt
+          cat runtime-output.txt
+
+          # Verificar se o comando foi bem-sucedido
+          if [ "$RUNTIME_EXIT_CODE" -ne 0 ]; then
+            echo ""
+            echo "❌ ERRO: Falha ao executar setup-vm-runtime.sh (exit code: $RUNTIME_EXIT_CODE)"
+            echo ""
+            echo "Logs completos:"
+            echo "$RUNTIME_OUTPUT"
+            exit 1
+          fi
+
+          # CRÍTICO: Verificar se há erros na resposta da VM (mesmo que o comando tenha retornado sucesso)
+          if command -v jq >/dev/null 2>&1; then
+            if echo "$RUNTIME_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
+              VM_MESSAGE=$(echo "$RUNTIME_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
+              
+              # Verificar se há erros na mensagem (stdout ou stderr)
+              if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
+                echo "❌ ERRO detectado na resposta da VM:"
+                echo ""
+                echo "Mensagem completa:"
+                echo "$VM_MESSAGE" | head -100
+                echo ""
+                echo "❌ Falhando workflow devido a erros no script da VM"
+                exit 1
+              fi
+              
+              # Verificar se containers foram iniciados com sucesso
+              if ! echo "$VM_MESSAGE" | grep -qiE "(✅ Containers iniciados|✅.*containers|containers.*started|docker compose.*up.*success)"; then
+                echo "⚠️  AVISO: Não foi possível confirmar que containers foram iniciados"
+                echo "Verificando mensagem completa:"
+                echo "$VM_MESSAGE" | grep -iE "(container|docker|compose)" | head -20 || echo "Nenhuma menção a containers encontrada"
+              fi
+              
+              # Verificar se há erros no stderr
+              STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -10)
+              
+              if [ -n "$STDERR_CONTENT" ] && echo "$STDERR_CONTENT" | grep -qiE "fatal|error|ERRO"; then
+                echo "❌ ERRO detectado no stderr:"
+                echo ""
+                echo "$STDERR_CONTENT"
+                echo ""
+                echo "❌ Falhando workflow devido a erros no stderr"
+                exit 1
+              fi
+            fi
+          else
+            # Se jq não estiver disponível, verificar manualmente
+            if echo "$RUNTIME_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)'; then
+              echo "❌ ERRO detectado na resposta (sem jq para validação detalhada):"
+              echo "$RUNTIME_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
+              exit 1
+            fi
+          fi
+
+          echo "✅ Setup de Runtime executado na VM"
 
   rollback:
     name: Rollback on Failure
