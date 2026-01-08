@@ -1997,9 +1997,17 @@ jobs:
           if [ -f "$TFVARS_FILE" ]; then
             RG_NAME_NEW=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
             VM_NAME_NEW=$(grep "^vm_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            # Verificar se Bastion está sendo desabilitado intencionalmente
+            ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *\([^#]*\).*/\1/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || echo "true")
+            if [ "$ENABLE_BASTION" = "false" ]; then
+              BASTION_DISABLED_INTENTIONALLY="true"
+            else
+              BASTION_DISABLED_INTENTIONALLY="false"
+            fi
           else
             RG_NAME_NEW=""
             VM_NAME_NEW=""
+            BASTION_DISABLED_INTENTIONALLY="false"
           fi
 
           # Tentar obter do terraform state/output
@@ -2413,9 +2421,17 @@ jobs:
                       fi
                       
                       if [ "$CRITICAL_RESOURCES_DESTROYED" = "true" ]; then
+                        # Verificar quais recursos específicos serão destruídos
+                        VM_DESTROYED_CHECK=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_linux_virtual_machine.main" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+                        BASTION_DESTROYED_CHECK=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_bastion_host.main[0]" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+                        
                         if [ "$IS_MIGRATION" = "true" ]; then
                           echo "✅ É uma MIGRAÇÃO de Resource Group - permitindo destruição de recursos críticos"
                           echo "ℹ️  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
+                          echo "ℹ️  Continuando com apply..."
+                        elif [ "$VM_DESTROYED_CHECK" = "0" ] && [ "$BASTION_DESTROYED_CHECK" != "0" ] && [ "$BASTION_DISABLED_INTENTIONALLY" = "true" ]; then
+                          echo "✅ Bastion está sendo desabilitado intencionalmente (enable_bastion=false no tfvars)"
+                          echo "ℹ️  Apenas o Bastion será removido - VM não será afetada"
                           echo "ℹ️  Continuando com apply..."
                         else
                           echo "❌ ERRO CRÍTICO: Plan vai destruir recursos críticos (VM ou Bastion)!"
@@ -2519,9 +2535,17 @@ jobs:
                     fi
                     
                     if [ "$CRITICAL_RESOURCES_DESTROYED" = "true" ]; then
+                      # Verificar quais recursos específicos serão destruídos
+                      VM_DESTROYED_CHECK2=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_linux_virtual_machine.main" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+                      BASTION_DESTROYED_CHECK2=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_bastion_host.main[0]" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+                      
                       if [ "$IS_MIGRATION" = "true" ]; then
                         echo "✅ É uma MIGRAÇÃO de Resource Group - permitindo destruição de recursos críticos"
                         echo "ℹ️  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
+                        echo "ℹ️  Continuando com apply..."
+                      elif [ "$VM_DESTROYED_CHECK2" = "0" ] && [ "$BASTION_DESTROYED_CHECK2" != "0" ] && [ "$BASTION_DISABLED_INTENTIONALLY" = "true" ]; then
+                        echo "✅ Bastion está sendo desabilitado intencionalmente (enable_bastion=false no tfvars)"
+                        echo "ℹ️  Apenas o Bastion será removido - VM não será afetada"
                         echo "ℹ️  Continuando com apply..."
                       else
                         echo "❌ ERRO CRÍTICO: Plan vai destruir recursos críticos (VM ou Bastion) mesmo após import!"
@@ -2531,6 +2555,12 @@ jobs:
                         terraform show -json tfplan | jq -r '.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace")) | "  - \(.address) (\(.type))"' || terraform show tfplan 2>/dev/null | grep -E "(azurerm_linux_virtual_machine.main|azurerm_bastion_host.main).*(will be destroyed|must be replaced)" || true
                         echo ""
                         echo "❌ FALHANDO WORKFLOW para proteger recursos críticos."
+                        if [ "$VM_DESTROYED_CHECK2" != "0" ]; then
+                          echo "❌ ERRO: VM será destruída - isso NÃO é permitido!"
+                        elif [ "$BASTION_DESTROYED_CHECK2" != "0" ]; then
+                          echo "❌ ERRO: Bastion será destruído, mas enable_bastion não está definido como false no tfvars"
+                          echo "❌ Para desabilitar o Bastion, defina enable_bastion=false no terraform.tfvars.staging"
+                        fi
                         echo "❌ Possível causa: diferença de nome/case do Resource Group no estado vs Azure"
                         echo "❌ Solução: Corrigir o estado do Terraform para usar o nome correto do RG"
                         exit 1
@@ -2579,7 +2609,10 @@ jobs:
             IS_MIGRATION=true
           fi
 
-          CRITICAL_DESTROYED=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+          # Verificar quais recursos críticos serão destruídos
+          VM_DESTROYED=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_linux_virtual_machine.main" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+          BASTION_DESTROYED=$(terraform show -json tfplan | jq -r '[.resource_changes[]? | select(.address == "azurerm_bastion_host.main[0]" and (.change.actions[]? == "delete" or .change.actions[]? == "replace"))] | length' 2>/dev/null || echo "0")
+          CRITICAL_DESTROYED=$((VM_DESTROYED + BASTION_DESTROYED))
 
           if [ "$CRITICAL_DESTROYED" != "0" ] && [ "$CRITICAL_DESTROYED" != "" ]; then
             echo "⚠️  Plan final vai destruir $CRITICAL_DESTROYED recurso(s) crítico(s)!"
@@ -2588,8 +2621,13 @@ jobs:
             terraform show -json tfplan | jq -r '.resource_changes[]? | select((.address == "azurerm_linux_virtual_machine.main" or .address == "azurerm_bastion_host.main[0]") and (.change.actions[]? == "delete" or .change.actions[]? == "replace")) | "  - \(.address) (\(.type))"' || true
             echo ""
             
+            # Verificar se apenas o Bastion está sendo destruído e foi desabilitado intencionalmente
+            if [ "$VM_DESTROYED" = "0" ] && [ "$BASTION_DESTROYED" != "0" ] && [ "$BASTION_DISABLED_INTENTIONALLY" = "true" ]; then
+              echo "✅ Bastion está sendo desabilitado intencionalmente (enable_bastion=false no tfvars)"
+              echo "ℹ️  Apenas o Bastion será removido - VM não será afetada"
+              echo "ℹ️  Isso permite acesso SSH direto - continuando com apply..."
             # Se é migração, permitir (recursos serão movidos, não realmente destruídos)
-            if [ "$IS_MIGRATION" = "true" ]; then
+            elif [ "$IS_MIGRATION" = "true" ]; then
               echo "✅ É uma MIGRAÇÃO de Resource Group - permitindo destruição de recursos críticos"
               echo "ℹ️  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
               echo "ℹ️  Isso é uma operação de MIGRAÇÃO, não destruição real"
@@ -2599,7 +2637,14 @@ jobs:
               echo "⚠️  Continuando com apply..."
             else
               echo "❌ FALHANDO WORKFLOW para proteger recursos críticos."
-              echo "❌ Se realmente precisa fazer isso, execute o workflow com allow_destroy=true"
+              if [ "$VM_DESTROYED" != "0" ]; then
+                echo "❌ ERRO: VM será destruída - isso NÃO é permitido!"
+                echo "❌ Se realmente precisa fazer isso, execute o workflow com allow_destroy=true"
+              elif [ "$BASTION_DESTROYED" != "0" ]; then
+                echo "❌ ERRO: Bastion será destruído, mas enable_bastion não está definido como false no tfvars"
+                echo "❌ Para desabilitar o Bastion, defina enable_bastion=false no terraform.tfvars.staging"
+                echo "❌ Ou execute o workflow com allow_destroy=true"
+              fi
               exit 1
             fi
           else
