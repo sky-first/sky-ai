@@ -2401,6 +2401,16 @@ jobs:
                       RG_NAME_FROM_STATE=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
                       RG_NAME_NEW="$RESOURCE_GROUP_NAME"
                       IS_MIGRATION=false
+                      BASTION_DISABLED_INTENTIONALLY="false"  # Inicializar variável
+                      
+                      # Verificar se Bastion está sendo desabilitado intencionalmente
+                      if [ -f "$TFVARS_FILE" ]; then
+                        ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *\([^#]*\).*/\1/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || echo "true")
+                        if [ "$ENABLE_BASTION" = "false" ]; then
+                          BASTION_DISABLED_INTENTIONALLY="true"
+                        fi
+                      fi
+                      
                       if [ -n "$RG_NAME_FROM_STATE" ] && [ -n "$RG_NAME_NEW" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
                         echo "✅ MIGRAÇÃO DE RESOURCE GROUP DETECTADA"
                         echo "   Resource Group atual (no state): $RG_NAME_FROM_STATE"
@@ -2515,6 +2525,16 @@ jobs:
                     RG_NAME_FROM_STATE=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
                     RG_NAME_NEW="$RESOURCE_GROUP_NAME"
                     IS_MIGRATION=false
+                    BASTION_DISABLED_INTENTIONALLY="false"  # Inicializar variável
+                    
+                    # Verificar se Bastion está sendo desabilitado intencionalmente
+                    if [ -f "$TFVARS_FILE" ]; then
+                      ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *\([^#]*\).*/\1/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || echo "true")
+                      if [ "$ENABLE_BASTION" = "false" ]; then
+                        BASTION_DISABLED_INTENTIONALLY="true"
+                      fi
+                    fi
+                    
                     if [ -n "$RG_NAME_FROM_STATE" ] && [ -n "$RG_NAME_NEW" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
                       echo "✅ MIGRAÇÃO DE RESOURCE GROUP DETECTADA"
                       echo "   Resource Group atual (no state): $RG_NAME_FROM_STATE"
@@ -2593,8 +2613,16 @@ jobs:
 
           # Extrair valores do tfvars
           RG_NAME_NEW=""
+          BASTION_DISABLED_INTENTIONALLY="false"  # Inicializar variável ANTES de usar
           if [ -f "$TFVARS_FILE" ]; then
             RG_NAME_NEW=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            # Verificar se Bastion está sendo desabilitado intencionalmente
+            ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *\([^#]*\).*/\1/' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || echo "true")
+            if [ "$ENABLE_BASTION" = "false" ]; then
+              BASTION_DISABLED_INTENTIONALLY="true"
+            else
+              BASTION_DISABLED_INTENTIONALLY="false"
+            fi
           fi
 
           # Tentar obter do terraform state/output
