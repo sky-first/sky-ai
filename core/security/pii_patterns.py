@@ -66,7 +66,8 @@ class PIIType(Enum):
 # ========== TELEFONES (INTERNACIONAL) ==========
 PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Formato internacional com código do país: +1 555-123-4567, +44 20 7946 0958
-    (re.compile(r'\+?\d{1,4}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,9}'), 
+    # Mais específico: requer pelo menos 7 dígitos totais e formato estruturado
+    (re.compile(r'\+?\d{1,4}[\s.-]\(?\d{3,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{4,9}'), 
      PIISeverity.BLOCK, PIIType.PHONE),
     
     # Telefones brasileiros
@@ -80,7 +81,8 @@ PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     (re.compile(r'\b0\d{1,3}[\s-]?\d{3,4}[\s-]?\d{3,4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
     
     # Europa (vários formatos): +33 1 23 45 67 89, +49 30 12345678
-    (re.compile(r'\+?\d{2,3}[\s.-]?\d{1,4}[\s.-]?\d{1,4}[\s.-]?\d{1,4}[\s.-]?\d{1,4}'), 
+    # Mais específico: requer pelo menos 8 dígitos totais (evita falsos positivos)
+    (re.compile(r'\+?\d{2,3}[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}'), 
      PIISeverity.BLOCK, PIIType.PHONE),
     
     # Japão: 03-1234-5678 ou 090-1234-5678
@@ -96,7 +98,12 @@ PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     (re.compile(r'\b0\d{1,2}\s?\d{4}\s?\d{4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
     
     # Sequências longas de dígitos (pode ser telefone sem formatação)
-    (re.compile(r'\b\d{10,15}\b'), PIISeverity.WARN, PIIType.PHONE),  # Pode ter falsos positivos
+    # Mais restritivo: pelo menos 10 dígitos (evita falsos positivos com números simples)
+    (re.compile(r'\b\d{10,15}\b'), PIISeverity.WARN, PIIType.PHONE),
+    
+    # Padrões com palavras-chave de telefone (mais específicos)
+    (re.compile(r'\b(phone|telefone|tel|mobile|celular|cell)\s*:?\s*[\+\d\s\-\(\)]{7,}', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.PHONE),
     
     # Palavras-chave em múltiplos idiomas
     (re.compile(r'\b(telefone|phone|tel|téléphone|telefono|telefon|celular|mobile|whatsapp|fone|móvil|電話|전화)\s*:?\s*[\d\s\-\(\)\+]+', 
