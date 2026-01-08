@@ -87,7 +87,8 @@ test_endpoint() {
     
     echo -n "Testando $description... "
     
-    response=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$timeout" --connect-timeout 5 "$url" 2>/dev/null || echo "000")
+    # Adicionar -L para seguir redirecionamentos (307, 301, etc.)
+    response=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time "$timeout" --connect-timeout 5 "$url" 2>/dev/null || echo "000")
     
     if VALID_CODE=$(validate_http_code "$response"); then
         if [ "$VALID_CODE" = "$expected_status" ]; then
@@ -139,8 +140,8 @@ check_service_readiness() {
     echo "   (Aguardando containers iniciarem e nginx ficar pronto)"
     
     while [ $elapsed -lt $max_wait ]; do
-        # Curl melhorado conforme recomendação
-        local http_code=$(curl -s \
+        # Curl melhorado conforme recomendação - adicionar -L para seguir redirecionamentos
+        local http_code=$(curl -s -L \
             --connect-timeout 5 \
             --max-time 10 \
             -o /dev/null \
@@ -548,8 +549,8 @@ RETRY_DELAY=3
 for i in $(seq 1 $MAX_RETRIES); do
     echo -n "Tentativa $i/$MAX_RETRIES: Testando porta 80... "
     
-    # Curl melhorado conforme recomendação
-    HTTP_CODE=$(curl -s \
+    # Curl melhorado conforme recomendação - adicionar -L para seguir redirecionamentos
+    HTTP_CODE=$(curl -s -L \
         --connect-timeout 5 \
         --max-time 10 \
         -o /dev/null \
@@ -565,16 +566,19 @@ for i in $(seq 1 $MAX_RETRIES); do
     fi
     
     if VALID_CODE=$(validate_http_code "$HTTP_CODE_CLEAN"); then
-        # Valida código HTTP
+        # Valida código HTTP - aceitar 2xx e 3xx como sucesso (redirecionamentos são válidos)
         if [ "$VALID_CODE" = "200" ]; then
             log_success "Porta 80 OK (HTTP $VALID_CODE)"
+            PORT_80_ACCESSIBLE=true
+            break
         elif [ "$VALID_CODE" -ge 200 ] && [ "$VALID_CODE" -lt 400 ]; then
-            log_warning "Porta 80 responde mas retornou HTTP $VALID_CODE"
+            # 2xx ou 3xx (incluindo redirecionamentos) são considerados sucesso
+            log_success "Porta 80 acessível (HTTP $VALID_CODE - redirecionamento seguido com sucesso)"
+            PORT_80_ACCESSIBLE=true
+            break
         else
             log_warning "Porta 80 responde mas retornou HTTP $VALID_CODE (erro do servidor)"
         fi
-        PORT_80_ACCESSIBLE=true
-        break
     fi
     
     echo "Falhou (código: '$HTTP_CODE_CLEAN')"
@@ -625,7 +629,7 @@ test_endpoint "http://$VM_IP/health" "200" "Health Check do Backend" "$TIMEOUT"
 # Teste 3: Health check com validação de conteúdo (se disponível)
 if test_endpoint "http://$VM_IP/health" "200" "Health Check (HTTP)" "$TIMEOUT"; then
     # Tentar validar conteúdo se endpoint retornar JSON
-    health_response=$(curl -s --max-time 10 "http://$VM_IP/health" 2>/dev/null || echo "")
+    health_response=$(curl -s -L --max-time 10 "http://$VM_IP/health" 2>/dev/null || echo "")
     if echo "$health_response" | grep -qE "(status|healthy|ok)" || [ -n "$health_response" ]; then
         log_success "Health Check retornou resposta válida"
     else
@@ -643,7 +647,7 @@ echo ""
 test_endpoint "http://$VM_IP/" "200" "Frontend (página inicial)" "$TIMEOUT"
 
 # Teste 5: Frontend retorna HTML
-frontend_response=$(curl -s --max-time 10 "http://$VM_IP/" 2>/dev/null || echo "")
+frontend_response=$(curl -s -L --max-time 10 "http://$VM_IP/" 2>/dev/null || echo "")
 if echo "$frontend_response" | grep -qiE "(html|<!DOCTYPE|next)" >/dev/null 2>&1; then
     log_success "Frontend retorna HTML válido"
 else
@@ -695,7 +699,8 @@ if [ "$PORT_80_ACCESSIBLE" = false ] && [ $ERRORS -gt 0 ]; then
     echo ""
     
     # Tenta fazer uma requisição HTTP real para verificar se o serviço está funcionando
-    HTTP_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --connect-timeout 5 "http://$VM_IP/" 2>/dev/null || echo "000")
+    # Adicionar -L para seguir redirecionamentos
+    HTTP_TEST=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 10 --connect-timeout 5 "http://$VM_IP/" 2>/dev/null || echo "000")
     
     if VALID_TEST=$(validate_http_code "$HTTP_TEST"); then
         echo -e "${GREEN}✅ Serviço está respondendo via HTTP (código: $VALID_TEST)${NC}"
