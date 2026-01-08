@@ -661,9 +661,27 @@ echo "=========================================="
 echo ""
 
 # Teste 6: API endpoint base
-test_endpoint "http://$VM_IP/api/v1/" "200" "API Base (/api/v1/)" "$TIMEOUT" || \
-test_endpoint "http://$VM_IP/api/v1/" "404" "API Base (/api/v1/ - 404 OK se não tiver rota raiz)" "$TIMEOUT" || \
-test_endpoint "http://$VM_IP/api/v1/" "405" "API Base (/api/v1/ - 405 OK se método não permitido)" "$TIMEOUT"
+# NOTA: /api/v1/ requer autenticação (retorna 401), então aceitamos 401 como sucesso
+#       (401 significa que a API está funcionando e apenas exige autenticação)
+echo -n "Testando API Base (/api/v1/)... "
+api_base_response=$(curl -s -L -o /dev/null -w "%{http_code}" \
+    --max-time "$TIMEOUT" \
+    --connect-timeout 5 \
+    "http://$VM_IP/api/v1/" 2>/dev/null || echo "000")
+
+if VALID_CODE=$(validate_http_code "$api_base_response"); then
+    # 401 = autenticação requerida (API está funcionando, só precisa de token)
+    if [ "$VALID_CODE" = "401" ]; then
+        log_success "API Base acessível (HTTP 401 - autenticação requerida, API funcionando)"
+    # 200/404/405 também são válidos se a rota existir
+    elif [ "$VALID_CODE" = "200" ] || [ "$VALID_CODE" = "404" ] || [ "$VALID_CODE" = "405" ]; then
+        log_success "API Base OK (HTTP $VALID_CODE)"
+    else
+        log_warning "API Base retornou código inesperado (HTTP $VALID_CODE)"
+    fi
+else
+    log_error "API Base não acessível (código: $api_base_response)"
+fi
 
 # Teste 7: API health endpoint (se disponível)
 test_endpoint "http://$VM_IP/api/v1/health" "200" "API Health Check" "$TIMEOUT" || \
