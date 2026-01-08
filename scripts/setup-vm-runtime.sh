@@ -1,12 +1,12 @@
 #!/bin/bash
 # setup-vm-runtime.sh - Refactored script for VM maintenance
 # Handles .env bootstrap, IP updates, secret injection, and container restart with health checks.
-# Version: 1.0.5 (Fixed: Expand database URLs with real values before Docker Compose)
+# Version: 1.0.6 (Fixed: Validate docker compose files and paths before execution, use absolute paths for --env-file)
 
 set -eo pipefail
 
 echo "=========================================="
-echo "🚀 VM RUNTIME SETUP & MAINTENANCE (v1.0.5)"
+echo "🚀 VM RUNTIME SETUP & MAINTENANCE (v1.0.6)"
 echo "🕒 Started at: $(date)"
 echo "=========================================="
 echo ''
@@ -211,11 +211,19 @@ chmod 600 .env
 # 5. Validar Docker Compose e Dependências
 echo ''
 echo '📂 Validando ambiente Docker...'
+
+# CRÍTICO: Validar Docker e Docker Compose existem antes de usar
 if command -v docker-compose >/dev/null 2>&1; then
   DOCKER_CMD="docker-compose"
-else
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   DOCKER_CMD="docker compose"
+else
+  echo '❌ ERRO: Docker ou Docker Compose não encontrado!'
+  echo '   Instale Docker e Docker Compose antes de continuar.'
+  exit 1
 fi
+
+echo "✅ Docker Compose encontrado: $DOCKER_CMD"
 
 # Garantir que subdiretórios existem (clonados pelo script de atualização ou pelo setup-vm-runtime se falhou)
 REPOS="sky-poc-backend sky-poc-frontend sky-poc-ai"
@@ -229,16 +237,128 @@ done
 echo ''
 echo '🚀 Reiniciando serviços via Docker Compose...'
 
-# Garantir que nada está travando as portas
-$DOCKER_CMD down || true
-
-# Iniciar containers
-if ! $DOCKER_CMD up -d --build; then
-  echo '❌ ERRO: Falha ao iniciar containers'
-  $DOCKER_CMD ps || true
-  $DOCKER_CMD logs --tail=100 || true
+# CRÍTICO: Validar INFRA_DIR está definido e existe antes de usar
+# INFRA_DIR é detectado dinamicamente na seção 1 como:
+# - ${BASE}/sky-poc-infra (prioridade) OU
+# - ${BASE}/poc-deploy (fallback)
+if [ -z "$INFRA_DIR" ] || [ ! -d "$INFRA_DIR" ]; then
+  echo "❌ ERRO: INFRA_DIR não definido ou não existe: '$INFRA_DIR'"
+  echo "   INFRA_DIR deve apontar para o diretório onde está docker-compose.yml"
+  echo "   Verificando diretórios possíveis em $BASE..."
+  ls -la "$BASE" 2>/dev/null | grep -E "(sky-poc-infra|poc-deploy)" || echo "   Nenhum diretório encontrado"
   exit 1
 fi
+
+echo "📂 Diretório de infraestrutura (INFRA_DIR): $INFRA_DIR"
+
+# Mudar para INFRA_DIR onde está o docker-compose.yml
+cd "$INFRA_DIR" || {
+  echo "❌ ERRO: Não foi possível entrar em $INFRA_DIR"
+  exit 1
+}
+
+CURRENT_DIR=$(pwd)
+echo "📂 Diretório atual: $CURRENT_DIR"
+
+# Definir paths absolutos para arquivos críticos
+COMPOSE_FILE="docker-compose.yml"
+COMPOSE_FILE_ABS="$CURRENT_DIR/$COMPOSE_FILE"
+
+# CRÍTICO: .env está no BASE, não no INFRA_DIR
+# BASE="/home/azureuser/projeto" já foi definido anteriormente
+ENV_FILE_ABS="$BASE/.env"
+
+# Validar que docker-compose.yml existe no INFRA_DIR
+if [ ! -f "$COMPOSE_FILE_ABS" ]; then
+  echo "❌ ERRO: Arquivo $COMPOSE_FILE não encontrado em $CURRENT_DIR"
+  echo "   Arquivos disponíveis:"
+  ls -la | grep -E "(docker-compose|\.yml|\.yaml)" || echo "   Nenhum arquivo compose encontrado"
+  echo ""
+  echo "   Buscando arquivos docker-compose* recursivamente..."
+  find . -maxdepth 3 -name "docker-compose*.yml" -o -name "docker-compose*.yaml" 2>/dev/null | head -10 || echo "   Nenhum encontrado"
+  exit 1
+fi
+
+echo "✅ Arquivo $COMPOSE_FILE encontrado: $COMPOSE_FILE_ABS"
+
+# Validar que .env existe no BASE (não no INFRA_DIR)
+if [ ! -f "$ENV_FILE_ABS" ]; then
+  echo "❌ ERRO: Arquivo .env não encontrado em $ENV_FILE_ABS"
+  echo "   O arquivo .env deve estar em $BASE"
+  echo "   Verificando se existe em outros locais..."
+  find "$BASE" -maxdepth 2 -name ".env" 2>/dev/null | head -5 || echo "   Nenhum .env encontrado"
+  exit 1
+fi
+
+echo "✅ Arquivo .env encontrado: $ENV_FILE_ABS"
+
+# Validar configuração do Docker Compose ANTES de executar
+# CRÍTICO: Se config falhar, abortar imediatamente (não continuar)
+echo ''
+echo '🔍 Validando configuração do Docker Compose...'
+if ! $DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" config >/dev/null 2>&1; then
+  echo "❌ ERRO: docker compose config falhou!"
+  echo ""
+  echo "   Mostrando erros de validação:"
+  $DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" config 2>&1 | head -50
+  echo ""
+  echo "💡 Isso geralmente indica:"
+  echo "   - Variáveis de ambiente faltando ou inválidas no .env ($ENV_FILE_ABS)"
+  echo "   - Sintaxe incorreta no docker-compose.yml ($COMPOSE_FILE_ABS)"
+  echo "   - Problemas com paths ou volumes"
+  exit 1
+fi
+
+# Contar serviços definidos
+SERVICE_COUNT=$($DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" config --services 2>/dev/null | wc -l | tr -d ' ')
+
+if [ -z "$SERVICE_COUNT" ] || [ "$SERVICE_COUNT" -eq "0" ]; then
+  echo "❌ ERRO: Nenhum serviço encontrado no $COMPOSE_FILE!"
+  echo "   Verificando conteúdo do arquivo..."
+  head -30 "$COMPOSE_FILE_ABS" || true
+  exit 1
+fi
+
+echo "✅ Configuração válida: $SERVICE_COUNT serviço(s) detectado(s)"
+
+# Listar serviços que serão iniciados
+echo "   Serviços que serão iniciados:"
+$DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" config --services 2>/dev/null | sed 's/^/     - /' || true
+
+# Parar containers existentes (limpo antes de subir)
+echo ''
+echo '🛑 Parando containers existentes (se houver)...'
+$DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" down 2>/dev/null || true
+
+# Mostrar status antes de iniciar (para debug)
+echo ''
+echo '📊 Status atual dos containers:'
+$DOCKER_CMD -f "$COMPOSE_FILE_ABS" ps -a 2>/dev/null | head -20 || echo "   Nenhum container encontrado (normal se primeira execução)"
+
+# Iniciar containers com paths absolutos e --env-file explícito
+echo ''
+echo "🚀 Iniciando containers..."
+echo "   Compose file: $COMPOSE_FILE_ABS"
+echo "   Env file: $ENV_FILE_ABS"
+if ! $DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" up -d --build; then
+  echo '❌ ERRO: Falha ao iniciar containers'
+  echo ''
+  echo '📊 Status dos containers após falha:'
+  $DOCKER_CMD -f "$COMPOSE_FILE_ABS" ps -a 2>/dev/null || true
+  echo ''
+  echo '📋 Últimos logs de erro:'
+  $DOCKER_CMD -f "$COMPOSE_FILE_ABS" logs --tail=50 2>/dev/null || true
+  echo ''
+  echo '💡 Diagnóstico:'
+  echo "   - Diretório atual: $CURRENT_DIR"
+  echo "   - INFRA_DIR: $INFRA_DIR"
+  echo "   - Arquivo compose: $COMPOSE_FILE_ABS"
+  echo "   - Arquivo .env: $ENV_FILE_ABS"
+  echo "   - Serviços esperados: $SERVICE_COUNT"
+  exit 1
+fi
+
+echo '✅ Containers iniciados com sucesso'
 
 echo '⏳ Aguardando serviços estabilizarem (30s)...'
 sleep 30
