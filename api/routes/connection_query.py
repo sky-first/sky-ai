@@ -1480,6 +1480,41 @@ async def dashboards_plan(
     schema_summary = ""
     max_tables_in_prompt = 0
 
+    # ✅ SECURITY: Check for prompt injection in original_question
+    original_question = getattr(body, "original_question", None)
+    if original_question:
+        try:
+            from core.security.security_guard import evaluate_security
+            from core.security.semantic_classifier import _create_openai_client
+            
+            llm_client_for_security = _create_openai_client()
+            security_decision = await evaluate_security(
+                question=original_question,
+                llm_client=llm_client_for_security,
+            )
+            
+            if security_decision.is_blocked():
+                log_event(
+                    "dashboard_plan_security_guard_blocked",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": body.space_id,
+                        "user_id": body.user_id,
+                        "reason": security_decision.reason,
+                        "risk_score": security_decision.risk_score,
+                        "llm_category": security_decision.llm_category,
+                        "question_preview": original_question[:100],
+                    },
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="I can't help with that request. Please rephrase your question about your data."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_event("dashboard_plan_security_check_error", {"error": str(e)})
+
     # Resolve crew_ids based on context (personal vs collaborative).
     # If we don't resolve, the metadata query will default to public-only (crew_id IS NULL),
     # which breaks Personal mode dashboards when metadata is scoped to crews.
@@ -2071,21 +2106,39 @@ async def query_connection(
     max_pii_severity = None
     all_pii_patterns = []
     
-    # ✅ CAMADA 2: Detecção prompt injection
-    is_malicious, pattern = detect_prompt_injection(body.question)
-    prompt_injection_detected = is_malicious
-    prompt_injection_pattern = pattern if is_malicious else None
-    if is_malicious:
+    # ✅ CAMADA 2: Security Guard (Sistema em 3 camadas)
+    from core.security.security_guard import evaluate_security, SecurityAction
+    from core.security.semantic_classifier import _create_openai_client
+    
+    # Criar cliente OpenAI para o semantic classifier
+    llm_client_for_security = _create_openai_client()
+    
+    security_decision = await evaluate_security(
+        question=body.question,
+        llm_client=llm_client_for_security,
+        allowed_tables=None,  # Pode ser preenchido depois se necessário
+        security_config=None  # Pode ser preenchido depois se necessário
+    )
+    
+    # Manter compatibilidade com código existente
+    prompt_injection_detected = security_decision.is_blocked()
+    prompt_injection_pattern = security_decision.reason if prompt_injection_detected else None
+    
+    if security_decision.is_blocked():
         log_event(
-            "prompt_injection_detected",
+            "security_guard_blocked",
             {
                 "connection_id": connection_id,
                 "user_id": body.user_id,
                 "question_preview": body.question[:200],
-                "pattern": pattern,
+                "reason": security_decision.reason,
+                "risk_score": security_decision.risk_score,
+                "llm_category": security_decision.llm_category,
+                "confidence": security_decision.confidence,
             }
         )
-        # Auditoria: prompt injection detectado
+        
+        # Auditoria: prompt injection detectado (mantém compatibilidade)
         log_query_audit(
             connection_id=connection_id,
             user_id=body.user_id,
@@ -2094,7 +2147,7 @@ async def query_connection(
             thread_id=body.thread_id,
             question=body.question,
             prompt_injection_detected=True,
-            prompt_injection_pattern=pattern,
+            prompt_injection_pattern=security_decision.reason,
         )
         
         # Detectar idioma da pergunta para mensagem apropriada
@@ -2123,6 +2176,20 @@ async def query_connection(
                 error="prompt_injection_blocked",
             )
         )
+    
+    elif security_decision.action == SecurityAction.SANITIZE:
+        # Log para monitoramento (por enquanto trata como ALLOW)
+        log_event(
+            "security_guard_sanitized",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "question_preview": body.question[:200],
+                "reason": security_decision.reason,
+                "risk_score": security_decision.risk_score,
+            }
+        )
+        # Continua processamento (trata como ALLOW por enquanto)
     
     # ✅ CAMADA 2.5: Detecção de Progressive Escalation
     thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
@@ -2826,16 +2893,27 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # ✅ CAMADA 2: Prompt injection (mesma regra do endpoint normal)
-        is_malicious, inj_pattern = detect_prompt_injection(body.question)
-        if is_malicious:
+        # ✅ CAMADA 2: Security Guard (mesma regra do endpoint normal)
+        from core.security.security_guard import evaluate_security, SecurityAction
+        from core.security.semantic_classifier import _create_openai_client
+        
+        llm_client_for_security = _create_openai_client()
+        security_decision = await evaluate_security(
+            question=body.question,
+            llm_client=llm_client_for_security,
+        )
+        
+        if security_decision.is_blocked():
             log_event(
-                "prompt_injection_detected_stream",
+                "security_guard_blocked_stream",
                 {
                     "connection_id": connection_id,
                     "user_id": body.user_id,
                     "question_preview": (body.question or "")[:200],
-                    "pattern": inj_pattern,
+                    "reason": security_decision.reason,
+                    "risk_score": security_decision.risk_score,
+                    "llm_category": security_decision.llm_category,
+                    "confidence": security_decision.confidence,
                 },
             )
             log_query_audit(
@@ -2846,7 +2924,7 @@ async def _stream_connection_query(
                 thread_id=body.thread_id,
                 question=body.question,
                 prompt_injection_detected=True,
-                prompt_injection_pattern=inj_pattern,
+                prompt_injection_pattern=security_decision.reason,
             )
             
             # Detectar idioma da pergunta para mensagem apropriada
@@ -2867,6 +2945,18 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'prompt_injection_blocked'}, 'data_sample': []})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
+        elif security_decision.action == SecurityAction.SANITIZE:
+            # Log para monitoramento (trata como ALLOW por enquanto)
+            log_event(
+                "security_guard_sanitized_stream",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "question_preview": (body.question or "")[:200],
+                    "reason": security_decision.reason,
+                    "risk_score": security_decision.risk_score,
+                },
+            )
 
         # ✅ CAMADA 2.5: Progressive escalation (registrar score)
         thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
