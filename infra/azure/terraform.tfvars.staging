@@ -24,16 +24,13 @@ github_repo = "sky-first/sky-poc-infra"
 # subscription_id será fornecido via ARM_SUBSCRIPTION_ID ou GitHub Secret
 
 # Configurações de Segurança - Network Security Group
-# IMPORTANTE: Com Azure Bastion desabilitado (enable_bastion = false),
-# a porta SSH (22) será exposta publicamente conforme allowed_ssh_ips.
-# Acesso SSH será feito diretamente via terminal usando: ssh azureuser@<IP_PUBLICO>
+# CRÍTICO: Com Azure Bastion habilitado (enable_bastion = true), 
+# a porta SSH (22) NÃO será exposta publicamente.
+# Acesso SSH será feito apenas via Azure Bastion (portal Azure ou CLI).
 # 
-# NOTA: allowed_ssh_ips controla quais IPs podem acessar a porta SSH (22)
-# Opções:
-#   - ["0.0.0.0/0"] = Permite acesso de qualquer lugar (menos seguro, mas funcional)
-#   - ["SEU_IP/32"] = Permite apenas seu IP específico (mais seguro)
-#   - ["IP1/32", "IP2/32"] = Permite múltiplos IPs específicos
-allowed_ssh_ips      = ["0.0.0.0/0"]      # SSH direto habilitado - ajuste conforme necessário
+# NOTA: allowed_ssh_ips é ignorado quando enable_bastion = true
+# Se precisar desabilitar Bastion no futuro, configure allowed_ssh_ips com IPs específicos
+allowed_ssh_ips      = ["0.0.0.0/0"]      # Ignorado quando enable_bastion = true
 allowed_postgres_ips = ["10.0.1.0/24"]    # Apenas rede interna da VM (mais seguro)
 
 frontend_public_access = true             # Libera frontend
@@ -50,22 +47,14 @@ allowed_http_ips  = ["0.0.0.0/0"]
 allowed_https_ips = ["0.0.0.0/0"]
 
 # ============================================
-# CONFIGURAÇÕES DE ACESSO SSH
+# RECOMENDAÇÕES CRÍTICAS IMPLEMENTADAS
 # ============================================
 
-# Azure Bastion - Acesso SSH seguro (DESABILITADO)
-# Com Bastion desabilitado, porta SSH (22) será exposta publicamente
-# Acesso SSH será feito diretamente via terminal: ssh azureuser@<IP_PUBLICO>
-# 
-# VANTAGENS de desabilitar Bastion:
-#   - Acesso SSH direto mais simples e rápido
-#   - Economia de custo (~$140/mês)
-#   - Não afeta o deploy (deploy usa az vm run-command, não SSH)
-# 
-# DESVANTAGENS:
-#   - Porta 22 exposta publicamente (menos seguro)
-#   - Recomendado restringir allowed_ssh_ips para IPs específicos em produção
-enable_bastion = false  # Staging: Bastion desabilitado para acesso SSH direto
+# Azure Bastion - Acesso SSH seguro (RECOMENDADO)
+# CRÍTICO: Com Bastion habilitado, porta SSH (22) não será exposta publicamente
+# Acesso SSH será feito apenas via Azure Bastion (mais seguro)
+# Custo: ~$0.19/hora (~$140/mês) - considerar para ambientes críticos
+enable_bastion = true  # Staging: Bastion habilitado para segurança
 
 # Azure Monitor - Email para alertas (opcional para staging)
 # Deixe vazio para desabilitar alertas em staging

@@ -3,8 +3,8 @@
 
 set -e
 
-RESOURCE_GROUP="POC-SKY"
-VM_NAME="poc-sky"
+RESOURCE_GROUP="skyfirstlabs-poc"
+VM_NAME="skyfirstlabs-staging"
 VM_USER="azureuser"
 
 # Tentar encontrar a chave SSH correta
@@ -13,6 +13,7 @@ SSH_KEY=""
 
 # Lista de possíveis chaves (em ordem de prioridade)
 POSSIBLE_KEYS=(
+    "$SCRIPT_DIR/keys/azure/team/id_rsa_staging"
     "$SCRIPT_DIR/keys/azure/team/id_rsa_poc"
     "$SCRIPT_DIR/keys/azure/id_rsa"
     "$HOME/.ssh/id_rsa"
@@ -91,19 +92,39 @@ if [ -n "$BASTION_NAME" ]; then
             --target-resource-id "$VM_ID" \
             --auth-type ssh-key \
             --username "$VM_USER" \
-            --ssh-key "$SSH_KEY" || {
+            --ssh-key "$SSH_KEY" 2>/dev/null || {
                 echo ""
-                echo -e "${RED}❌ Falha ao conectar via Bastion${NC}"
+                echo -e "${RED}❌ Falha ao conectar via Bastion (bug conhecido do Azure CLI)${NC}"
                 echo ""
+                
+                # Tentar SSH direto como fallback
+                if [ -n "$PUBLIC_IP" ] && [ -n "$SSH_KEY" ] && [ -f "$SSH_KEY" ]; then
+                    echo -e "${YELLOW}🔄 Tentando SSH direto como alternativa...${NC}"
+                    echo ""
+                    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$VM_USER@$PUBLIC_IP" && exit 0 || {
+                        echo ""
+                        echo -e "${RED}❌ SSH direto também falhou${NC}"
+                        echo ""
+                    }
+                fi
+                
                 echo -e "${YELLOW}💡 Possíveis causas:${NC}"
-                echo "   1. Native Client não está habilitado no Bastion"
-                echo "   2. Chave SSH incorreta"
-                echo "   3. Extensão SSH não instalada: az extension add -n ssh"
+                echo "   1. Bug do Azure CLI Bastion (enableTunneling)"
+                echo "   2. Porta SSH (22) pode estar fechada (Bastion habilitado)"
+                echo "   3. Chave SSH incorreta"
                 echo ""
                 echo -e "${BLUE}Alternativa: Use Azure Portal${NC}"
                 echo "   1. Acesse: https://portal.azure.com"
                 echo "   2. Vá em: Virtual Machines > $VM_NAME"
                 echo "   3. Clique em 'Connect' > 'Bastion'"
+                echo "   4. Use a chave privada: $SSH_KEY"
+                echo ""
+                echo -e "${BLUE}Ou use Azure CLI run-command para comandos remotos:${NC}"
+                echo "az vm run-command invoke \\"
+                echo "  -g $RESOURCE_GROUP \\"
+                echo "  -n $VM_NAME \\"
+                echo "  --command-id RunShellScript \\"
+                echo "  --scripts 'whoami && pwd'"
                 echo ""
             }
     else
