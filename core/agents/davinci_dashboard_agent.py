@@ -93,30 +93,46 @@ def _pick_join_pairs(table_keys: dict[str, list[str]], logical_tables: list[str]
 
 
 def _is_fact_table(name: str) -> bool:
+    """
+    Identifica se uma tabela parece ser uma fact table (tabela de fatos/eventos).
+    Agnóstico de domínio: usa padrões genéricos que funcionam para qualquer tipo de negócio.
+    """
     n = (name or "").lower()
+    # Padrões genéricos que indicam tabelas de fatos/eventos (agnóstico)
     pats = (
-        "invoice",
-        "order",
-        "payment",
         "transaction",
         "event",
         "session",
-        "line_item",
+        "activity",
+        "log",
+        "record",
+        "entry",
+        "item",
+        "line_",
         "fact_",
-        "billing",
-        "refund",
-        "shipment",
+        "measure",
+        "metric",
     )
     return any(p in n for p in pats)
 
 
 def _is_dim_table(name: str) -> bool:
+    """
+    Identifica se uma tabela parece ser uma dimension table (tabela de dimensões).
+    Agnóstico de domínio: usa padrões genéricos que funcionam para qualquer tipo de negócio.
+    """
     n = (name or "").lower()
+    # Padrões genéricos que indicam tabelas de dimensões (agnóstico)
     pats = (
-        "customer",
-        "client",
-        "user",
-        "account",
+        "entity",
+        "master",
+        "reference",
+        "lookup",
+        "dim_",
+        "dimension",
+        "catalog",
+        "directory",
+        "registry",
         "product",
         "vendor",
         "merchant",
@@ -703,7 +719,7 @@ def generate_dashboard_plan(
             "- These 7 widgets should be variations, complements, deeper insights, or related metrics based on the original question.\n"
             "- Think of them as: 'What else would be useful to know related to this question?'\n"
             "- Use ONLY the provided logical table names.\n"
-            "- ALWAYS wrap referenced table names in backticks (e.g., `invoices`).\n"
+            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
             "- Each widget must have: widget_key, type, title, question, viz.\n"
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- Questions MUST be answerable from the provided tables.\n"
@@ -738,18 +754,18 @@ def generate_dashboard_plan(
             "Rules:\n"
             "- Output STRICT JSON only.\n"
             "- Use ONLY the provided logical table names.\n"
-            "- ALWAYS wrap referenced table names in backticks (e.g., `invoices`).\n"
+            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
             "- Each widget must have: widget_key, type, title, question, viz.\n"
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
-            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., invoice + customer, order + product, payments + invoices) to produce better business metrics.\n"
+            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., fact_table + dimension_table, transaction + entity) to produce better business metrics.\n"
             "- If keys are provided in the schema sample, use them to suggest joined questions (e.g., *_id and date fields).\n"
             f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
             "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
-            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., invoices↔customers, orders↔products).\n"
+            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
             f"- Language for titles/questions: {language}\n"
             "- EXACTLY N widgets.\n"
             'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['

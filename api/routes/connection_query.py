@@ -56,7 +56,7 @@ from core.llm.factory import (
     create_llm_formatter,
     create_embedding_provider,
 )
-from core.rag.context_retrieval import build_retrieval_context_for_question
+from core.agents.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
@@ -242,7 +242,7 @@ def _get_dashboard_plan_cache_key(
         space_id: ID do space
         crew_ids: Lista de crew_ids (será ordenada para consistência)
         is_personal: Se está em modo personal
-        goal: Objetivo do dashboard (ex: "Billing overview")
+        goal: Objetivo do dashboard (ex: "Performance overview", "Analytical dashboard")
         max_widgets: Número máximo de widgets
         language: Idioma
         original_question: Pergunta original do usuário (opcional)
@@ -826,20 +826,17 @@ async def _collect_table_statistics_optimized(
     """
     stats = {}
     
-    # 1. Identificar tabelas principais (fact tables)
-    fact_keywords = ["invoice", "payment", "order", "transaction", "event", "sale", "purchase"]
-    fact_tables = [
-        t for t in tables
-        if any(keyword in (t.get("name", "") or "").lower() 
-               for keyword in fact_keywords)
-    ][:max_tables]  # Limitar a 3 tabelas
+    # 1. Selecionar tabelas para análise (agnóstico de domínio)
+    # Usa as primeiras tabelas disponíveis, limitadas pelo max_tables
+    # A seleção será baseada nas tabelas que o usuário tem acesso, não em tipos específicos
+    selected_tables = tables[:max_tables]  # Limitar a max_tables tabelas
     
-    if not fact_tables:
+    if not selected_tables:
         return stats
     
     # 2. Coletar metadados em paralelo (row_count via INFORMATION_SCHEMA)
     metadata_tasks = []
-    for table in fact_tables:
+    for table in selected_tables:
         schema = table.get("schema", "")
         name = table.get("name", "")
         task = _get_table_metadata_stats(data_source, name, schema, connection_type)
@@ -895,29 +892,33 @@ async def _collect_table_statistics_optimized(
 
 
 def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapResponse:
+    """
+    Fallback genérico de bootstrap suggestions (agnóstico de domínio).
+    Usado apenas quando não há dados suficientes para gerar sugestões personalizadas.
+    """
     if lang == "pt":
         greeting = "Como posso te ajudar com seus dados?"
         suggestions: list[ChatBootstrapSuggestion] = [
-            ChatBootstrapSuggestion(title="Faturamento mensal", kind="question", question="Qual é a performance de faturamento mensal?"),
-            ChatBootstrapSuggestion(title="Top clientes", kind="question", question="Quais clientes geram mais faturamento?"),
-            ChatBootstrapSuggestion(title="Status das faturas", kind="question", question="Qual é a análise de status das faturas?"),
-            ChatBootstrapSuggestion(title="Pagamentos por método", kind="question", question="Qual método de pagamento é mais utilizado?"),
+            ChatBootstrapSuggestion(title="Performance mensal", kind="question", question="Qual é a performance mensal dos principais indicadores?"),
+            ChatBootstrapSuggestion(title="Top resultados", kind="question", question="Quais são os principais resultados?"),
+            ChatBootstrapSuggestion(title="Análise por período", kind="question", question="Como os dados variam ao longo do tempo?"),
+            ChatBootstrapSuggestion(title="Comparação por categoria", kind="question", question="Qual é a distribuição por categoria?"),
         ]
     elif lang == "es":
         greeting = "¿Cómo puedo ayudarte con tus datos?"
         suggestions = [
-            ChatBootstrapSuggestion(title="Facturación mensual", kind="question", question="¿Cuál es el rendimiento de facturación mensual?"),
-            ChatBootstrapSuggestion(title="Top clientes", kind="question", question="¿Qué clientes generan más facturación?"),
-            ChatBootstrapSuggestion(title="Estado de facturas", kind="question", question="¿Cuál es el análisis del estado de las facturas?"),
-            ChatBootstrapSuggestion(title="Método de pago", kind="question", question="¿Qué método de pago se utiliza más?"),
+            ChatBootstrapSuggestion(title="Rendimiento mensual", kind="question", question="¿Cuál es el rendimiento mensual de los principales indicadores?"),
+            ChatBootstrapSuggestion(title="Top resultados", kind="question", question="¿Cuáles son los principales resultados?"),
+            ChatBootstrapSuggestion(title="Análisis por período", kind="question", question="¿Cómo varían los datos a lo largo del tiempo?"),
+            ChatBootstrapSuggestion(title="Comparación por categoría", kind="question", question="¿Cuál es la distribución por categoría?"),
         ]
     else:
         greeting = "How can I help you with your data?"
         suggestions = [
-            ChatBootstrapSuggestion(title="Monthly revenue", kind="question", question="What is the monthly billing performance?"),
-            ChatBootstrapSuggestion(title="Top customers", kind="question", question="Which customers generate the most revenue?"),
-            ChatBootstrapSuggestion(title="Invoice status", kind="question", question="What is the invoice status breakdown?"),
-            ChatBootstrapSuggestion(title="Payment method", kind="question", question="Which payment method is used the most?"),
+            ChatBootstrapSuggestion(title="Monthly performance", kind="question", question="What is the monthly performance of key indicators?"),
+            ChatBootstrapSuggestion(title="Top results", kind="question", question="What are the top results?"),
+            ChatBootstrapSuggestion(title="Time-based analysis", kind="question", question="How do the data vary over time?"),
+            ChatBootstrapSuggestion(title="Category breakdown", kind="question", question="What is the distribution by category?"),
         ]
 
     out = suggestions[:max_suggestions]
@@ -959,7 +960,7 @@ async def chat_bootstrap(
             resolved_crew_ids = [str(x) for x in body.crew_ids]
         elif body.user_id:
             # Resolver crew_ids automaticamente baseado no modo
-            resolved = resolve_crew_ids_for_context(
+            resolved = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=UUID(body.user_id),
                 space_id=UUID(body.space_id) if body.space_id else None,
@@ -1037,7 +1038,7 @@ async def chat_bootstrap(
     )
 
     # Backend-compatible: read catalog from `connection_metadata`.
-    all_tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    all_tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
     if not all_tables:
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
@@ -1216,11 +1217,11 @@ async def chat_bootstrap(
     
     # Mapear seed para diferentes ênfases que rotacionam periodicamente
     emphasis_hints = [
-        "Focus on performance metrics and KPIs (revenue, sales, growth rates, efficiency, profitability, ROI).",
-        "Focus on comparative analysis (compare performance across regions, products, customer segments, categories).",
+        "Focus on performance metrics and KPIs (growth rates, efficiency, profitability, ROI, key indicators).",
+        "Focus on comparative analysis (compare performance across regions, categories, segments, dimensions).",
         "Focus on distributions and patterns (how data is spread, identify top/bottom performers, outliers).",
         "Focus on relationships and correlations (connections between different entities, cause-effect analysis).",
-        "Focus on segmentation and grouping (breakdowns by dimensions like customer type, product category, cohorts).",
+        "Focus on segmentation and grouping (breakdowns by dimensions like types, categories, cohorts, statuses).",
         "Focus on aggregations and summaries (totals, averages, percentages, counts, ratios, trends).",
     ]
     
@@ -1250,7 +1251,7 @@ async def chat_bootstrap(
             user += f"- If there's a date range, suggest questions about that time period\n"
         user += (
             f"- Make suggestions that will return meaningful data based on these statistics\n"
-            f"- Personalize the greeting to mention the data available (e.g., 'You have X invoices, Y customers')\n\n"
+            f"- Personalize the greeting to mention the data available (e.g., 'You have X records in your main table')\n\n"
         )
     
     user += (
@@ -1269,9 +1270,9 @@ async def chat_bootstrap(
         "\n"
         "VARY the questions across:\n"
         "- Question structures: 'What are...', 'Which...', 'How is...', 'What percentage...', 'Compare...'\n"
-        "- Business dimensions: customers, products, regions, categories, segments, types, statuses\n"
+        "- Business dimensions: regions, categories, segments, types, statuses, groups, classifications\n"
         "- Analysis methods: top N, average, total, percentage, distribution, correlation, comparison\n"
-        "- Business metrics: revenue, sales, payments, credits, invoices, amounts, values, totals\n"
+        "- Business metrics: amounts, values, totals, counts, averages, rates, percentages, indicators\n"
         "\n"
         "FORBIDDEN: Do NOT generate questions about:\n"
         "- Data structure, tables, columns, or schema\n"
@@ -1489,7 +1490,7 @@ async def dashboards_plan(
         elif body.user_id:
             from uuid import UUID
 
-            resolved = resolve_crew_ids_for_context(
+            resolved = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=UUID(body.user_id),
                 space_id=UUID(body.space_id) if body.space_id else None,
@@ -1554,7 +1555,7 @@ async def dashboards_plan(
             schema_summary = str(body.schema_summary_override or "").strip()
             max_tables_in_prompt = min(12, len(logical_tables))
         else:
-            tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+            tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
             max_tables_in_prompt = min(12, len(tables))
             logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
     except Exception:
@@ -1663,7 +1664,7 @@ async def list_available_tables(
     
     # Backend-compatible: list tables from `connection_metadata.tables`.
     # Note: we currently do not enforce crew_id-level filtering here; that is handled by the product backend permissions.
-    raw_tables = _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    raw_tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
     tables_info = []
     for t in raw_tables:
         schema = str(t.get("schema") or "").strip()
@@ -1921,7 +1922,8 @@ async def load_agent_config_from_connection(
             return "data-mesh-gcp.web_silver"
         
         # Usar dataset do config da conexão
-        dataset = conn_config.get("dataset", "data-mesh-gcp.billing_silver")
+        # Fallback genérico: usar o dataset configurado ou None (será tratado apropriadamente)
+        dataset = conn_config.get("dataset")
         # Se já tem projeto, usar direto; senão, adicionar projeto
         if "." in dataset and not dataset.startswith("data-mesh-gcp."):
             return dataset
@@ -2613,21 +2615,71 @@ async def query_connection(
         },
     )
     
+    # DEBUG: Log informações detalhadas do estado para identificar problema
+    log_event(
+        "api_query_connection_debug_state",
+        {
+            "connection_id": connection_id,
+            "has_sql": bool(sql),
+            "sql_preview": sql[:200] if sql else None,
+            "has_data": bool(data),
+            "data_rows": len(data) if isinstance(data, list) else 0,
+            "has_error": bool(error),
+            "error": error,
+            "has_impossible_reason": bool(final_state.get("impossible_reason")),
+            "impossible_reason": final_state.get("impossible_reason"),
+            "has_answer": bool(final_state.get("answer")),
+            "answer_preview": (final_state.get("answer") or "")[:200],
+            "chosen_table": chosen_table,
+            "chosen_tables": chosen_tables,
+            "final_state_keys": list(final_state.keys()),
+        },
+    )
+    
     data_sample = data[:15] if isinstance(data, list) else []
     
     # ✅ CAMADA 4: Detecção de PII na resposta
-    from core.security.pii_scanner import scan_text_for_pii, scan_data_for_pii
+    from core.security.pii_scanner import (
+        scan_text_for_pii,
+        scan_data_for_pii,
+        should_allow_pii_in_aggregate_context,
+        _is_aggregated_sql,
+    )
     
     pii_response_text_result = scan_text_for_pii(answer) if answer else None
-    pii_response_data_result = scan_data_for_pii(data_sample) if data_sample else None
+    # IMPORTANTE: Escanear dados originais ANTES de filtrar para verificação de contexto agregado
+    # Usar dados completos (até 100 linhas) para detecção PII, mas apenas primeiras 15 para resposta
+    data_for_pii_scan = data[:100] if isinstance(data, list) else []
+    pii_response_data_result = scan_data_for_pii(data_for_pii_scan) if data_for_pii_scan else None
     
     pii_detected_in_response = (
         (pii_response_text_result and pii_response_text_result.detected) or
         (pii_response_data_result and pii_response_data_result.detected)
     )
     
-    # Se detectar PII crítico na resposta, bloquear
+    # Verificar se PII deve ser permitido em contexto agregado (análise de negócio genérica)
+    allow_pii_in_text = False
+    allow_pii_in_data = False
+    
     if pii_response_text_result and pii_response_text_result.should_block:
+        allow_pii_in_text = should_allow_pii_in_aggregate_context(
+            question=body.question or "",
+            sql=sql,
+            data=data_sample,
+            pii_detection_result=pii_response_text_result,
+        )
+    
+    if pii_response_data_result and pii_response_data_result.should_block:
+        # Usar dados originais (não filtrados) para verificação de contexto agregado
+        allow_pii_in_data = should_allow_pii_in_aggregate_context(
+            question=body.question or "",
+            sql=sql,
+            data=data_for_pii_scan,  # Dados originais antes de filtrar
+            pii_detection_result=pii_response_data_result,
+        )
+    
+    # Se detectar PII crítico na resposta E não for contexto agregado permitido, bloquear
+    if pii_response_text_result and pii_response_text_result.should_block and not allow_pii_in_text:
         # Substituir resposta por mensagem genérica
         from core.i18n.i18n import detect_language
         try:
@@ -2641,7 +2693,7 @@ async def query_connection(
         }.get(lang, "I cannot display sensitive personal information in the results.")
         pii_blocked = True
     
-    if pii_response_data_result and pii_response_data_result.should_block:
+    if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
         # Filtrar dados sensíveis
         data_sample = []
         pii_blocked = True
@@ -2865,10 +2917,11 @@ async def _stream_connection_query(
             return
 
         # Verificar se conexão existe
-        conn_result = db.execute(
+        result = await db.execute(
             text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
             {"id": connection_id}
-        ).first()
+        )
+        conn_result = result.first()
         
         if not conn_result:
             yield f"data: {json.dumps({'type': 'error', 'message': f'Conexão {connection_id} não encontrada'})}\n\n"
@@ -2878,7 +2931,7 @@ async def _stream_connection_query(
         crew_ids = body.crew_ids or []
         if body.user_id:
             try:
-                resolved_crew_ids = resolve_crew_ids_for_context(
+                resolved_crew_ids = await resolve_crew_ids_for_context(
                     db=db,
                     user_id=UUID(body.user_id),
                     space_id=UUID(body.space_id) if body.space_id else None,
@@ -2949,7 +3002,7 @@ async def _stream_connection_query(
         # Buscar contexto RAG
         retrieval_context: list[str] = []
         try:
-            retrieval_context = build_retrieval_context_for_question(
+            retrieval_context = await build_retrieval_context_for_question(
                 db=db,
                 embedding_provider=embedding_provider,
                 space_id=body.space_id,
@@ -3285,10 +3338,11 @@ async def validate_sql(
     
     try:
         # Verificar se conexão existe
-        conn_result = db.execute(
+        result = await db.execute(
             text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
             {"id": connection_id}
-        ).first()
+        )
+        conn_result = result.first()
         
         if not conn_result:
             return ValidateSQLResponse(
@@ -3300,7 +3354,7 @@ async def validate_sql(
         crew_ids = body.crew_ids or []
         if body.user_id and body.space_id:
             try:
-                resolved_crew_ids = resolve_crew_ids_for_context(
+                resolved_crew_ids = await resolve_crew_ids_for_context(
                     db=db,
                     user_id=UUID(body.user_id),
                     space_id=UUID(body.space_id),

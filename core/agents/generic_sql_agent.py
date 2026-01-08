@@ -74,8 +74,8 @@ class TableColumn(TypedDict, total=False):
 class TableSchema:
     """
     Representa uma tabela que o agente pode usar.
-    logical_name: nome amigável (ex: "invoices")
-    physical_name: nome físico no banco (ex: "billing_silver.invoices_enriched")
+    logical_name: nome amigável (ex: "transactions")
+    physical_name: nome físico no banco (ex: "project.dataset.table_name")
     """
     logical_name: str
     physical_name: str
@@ -90,7 +90,7 @@ class TableSchema:
 class AgentConfig:
     """
     Configuração de um agente genérico:
-    - id: identificador lógico (ex: "default_billing_agent")
+    - id: identificador lógico (ex: "default_agent", "main_agent")
     - name: nome amigável
     - tables: lista de TableSchema que esse agente conhece
     """

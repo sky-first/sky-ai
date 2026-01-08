@@ -23,8 +23,8 @@ def _normalize_logical_name(table_name: str) -> str:
     """
     Converte um nome físico em um nome lógico amigável.
     Exemplo:
-      'billing_silver.invoices_enriched' -> 'invoices'
-      'silver_customers_enriquecido'     -> 'customers'
+      'project.dataset.transactions_enriched' -> 'transactions'
+      'silver_entities_enriched'             -> 'entities'
     Ajuste a lógica conforme seu padrão real de nomes.
     """
     if not table_name:

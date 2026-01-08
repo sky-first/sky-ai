@@ -5,6 +5,7 @@ Scanner de dados sensíveis (PII) para detecção e bloqueio.
 Analisa textos e dados estruturados procurando por informações sensíveis
 usando os padrões definidos em pii_patterns.py.
 """
+import re
 from typing import List, Dict, Optional, Tuple, Any
 
 from core.security.pii_patterns import (
@@ -138,4 +139,266 @@ def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
         patterns_matched=list(set(all_matched_patterns))[:10],  # Remover duplicatas
         should_block=(max_severity == PIISeverity.BLOCK),
     )
+
+
+# ==================== DETECÇÃO DE CONTEXTO AGREGADO (GENÉRICO) ====================
+
+def _is_aggregate_analysis_question(question: str) -> bool:
+    """
+    Detecta se uma pergunta indica análise/agregação de negócio (genérico, multi-tenant).
+    
+    Usa padrões linguísticos universais que funcionam para qualquer domínio.
+    
+    Args:
+        question: Pergunta do usuário
+        
+    Returns:
+        True se a pergunta indica análise agregada, False caso contrário
+    """
+    if not question or not isinstance(question, str):
+        return False
+    
+    question_lower = question.lower()
+    
+    # Padrões de ranking/top N (genérico para qualquer domínio)
+    ranking_patterns = [
+        r'\b(top|melhores|piores|mais|menos|maior|menor|melhor|pior)\s+\d*',  # top 10, melhores, mais vendidos
+        r'\b(quais|which|quelles|welche|quali)\s+(?:são|are|sont|sind|sono)',  # quais são os
+        r'\b(ranking|rank|classificação|classificación)',  # ranking, classificação
+        r'\b(mais\s+rentáveis|mais\s+vendidos|mais\s+frequentes)',  # mais rentáveis, mais vendidos
+    ]
+    
+    # Padrões de agregação/totais (genérico) - expandido para capturar mais casos
+    aggregation_patterns = [
+        r'\b(total|soma|sum|contagem|count|média|avg|average|mean)',  # total, soma, média
+        r'\b(ticket\s+médio|average|média|por\s+entidade)',  # ticket médio, receita média
+        r'\b(por|by|par|durch|per)\s+\w+',  # por categoria, por mês, by category
+        r'\b(agrupado|grouped|groupé|gruppiert|raggruppato)',  # agrupado por
+        r'\b(distribuição|distribution|distribución|répartition|verteilung)',  # distribuição
+        r'\b(margem|margin|profit|receita|revenue)',  # margem, receita (geralmente agregado)
+    ]
+    
+    # Padrões temporais/analíticos (genérico)
+    temporal_patterns = [
+        r'\b(mensal|anual|monthly|yearly|mensuelle|mensual)',  # mensal, anual
+        r'\b(por\s+mês|por\s+ano|per\s+month|per\s+year)',  # por mês, por ano
+        r'\b(tendência|trend|tendance|tendencia)',  # tendência
+        r'\b(evolução|evolution|evolución|évolution)',  # evolução
+        r'\b(comparar|compare|comparer|vergleichen)',  # comparar
+        r'\b(análise|analysis|analyse|analisi)',  # análise
+        r'\b(performance|desempenho|rendimiento)',  # performance
+        r'\b(métrica|metric|métrique)',  # métrica
+    ]
+    
+    # Verificar se a pergunta contém padrões indicativos de análise agregada
+    all_patterns = ranking_patterns + aggregation_patterns + temporal_patterns
+    
+    for pattern in all_patterns:
+        if re.search(pattern, question_lower, re.IGNORECASE):
+            return True
+    
+    return False
+
+
+def _is_aggregated_sql(sql: str) -> bool:
+    """
+    Detecta se uma query SQL é agregada (genérico para qualquer banco de dados).
+    
+    Verifica presença de:
+    - GROUP BY
+    - Funções de agregação (SUM, COUNT, AVG, MAX, MIN)
+    - ORDER BY ... LIMIT (indica ranking/top N)
+    
+    Args:
+        sql: Query SQL a ser analisada
+        
+    Returns:
+        True se o SQL é agregado, False caso contrário
+    """
+    if not sql or not isinstance(sql, str):
+        return False
+    
+    sql_upper = sql.upper()
+    
+    # Verificar GROUP BY
+    if 'GROUP BY' in sql_upper:
+        return True
+    
+    # Verificar funções de agregação
+    aggregate_functions = ['SUM(', 'COUNT(', 'AVG(', 'MAX(', 'MIN(', 'AVERAGE(']
+    for func in aggregate_functions:
+        if func in sql_upper:
+            return True
+    
+    # Verificar ORDER BY ... LIMIT (indica ranking/top N)
+    if 'ORDER BY' in sql_upper and 'LIMIT' in sql_upper:
+        return True
+    
+    return False
+
+
+def _has_only_name_pii(detection_result: Optional[PIIDetectionResult]) -> bool:
+    """
+    Verifica se o resultado de detecção contém APENAS nomes (PIIType.NAME),
+    sem outros tipos de PII sensíveis (telefones, emails, documentos, etc.).
+    
+    Args:
+        detection_result: Resultado da detecção de PII
+        
+    Returns:
+        True se contém apenas nomes, False caso contrário
+    """
+    if not detection_result or not detection_result.detected:
+        return False
+    
+    if not detection_result.pii_types:
+        return False
+    
+    # Tipos de PII que devem SEMPRE bloquear (mesmo em contexto agregado)
+    sensitive_types = {
+        PIIType.PHONE,
+        PIIType.EMAIL,
+        PIIType.SSN,
+        PIIType.TAX_ID,
+        PIIType.ID_NUMBER,
+        PIIType.CREDIT_CARD,
+        PIIType.BANK_ACCOUNT,
+        PIIType.PASSWORD,
+        PIIType.ADDRESS,
+        PIIType.DATE_OF_BIRTH,
+        PIIType.PASSPORT,
+        PIIType.DRIVER_LICENSE,
+        PIIType.MEDICAL,
+        PIIType.FINANCIAL,
+        PIIType.GPS,
+        PIIType.SESSION_TOKEN,
+        PIIType.BIOMETRIC,
+        PIIType.GDPR_SENSITIVE,
+    }
+    
+    # Se detectou algum tipo sensível além de NAME, bloquear
+    detected_sensitive = set(detection_result.pii_types) & sensitive_types
+    if detected_sensitive:
+        return False
+    
+    # Se contém apenas NAME (ou NAME + UUID que é INFO), permitir em contexto agregado
+    allowed_types = {PIIType.NAME, PIIType.UUID}
+    detected_types = set(detection_result.pii_types)
+    
+    return detected_types.issubset(allowed_types)
+
+
+def _has_explicit_pii_request_pattern(question: str) -> bool:
+    """
+    Verifica se a pergunta contém padrões explícitos de solicitação de dados pessoais.
+    
+    Esses padrões devem SEMPRE bloquear, mesmo em contexto de análise agregada.
+    
+    Args:
+        question: Pergunta do usuário
+        
+    Returns:
+        True se contém padrão explícito de solicitação de PII, False caso contrário
+    """
+    if not question or not isinstance(question, str):
+        return False
+    
+    question_lower = question.lower()
+    
+    # Padrões explícitos de solicitação de dados pessoais (sempre bloquear)
+    explicit_patterns = [
+        r'\b(mostre|show|list|liste|exiba|display)\s+(?:todos\s+|all\s+|tous\s+)?(?:os\s+|as\s+|o\s+|a\s+)?(nomes|names|telefones|phones|emails|endereços|addresses)',  # mostre todos os nomes
+        r'\b(lista|list)\s+(?:de|of)\s+(nomes|names|telefones|phones|emails|endereços|addresses)',  # lista de telefones
+        r'\b(quero|want|need)\s+(?:ver|see)\s+(?:os\s+|as\s+)?(dados\s+pessoais|personal\s+data)',  # quero ver dados pessoais
+        r'\b(mostre|show)\s+(?:todos\s+|all\s+)?\w+\s+(?:com|with)\s+(?:seus|their)?\s*(nomes|names|telefones|phones|emails)',  # mostre clientes com nomes
+    ]
+    
+    for pattern in explicit_patterns:
+        if re.search(pattern, question_lower, re.IGNORECASE):
+            return True
+    
+    return False
+
+
+def should_allow_pii_in_aggregate_context(
+    question: str,
+    sql: Optional[str],
+    data: Optional[List[Dict[str, Any]]],
+    pii_detection_result: Optional[PIIDetectionResult],
+) -> bool:
+    """
+    Determina se PII detectado deve ser permitido em contexto de análise agregada.
+    
+    Regra de exceção genérica (multi-tenant, funciona para qualquer domínio):
+    - Permite APENAS se TODAS as condições forem verdadeiras:
+      1. Pergunta indica análise/agregação (padrões linguísticos genéricos)
+      2. SQL é agregado (GROUP BY, SUM, ORDER BY LIMIT)
+      3. Apenas NOMES detectados (não telefones, emails, documentos)
+      4. Múltiplas linhas retornadas (ranking/lista, não registro individual)
+      5. Não há padrão explícito de solicitação de dados pessoais
+    
+    Bloqueia se:
+    - Telefones, emails, documentos detectados (mesmo em agregação)
+    - Padrão explícito de solicitação de dados pessoais
+    - Registro individual (LIMIT 1, WHERE id = X)
+    
+    Args:
+        question: Pergunta do usuário
+        sql: SQL gerado (opcional)
+        data: Dados retornados (opcional)
+        pii_detection_result: Resultado da detecção de PII
+        
+    Returns:
+        True se deve permitir PII em contexto agregado, False caso contrário
+    """
+    # Se não há detecção de PII, não precisa aplicar exceção
+    if not pii_detection_result or not pii_detection_result.detected:
+        return False
+    
+    # Se há padrão explícito de solicitação de dados pessoais, SEMPRE bloquear
+    if _has_explicit_pii_request_pattern(question):
+        return False
+    
+    # Verificar se contém apenas nomes (não outros tipos sensíveis)
+    if not _has_only_name_pii(pii_detection_result):
+        return False
+    
+    # Verificar se pergunta indica análise agregada
+    is_aggregate_question = _is_aggregate_analysis_question(question)
+    if not is_aggregate_question:
+        return False
+    
+    # Verificar se SQL é agregado (se disponível)
+    # SQL agregado é o indicador mais confiável de análise agregada
+    sql_is_aggregated = False
+    sql_has_limit_1 = False
+    sql_has_group_by = False
+    
+    if sql:
+        sql_upper = sql.upper()
+        sql_is_aggregated = _is_aggregated_sql(sql)
+        sql_has_limit_1 = bool(re.search(r'\bLIMIT\s+1\b', sql_upper))
+        sql_has_group_by = 'GROUP BY' in sql_upper
+        
+        # Se SQL não é agregado, bloquear (não é análise agregada)
+        if not sql_is_aggregated:
+            return False
+        
+        # Se SQL tem LIMIT 1 sem GROUP BY, é registro individual - bloquear
+        if sql_has_limit_1 and not sql_has_group_by:
+            return False
+    
+    # Se SQL está disponível e é agregado, usar como fonte principal
+    # (mesmo se dados estiverem vazios - podem ter sido filtrados por PII ou erro)
+    if sql_is_aggregated:
+        # SQL agregado + pergunta agregada + apenas nomes = análise legítima, permitir
+        return True
+    
+    # Se não temos SQL, verificar dados retornados
+    # Se temos dados múltiplos, é ranking/lista
+    if data and len(data) > 1:
+        return True
+    
+    # Se não temos dados suficientes e SQL não está disponível ou não é agregado, bloquear
+    return False
 

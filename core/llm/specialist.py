@@ -38,7 +38,7 @@ def _build_secure_system_prompt(
         "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
         "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
         "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
-        "   Example: SELECT year, SUM(amount) FROM invoices GROUP BY year ORDER BY year LIMIT {max_limit}\n"
+        "   Example: SELECT year, SUM(amount) FROM data_table GROUP BY year ORDER BY year LIMIT {max_limit}\n"
         "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
         "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
         "4. NEVER use ; (semicolon) except at the very end - only one query\n"
@@ -214,18 +214,54 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
     else:
         text = str(raw or "")
 
+    if not text or not text.strip():
+        return ""
+
     text = _strip_sql_fences(text)
 
-    # às vezes o modelo responde algo tipo:
-    # "Here is the query:\nSELECT ..."
-    # vamos tentar pegar a primeira linha que começa com SELECT
-    lines = text.splitlines()
+    # Remover linhas vazias do início
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    # Estratégia 1: Procurar por linha que começa com SELECT (case-insensitive)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if re.match(r"^\s*select\b", stripped, flags=re.IGNORECASE):
+            # Encontrou SELECT, retornar daqui até o fim
+            result = "\n".join(lines[i:]).strip()
+            # Remover trailing semicolon se existir (pode ter sido adicionado)
+            if result.endswith(";"):
+                result = result[:-1].strip()
+            return result
+    
+    # Estratégia 2: Procurar por qualquer linha que contenha SELECT como palavra completa
     for i, line in enumerate(lines):
         if re.search(r"\bselect\b", line, flags=re.IGNORECASE):
-            return "\n".join(lines[i:]).strip()
+            result = "\n".join(lines[i:]).strip()
+            if result.endswith(";"):
+                result = result[:-1].strip()
+            return result
+    
+    # Estratégia 3: Se o texto inteiro parece SQL (contém palavras-chave SQL comuns)
+    sql_keywords = ["from", "where", "group by", "order by", "limit", "join", "inner", "left", "right"]
+    has_sql_keywords = any(re.search(rf"\b{kw}\b", text, flags=re.IGNORECASE) for kw in sql_keywords)
+    
+    if has_sql_keywords:
+        # Pode ser SQL sem SELECT explícito ou em formato diferente
+        result = text.strip()
+        if result.endswith(";"):
+            result = result[:-1].strip()
+        return result
 
-    # fallback: retorna tudo
-    return text.strip()
+    # Fallback: retornar tudo se tiver mais de 10 caracteres (provavelmente não é apenas texto explicativo)
+    result = text.strip()
+    if len(result) > 10:
+        if result.endswith(";"):
+            result = result[:-1].strip()
+        return result
+    
+    return ""
 
 
 # ==================== SPECIALIST NODE ====================
@@ -247,6 +283,20 @@ def run_specialist(
     """
     question = (state.get("question") or "").strip()
     
+    # Log de entrada PRIMEIRO para debug
+    log_event(
+        "specialist_entered",
+        {
+            "agent_id": agent_config.id,
+            "question": question[:200],
+            "has_answer_in_state": bool(state.get("answer")),
+            "answer_preview": (state.get("answer") or "")[:100],
+            "has_chosen_table": bool(state.get("chosen_table")),
+            "has_chosen_tables": bool(state.get("chosen_tables")),
+            "state_keys": list(state.keys())[:20],
+        },
+    )
+    
     # Obter security_config do state (enviado pelo backend via request)
     security_config: Optional[SecurityConfig] = state.get("security_config")
     if not security_config:
@@ -257,7 +307,11 @@ def run_specialist(
     if state.get("answer"):
         log_event(
             "specialist_skipped_due_to_preanswered_state",
-            {"agent_id": agent_config.id, "question": question[:200]},
+            {
+                "agent_id": agent_config.id,
+                "question": question[:200],
+                "answer": state.get("answer")[:200],
+            },
         )
         return state
     
@@ -270,12 +324,35 @@ def run_specialist(
     chosen_logical = state.get("chosen_table")
     chosen_physical = state.get("chosen_table_physical")
     
+    # Log de entrada para debug
+    log_event(
+        "specialist_start",
+        {
+            "agent_id": agent_config.id,
+            "question": question[:200],
+            "chosen_tables_logical": chosen_tables_logical,
+            "chosen_tables_physical": chosen_tables_physical,
+            "chosen_logical": chosen_logical,
+            "chosen_physical": chosen_physical,
+            "has_answer": bool(state.get("answer")),
+        },
+    )
+    
     # Determinar modo: múltiplas tabelas ou tabela única
     # Agora permite múltiplas tabelas mesmo sem join_relationships explícitos
     # O LLM pode tentar inferir JOINs baseado nos nomes das colunas
     use_multiple_tables = (
         chosen_tables_logical and 
         len(chosen_tables_logical) > 1
+    )
+    
+    log_event(
+        "specialist_mode_determined",
+        {
+            "agent_id": agent_config.id,
+            "use_multiple_tables": use_multiple_tables,
+            "num_chosen_tables": len(chosen_tables_logical) if chosen_tables_logical else 0,
+        },
     )
     
     # Detectar se a pergunta requer agregação/temporal (antes de determinar modo)
@@ -292,6 +369,17 @@ def run_specialist(
             next((t for t in agent_config.tables if t.logical_name == name), None)
             for name in chosen_tables_logical
         ]
+        
+        # Log das tabelas encontradas
+        log_event(
+            "specialist_multiple_tables_lookup",
+            {
+                "agent_id": agent_config.id,
+                "requested_tables": chosen_tables_logical,
+                "found_tables": [t.logical_name if t else None for t in tables],
+                "available_tables": [t.logical_name for t in agent_config.tables],
+            },
+        )
         
         # Verificar se todas as tabelas foram encontradas
         if any(t is None for t in tables):
@@ -310,11 +398,21 @@ def run_specialist(
         
     else:
         # Modo tabela única (comportamento original)
-        if not chosen_logical or not chosen_physical:
+        # Se não temos chosen_logical mas temos chosen_tables com uma tabela, usar essa
+        if not chosen_logical and chosen_tables_logical and len(chosen_tables_logical) == 1:
+            chosen_logical = chosen_tables_logical[0]
+            if chosen_tables_physical and len(chosen_tables_physical) > 0:
+                chosen_physical = chosen_tables_physical[0]
+        
+        if not chosen_logical:
             state["error"] = "No table was chosen by the orchestrator."
             log_event(
                 "specialist_no_table",
-                {"question": question[:200]},
+                {
+                    "question": question[:200],
+                    "chosen_tables_logical": chosen_tables_logical,
+                    "chosen_logical": chosen_logical,
+                },
             )
             return state
 
@@ -326,7 +424,11 @@ def run_specialist(
             state["error"] = f"Table '{chosen_logical}' not found in agent configuration."
             log_event(
                 "specialist_table_not_found",
-                {"agent_id": agent_config.id, "chosen_logical": chosen_logical},
+                {
+                    "agent_id": agent_config.id,
+                    "chosen_logical": chosen_logical,
+                    "available_tables": [t.logical_name for t in agent_config.tables],
+                },
             )
             return state
 
@@ -383,8 +485,8 @@ def run_specialist(
         if not join_relationships:
             join_guidance = (
                 "\n\nIMPORTANT: No explicit JOIN relationships were provided, but you should "
-                "try to infer relationships based on column names (e.g., user_id, customer_id, "
-                "order_id typically reference id columns in other tables). "
+                "try to infer relationships based on column names (e.g., entity_id, foreign_id, "
+                "reference_id typically reference id columns in other tables). "
                 "Look for columns ending in '_id' that might reference other tables."
             )
         
@@ -404,9 +506,9 @@ def run_specialist(
         
         # Adicionar instruções de agregação
         aggregation_instruction = (
-            "- When the question asks for metrics, totals, performance, or temporal analysis, "
-            "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-            "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
+                "- When the question asks for metrics, totals, performance, or temporal analysis, "
+                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
         )
         
         # Atualizar content com instruções adicionais
@@ -436,9 +538,9 @@ def run_specialist(
         
         # Adicionar instruções de agregação
         aggregation_instruction = (
-            "- When the question asks for metrics, totals, performance, or temporal analysis, "
-            "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-            "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
+                "- When the question asks for metrics, totals, performance, or temporal analysis, "
+                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
         )
         
         # Atualizar content com instruções adicionais
@@ -465,7 +567,7 @@ def run_specialist(
             "specialist_llm_error",
             {
                 "agent_id": agent_config.id,
-                "chosen_logical": chosen_logical,
+                "chosen_logical": chosen_logical or (chosen_tables_logical[0] if chosen_tables_logical else None),
                 "error": str(e)[:500],
             },
         )
@@ -478,6 +580,18 @@ def run_specialist(
         content = str(raw or "")
 
     content_clean = content.strip()
+    
+    # Log da resposta bruta do LLM
+    log_event(
+        "specialist_llm_response",
+        {
+            "agent_id": agent_config.id,
+            "response_preview": content_clean[:500],
+            "response_length": len(content_clean),
+            "starts_with_impossible": bool(re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE)),
+        },
+    )
+    
     if re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE):
         # extrai a razão se existir
         reason = re.sub(
@@ -500,6 +614,17 @@ def run_specialist(
 
     # === Extrai SQL ===
     sql = _parse_specialist_output(raw, primary_table)
+    
+    # Log do parsing
+    log_event(
+        "specialist_sql_parsed",
+        {
+            "agent_id": agent_config.id,
+            "sql_extracted": bool(sql),
+            "sql_preview": sql[:200] if sql else None,
+            "sql_length": len(sql) if sql else 0,
+        },
+    )
 
     if not sql:
         state["error"] = "Specialist did not return any SQL."
@@ -507,8 +632,8 @@ def run_specialist(
             "specialist_empty_sql",
             {
                 "agent_id": agent_config.id,
-                "chosen_logical": chosen_logical,
-                "raw_response": content_clean[:500],
+                "chosen_logical": chosen_logical or (chosen_tables_logical[0] if chosen_tables_logical else None),
+                "raw_response": content_clean[:1000],  # Aumentar para ver mais da resposta
             },
         )
         return state
@@ -528,6 +653,15 @@ def run_specialist(
             },
         )
         return state
+    
+    # Log: validação básica passou
+    log_event(
+        "specialist_basic_validation_passed",
+        {
+            "agent_id": agent_config.id,
+            "sql_preview": sql[:200],
+        },
+    )
 
     # === Validação avançada (AST + permissões) ANTES de executar ===
     try:
@@ -566,6 +700,16 @@ def run_specialist(
                 },
             )
             return state
+        
+        # Log: validação avançada passou
+        log_event(
+            "specialist_advanced_validation_passed",
+            {
+                "agent_id": agent_config.id,
+                "connection_type": connection_type,
+                "sql_preview": sql[:200],
+            },
+        )
     except Exception as e:
         # Falha no validador: fail closed (melhor seguro)
         state["error"] = f"SQL validation error: {str(e)[:300]}"
@@ -596,12 +740,25 @@ def run_specialist(
             sql = sql_with_rls
 
         # === Validação de segurança contra security_config (colunas, keywords, RLS) ===
+        # Construir lista de tabelas permitidas
+        allowed_tables_for_validation = [primary_table.physical_name]
+        if use_multiple_tables and 'tables' in locals():
+            allowed_tables_for_validation.extend([t.physical_name for t in tables])
+        
+        # Log: antes da validação de security_config
+        log_event(
+            "specialist_before_security_validation",
+            {
+                "agent_id": agent_config.id,
+                "sql_preview": sql[:200],
+                "allowed_tables": allowed_tables_for_validation[:5],
+            },
+        )
+        
         is_valid, security_error = validate_sql_against_security(
             sql=sql,
             security_config=security_config,
-            allowed_tables=[primary_table.physical_name] + (
-                [t.physical_name for t in tables] if use_multiple_tables else []
-            )
+            allowed_tables=allowed_tables_for_validation
         )
         if not is_valid:
             state["error"] = f"Security validation failed: {security_error}"
@@ -612,11 +769,39 @@ def run_specialist(
                     "agent_id": agent_config.id,
                     "sql": sql[:500],
                     "error": security_error,
-                },
-            )
+            },
+        )
             return state
+        
+        # Log: validação de security_config passou
+        log_event(
+            "specialist_security_validation_passed",
+            {
+                "agent_id": agent_config.id,
+                "sql_preview": sql[:200],
+            },
+        )
+    else:
+        # Log: sem security_config
+        log_event(
+            "specialist_no_security_config",
+            {
+                "agent_id": agent_config.id,
+                "sql_preview": sql[:200],
+            },
+        )
 
     # === Execução via data_source ===
+    # Log: antes da execução
+    log_event(
+        "specialist_before_execution",
+        {
+            "agent_id": agent_config.id,
+            "sql_preview": sql[:500],
+            "sql_length": len(sql),
+        },
+    )
+    
     try:
         rows = data_source.run_query(sql)
     except Exception as e:

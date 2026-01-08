@@ -249,11 +249,12 @@ def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
 
 def _format_catalog_capabilities(lang: str) -> str:
     # SECURITY: keep responses focused on business outcomes, not schema exploration.
+    # Agnóstico de domínio: exemplos genéricos funcionam para qualquer tipo de negócio.
     if (lang or "").startswith("pt"):
-        return "Me diga um objetivo de negócio (ex: faturamento mensal, top clientes, pagamentos por período) e eu gero a SQL."
+        return "Me diga um objetivo de análise (ex: performance mensal, top resultados, análise por período) e eu gero a SQL."
     if (lang or "").startswith("es"):
-        return "Dime un objetivo de negocio (p. ej., facturación mensual, top clientes, pagos por período) y generaré el SQL."
-    return "Tell me a business goal (e.g., monthly revenue, top customers, payments over time) and I will generate SQL."
+        return "Dime un objetivo de análisis (p. ej., rendimiento mensual, top resultados, análisis por período) y generaré el SQL."
+    return "Tell me an analysis goal (e.g., monthly performance, top results, time-based analysis) and I will generate SQL."
 
 
 def run_orchestrator(
@@ -404,11 +405,11 @@ def run_orchestrator(
             if not tname:
                 if lang.startswith("pt"):
                     state["answer"] = (
-                        "Qual tabela você quer ver? Ex: `quais colunas tem dentro de silver_invoices_enriquecido?`"
+                        "Qual tabela você quer ver? Ex: `quais colunas tem dentro de [nome_da_tabela]?`"
                     )
                 else:
                     state["answer"] = (
-                        "Which table do you want to inspect? Example: `what columns are in silver_invoices_enriquecido?`"
+                        "Which table do you want to inspect? Example: `what columns are in [table_name]?`"
                     )
             else:
                 table_obj = next((t for t in agent_config.tables if t.logical_name == tname), None)
@@ -575,7 +576,7 @@ def run_orchestrator(
                 "  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
                 "- If the question can be answered with a single table, choose ONE table.\n"
                 "- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
-                "- Example responses: 'invoices' or 'invoices, customers' or 'orders, products, customers'\n"
+                "- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
                 "- Use the additional semantic context and available relationships to make the best choice.\n"
                 f"{relationships_info}"
                 f"{instructions_block}"
@@ -590,7 +591,7 @@ def run_orchestrator(
                 f"{context_block}"
                 f"{relationships_info}"
                 "\nRespond with the logical table name(s) needed, separated by commas if multiple "
-                "(for example: 'invoices' or 'invoices, customers' or 'orders, products')."
+                "(for example: 'table1' or 'table1, table2' or 'orders, products')."
             ),
         }
     else:
