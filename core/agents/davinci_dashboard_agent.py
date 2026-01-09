@@ -680,6 +680,10 @@ def generate_dashboard_plan(
     logical_tables: List[str],
     schema_summary: str,
     original_question: Optional[str] = None,
+    initial_ai_response: Optional[str] = None,
+    context_spaces: Optional[List[str]] = None,
+    context_crews: Optional[List[str]] = None,
+    context_tables: Optional[List[str]] = None,
 ) -> DavinciDashboardPlan:
     """
     Davinci "graph": generate a dashboard plan as STRICT JSON.
@@ -737,11 +741,26 @@ def generate_dashboard_plan(
             "]}}.\n"
         )
         
+        # ✅ NOVO: Adicionar contexto de subspaces e crews se disponível
+        context_str = ""
+        if initial_ai_response:
+            context_str += (
+                f"\nCONTEXT: The user just received this answer from the AI: '{initial_ai_response}'. "
+                "Use this to suggest widgets potentially related to this insight (e.g. if the answer mentions 'Sales in SP', suggest 'Sales by Region').\n"
+            )
+        if context_spaces:
+            context_str += f"Context Spaces (available departments/areas): {', '.join(context_spaces)}\n"
+        if context_crews:
+            context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
+        if context_tables:
+            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:50])}...\n"
+        
         user = (
             f"N={max_widgets}\n"
             f"ORIGINAL QUESTION (MUST be first widget, word-for-word): {original_question}\n"
+            f"{context_str}"
             f"Goal: {goal}\n"
-            f"Accessible tables: {', '.join(logical_tables[:20])}\n"
+            f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
             f"Schema sample:\n{schema_summary}\n"
             f"\nGenerate 7 additional widgets that are STRONGLY RELATED (70-80% weight) to the original question above. "
             f"They should complement, extend, or provide deeper insights related to: '{original_question}'"
@@ -773,10 +792,25 @@ def generate_dashboard_plan(
             "]}}.\n"
         )
         
+        # ✅ NOVO: Adicionar contexto de subspaces e crews se disponível
+        context_str = ""
+        if initial_ai_response:
+            context_str += (
+                f"\nCONTEXT: The user just received this answer from the AI: '{initial_ai_response}'. "
+                "Use this to suggest widgets potentially related to this insight (e.g. if the answer mentions 'Sales in SP', suggest 'Sales by Region').\n"
+            )
+        if context_spaces:
+            context_str += f"Context Spaces (available departments/areas): {', '.join(context_spaces)}\n"
+        if context_crews:
+            context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
+        if context_tables:
+            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:50])}...\n"
+        
         user = (
             f"N={max_widgets}\n"
+            f"{context_str}"
             f"Goal: {goal}\n"
-            f"Accessible tables: {', '.join(logical_tables[:20])}\n"
+            f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
             f"Schema sample:\n{schema_summary}\n"
         )
 

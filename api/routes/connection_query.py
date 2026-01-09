@@ -236,6 +236,10 @@ def _get_dashboard_plan_cache_key(
     max_widgets: int,
     language: str,
     original_question: Optional[str] = None,
+    initial_ai_response: Optional[str] = None,
+    context_spaces: Optional[List[str]] = None,
+    context_crews: Optional[List[str]] = None,
+    context_tables: Optional[List[str]] = None,
 ) -> str:
     """
     Gera chave única para o cache de planos de dashboard.
@@ -249,6 +253,10 @@ def _get_dashboard_plan_cache_key(
         max_widgets: Número máximo de widgets
         language: Idioma
         original_question: Pergunta original do usuário (opcional)
+        initial_ai_response: Resposta anterior da IA (opcional)
+        context_spaces: Spaces disponíveis (opcional)
+        context_crews: Crews disponíveis (opcional)
+        context_tables: Tabelas acessíveis (opcional)
         
     Returns:
         String única que identifica esta combinação de parâmetros
@@ -261,7 +269,19 @@ def _get_dashboard_plan_cache_key(
     original_q_normalized = ""
     if original_question:
         original_q_normalized = " ".join(original_question.strip().lower().split())
-    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}"
+        
+    # Normalizar contextos
+    initial_resp_norm = str(len(initial_ai_response or "")) # Usar comprimento para evitar chave gigante, ou hash
+    if initial_ai_response:
+        # Usar os primeiros 50 chars + hash para a chave não ficar gigante mas ser única
+        initial_resp_hash = hashlib.md5(initial_ai_response.encode()).hexdigest()[:8]
+        initial_resp_norm = initial_resp_hash
+        
+    spaces_str = ",".join(sorted(context_spaces or []))
+    crews_str = ",".join(sorted(context_crews or []))
+    tables_str = str(len(context_tables or [])) # Apenas contagem para cache, pois tabelas mudam pouco
+    
+    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
 
 
 def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
@@ -1549,7 +1569,7 @@ async def dashboards_plan(
         )
         resolved_crew_ids = []
 
-    # ✅ NOVA: Verificar cache antes de gerar plano (incluindo original_question)
+    # ✅ NOVA: Verificar cache antes de gerar plano (incluindo original_question e contexto)
     cache_key = _get_dashboard_plan_cache_key(
         connection_id=connection_id,
         space_id=body.space_id,
@@ -1559,6 +1579,10 @@ async def dashboards_plan(
         max_widgets=body.max_widgets,
         language=lang,
         original_question=getattr(body, "original_question", None),
+        initial_ai_response=getattr(body, "initial_ai_response", None),
+        context_spaces=getattr(body, "context_spaces", None),
+        context_crews=getattr(body, "context_crews", None),
+        context_tables=getattr(body, "context_tables", None),
     )
     
     cached_response = _get_cached_dashboard_plan(cache_key)
@@ -1604,9 +1628,14 @@ async def dashboards_plan(
 
     try:
         llm = create_llm_specialist(creativity=10, length=35)  # gpt-4o by default
-        # ✅ NOVO: Passar original_question para generate_dashboard_plan
+        # ✅ NOVO: Passar original_question e contextos para generate_dashboard_plan
         # A IA só será chamada aqui (quando o endpoint é invocado ao clicar em "Criar Dashboard")
         original_question = getattr(body, "original_question", None)
+        initial_ai_response = getattr(body, "initial_ai_response", None)
+        context_spaces = getattr(body, "context_spaces", None)
+        context_crews = getattr(body, "context_crews", None)
+        context_tables = getattr(body, "context_tables", None)
+        
         plan = generate_dashboard_plan(
             llm=llm,
             goal=body.goal,
@@ -1615,6 +1644,10 @@ async def dashboards_plan(
             logical_tables=logical_tables,
             schema_summary=schema_summary,
             original_question=original_question,
+            initial_ai_response=initial_ai_response,
+            context_spaces=context_spaces,
+            context_crews=context_crews,
+            context_tables=context_tables,
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(

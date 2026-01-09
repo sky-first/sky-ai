@@ -150,6 +150,24 @@ class DashboardPlanRequest(BaseModel):
         default=None,
         description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question."
     )
+    
+    # ✅ NOVO: Contexto rico para sugestões melhores
+    initial_ai_response: Optional[str] = Field(
+        default=None,
+        description="The text content of the last AI answer the user saw. Use this to suggest specific titles."
+    )
+    context_spaces: Optional[List[str]] = Field(
+        default=None,
+        description="List of available spaces names to give situational awareness."
+    )
+    context_crews: Optional[List[str]] = Field(
+        default=None,
+        description="List of available crews names to give situational awareness."
+    )
+    context_tables: Optional[List[str]] = Field(
+        default=None,
+        description="List of all table names accessible to user to give situational awareness."
+    )
 
     # Backend-override fields (allows the product backend to pass catalog directly)
     logical_tables_override: Optional[List[str]] = Field(
