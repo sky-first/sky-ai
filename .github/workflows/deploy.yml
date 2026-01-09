@@ -7,6 +7,8 @@ permissions:
 on:
   push:
     branches: [staging, main]
+  repository_dispatch:
+    types: [deploy-trigger]
   workflow_dispatch:
     inputs:
       environment:
@@ -112,6 +114,28 @@ jobs:
             ENV="${{ github.event.inputs.environment }}"
             ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
             BRANCH="manual"
+          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "Trigger via repository_dispatch detected"
+            ENV="${{ github.event.client_payload.environment }}"
+            BRANCH="${{ github.event.client_payload.branch }}"
+            ALLOW_DESTROY="false"
+            
+            # Set default branch if not provided
+            if [[ -z "$BRANCH" ]] || [[ "$BRANCH" == "null" ]]; then
+              if [[ "$ENV" == "prod" ]]; then
+                BRANCH="main"
+              else
+                BRANCH="staging"
+              fi
+            fi
+            
+            echo "Payload Environment: $ENV"
+            echo "Payload Branch: $BRANCH"
+            
+            if [[ -z "$ENV" ]] || [[ "$ENV" == "null" ]]; then
+              echo "ERRO: environment não fornecido no payload"
+              exit 1
+            fi
           elif [[ "${{ github.event_name }}" == "push" ]]; then
             # Push direto na branch staging ou main
             BRANCH_REF="${{ github.ref_name }}"
@@ -942,27 +966,27 @@ jobs:
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
           ENV="${{ needs.detect-environment.outputs.environment }}"
-          
+
           echo "=== Limpeza de Bastion Host do Estado ==="
           echo "Verificando se enable_bastion está desabilitado..."
-          
+
           # Extrair valor de enable_bastion do tfvars
           ENABLE_BASTION=$(grep "^enable_bastion" "$TFVARS_FILE" 2>/dev/null | head -1 | \
             sed 's/.*= *\([^#]*\).*/\1/' | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
             tr -d '"' | tr -d "'" || echo "true")
-          
+
           echo "enable_bastion no tfvars: '$ENABLE_BASTION'"
-          
+
           # Normalizar para true/false (case insensitive)
           if echo "$ENABLE_BASTION" | grep -qiE "^(false|0|no|off)$"; then
             ENABLE_BASTION="false"
           else
             ENABLE_BASTION="true"
           fi
-          
+
           echo "enable_bastion normalizado: $ENABLE_BASTION"
-          
+
           # Se enable_bastion = false, verificar se Bastion existe no estado e remover
           if [ "$ENABLE_BASTION" = "false" ]; then
             echo ""
