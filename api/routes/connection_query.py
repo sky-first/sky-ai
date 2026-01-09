@@ -60,7 +60,7 @@ from core.agents.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
-from core.security.prompt_injection import detect_prompt_injection
+from core.i18n.i18n import detect_language, get_message
 from core.security.rate_limiter_redis import _rate_limiter
 from core.security.audit import log_query_audit
 from core.security.progressive_escalation import detect_progressive_escalation
@@ -2100,7 +2100,7 @@ async def query_connection(
     # ✅ CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
     from core.security.audit_manager import AuditManager
     from core.security.semantic_classifier import _create_openai_client
-    from core.i18n.i18n import detect_language
+    from core.i18n.i18n import detect_language, get_message
     
     # Criar cliente OpenAI para avaliação de segurança
     llm_client_for_security = _create_openai_client()
@@ -2114,7 +2114,7 @@ async def query_connection(
         llm_client=llm_client_for_security
     )
     
-    # Se houver bloqueio, interromper e retornar erro padronizado
+    # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
         # Detectar idioma para mensagem
         try:
@@ -2122,23 +2122,15 @@ async def query_connection(
         except:
             lang = "en"
             
-        # Mensagens por tipo de bloqueio
+        # Mensagens amigáveis por tipo de bloqueio
         if security_report.blocked_by == "PII_SCANNER":
-            message = {
-                "pt": "Sua pergunta contém dados sensíveis (PII) e foi bloqueada por segurança.",
-                "es": "Su pregunta contiene datos sensibles (PII) e fue bloqueada por seguridad.",
-                "en": "Your question contains sensitive data (PII) and was blocked for security."
-            }.get(lang, "Your question contains sensitive data (PII) and was blocked for security.")
+            message = get_message("PII_BLOCKED", lang)
             error_code = "pii_prompt_blocked"
         else:
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformule su pregunta sobre sus datos o contacte a um administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator."
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            message = get_message("SECURITY_BLOCKED", lang)
             error_code = "security_blocked"
 
-        # Log de Auditoria geral (mantém compatibilidade com logs antigos)
+        # Auditoria legada (mantém compatibilidade com dashboards existentes)
         log_query_audit(
             connection_id=connection_id,
             user_id=body.user_id,
@@ -2178,7 +2170,6 @@ async def query_connection(
     escalation_score = esc_info.get("score", 0.0)
     escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION" or security_report.security_status == "FLAGGED"
     escalation_reason = esc_info.get("reason")
-
     # Verificar se conexão existe
     result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
@@ -2299,51 +2290,6 @@ async def query_connection(
                 r"(\bwhat can i ask\b)",
                 q,
                 flags=re.IGNORECASE,
-            )
-        )
-
-        if is_tables_question and logical_tables:
-            # SECURITY: do not enumerate schema/tables via chat endpoint
-            from core.i18n.i18n import detect_language
-            try:
-                lang = detect_language(q_raw or "")
-            except Exception:
-                lang = "en"
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
-            return QueryResponse(
-                answer=message,
-                data_sample=[],
-                meta=QueryResultMeta(
-                    detected_language=lang,
-                    chosen_table=None,
-                    chosen_datasets=None,
-                    sql=None,
-                    num_rows=0,
-                    error="schema_question_blocked",
-                )
-            )
-
-        if is_examples_question and logical_tables:
-            # SECURITY: do not guide schema exploration via chat endpoint
-            from core.i18n.i18n import detect_language
-            try:
-                lang = detect_language(q_raw or "")
-            except Exception:
-                lang = "en"
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
-            return QueryResponse(
-                answer=message,
-                data_sample=[],
-                meta=QueryResultMeta(
-                    detected_language=lang,
                     chosen_table=None,
                     chosen_datasets=None,
                     sql=None,
@@ -2806,17 +2752,12 @@ async def _stream_connection_query(
             )
             
             # Detectar idioma da pergunta para mensagem apropriada
-            from core.i18n.i18n import detect_language
             try:
                 lang = detect_language(body.question or "")
             except:
                 lang = "en"
             
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator."
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            message = get_message("SECURITY_BLOCKED", lang)
             
             # Enviar como resposta normal para o frontend exibir corretamente
             yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
@@ -2861,22 +2802,17 @@ async def _stream_connection_query(
                 connection_id=connection_id,
                 user_id=body.user_id,
                 space_id=body.space_id,
-                crew_ids=body.crew_ids,
+                crew_ids=crew_ids,
                 thread_id=thread_id,
                 question=body.question,
                 progressive_escalation_score=escalation_score,
                 progressive_escalation_detected=True,
             )
-            from core.i18n.i18n import detect_language
             try:
                 lang = detect_language(body.question or "")
             except Exception:
                 lang = "en"
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
+            message = get_message("SECURITY_BLOCKED", lang)
             
             # Enviar como resposta normal para o frontend exibir corretamente
             yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
@@ -2984,7 +2920,7 @@ async def _stream_connection_query(
         # Executar agente até o specialist (sem formatter ainda)
         try:
             from core.agents.generic_sql_agent import build_generic_sql_graph
-            from core.llm.formatter import _ensure_language, _serialize_for_json, _compute_basic_stats, _stream_llm
+            from core.llm.formatter import _ensure_language, _serialize_for_json, _compute_basic_stats, _stream_llm, _extract_topic
             
             state = {
                 "question": body.question,
@@ -3018,7 +2954,7 @@ async def _stream_connection_query(
             # thread_id já definido acima
             
             # Executar até o specialist (orchestrator -> specialist)
-            # Não executamos o formatter ainda, vamos fazer streaming dele
+            # Não executamos o formatter ainda, vamos fazer streaming dela
             final_state = None
             for chunk in app.stream(state, config={"configurable": {"thread_id": thread_id}}):
                 for node_name, node_state in chunk.items():
@@ -3057,7 +2993,7 @@ async def _stream_connection_query(
                                     log_event(
                                         "ai_generated_invalid_sql_stream",
                                         {
-                                            "connection_id": connection_id,
++                                           "connection_id": connection_id,
                                             "user_id": body.user_id,
                                             "sql": sql[:500],
                                             "error": validation_error,
@@ -3080,7 +3016,11 @@ async def _stream_connection_query(
                                         progressive_escalation_score=escalation_score,
                                         progressive_escalation_detected=escalation_detected,
                                     )
-                                    yield f"data: {json.dumps({'type': 'error', 'message': 'Generated SQL is invalid. Please try again.'})}\n\n"
+                                    
+                                    # Mensagem amigável para erro técnico no streaming
+                                    lang = _ensure_language(body.question, None)
+                                    msg = get_message("TECHNICAL_ERROR", lang)
+                                    yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                                     return
 
@@ -3090,11 +3030,13 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Erro ao executar agente'})}\n\n"
                 return
             
-            # Se houve erro, enviar e terminar
+            # Se houve erro no agente, enviar amigável e terminar
             if final_state.get("error"):
-                yield f"data: {json.dumps({'type': 'chunk', 'content': str(final_state.get('error'))})}\n\n"
+                lang = _ensure_language(body.question, final_state.get("detected_language"))
+                msg = get_message("TECHNICAL_ERROR", lang)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
-                    "detected_language": final_state.get("detected_language"),
+                    "detected_language": lang,
                     "chosen_table": final_state.get("chosen_table"),
                     "sql": final_state.get("sql"),
                     "num_rows": 0,
@@ -3104,11 +3046,14 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
             
-            # Se não há dados, enviar mensagem e terminar
+            # Se não há dados, enviar amigável com tópico e terminar
             if not final_state.get("data"):
-                yield f"data: {json.dumps({'type': 'chunk', 'content': 'No data was found for this query.'})}\n\n"
+                lang = _ensure_language(body.question, final_state.get("detected_language"))
+                topic = _extract_topic(body.question)
+                msg = get_message("NO_DATA_FOUND", lang, topic=topic)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
-                    "detected_language": final_state.get("detected_language"),
+                    "detected_language": lang,
                     "chosen_table": final_state.get("chosen_table"),
                     "sql": final_state.get("sql"),
                     "num_rows": 0,

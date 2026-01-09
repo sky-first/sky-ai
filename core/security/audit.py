@@ -260,8 +260,8 @@ async def _ensure_audit_table_async() -> None:
                     CREATE TABLE IF NOT EXISTS prompt_security_audit (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        user_id VARCHAR(255),
                         connection_id UUID,
+                        user_id VARCHAR(255),
                         prompt_text_redacted TEXT,
                         security_status VARCHAR(20),
                         blocked_by VARCHAR(50),
@@ -271,7 +271,9 @@ async def _ensure_audit_table_async() -> None:
                     """
                 )
             )
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_timestamp ON prompt_security_audit(timestamp);"))
             await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_user ON prompt_security_audit(user_id);"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_connection ON prompt_security_audit(connection_id);"))
             await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_status ON prompt_security_audit(security_status);"))
             
             await db.commit()
@@ -312,6 +314,9 @@ async def _flush_audit_buffer_async():
                 audit_batch = [e for e in batch if e.get("_type") not in ("alert", "prompt_audit")]
                 alert_batch = [e for e in batch if e.get("_type") == "alert"]
                 prompt_audit_batch = [e for e in batch if e.get("_type") == "prompt_audit"]
+                
+                if not audit_batch and not alert_batch and not prompt_audit_batch:
+                    return # Nothing to flush
 
                 # 1. Inserir AUDIT LOGS
                 if audit_batch:

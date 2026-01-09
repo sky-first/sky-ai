@@ -28,6 +28,7 @@ psycopg[binary]==3.2.13
 pgvector==0.3.4
 psycopg2-binary==2.9.10
 asyncpg>=0.29.0
+greenlet>=3.0.0
 
 # --- SQL Parsing (Advanced Validator) ---
 sqlparse>=0.4.4

@@ -6,8 +6,34 @@ import json
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
-from core.i18n.i18n import detect_language
+from core.i18n.i18n import detect_language, get_message
 from core.logging_utils import log_event
+
+
+def _extract_topic(question: str) -> str:
+    """
+    Tenta extrair o tópico principal da pergunta para mensagens de 'dados não encontrados'.
+    """
+    import re
+    # Remove palavras comuns de pergunta
+    patterns = [
+        r'^(qual|quais|como|quem|onde|quando|quanto|quantos|por que|me mostra|me mostre|mostre-me|mostre|mostra|me diga|diga|liste|busque|traz|traga|encontre)\s+',
+        r'^(show|list|find|search|tell|what|how|where|when|which|who|why|can you|could you)\s+',
+        r'^(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|sobre|pelo|pela|pelas|pelos|no|na|nos|nas)\s+',
+        r'^(about|the|a|an|on|of|in|at|for|to|with|by|from)\s+'
+    ]
+    
+    q = question
+    for p in patterns:
+        q = re.sub(p, '', q, flags=re.IGNORECASE)
+    
+    q = q.strip()
+    
+    # Pega as primeiras 3-4 palavras se for longo
+    words = q.split()
+    if len(words) > 4:
+        return " ".join(words[:4]) + "..."
+    return q or "este assunto"
 
 
 def _serialize_for_json(obj: Any) -> Any:
@@ -124,16 +150,15 @@ def run_formatter(
     lang = _ensure_language(question, detected_language)
     state["detected_language"] = lang
 
-    # 1) Se houve erro técnico (SQL, conexão, etc.) → passa direto
+    # 1) Se houve erro técnico (SQL, conexão, etc.) -> passa amigável
     if error:
-        # Aqui poderíamos usar LLM para formatar erro bonito no idioma,
-        # mas por simplicidade mantemos o erro cru.
-        state["answer"] = str(error)
+        # Se for um erro do validador ou execução, usamos mensagem amigável
+        state["answer"] = get_message("TECHNICAL_ERROR", lang)
         log_event(
             "formatter_error_passthrough",
             {
                 "agent_id": agent_config.id,
-                "error": str(error)[:300],
+                "error_raw": str(error)[:300],
                 "lang": lang,
             },
         )
@@ -141,106 +166,16 @@ def run_formatter(
 
     # 2) Caso o especialista tenha marcado como IMPOSSIBLE
     if impossible_reason and not data:
-        # Detectar se a pergunta é sobre permissões/schema (resposta mais amigável)
-        question_lower = question.lower()
-        is_permission_question = any([
-            "permiss" in question_lower,
-            "permission" in question_lower,
-            "acesso" in question_lower,
-            "access" in question_lower,
-            "pode ver" in question_lower,
-            "can see" in question_lower,
-            "pode acessar" in question_lower,
-            "can access" in question_lower,
-        ])
+        # Tenta ser amigável quando não entende/não encontra dados
+        topic = _extract_topic(question)
+        state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
         
-        if is_permission_question:
-            # Resposta direta e amigável para perguntas sobre permissões (agnóstico de domínio)
-            if lang.startswith("pt"):
-                state["answer"] = (
-                    "Não tenho acesso a informações sobre permissões de usuários ou quem pode ver quais tabelas. "
-                    "Posso ajudar com perguntas sobre seus dados e análises. "
-                    "Por exemplo: 'Qual é a performance mensal?' ou 'Quais são os principais resultados?'"
-                )
-            elif lang.startswith("es"):
-                state["answer"] = (
-                    "No tengo acceso a información sobre permisos de usuarios o quién puede ver qué tablas. "
-                    "Puedo ayudar con preguntas sobre tus datos y análisis. "
-                    "Por ejemplo: '¿Cuál es el rendimiento mensual?' o '¿Cuáles son los principales resultados?'"
-                )
-            else:
-                state["answer"] = (
-                    "I don't have access to information about user permissions or who can see which tables. "
-                    "I can help with questions about your data and analysis. "
-                    "For example: 'What is the monthly performance?' or 'What are the top results?'"
-                )
-            log_event(
-                "formatter_impossible_permission_question",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "lang": lang,
-                },
-            )
-            return state
-        
-        # Para outros casos de IMPOSSIBLE, usar LLM para gerar resposta
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a helpful assistant.\n"
-                "The model tried to answer a question with the available data/schema, "
-                "but it was marked as IMPOSSIBLE.\n\n"
-                "Your job is to explain this to the user in a SHORT, FRIENDLY, and OBJECTIVE way "
-                f"(maximum 2-3 sentences) in the same language as the user's question "
-                f"(language code '{lang}').\n\n"
-                "IMPORTANT: Do NOT mention technical terms like 'schemas', 'metadata', 'permissions', or 'system tables'. "
-                "Instead, suggest what kind of business questions the user CAN ask about their data.\n"
-            ),
-        }
-
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Reason why it was impossible to answer:\n{impossible_reason}\n\n"
-                "Explain briefly why it's not possible to answer this question. "
-                "Then suggest 1-2 examples of questions the user CAN ask about their data (performance, metrics, analysis, etc.)."
-            ),
-        }
-
-        try:
-            answer = _invoke_llm(llm, system_msg, user_msg) or ""
-        except Exception as e:
-            fallback = (
-                "It was not possible to answer this question with the current data/context. "
-                "If you provide more specific data or connect the right sources, "
-                "I can try again."
-            )
-            state["answer"] = fallback
-            log_event(
-                "formatter_impossible_llm_error",
-                {
-                    "agent_id": agent_config.id,
-                    "error": str(e)[:500],
-                    "lang": lang,
-                },
-            )
-            return state
-
-        if not answer:
-            answer = (
-                "It was not possible to answer this question with the current data/context. "
-                "If you provide more specific data or connect the right sources, "
-                "I can try again."
-            )
-
-        state["answer"] = answer
         log_event(
             "formatter_impossible_success",
             {
                 "agent_id": agent_config.id,
-                "answer_preview": answer[:200],
+                "reason": impossible_reason[:200],
+                "topic": topic,
                 "lang": lang,
             },
         )
@@ -248,14 +183,14 @@ def run_formatter(
 
     # 3) Sem dados e sem impossible_reason → resposta simples
     if not data:
-        # Poderíamos pedir pro LLM gerar uma mensagem no idioma, mas por simplicidade:
-        msg = "No data was found for this query."
-        state["answer"] = msg
+        topic = _extract_topic(question)
+        state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
         log_event(
             "formatter_no_data",
             {
                 "agent_id": agent_config.id,
                 "question": question[:200],
+                "topic": topic,
                 "lang": lang,
             },
         )
