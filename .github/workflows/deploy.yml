@@ -3453,6 +3453,8 @@ jobs:
           echo "🔐 Executando script de atualização na VM..."
 
           # Executar script na VM usando @file syntax
+          # CRÍTICO: Desabilitar exit on error (set +e) para capturar output e exit code
+          set +e
           UPDATE_OUTPUT=$(az vm run-command invoke \
             --resource-group ${{ steps.vm-info.outputs.resource_group }} \
             --name ${{ steps.vm-info.outputs.vm_name }} \
@@ -3460,8 +3462,7 @@ jobs:
             --scripts "@/tmp/vm-update-script.sh" \
             --output json 2>&1)
 
-
-          # Capturar exit code corretamente (PIPESTATUS pode não estar disponível em todos os shells)
+          # Capturar exit code imediatamente
           UPDATE_EXIT_CODE=$?
           set -e  # Reabilitar exit on error
 
