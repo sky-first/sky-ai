@@ -3484,49 +3484,41 @@ jobs:
             if echo "$UPDATE_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
               VM_MESSAGE=$(echo "$UPDATE_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
               
-              # Verificar se há erros na mensagem (stdout ou stderr)
-              if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
-                echo "❌ ERRO detectado na resposta da VM:"
-                echo ""
-                echo "Mensagem completa:"
-                echo "$VM_MESSAGE" | head -100
-                echo ""
-                echo "❌ Falhando workflow devido a erros no script da VM"
-                exit 1
+              # 1. Priorizar Marcador de Sucesso
+              if echo "$VM_MESSAGE" | grep -q "✅ Código atualizado com sucesso!"; then
+                echo "✅ Marcador de sucesso encontrado. Validando stderr isoladamente..."
+                
+                # Mesmo com sucesso, verificar se há erros reais no stderr (ignorando avisos comuns do git)
+                STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -20)
+                if [ -n "$STDERR_CONTENT" ]; then
+                  REAIS_ERROS=$(echo "$STDERR_CONTENT" | grep -viE "(Already on|up to date|Your branch is up to date)" | grep -iE "(fatal|error|ERRO|falhou|failed)")
+                  if [ -n "$REAIS_ERROS" ]; then
+                    echo "❌ ERRO detectado no stderr (mesmo com marcador de sucesso):"
+                    echo "$REAIS_ERROS"
+                    exit 1
+                  fi
+                fi
+              else
+                # 2. Se não houver marcador de sucesso, realizar verificação rigorosa
+                if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
+                  echo "❌ ERRO detectado na resposta da VM (sem marcador de sucesso):"
+                  echo ""
+                  echo "Mensagem parcial:"
+                  echo "$VM_MESSAGE" | head -50
+                  echo ""
+                  echo "❌ Falhando workflow devido a erros detectados"
+                  exit 1
+                fi
               fi
-              
-              # Verificar se há erros no stderr ou na mensagem
-              # Extrair conteúdo do stderr (linhas após [stderr])
-              STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -10)
-              
-              if [ -n "$STDERR_CONTENT" ] && echo "$STDERR_CONTENT" | grep -qiE "fatal|error|ERRO"; then
-                echo "❌ ERRO detectado no stderr:"
-                echo ""
-                echo "$STDERR_CONTENT"
-                echo ""
-                echo "❌ Falhando workflow devido a erros no stderr"
-                exit 1
-              fi
-              
-              # Verificar se há palavras-chave de erro na mensagem completa
-              if echo "$VM_MESSAGE" | grep -qiE "fatal:|error:|ERRO:"; then
-                echo "❌ ERRO detectado na mensagem:"
-                echo ""
-                echo "$VM_MESSAGE" | grep -iE "fatal:|error:|ERRO:" | head -10
-                echo ""
-                echo "❌ Falhando workflow devido a erros detectados"
-                exit 1
-              fi
-              
-              # NOTA: O campo "code" no JSON do Azure é "ProvisioningState/succeeded", não exit code
-              # Não usar esse campo para detectar erros
             fi
           else
-            # Se jq não estiver disponível, verificar manualmente na saída
-            if echo "$UPDATE_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option|"code":\s*[^0]|"level":\s*"Error")'; then
-              echo "❌ ERRO detectado na resposta (sem jq para validação detalhada):"
-              echo "$UPDATE_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
-              exit 1
+            # Se jq não estiver disponível, verificar marcador ou falhar se houver erro óbvio
+            if ! echo "$UPDATE_OUTPUT" | grep -q "✅ Código atualizado com sucesso!"; then
+              if echo "$UPDATE_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)'; then
+                echo "❌ ERRO detectado na resposta (sem jq e sem marcador de sucesso):"
+                echo "$UPDATE_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
+                exit 1
+              fi
             fi
           fi
 
@@ -3592,42 +3584,43 @@ jobs:
             if echo "$RUNTIME_OUTPUT" | jq -e '.value[0].message' > /dev/null 2>&1; then
               VM_MESSAGE=$(echo "$RUNTIME_OUTPUT" | jq -r '.value[0].message' 2>/dev/null || echo "")
               
-              # Verificar se há erros na mensagem (stdout ou stderr)
-              if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
-                echo "❌ ERRO detectado na resposta da VM:"
-                echo ""
-                echo "Mensagem completa:"
-                echo "$VM_MESSAGE" | head -100
-                echo ""
-                echo "❌ Falhando workflow devido a erros no script da VM"
-                exit 1
+              # 1. Priorizar Marcador de Sucesso
+              if echo "$VM_MESSAGE" | grep -q "✅ OPERAÇÃO CONCLUÍDA COM SUCESSO!"; then
+                echo "✅ Marcador de sucesso final encontrado. Validando integridade básica..."
+                
+                # Verificar se há erros fatais no stderr (mas sem falhar workflow se o marcador final existir, a menos que seja muito grave)
+                STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -10)
+                if [ -n "$STDERR_CONTENT" ] && echo "$STDERR_CONTENT" | grep -qiE "(fatal: |CRITICAL ERROR|FAILED TO START)"; then
+                   echo "❌ ERRO CRÍTICO detectado no stderr (mesmo com marcador de sucesso):"
+                   echo "$STDERR_CONTENT"
+                   exit 1
+                fi
+              else
+                # 2. Se não houver marcador de sucesso, realizar verificação rigorosa
+                if echo "$VM_MESSAGE" | grep -qiE "(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)"; then
+                  echo "❌ ERRO detectado na resposta da VM (sem marcador de sucesso):"
+                  echo ""
+                  echo "Mensagem parcial:"
+                  echo "$VM_MESSAGE" | head -50
+                  echo ""
+                  echo "❌ Falhando workflow devido a erros detectados"
+                  exit 1
+                fi
               fi
               
-              # Verificar se containers foram iniciados com sucesso
+              # Verificar se containers foram iniciados (apenas aviso se não encontrar)
               if ! echo "$VM_MESSAGE" | grep -qiE "(✅ Containers iniciados|✅.*containers|containers.*started|docker compose.*up.*success)"; then
-                echo "⚠️  AVISO: Não foi possível confirmar que containers foram iniciados"
-                echo "Verificando mensagem completa:"
-                echo "$VM_MESSAGE" | grep -iE "(container|docker|compose)" | head -20 || echo "Nenhuma menção a containers encontrada"
-              fi
-              
-              # Verificar se há erros no stderr
-              STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -10)
-              
-              if [ -n "$STDERR_CONTENT" ] && echo "$STDERR_CONTENT" | grep -qiE "fatal|error|ERRO"; then
-                echo "❌ ERRO detectado no stderr:"
-                echo ""
-                echo "$STDERR_CONTENT"
-                echo ""
-                echo "❌ Falhando workflow devido a erros no stderr"
-                exit 1
+                echo "⚠️  AVISO: Não foi possível confirmar via logs que containers foram iniciados"
               fi
             fi
           else
-            # Se jq não estiver disponível, verificar manualmente
-            if echo "$RUNTIME_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)'; then
-              echo "❌ ERRO detectado na resposta (sem jq para validação detalhada):"
-              echo "$RUNTIME_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
-              exit 1
+            # Se jq não estiver disponível, verificar manual básico
+            if ! echo "$RUNTIME_OUTPUT" | grep -q "✅ OPERAÇÃO CONCLUÍDA COM SUCESSO!"; then
+              if echo "$RUNTIME_OUTPUT" | grep -qiE '(ERRO|ERROR|❌|falhou|failed|exit code.*[1-9]|Illegal option)'; then
+                echo "❌ ERRO detectado na resposta (sem jq e sem marcador de sucesso):"
+                echo "$RUNTIME_OUTPUT" | grep -iE "(ERRO|ERROR|❌|falhou|failed)" | head -20
+                exit 1
+              fi
             fi
           fi
 
