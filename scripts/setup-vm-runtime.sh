@@ -350,9 +350,8 @@ echo "📂 Diretório atual: $CURRENT_DIR"
 COMPOSE_FILE="docker-compose.yml"
 COMPOSE_FILE_ABS="$CURRENT_DIR/$COMPOSE_FILE"
 
-# CRÍTICO: .env está no BASE, não no INFRA_DIR
-# BASE="/home/azureuser/projeto" já foi definido anteriormente
-ENV_FILE_ABS="$BASE/.env"
+# CRÍTICO: .env está no INFRA_DIR (criado/copiado lá no início do script)
+ENV_FILE_ABS="$INFRA_DIR/.env"
 
 # Validar que docker-compose.yml existe no INFRA_DIR
 if [ ! -f "$COMPOSE_FILE_ABS" ]; then
@@ -367,10 +366,10 @@ fi
 
 echo "✅ Arquivo $COMPOSE_FILE encontrado: $COMPOSE_FILE_ABS"
 
-# Validar que .env existe no BASE (não no INFRA_DIR)
+# Validar que .env existe no INFRA_DIR
 if [ ! -f "$ENV_FILE_ABS" ]; then
   echo "❌ ERRO: Arquivo .env não encontrado em $ENV_FILE_ABS"
-  echo "   O arquivo .env deve estar em $BASE"
+  echo "   O arquivo .env deve estar em $INFRA_DIR"
   echo "   Verificando se existe em outros locais..."
   find "$BASE" -maxdepth 2 -name ".env" 2>/dev/null | head -5 || echo "   Nenhum .env encontrado"
   exit 1
