@@ -684,8 +684,19 @@ else
 fi
 
 # Teste 7: API health endpoint (se disponível)
-test_endpoint "http://$VM_IP/api/v1/health" "200" "API Health Check" "$TIMEOUT" || \
-log_warning "API Health Check não disponível em /api/v1/health"
+# Aceitar 200 (OK) ou 401 (Unauthorized - serviço está rodando mas protegido)
+echo -n "Testando API Health Check... "
+HEALTH_CODE=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" --connect-timeout 5 "http://$VM_IP/api/v1/health" 2>/dev/null || echo "000")
+
+if VALID_HEALTH=$(validate_http_code "$HEALTH_CODE"); then
+    if [ "$VALID_HEALTH" = "200" ] || [ "$VALID_HEALTH" = "401" ]; then
+        log_success "API Health Check (HTTP $VALID_HEALTH - serviço ativo)"
+    else
+        log_warning "API Health Check retornou status inesperado: $VALID_HEALTH (esperado 200 ou 401)"
+    fi
+else
+    log_warning "API Health Check não disponível em /api/v1/health (código: $HEALTH_CODE)"
+fi
 
 # Teste 8: CORS headers (OPTIONS request)
 echo -n "Testando CORS (OPTIONS)... "
