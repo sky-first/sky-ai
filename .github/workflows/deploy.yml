@@ -3489,9 +3489,9 @@ jobs:
                 echo "✅ Marcador de sucesso encontrado. Validando stderr isoladamente..."
                 
                 # Mesmo com sucesso, verificar se há erros reais no stderr (ignorando avisos comuns do git)
-                STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -20)
+                STDERR_CONTENT=$(echo "$VM_MESSAGE" | sed -n '/\[stderr\]/,$p' | tail -n +2 | grep -v "^$" | head -20 || true)
                 if [ -n "$STDERR_CONTENT" ]; then
-                  REAIS_ERROS=$(echo "$STDERR_CONTENT" | grep -viE "(Already on|up to date|Your branch is up to date)" | grep -iE "(fatal|error|ERRO|falhou|failed)")
+                  REAIS_ERROS=$(echo "$STDERR_CONTENT" | grep -viE "(Already on|up to date|Your branch is up to date)" | grep -iE "(fatal|error|ERRO|falhou|failed)" || true)
                   if [ -n "$REAIS_ERROS" ]; then
                     echo "❌ ERRO detectado no stderr (mesmo com marcador de sucesso):"
                     echo "$REAIS_ERROS"
