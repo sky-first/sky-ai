@@ -2100,6 +2100,7 @@ async def query_connection(
     # ✅ CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
     from core.security.audit_manager import AuditManager
     from core.security.semantic_classifier import _create_openai_client
+    from core.i18n.i18n import detect_language, get_message
     
     # Criar cliente OpenAI para avaliação de segurança
     llm_client_for_security = _create_openai_client()
@@ -2115,6 +2116,7 @@ async def query_connection(
     
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
+        # Detectar idioma para mensagem
         try:
             lang = detect_language(body.question or "")
         except:
@@ -2153,7 +2155,21 @@ async def query_connection(
                 error=error_code,
             )
         )
+
+    # Variáveis para compatibilidade com o resto da função
+    pii_detected_in_prompt = security_report.security_status == "FLAGGED" or "pii" in security_report.scan_details
+    prompt_injection_detected = False
+    prompt_injection_pattern = None
     
+    # ✅ FIM DA CAMADA DE SEGURANÇA UNIFICADA
+    pii_detected_in_response = False
+
+    pii_blocked = False
+    thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
+    esc_info = security_report.scan_details.get("escalation", {})
+    escalation_score = esc_info.get("score", 0.0)
+    escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION" or security_report.security_status == "FLAGGED"
+    escalation_reason = esc_info.get("reason")
     # Verificar se conexão existe
     result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
@@ -2169,10 +2185,14 @@ async def query_connection(
     crew_ids = body.crew_ids or []
     if body.user_id:
         try:
+            from uuid import UUID
+            u_id = UUID(body.user_id) if body.user_id and len(body.user_id) == 36 else None
+            s_id = UUID(body.space_id) if body.space_id and len(body.space_id) == 36 else None
+            
             resolved_crew_ids = await resolve_crew_ids_for_context(
                 db=db,
-                user_id=UUID(body.user_id),
-                space_id=UUID(body.space_id) if body.space_id else None,
+                user_id=u_id,
+                space_id=s_id,
                 request_crew_ids=body.crew_ids,
                 is_personal=getattr(body, 'is_personal', False)
             )
@@ -2564,10 +2584,14 @@ async def query_connection(
         # Filtrar dados sensíveis
         data_sample = []
         pii_blocked = True
+    # ✅ CAMADA 4: Detecção de PII na resposta
+    all_pii_types = []
+    all_pii_patterns = []
     
     # Combinar tipos PII detectados
-    if pii_prompt_result and pii_prompt_result.pii_types:
-        all_pii_types.extend([t.value for t in pii_prompt_result.pii_types])
+    pii_prompt_info = security_report.scan_details.get("pii", {})
+    if pii_prompt_info and pii_prompt_info.get("detected_types"):
+        all_pii_types.extend(pii_prompt_info.get("detected_types"))
     if pii_response_text_result and pii_response_text_result.pii_types:
         all_pii_types.extend([t.value for t in pii_response_text_result.pii_types])
     if pii_response_data_result and pii_response_data_result.pii_types:
@@ -2576,8 +2600,8 @@ async def query_connection(
     
     # Determinar severidade máxima
     severities = []
-    if pii_prompt_result and pii_prompt_result.severity:
-        severities.append(pii_prompt_result.severity.value)
+    if pii_prompt_info and pii_prompt_info.get("severity"):
+        severities.append(pii_prompt_info.get("severity").lower())
     if pii_response_text_result and pii_response_text_result.severity:
         severities.append(pii_response_text_result.severity.value)
     if pii_response_data_result and pii_response_data_result.severity:
@@ -2592,8 +2616,8 @@ async def query_connection(
         max_pii_severity = "info"
     
     # Combinar padrões
-    if pii_prompt_result and pii_prompt_result.patterns_matched:
-        all_pii_patterns.extend(pii_prompt_result.patterns_matched)
+    if pii_prompt_info and pii_prompt_info.get("patterns_matched"):
+        all_pii_patterns.extend(pii_prompt_info.get("patterns_matched"))
     if pii_response_text_result and pii_response_text_result.patterns_matched:
         all_pii_patterns.extend(pii_response_text_result.patterns_matched)
     if pii_response_data_result and pii_response_data_result.patterns_matched:

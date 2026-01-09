@@ -125,16 +125,17 @@ def log_prompt_security_audit(
     connection_id: str,
     user_id: Optional[str],
     prompt_text_redacted: str,
-    security_status: str,  # ALLOWED, BLOCKED, FLAGGED
-    blocked_by: Optional[str], # PII_SCANNER, SECURITY_GUARD, PROGRESSIVE_ESCALATION
+    security_status: str,  # 'ALLOWED', 'BLOCKED', 'FLAGGED'
+    blocked_by: Optional[str],
     risk_score: float,
-    scan_details: Dict[str, Any]
+    scan_details: Dict[str, Any],
 ):
     """
-    Log especializado para auditoria de segurança de prompts.
+    Registra uma auditoria detalhada de segurança de prompt.
     """
     log_entry = {
-        "_type": "prompt_security",
+        "_type": "prompt_audit",
+        "id": str(uuid4()),
         "timestamp": datetime.now().isoformat(),
         "connection_id": connection_id,
         "user_id": user_id,
@@ -257,9 +258,9 @@ async def _ensure_audit_table_async() -> None:
                 text(
                     """
                     CREATE TABLE IF NOT EXISTS prompt_security_audit (
-                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        connection_id UUID NOT NULL,
+                        connection_id UUID,
                         user_id VARCHAR(255),
                         prompt_text_redacted TEXT,
                         security_status VARCHAR(20),
@@ -309,12 +310,12 @@ async def _flush_audit_buffer_async():
                 # Garantir tabela existe (best-effort). Se migration já foi aplicada, é NO-OP.
                 await _ensure_audit_table_async()
 
-                # Separar logs normais de alertas e de segurança de prompt
-                audit_batch = [b for b in batch if b.get("_type") not in ["alert", "prompt_security"]]
-                alert_batch = [b for b in batch if b.get("_type") == "alert"]
-                prompt_search_batch = [b for b in batch if b.get("_type") == "prompt_security"]
+                # Separa logs por tipo
+                audit_batch = [e for e in batch if e.get("_type") not in ("alert", "prompt_audit")]
+                alert_batch = [e for e in batch if e.get("_type") == "alert"]
+                prompt_audit_batch = [e for e in batch if e.get("_type") == "prompt_audit"]
                 
-                if not audit_batch and not alert_batch and not prompt_search_batch:
+                if not audit_batch and not alert_batch and not prompt_audit_batch:
                     return # Nothing to flush
 
                 # 1. Inserir AUDIT LOGS
@@ -431,17 +432,19 @@ async def _flush_audit_buffer_async():
                             "details": json.dumps(entry.get("details")) if entry.get("details") else None
                         }
                         await db.execute(insert_alert_sql, params)
-                
-                # 3. Inserir PROMPT SECURITY AUDIT
-                if prompt_search_batch:
+
+                # 3. Inserir PROMPT AUDITS
+                if prompt_audit_batch:
                     insert_prompt_sql = text(
                         """
                         INSERT INTO prompt_security_audit (
-                            connection_id, user_id, prompt_text_redacted,
-                            security_status, blocked_by, risk_score, scan_details
+                            id, user_id, connection_id, 
+                            prompt_text_redacted, security_status, blocked_by, 
+                            risk_score, scan_details
                         ) VALUES (
-                            CAST(:connection_id AS uuid),
+                            CAST(:id AS uuid),
                             :user_id,
+                            CAST(:connection_id AS uuid),
                             :prompt_text_redacted,
                             :security_status,
                             :blocked_by,
@@ -451,10 +454,12 @@ async def _flush_audit_buffer_async():
                         """
                     )
                     
-                    for entry in prompt_search_batch:
+                    import json
+                    for entry in prompt_audit_batch:
                         params = {
-                            "connection_id": entry.get("connection_id"),
+                            "id": entry.get("id"),
                             "user_id": entry.get("user_id"),
+                            "connection_id": entry.get("connection_id"),
                             "prompt_text_redacted": entry.get("prompt_text_redacted"),
                             "security_status": entry.get("security_status"),
                             "blocked_by": entry.get("blocked_by"),

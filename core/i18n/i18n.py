@@ -108,9 +108,9 @@ def detect_language(text: str) -> str:
             detected = detect(text)
             # Normaliza códigos tipo "pt-BR" -> "pt"
             lang = detected.split("-")[0].lower()
-            # Correção: langdetect costuma confundir PT/ES em frases curtas.
+            # Correção: langdetect costuma confundir PT/ES/IT em frases curtas.
             # Aplicamos um pós-processamento simples por heurística de marcadores.
-            if lang in {"pt", "es"}:
+            if lang in {"pt", "es", "it"}:
                 tl = text.lower()
                 pt_markers = [
                     "você",
