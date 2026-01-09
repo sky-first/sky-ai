@@ -2097,148 +2097,50 @@ async def query_connection(
         )
         raise HTTPException(status_code=429, detail=error)
     
-    # Inicializar variáveis PII (serão atualizadas mais tarde)
-    pii_prompt_result = None
-    pii_detected_in_prompt = False
-    pii_detected_in_response = False
-    pii_blocked = False
+    # ✅ CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
+    from core.security.audit_manager import AuditManager
+    from core.security.semantic_classifier import _create_openai_client
     
-    # Importar logger de alertas
-    from core.security.audit import log_security_alert
+    # Criar cliente OpenAI para avaliação de segurança
+    llm_client_for_security = _create_openai_client()
     
-    # ✅ CAMADA 1.5: PII Scanner (Input Check)
-    # Bloquear se o PRÓPRIO prompt contiver dados sensíveis (ex: senhas, CCs)
-    from core.security.pii_scanner import scan_text_for_pii
+    # Avaliação consolidada: PII + Injection + Escalation + Auditoria
+    security_report = await AuditManager.evaluate_prompt(
+        question=body.question,
+        user_id=body.user_id,
+        connection_id=connection_id,
+        thread_id=body.thread_id,
+        llm_client=llm_client_for_security
+    )
     
-    # Escaneia o prompt
-    pii_prompt_result = scan_text_for_pii(body.question or "")
-    pii_detected_in_prompt = pii_prompt_result.detected
-    
-    if pii_prompt_result.should_block:
-        log_event(
-            "pii_prompt_blocked",
-            {
-                "connection_id": connection_id,
-                "user_id": body.user_id,
-                "detected_types": [t.value for t in pii_prompt_result.pii_types],
-                "severity": str(pii_prompt_result.severity)
-            }
-        )
-        
-        # 🚨 REGISTRAR ALERTA DE SEGURANÇA (NOVA TABELA)
-        log_security_alert(
-            connection_id=connection_id,
-            user_id=body.user_id,
-            alert_type="PII_ATTEMPT",
-            severity="BLOCK",
-            details={
-                "detected_types": [t.value for t in pii_prompt_result.pii_types],
-                "severity": str(pii_prompt_result.severity),
-                "snippet_redacted": "[REDACTED_PII_PROMPT]" 
-            }
-        )
-        
-        # Auditoria
-        log_query_audit(
-            connection_id=connection_id,
-            user_id=body.user_id,
-            space_id=body.space_id,
-            crew_ids=body.crew_ids,
-            thread_id=body.thread_id,
-            question="[REDACTED_PII]",  # Não logar o prompt com PII
-            pii_blocked=True
-        )
-        
-        # Detectar idioma para mensagem
-        from core.i18n.i18n import detect_language, get_message
+    # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
+    if security_report.is_blocked:
         try:
             lang = detect_language(body.question or "")
         except:
             lang = "en"
             
-        message = get_message("PII_BLOCKED", lang)
-        
-        return QueryResponse(
-            answer=message,
-            data_sample=[],
-            meta=QueryResultMeta(
-                detected_language=lang,
-                chosen_table=None,
-                chosen_datasets=None,
-                sql=None,
-                num_rows=0,
-                error="pii_prompt_blocked",
-            )
-        )
-    all_pii_types = []
-    max_pii_severity = None
-    all_pii_patterns = []
-    
-    # ✅ CAMADA 2: Security Guard (Sistema em 3 camadas)
-    from core.security.security_guard import evaluate_security, SecurityAction
-    from core.security.semantic_classifier import _create_openai_client
-    
-    # Criar cliente OpenAI para o semantic classifier
-    llm_client_for_security = _create_openai_client()
-    
-    security_decision = await evaluate_security(
-        question=body.question,
-        llm_client=llm_client_for_security,
-        allowed_tables=None,  # Pode ser preenchido depois se necessário
-        security_config=None  # Pode ser preenchido depois se necessário
-    )
-    
-    # Manter compatibilidade com código existente
-    prompt_injection_detected = security_decision.is_blocked()
-    prompt_injection_pattern = security_decision.reason if prompt_injection_detected else None
-    
-    if security_decision.is_blocked():
-        log_event(
-            "security_guard_blocked",
-            {
-                "connection_id": connection_id,
-                "user_id": body.user_id,
-                "question_preview": body.question[:200],
-                "reason": security_decision.reason,
-                "risk_score": security_decision.risk_score,
-                "llm_category": security_decision.llm_category,
-                "confidence": security_decision.confidence,
-            }
-        )
-        
-        # 🚨 REGISTRAR ALERTA DE SEGURANÇA (NOVA TABELA)
-        log_security_alert(
-            connection_id=connection_id,
-            user_id=body.user_id,
-            alert_type="PROMPT_INJECTION",
-            severity="BLOCK",
-            details={
-                "reason": security_decision.reason,
-                "risk_score": float(security_decision.risk_score),
-            }
-        )
-        
-        # Auditoria: prompt injection detectado (mantém compatibilidade)
+        # Mensagens amigáveis por tipo de bloqueio
+        if security_report.blocked_by == "PII_SCANNER":
+            message = get_message("PII_BLOCKED", lang)
+            error_code = "pii_prompt_blocked"
+        else:
+            message = get_message("SECURITY_BLOCKED", lang)
+            error_code = "security_blocked"
+
+        # Auditoria legada (mantém compatibilidade com dashboards existentes)
         log_query_audit(
             connection_id=connection_id,
             user_id=body.user_id,
             space_id=body.space_id,
             crew_ids=body.crew_ids,
             thread_id=body.thread_id,
-            question=body.question,
-            prompt_injection_detected=True,
-            prompt_injection_pattern=security_decision.reason,
+            question=security_report.redacted_prompt,
+            pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
+            pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
+            prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
         )
-        
-        # Detectar idioma da pergunta para mensagem apropriada
-        try:
-            lang = detect_language(body.question or "")
-        except:
-            lang = "en"
-        
-        message = get_message("SECURITY_BLOCKED", lang)
-        
-        # Retornar como resposta normal para o frontend exibir corretamente
+
         return QueryResponse(
             answer=message,
             data_sample=[],
@@ -2248,129 +2150,7 @@ async def query_connection(
                 chosen_datasets=None,
                 sql=None,
                 num_rows=0,
-                error="prompt_injection_blocked",
-            )
-        )
-    
-    elif security_decision.action == SecurityAction.SANITIZE:
-        # Log para monitoramento (por enquanto trata como ALLOW)
-        log_event(
-            "security_guard_sanitized",
-            {
-                "connection_id": connection_id,
-                "user_id": body.user_id,
-                "question_preview": body.question[:200],
-                "reason": security_decision.reason,
-                "risk_score": security_decision.risk_score,
-            }
-        )
-        # Continua processamento (trata como ALLOW por enquanto)
-    
-    # ✅ CAMADA 2.5: Detecção de Progressive Escalation
-    thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
-    escalation_detected, escalation_score, escalation_reason = detect_progressive_escalation(
-        user_id=body.user_id or "anonymous",
-        thread_id=thread_id,
-        question=body.question,
-        window_minutes=5,
-        max_schema_questions=5
-    )
-    
-    if escalation_detected:
-        log_event(
-            "progressive_escalation_detected",
-            {
-                "connection_id": connection_id,
-                "user_id": body.user_id,
-                "thread_id": thread_id,
-                "score": escalation_score,
-                "reason": escalation_reason,
-                "question_preview": body.question[:200],
-            }
-        )
-        # SECURITY: Block progressive schema exploration (predictable + restrictive).
-        log_query_audit(
-            connection_id=connection_id,
-            user_id=body.user_id,
-            space_id=body.space_id,
-            crew_ids=body.crew_ids,
-            thread_id=thread_id,
-            question=body.question,
-            progressive_escalation_score=escalation_score,
-            progressive_escalation_detected=True,
-        )
-        try:
-            lang = detect_language(body.question or "")
-        except Exception:
-            lang = "en"
-        message = get_message("SECURITY_BLOCKED", lang)
-        
-        # Retornar como resposta normal para o frontend exibir corretamente
-        return QueryResponse(
-            answer=message,
-            data_sample=[],
-            meta=QueryResultMeta(
-                detected_language=lang,
-                chosen_table=None,
-                chosen_datasets=None,
-                sql=None,
-                num_rows=0,
-                error="progressive_escalation_blocked",
-            )
-        )
-    
-    # ✅ CAMADA 3: Detecção de PII no prompt
-    from core.security.pii_scanner import scan_text_for_pii
-    
-    pii_prompt_result = scan_text_for_pii(body.question)
-    pii_detected_in_prompt = pii_prompt_result.detected
-    if pii_prompt_result.should_block:
-        pii_blocked = True
-    
-    if pii_blocked:
-        # Bloquear e registrar
-        log_query_audit(
-            connection_id=connection_id,
-            user_id=body.user_id,
-            space_id=body.space_id,
-            crew_ids=body.crew_ids,
-            thread_id=thread_id,
-            question=body.question,
-            pii_detected_in_prompt=True,
-            pii_types=[t.value for t in pii_prompt_result.pii_types],
-            pii_severity=pii_prompt_result.severity.value if pii_prompt_result.severity else None,
-            pii_patterns_matched=pii_prompt_result.patterns_matched,
-            pii_blocked=True,
-        )
-        
-        log_event(
-            "pii_detected_in_prompt",
-            {
-                "connection_id": connection_id,
-                "user_id": body.user_id,
-                "pii_types": [t.value for t in pii_prompt_result.pii_types],
-                "severity": pii_prompt_result.severity.value if pii_prompt_result.severity else None,
-            }
-        )
-        
-        # Mensagem de erro apropriada
-        try:
-            lang = detect_language(body.question or "")
-        except:
-            lang = "en"
-        
-        message = get_message("PII_BLOCKED", lang)
-        
-        return QueryResponse(
-            answer=message,
-            data_sample=[],
-            meta=QueryResultMeta(
-                detected_language=lang,
-                chosen_table=None,
-                chosen_datasets=None,
-                sql=None,
-                num_rows=0,
-                error="pii_blocked",
+                error=error_code,
             )
         )
     
