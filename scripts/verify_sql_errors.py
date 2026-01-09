@@ -53,7 +53,7 @@ async def test_sql_error_handling():
 async def test_streaming_error_handling():
     print("\n--- Testing Streaming Error ---")
     payload = {
-        "question": "How much is the total revenue?",
+        "question": "Quanto faturamos no mês passado?",
         "user_id": "test_user",
         "space_id": "00000000-0000-0000-0000-000000000001"
     }
