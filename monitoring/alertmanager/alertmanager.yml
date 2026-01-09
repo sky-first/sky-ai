@@ -1,0 +1,19 @@
+global:
+  resolve_timeout: 5s
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_from: "EMAIL_PARA_ENVIAR_ALERTA@gmail.com"
+  smtp_auth_username: "EMAIL_PARA_ENVIAR_ALERTA@gmail.com"
+  smtp_auth_password: "SENHA_DE_APP_DO_GOOGLE" # Precisa gerar aqui: https://myaccount.google.com/apppasswords
+  smtp_require_tls: true
+
+route:
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: "email-notifications"
+
+receivers:
+  - name: "email-notifications"
+    email_configs:
+      - to: "gustavo.mendonca@thedatafirst.com"
