@@ -34,6 +34,9 @@ import hashlib
 from typing import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
+import logging
+logger = logging.getLogger(__name__)
+
 from api.schemas import (
     QueryRequest,
     QueryResponse,
@@ -2114,14 +2117,14 @@ async def query_connection(
         llm_client=llm_client_for_security
     )
     
+    # Detectar idioma para mensagens de erro/resposta
+    try:
+        lang = detect_language(body.question or "")
+    except:
+        lang = "en"
+    
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
-        # Detectar idioma para mensagem
-        try:
-            lang = detect_language(body.question or "")
-        except:
-            lang = "en"
-            
         # Mensagens amigáveis por tipo de bloqueio
         if security_report.blocked_by == "PII_SCANNER":
             message = get_message("PII_BLOCKED", lang)
@@ -2131,6 +2134,7 @@ async def query_connection(
             error_code = "security_blocked"
 
         # Auditoria legada (mantém compatibilidade com dashboards existentes)
+        esc_info = security_report.scan_details.get("escalation", {})
         log_query_audit(
             connection_id=connection_id,
             user_id=body.user_id,
@@ -2141,6 +2145,8 @@ async def query_connection(
             pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
             pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
             prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
+            progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
+            progressive_escalation_score=int(esc_info.get("score", 0)),
         )
 
         return QueryResponse(
@@ -2405,10 +2411,29 @@ async def query_connection(
         
     except Exception as e:
         import traceback
-        error_detail = f"Erro ao executar agente: {str(e)}\n{traceback.format_exc()}"
-        raise HTTPException(
-            status_code=500,
-            detail=error_detail
+        error_detail = str(e)
+        logger.error(f"Erro ao executar agente: {error_detail}\n{traceback.format_exc()}")
+        
+        # Auditoria de erro
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=crew_ids,
+            thread_id=thread_id,
+            question=body.question,
+            has_error=True,
+            error_message=error_detail,
+        )
+        
+        return QueryResponse(
+            answer=get_message("TECHNICAL_ERROR", lang),
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                error="technical_error",
+                num_rows=0
+            )
         )
     
     answer = final_state.get("answer") or ""
@@ -2568,11 +2593,6 @@ async def query_connection(
     # Se detectar PII crítico na resposta E não for contexto agregado permitido, bloquear
     if pii_response_text_result and pii_response_text_result.should_block and not allow_pii_in_text:
         # Substituir resposta por mensagem genérica
-        from core.i18n.i18n import detect_language
-        try:
-            lang = detect_language(body.question or "")
-        except:
-            lang = detected_language or "en"
         answer = {
             "pt": "Não posso exibir informações pessoais sensíveis nos resultados.",
             "es": "No puedo mostrar información personal sensible en los resultados.",
@@ -2699,6 +2719,12 @@ async def _stream_connection_query(
     try:
         # Medir tempo para auditoria
         start_time = time.time()
+        
+        # Detectar idioma para mensagens de erro/resposta
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = "en"
 
         # ✅ CAMADA 1: Rate limiting (mesma regra do endpoint normal)
         user_key = body.user_id or f"conn_{connection_id}"
@@ -2717,106 +2743,50 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # ✅ CAMADA 2: Security Guard (mesma regra do endpoint normal)
-        from core.security.security_guard import evaluate_security, SecurityAction
+        # ✅ CAMADA 2: CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
+        from core.security.audit_manager import AuditManager
         from core.security.semantic_classifier import _create_openai_client
         
+        # Criar cliente OpenAI para avaliação de segurança
         llm_client_for_security = _create_openai_client()
-        security_decision = await evaluate_security(
+        
+        # Avaliação consolidada: PII + Injection + Escalation + Auditoria
+        security_report = await AuditManager.evaluate_prompt(
             question=body.question,
-            llm_client=llm_client_for_security,
+            user_id=body.user_id,
+            connection_id=connection_id,
+            thread_id=body.thread_id,
+            llm_client=llm_client_for_security
         )
         
-        if security_decision.is_blocked():
-            log_event(
-                "security_guard_blocked_stream",
-                {
-                    "connection_id": connection_id,
-                    "user_id": body.user_id,
-                    "question_preview": (body.question or "")[:200],
-                    "reason": security_decision.reason,
-                    "risk_score": security_decision.risk_score,
-                    "llm_category": security_decision.llm_category,
-                    "confidence": security_decision.confidence,
-                },
-            )
+        if security_report.is_blocked:
+            # Mensagens amigáveis por tipo de bloqueio
+            if security_report.blocked_by == "PII_SCANNER":
+                message = get_message("PII_BLOCKED", lang)
+                error_code = "pii_prompt_blocked"
+            else:
+                message = get_message("SECURITY_BLOCKED", lang)
+                error_code = "security_blocked"
+            
+            # Auditoria legada para streaming
+            esc_info = security_report.scan_details.get("escalation", {})
             log_query_audit(
                 connection_id=connection_id,
                 user_id=body.user_id,
                 space_id=body.space_id,
                 crew_ids=body.crew_ids,
                 thread_id=body.thread_id,
-                question=body.question,
-                prompt_injection_detected=True,
-                prompt_injection_pattern=security_decision.reason,
+                question=security_report.redacted_prompt,
+                pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
+                pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
+                prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
+                progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
+                progressive_escalation_score=int(esc_info.get("score", 0)),
             )
-            
-            # Detectar idioma da pergunta para mensagem apropriada
-            try:
-                lang = detect_language(body.question or "")
-            except:
-                lang = "en"
-            
-            message = get_message("SECURITY_BLOCKED", lang)
             
             # Enviar como resposta normal para o frontend exibir corretamente
             yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
-            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'prompt_injection_blocked'}, 'data_sample': []})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-            return
-        elif security_decision.action == SecurityAction.SANITIZE:
-            # Log para monitoramento (trata como ALLOW por enquanto)
-            log_event(
-                "security_guard_sanitized_stream",
-                {
-                    "connection_id": connection_id,
-                    "user_id": body.user_id,
-                    "question_preview": (body.question or "")[:200],
-                    "reason": security_decision.reason,
-                    "risk_score": security_decision.risk_score,
-                },
-            )
-
-        # ✅ CAMADA 2.5: Progressive escalation (registrar score)
-        thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
-        escalation_detected, escalation_score, escalation_reason = detect_progressive_escalation(
-            user_id=body.user_id or "anonymous",
-            thread_id=thread_id,
-            question=body.question,
-            window_minutes=5,
-            max_schema_questions=5,
-        )
-        if escalation_detected:
-            log_event(
-                "progressive_escalation_detected_stream",
-                {
-                    "connection_id": connection_id,
-                    "user_id": body.user_id,
-                    "thread_id": thread_id,
-                    "score": escalation_score,
-                    "reason": escalation_reason,
-                    "question_preview": (body.question or "")[:200],
-                },
-            )
-            log_query_audit(
-                connection_id=connection_id,
-                user_id=body.user_id,
-                space_id=body.space_id,
-                crew_ids=crew_ids,
-                thread_id=thread_id,
-                question=body.question,
-                progressive_escalation_score=escalation_score,
-                progressive_escalation_detected=True,
-            )
-            try:
-                lang = detect_language(body.question or "")
-            except Exception:
-                lang = "en"
-            message = get_message("SECURITY_BLOCKED", lang)
-            
-            # Enviar como resposta normal para o frontend exibir corretamente
-            yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
-            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'progressive_escalation_blocked'}, 'data_sample': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': error_code}, 'data_sample': []})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
@@ -3018,7 +2988,6 @@ async def _stream_connection_query(
                                     )
                                     
                                     # Mensagem amigável para erro técnico no streaming
-                                    lang = _ensure_language(body.question, None)
                                     msg = get_message("TECHNICAL_ERROR", lang)
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -3069,7 +3038,7 @@ async def _stream_connection_query(
             question = final_state.get("question") or ""
             data = final_state.get("data") or []
             detected_language = final_state.get("detected_language")
-            lang = _ensure_language(question, detected_language)
+            # lang = _ensure_language(question, detected_language) # Removed redundant call
             
             data_sample = data[:15]
             serialized_sample = _serialize_for_json(data_sample)
@@ -3176,7 +3145,8 @@ async def _stream_connection_query(
         except Exception as e:
             import traceback
             error_detail = str(e)
-            yield f"data: {json.dumps({'type': 'error', 'message': error_detail})}\n\n"
+            msg = get_message("TECHNICAL_ERROR", lang)
+            yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
                 {
@@ -3186,7 +3156,8 @@ async def _stream_connection_query(
             )
     
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        msg = get_message("TECHNICAL_ERROR", lang)
+        yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
 
 
 @router.post("/{connection_id}/query/stream")
