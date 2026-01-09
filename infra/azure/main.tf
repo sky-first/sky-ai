@@ -198,6 +198,22 @@ resource "azurerm_network_security_group" "main" {
     }
   }
 
+  # Monitoramento (Grafana) - Porta 3001
+  dynamic "security_rule" {
+    for_each = { for idx, cidr in var.allowed_monitoring_ips : idx => cidr }
+    content {
+      name                       = "Monitoring-Grafana-${replace(replace(security_rule.value, "/", "-"), ".", "-")}"
+      priority                   = 1601 + tonumber(security_rule.key)
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_range     = "3001"
+      source_address_prefix      = security_rule.value # tfsec:ignore:azure-network-no-public-ingress
+      destination_address_prefix = "*"
+    }
+  }
+
   # PostgreSQL - Requer lista explícita; se vazio, porta 5433 permanece fechada
   dynamic "security_rule" {
     for_each = { for idx, cidr in var.allowed_postgres_ips : idx => cidr }

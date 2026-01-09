@@ -118,6 +118,12 @@ variable "allowed_https_ips" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "allowed_monitoring_ips" {
+  description = "Lista de IPs/CIDRs permitidos para Monitoramento (Grafana porta 3001). Se vazio, porta 3001 permanece fechada."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 # Variáveis para múltiplos ambientes e CI/CD
 variable "environment" {
   description = "Ambiente (staging/prod/poc-sky)"
