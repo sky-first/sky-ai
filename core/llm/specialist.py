@@ -511,8 +511,14 @@ def run_specialist(
                 "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
         )
         
+        # Adicionar instruções de colunas
+        column_guidance = (
+            "- For status or category columns, prefer using columns containing human-readable labels "
+            "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
+        )
+        
         # Atualizar content com instruções adicionais
-        system_msg["content"] += join_instruction + aggregation_instruction
+        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance
 
         user_msg = {
             "role": "user",
@@ -543,8 +549,14 @@ def run_specialist(
                 "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
         )
         
+        # Adicionar instruções de colunas
+        column_guidance = (
+            "- For status or category columns, prefer using columns containing human-readable labels "
+            "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
+        )
+        
         # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction
+        system_msg["content"] += aggregation_instruction + column_guidance
 
         user_msg = {
             "role": "user",

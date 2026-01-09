@@ -2102,6 +2102,79 @@ async def query_connection(
     pii_detected_in_prompt = False
     pii_detected_in_response = False
     pii_blocked = False
+    
+    # Importar logger de alertas
+    from core.security.audit import log_security_alert
+    
+    # ✅ CAMADA 1.5: PII Scanner (Input Check)
+    # Bloquear se o PRÓPRIO prompt contiver dados sensíveis (ex: senhas, CCs)
+    from core.security.pii_scanner import scan_text_for_pii
+    
+    # Escaneia o prompt
+    pii_prompt_result = scan_text_for_pii(body.question or "")
+    pii_detected_in_prompt = pii_prompt_result.detected
+    
+    if pii_prompt_result.should_block:
+        log_event(
+            "pii_prompt_blocked",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "detected_types": [t.value for t in pii_prompt_result.pii_types],
+                "severity": str(pii_prompt_result.severity)
+            }
+        )
+        
+        # 🚨 REGISTRAR ALERTA DE SEGURANÇA (NOVA TABELA)
+        log_security_alert(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            alert_type="PII_ATTEMPT",
+            severity="BLOCK",
+            details={
+                "detected_types": [t.value for t in pii_prompt_result.pii_types],
+                "severity": str(pii_prompt_result.severity),
+                "snippet_redacted": "[REDACTED_PII_PROMPT]" 
+            }
+        )
+        
+        # Auditoria
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=body.crew_ids,
+            thread_id=body.thread_id,
+            question="[REDACTED_PII]",  # Não logar o prompt com PII
+            pii_detected_in_prompt=True,
+            pii_blocked=True
+        )
+        
+        # Detectar idioma para mensagem
+        from core.i18n.i18n import detect_language
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = "en"
+            
+        message = {
+            "pt": "Sua pergunta contém dados sensíveis (PII) e foi bloqueada por segurança.",
+            "es": "Su pregunta contiene datos sensibles (PII) y fue bloqueada por seguridad.",
+            "en": "Your question contains sensitive data (PII) and was blocked for security."
+        }.get(lang, "Your question contains sensitive data (PII) and was blocked for security.")
+        
+        return QueryResponse(
+            answer=message,
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error="pii_prompt_blocked",
+            )
+        )
     all_pii_types = []
     max_pii_severity = None
     all_pii_patterns = []
@@ -2135,6 +2208,18 @@ async def query_connection(
                 "risk_score": security_decision.risk_score,
                 "llm_category": security_decision.llm_category,
                 "confidence": security_decision.confidence,
+            }
+        )
+        
+        # 🚨 REGISTRAR ALERTA DE SEGURANÇA (NOVA TABELA)
+        log_security_alert(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            alert_type="PROMPT_INJECTION",
+            severity="BLOCK",
+            details={
+                "reason": security_decision.reason,
+                "risk_score": float(security_decision.risk_score),
             }
         )
         
