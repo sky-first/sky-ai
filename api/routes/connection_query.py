@@ -34,6 +34,9 @@ import hashlib
 from typing import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
+import logging
+logger = logging.getLogger(__name__)
+
 from api.schemas import (
     QueryRequest,
     QueryResponse,
@@ -2114,14 +2117,14 @@ async def query_connection(
         llm_client=llm_client_for_security
     )
     
+    # Detectar idioma para mensagens de erro/resposta
+    try:
+        lang = detect_language(body.question or "")
+    except:
+        lang = "en"
+    
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
-        # Detectar idioma para mensagem
-        try:
-            lang = detect_language(body.question or "")
-        except:
-            lang = "en"
-            
         # Mensagens amigáveis por tipo de bloqueio
         if security_report.blocked_by == "PII_SCANNER":
             message = get_message("PII_BLOCKED", lang)
@@ -2405,10 +2408,29 @@ async def query_connection(
         
     except Exception as e:
         import traceback
-        error_detail = f"Erro ao executar agente: {str(e)}\n{traceback.format_exc()}"
-        raise HTTPException(
-            status_code=500,
-            detail=error_detail
+        error_detail = str(e)
+        logger.error(f"Erro ao executar agente: {error_detail}\n{traceback.format_exc()}")
+        
+        # Auditoria de erro
+        log_query_audit(
+            connection_id=connection_id,
+            user_id=body.user_id,
+            space_id=body.space_id,
+            crew_ids=crew_ids,
+            thread_id=thread_id,
+            question=body.question,
+            has_error=True,
+            error_message=error_detail,
+        )
+        
+        return QueryResponse(
+            answer=get_message("TECHNICAL_ERROR", lang),
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                error="technical_error",
+                num_rows=0
+            )
         )
     
     answer = final_state.get("answer") or ""
@@ -2699,6 +2721,12 @@ async def _stream_connection_query(
     try:
         # Medir tempo para auditoria
         start_time = time.time()
+        
+        # Detectar idioma para mensagens de erro/resposta
+        try:
+            lang = detect_language(body.question or "")
+        except:
+            lang = "en"
 
         # ✅ CAMADA 1: Rate limiting (mesma regra do endpoint normal)
         user_key = body.user_id or f"conn_{connection_id}"
@@ -2751,12 +2779,7 @@ async def _stream_connection_query(
                 prompt_injection_pattern=security_decision.reason,
             )
             
-            # Detectar idioma da pergunta para mensagem apropriada
-            try:
-                lang = detect_language(body.question or "")
-            except:
-                lang = "en"
-            
+            # Log de bloqueio já feito acima
             message = get_message("SECURITY_BLOCKED", lang)
             
             # Enviar como resposta normal para o frontend exibir corretamente
@@ -2808,10 +2831,7 @@ async def _stream_connection_query(
                 progressive_escalation_score=escalation_score,
                 progressive_escalation_detected=True,
             )
-            try:
-                lang = detect_language(body.question or "")
-            except Exception:
-                lang = "en"
+            # Log de bloqueio já feito acima
             message = get_message("SECURITY_BLOCKED", lang)
             
             # Enviar como resposta normal para o frontend exibir corretamente
@@ -3018,7 +3038,6 @@ async def _stream_connection_query(
                                     )
                                     
                                     # Mensagem amigável para erro técnico no streaming
-                                    lang = _ensure_language(body.question, None)
                                     msg = get_message("TECHNICAL_ERROR", lang)
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -3176,7 +3195,9 @@ async def _stream_connection_query(
         except Exception as e:
             import traceback
             error_detail = str(e)
-            yield f"data: {json.dumps({'type': 'error', 'message': error_detail})}\n\n"
+            lang = _ensure_language(body.question, None)
+            msg = get_message("TECHNICAL_ERROR", lang)
+            yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
                 {
@@ -3186,7 +3207,14 @@ async def _stream_connection_query(
             )
     
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        lang = "en"
+        try:
+            from core.i18n.i18n import detect_language
+            lang = detect_language(body.question or "")
+        except:
+            pass
+        msg = get_message("TECHNICAL_ERROR", lang)
+        yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
 
 
 @router.post("/{connection_id}/query/stream")
