@@ -2134,6 +2134,7 @@ async def query_connection(
             error_code = "security_blocked"
 
         # Auditoria legada (mantém compatibilidade com dashboards existentes)
+        esc_info = security_report.scan_details.get("escalation", {})
         log_query_audit(
             connection_id=connection_id,
             user_id=body.user_id,
@@ -2144,6 +2145,8 @@ async def query_connection(
             pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
             pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
             prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
+            progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
+            progressive_escalation_score=int(esc_info.get("score", 0)),
         )
 
         return QueryResponse(
@@ -2766,6 +2769,7 @@ async def _stream_connection_query(
                 error_code = "security_blocked"
             
             # Auditoria legada para streaming
+            esc_info = security_report.scan_details.get("escalation", {})
             log_query_audit(
                 connection_id=connection_id,
                 user_id=body.user_id,
@@ -2777,6 +2781,7 @@ async def _stream_connection_query(
                 pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
                 prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
                 progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
+                progressive_escalation_score=int(esc_info.get("score", 0)),
             )
             
             # Enviar como resposta normal para o frontend exibir corretamente
@@ -3033,7 +3038,7 @@ async def _stream_connection_query(
             question = final_state.get("question") or ""
             data = final_state.get("data") or []
             detected_language = final_state.get("detected_language")
-            lang = _ensure_language(question, detected_language)
+            # lang = _ensure_language(question, detected_language) # Removed redundant call
             
             data_sample = data[:15]
             serialized_sample = _serialize_for_json(data_sample)
