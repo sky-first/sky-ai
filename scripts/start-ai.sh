@@ -15,6 +15,8 @@ cd "$AI_DIR"
 if [ ! -d "venv" ] && [ ! -d ".venv" ]; then
     echo "⚠️  Ambiente virtual não encontrado. Criando..."
     python3 -m venv venv
+    # Limpa marcador de dependências para forçar nova instalação no novo venv
+    rm -f .deps_installed
 fi
 
 # Ativa o ambiente virtual
