@@ -2490,51 +2490,6 @@ async def query_connection(
                 r"(\bwhat can i ask\b)",
                 q,
                 flags=re.IGNORECASE,
-            )
-        )
-
-        if is_tables_question and logical_tables:
-            # SECURITY: do not enumerate schema/tables via chat endpoint
-            from core.i18n.i18n import detect_language
-            try:
-                lang = detect_language(q_raw or "")
-            except Exception:
-                lang = "en"
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
-            return QueryResponse(
-                answer=message,
-                data_sample=[],
-                meta=QueryResultMeta(
-                    detected_language=lang,
-                    chosen_table=None,
-                    chosen_datasets=None,
-                    sql=None,
-                    num_rows=0,
-                    error="schema_question_blocked",
-                )
-            )
-
-        if is_examples_question and logical_tables:
-            # SECURITY: do not guide schema exploration via chat endpoint
-            from core.i18n.i18n import detect_language
-            try:
-                lang = detect_language(q_raw or "")
-            except Exception:
-                lang = "en"
-            message = {
-                "pt": "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados ou contacte um administrador.",
-                "es": "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos o contacta a un administrador.",
-                "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-            }.get(lang, "I can't help with that request. Please rephrase your question about your data or contact an administrator.")
-            return QueryResponse(
-                answer=message,
-                data_sample=[],
-                meta=QueryResultMeta(
-                    detected_language=lang,
                     chosen_table=None,
                     chosen_datasets=None,
                     sql=None,
