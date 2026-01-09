@@ -194,6 +194,7 @@ class DashboardPlanResponse(BaseModel):
     """Response containing a dashboard plan."""
 
     dashboard_name: str
+    title: str = Field(..., description="Same as dashboard_name, but explicit for frontend usage.")
     description: Optional[str] = None
     widgets: List[DashboardPlanWidget]
     meta: Optional[Dict[str, Any]] = None
