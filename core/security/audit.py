@@ -121,6 +121,33 @@ def log_security_alert(
     _audit_buffer.append(log_entry)
 
 
+def log_prompt_security_audit(
+    connection_id: str,
+    user_id: Optional[str],
+    prompt_text_redacted: str,
+    security_status: str,  # 'ALLOWED', 'BLOCKED', 'FLAGGED'
+    blocked_by: Optional[str],
+    risk_score: float,
+    scan_details: Dict[str, Any],
+):
+    """
+    Registra uma auditoria detalhada de segurança de prompt.
+    """
+    log_entry = {
+        "_type": "prompt_audit",
+        "id": str(uuid4()),
+        "timestamp": datetime.now().isoformat(),
+        "connection_id": connection_id,
+        "user_id": user_id,
+        "prompt_text_redacted": prompt_text_redacted,
+        "security_status": security_status,
+        "blocked_by": blocked_by,
+        "risk_score": risk_score,
+        "scan_details": scan_details
+    }
+    _audit_buffer.append(log_entry)
+
+
 
 async def _ensure_audit_table_async() -> None:
     """
@@ -226,6 +253,27 @@ async def _ensure_audit_table_async() -> None:
             await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_type ON security_alerts(alert_type);"))
             await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON security_alerts(severity);"))
             
+            # --- Tabela prompt_security_audit ---
+            await db.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS prompt_security_audit (
+                        id UUID PRIMARY KEY,
+                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        user_id VARCHAR(255),
+                        connection_id UUID,
+                        prompt_text_redacted TEXT,
+                        security_status VARCHAR(20),
+                        blocked_by VARCHAR(50),
+                        risk_score FLOAT,
+                        scan_details JSONB
+                    );
+                    """
+                )
+            )
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_user ON prompt_security_audit(user_id);"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_status ON prompt_security_audit(security_status);"))
+            
             await db.commit()
         except Exception:
             await db.rollback()
@@ -260,9 +308,10 @@ async def _flush_audit_buffer_async():
                 # Garantir tabela existe (best-effort). Se migration já foi aplicada, é NO-OP.
                 await _ensure_audit_table_async()
 
-                # Separa logs de auditoria normal de logs de alerta
-                audit_batch = [e for e in batch if e.get("_type") != "alert"]
+                # Separa logs por tipo
+                audit_batch = [e for e in batch if e.get("_type") not in ("alert", "prompt_audit")]
                 alert_batch = [e for e in batch if e.get("_type") == "alert"]
+                prompt_audit_batch = [e for e in batch if e.get("_type") == "prompt_audit"]
 
                 # 1. Inserir AUDIT LOGS
                 if audit_batch:
@@ -378,6 +427,41 @@ async def _flush_audit_buffer_async():
                             "details": json.dumps(entry.get("details")) if entry.get("details") else None
                         }
                         await db.execute(insert_alert_sql, params)
+
+                # 3. Inserir PROMPT AUDITS
+                if prompt_audit_batch:
+                    insert_prompt_sql = text(
+                        """
+                        INSERT INTO prompt_security_audit (
+                            id, user_id, connection_id, 
+                            prompt_text_redacted, security_status, blocked_by, 
+                            risk_score, scan_details
+                        ) VALUES (
+                            CAST(:id AS uuid),
+                            :user_id,
+                            CAST(:connection_id AS uuid),
+                            :prompt_text_redacted,
+                            :security_status,
+                            :blocked_by,
+                            :risk_score,
+                            :scan_details
+                        )
+                        """
+                    )
+                    
+                    import json
+                    for entry in prompt_audit_batch:
+                        params = {
+                            "id": entry.get("id"),
+                            "user_id": entry.get("user_id"),
+                            "connection_id": entry.get("connection_id"),
+                            "prompt_text_redacted": entry.get("prompt_text_redacted"),
+                            "security_status": entry.get("security_status"),
+                            "blocked_by": entry.get("blocked_by"),
+                            "risk_score": entry.get("risk_score"),
+                            "scan_details": json.dumps(entry.get("scan_details")) if entry.get("scan_details") else None
+                        }
+                        await db.execute(insert_prompt_sql, params)
                 
                 await db.commit()
             except Exception as e:
