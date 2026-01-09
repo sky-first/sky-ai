@@ -736,6 +736,12 @@ def generate_dashboard_plan(
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
             f"- Language for titles/questions: {language}\n"
             "- EXACTLY N widgets.\n"
+            "- DASHBOARD TITLE (dashboard_name) RULES:\n"
+            "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
+            "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
+            "  * USE CONTEXT: If the user's question or previous answer mentions a specific region, product, or timeframe, INCLUDE IT in the title.\n"
+            "  * Examples: 'Sales Trend 2024 (SP)', 'Top Customers & Churn', 'High Value Orders Analysis'.\n"
+            "  * Since original_question is present, the title MUST be directly related to it.\n"
             'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
             '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"
@@ -787,6 +793,11 @@ def generate_dashboard_plan(
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
             f"- Language for titles/questions: {language}\n"
             "- EXACTLY N widgets.\n"
+            "- DASHBOARD TITLE (dashboard_name) RULES:\n"
+            "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
+            "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
+            "  * USE CONTEXT: If a specific goal, region, or timeframe is inferred, INCLUDE IT in the title.\n"
+            "  * Examples: 'Sales Trend 2024 (SP)', 'Top Customers & Churn', 'High Value Orders Analysis'.\n"
             'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
             '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"

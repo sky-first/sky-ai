@@ -1652,6 +1652,7 @@ async def dashboards_plan(
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
             dashboard_name=plan.dashboard_name,
+            title=plan.dashboard_name, # ✅ Title is alias for dashboard_name
             description=plan.description,
             widgets=widgets,
             meta={
