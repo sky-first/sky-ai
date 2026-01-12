@@ -31,7 +31,8 @@ def _build_secure_system_prompt(
     max_columns: int = 50,
     use_multiple_tables: bool = False,
     security_rules: str = "",
-    detected_language: str = "English",
+
+    # detected_language removed
     dialect: Dialect = Dialect.POSTGRES,
 ) -> Dict[str, str]:
     """
@@ -77,7 +78,8 @@ def _build_secure_system_prompt(
                 f"Your task is to generate a VALID {query_lang} query/command.\n"
                 f"Output format: {output_fmt}\n\n"
                 f"Rules:\n"
-                f"- Language: {detected_language} (always)\n"
+                f"Rules:\n"
+                f"- Language: English (always)\n"
                 f"- Do NOT generate SQL if the dialect is NoSQL.\n"
                 f"- Example valid query: {example}\n"
                 f"IMPORTANT: You MUST generate a descriptive title as a comment (or field if JSON) on the FIRST LINE.\n"
@@ -106,10 +108,11 @@ def _build_secure_system_prompt(
                 "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
                 "Format: -- TITLE: <Title Text>\n"
                 "Rules for Title:\n"
-                f"- Language: {detected_language} (always)\n"
+                "Rules for Title:\n"
+                f"- Language: English (always)\n"
                 "- Max 60 chars\n"
                 "- Be specific (include region, product, year if in query)\n"
-                "- Example: -- TITLE: Vendas por Região 2024"
+                "- Example: -- TITLE: Sales by Region 2024"
             )
         }
     else:
@@ -127,10 +130,11 @@ def _build_secure_system_prompt(
                 "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
                 "Format: -- TITLE: <Title Text>\n"
                 "Rules for Title:\n"
-                f"- Language: {detected_language} (always)\n"
+                "Rules for Title:\n"
+                f"- Language: English (always)\n"
                 "- Max 60 chars\n"
                 "- Be specific (include region, product, year if in query)\n"
-                "- Example: -- TITLE: Vendas por Região 2024"
+                "- Example: -- TITLE: Sales by Region 2024"
             )
         }
 
@@ -439,10 +443,9 @@ def run_specialist(
     
     # Detectar se a pergunta requer agregação/temporal (antes de determinar modo)
     requires_aggregation = any(term in question.lower() for term in [
-        "performance", "desempenho", "métrica", "total", "soma", "média", "média", 
-        "contagem", "count", "sum", "avg", "máximo", "mínimo", "max", "min",
-        "mensal", "monthly", "anual", "yearly", "diário", "daily", "por mês", "por ano",
-        "distribuição", "distribution", "agrupar", "group", "agrupado", "grouped"
+        "performance", "metric", "total", "sum", "avg", "average", "count",
+        "max", "min", "monthly", "yearly", "daily", "per month", "per year",
+        "distribution", "group", "grouped"
     ])
     
     if use_multiple_tables:
@@ -553,19 +556,14 @@ def run_specialist(
             "- DO NOT just return all rows with LIMIT - always aggregate when the question "
             "asks for metrics, totals, or temporal analysis.\n"
             "- Examples:\n"
-            "  * 'performance mensal' → GROUP BY month/year, aggregate amounts/counts\n"
-            "  * 'total por categoria' → GROUP BY category, SUM amounts\n"
-            "  * 'distribuição' → GROUP BY relevant dimension, COUNT or SUM\n"
+            "  * 'monthly performance' → GROUP BY month/year, aggregate amounts/counts\n"
+            "  * 'total by category' → GROUP BY category, SUM amounts\n"
+            "  * 'distribution' → GROUP BY relevant dimension, COUNT or SUM\n"
         )
     
-    # Identificar idioma
-    detected_language = state.get("detected_language") or "English"
-    if detected_language.lower() in ["pt", "pt-br", "portuguese"]:
-        detected_language = "Portuguese"
-    elif detected_language.lower() in ["en", "en-us", "english"]:
-        detected_language = "English"
-    elif detected_language.lower() in ["es", "es-es", "spanish"]:
-        detected_language = "Spanish"
+    # Identificar idioma - REMOVED, now defaulting to English
+    # detected_language detected_languages logic removed
+    detected_language = "English"
 
     # Define the security rules string to pass to _build_secure_system_prompt
     # This allows _build_secure_system_prompt to use it directly

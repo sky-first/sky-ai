@@ -114,12 +114,6 @@ def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema])
 # ==================== CATALOG (METADATA) MODE ====================
 
 _CATALOG_LIST_PATTERNS = [
-    # pt
-    r"\bquais\s+(dados|tabelas|datasets)\b",
-    r"\bo\s+que\s+dados\s+eu\s+tenho\s+acesso\b",
-    r"\bo\s+que\s+eu\s+posso\s+ver\b",
-    r"\btenho\s+acesso\b",
-    # en
     r"\bwhat\s+(data|tables|datasets)\b",
     r"\bwhat\s+data\s+can\s+i\s+access\b",
     r"\bwhat\s+tables\s+do\s+i\s+have\s+access\s+to\b",
@@ -127,26 +121,12 @@ _CATALOG_LIST_PATTERNS = [
 ]
 
 _CATALOG_COLUMNS_PATTERNS = [
-    # pt
-    r"\bquais\s+colunas\b",
-    r"\bcolunas\s+tem\b",
-    r"\besquema\b",
-    r"\bschema\b",
-    # en
     r"\bwhat\s+columns\b",
     r"\bcolumns?\s+in\b",
     r"\bshow\s+.*schema\b",
 ]
 
 _CATALOG_CAPABILITIES_PATTERNS = [
-    # pt
-    r"\bo\s+que\s+voce\s+pode\b",
-    r"\bo\s+que\s+vc\s+pode\b",
-    r"\bo\s+que\s+você\s+pode\b",
-    r"\bo\s+que\s+vcs?\s+pode(m)?\b",
-    r"\bo\s+que\s+você\s+responde\b",
-    r"\bo\s+que\s+vc\s+responde\b",
-    # en
     r"\bwhat\s+can\s+you\s+(do|answer)\b",
     r"\bwhat\s+are\s+you\s+able\s+to\s+answer\b",
 ]
@@ -204,9 +184,8 @@ def _extract_table_name_from_question(question: str, tables: List[TableSchema]) 
 
     # 2) common patterns
     patterns = [
-        r"(?:da\s+tabela|tabela|table)\s+([a-zA-Z0-9_\.]+)",
-        r"(?:colunas\s+de|columns?\s+in)\s+([a-zA-Z0-9_\.]+)",
-        r"(?:dentro\s+de)\s+([a-zA-Z0-9_\.]+)",
+        r"(?:table)\s+([a-zA-Z0-9_\.]+)",
+        r"(?:columns?\s+in)\s+([a-zA-Z0-9_\.]+)",
     ]
     for pat in patterns:
         m2 = re.search(pat, q_norm, flags=re.IGNORECASE)
@@ -231,29 +210,17 @@ def _extract_table_name_from_question(question: str, tables: List[TableSchema]) 
 def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
     # SECURITY: do not enumerate schema/tables from the orchestrator.
     # Keep chat focused on business questions and prevent schema abuse.
-    if (lang or "").startswith("pt"):
-        return "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados."
-    if (lang or "").startswith("es"):
-        return "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos."
     return "I can't help with that request. Please rephrase your question about your data."
 
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
     # SECURITY: do not enumerate columns from the orchestrator.
-    if (lang or "").startswith("pt"):
-        return "Não posso ajudar com esse tipo de solicitação. Reformule sua pergunta sobre os seus dados."
-    if (lang or "").startswith("es"):
-        return "No puedo ayudar con esa solicitud. Reformula tu pregunta sobre tus datos."
     return "I can't help with that request. Please rephrase your question about your data."
 
 
 def _format_catalog_capabilities(lang: str) -> str:
     # SECURITY: keep responses focused on business outcomes, not schema exploration.
-    # Agnóstico de domínio: exemplos genéricos funcionam para qualquer tipo de negócio.
-    if (lang or "").startswith("pt"):
-        return "Me diga um objetivo de análise (ex: performance mensal, top resultados, análise por período) e eu gero a SQL."
-    if (lang or "").startswith("es"):
-        return "Dime un objetivo de análisis (p. ej., rendimiento mensual, top resultados, análisis por período) y generaré el SQL."
+    # Domain agnostic: generic examples work for any business type.
     return "Tell me an analysis goal (e.g., monthly performance, top results, time-based analysis) and I will generate SQL."
 
 
@@ -284,6 +251,18 @@ def run_orchestrator(
     except Exception:
         lang = "en"
     state["detected_language"] = lang
+
+    # 🔒 GATEKEEPER: English Only
+    if not lang.startswith("en"):
+        state["answer"] = "I apologize, but currently I only support commands and questions in English."
+        log_event(
+            "orchestrator_booted_language",
+            {
+                "detected": lang,
+                "question": question[:50]
+            }
+        )
+        return state
 
     # 🔍 Garante que o agente tem tabelas configuradas
     if not agent_config.tables:
