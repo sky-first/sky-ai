@@ -697,9 +697,8 @@ def generate_dashboard_plan(
     # Keep the request bounded and deterministic-ish.
     # Temporary product decision: cap at 8 widgets for auto dashboard creation.
     max_widgets = max(1, min(8, int(max_widgets)))
-    language = (language or "en").lower()
-    if language not in {"en", "pt", "es"}:
-        language = "en"
+    # Force English only
+    language = "en"
 
     if not logical_tables:
         return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question)
@@ -732,7 +731,7 @@ def generate_dashboard_plan(
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
-            f"- Language for titles/questions: {language}\n"
+            f"- Language for titles/questions: English\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
@@ -789,7 +788,7 @@ def generate_dashboard_plan(
             f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
             "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
-            f"- Language for titles/questions: {language}\n"
+            f"- Language for titles/questions: English\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"

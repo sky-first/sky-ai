@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.sql import text
 
 from core.logging_utils import log_event
+from core.dialects import Dialect
 
 
 # 🔹 Config genérica de uma fonte de dados
@@ -38,6 +39,8 @@ class BaseDataSource(Protocol):
     O specialist NUNCA sabe se está falando com BigQuery ou Postgres.
     Ele só chama run_query(sql) e recebe uma lista de dicts.
     """
+    dialect: Dialect  # Every data source must declare its dialect
+
     def run_query(self, sql: str) -> List[Dict[str, Any]]:
         ...
 
@@ -47,8 +50,9 @@ class SQLAlchemyDataSource:
     Implementação básica de BaseDataSource usando um Engine do SQLAlchemy.
     Serve para Postgres, MySQL, SQL Server, MariaDB, Redshift (via driver compatível).
     """
-    def __init__(self, engine: Engine, label: str = "default_sqlalchemy") -> None:
+    def __init__(self, engine: Engine, dialect: Dialect, label: str = "default_sqlalchemy") -> None:
         self.engine = engine
+        self.dialect = dialect
         self.label = label
 
     def run_query(self, sql: str) -> List[Dict[str, Any]]:
