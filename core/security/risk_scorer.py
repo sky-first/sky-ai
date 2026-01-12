@@ -63,6 +63,15 @@ SUSPICIOUS_PATTERNS = [
     # Execute exactly SQL
     (re.compile(r'\bexecute\s+(?:exactly|exatamente)\b', re.IGNORECASE), 4),
     (re.compile(r'\brode\s+(?:exatamente|exactly)\s+sql\b', re.IGNORECASE), 4),
+    
+    # NoSQL Injection (MongoDB/General)
+    (re.compile(r'\{\s*"\$(ne|gt|lt|where|regex|expr|jsonSchema|function|accumulator)"\s*:', re.IGNORECASE), 4),
+    (re.compile(r'\bdb\.[a-zA-Z0-9_]+\.(find|update|remove|drop|aggregate|mapReduce)\(', re.IGNORECASE), 4),
+    (re.compile(r'\b(this\.|window\.|document\.|tojson\(|print\()', re.IGNORECASE), 3),
+    (re.compile(r'\bjavascript\s*:', re.IGNORECASE), 4),
+    (re.compile(r'\$where\b', re.IGNORECASE), 4),
+    # Logic bypass (e.g., ' || "a"=="a"') - common in string injection
+    (re.compile(r'(\|\s*\||&&)\s*["\']\w+["\']\s*==\s*["\']\w+["\']', re.IGNORECASE), 3),
 ]
 
 
