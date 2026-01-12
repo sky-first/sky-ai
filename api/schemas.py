@@ -66,6 +66,7 @@ class QueryResultMeta(BaseModel):
     chosen_table: Optional[str] = None
     chosen_datasets: Optional[List[str]] = None  # List of tables used by AI
     sql: Optional[str] = None
+    title: Optional[str] = None  # Novo: título gerado dinamicamente
     num_rows: int = 0
     error: Optional[str] = None
 

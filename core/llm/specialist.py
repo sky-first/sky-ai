@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.data_sources.base import BaseDataSource
@@ -26,30 +26,35 @@ from core.security.security_config import (
 
 def _build_secure_system_prompt(
     physical_names: List[str],
-    use_multiple_tables: bool,
     max_limit: int = 100,
-    max_columns: int = 10
-) -> dict:
+    max_columns: int = 50,
+    use_multiple_tables: bool = False,
+    security_rules: str = "",
+    detected_language: str = "English",
+) -> Dict[str, str]:
     """
     Constrói system prompt com regras de segurança explícitas.
     """
     
-    security_rules = (
-        "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
-        "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
-        "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
-        "   Example: SELECT year, SUM(amount) FROM data_table GROUP BY year ORDER BY year LIMIT {max_limit}\n"
-        "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
-        "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
-        "4. NEVER use ; (semicolon) except at the very end - only one query\n"
-        "5. NEVER use comments -- or /* */\n"
-        "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
-        "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
-        "8. NEVER use subqueries that access unauthorized tables\n"
-        "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
-        "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
-        "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
-    ).format(max_limit=max_limit, max_columns=max_columns)
+    # Use the passed security_rules string directly
+    # If security_rules is empty, use a default set of rules
+    if not security_rules:
+        security_rules = (
+            "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
+            "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
+            "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
+            "   Example: SELECT year, SUM(amount) FROM data_table GROUP BY year ORDER BY year LIMIT {max_limit}\n"
+            "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
+            "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
+            "4. NEVER use ; (semicolon) except at the very end - only one query\n"
+            "5. NEVER use comments -- or /* */\n"
+            "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
+            "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
+            "8. NEVER use subqueries that access unauthorized tables\n"
+            "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
+            "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
+            "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
+        ).format(max_limit=max_limit, max_columns=max_columns)
     
     if use_multiple_tables:
         return {
@@ -61,7 +66,14 @@ def _build_secure_system_prompt(
                 f"Allowed physical table names: {', '.join(physical_names)}\n"
                 f"Main table (FROM): {physical_names[0]}\n"
                 "Use ONLY existing columns from the schemas provided.\n"
-                "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+                "Generate only the SQL query (or IMPOSSIBLE: <reason>).\n"
+                "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
+                "Format: -- TITLE: <Title Text>\n"
+                "Rules for Title:\n"
+                f"- Language: {detected_language} (always)\n"
+                "- Max 60 chars\n"
+                "- Be specific (include region, product, year if in query)\n"
+                "- Example: -- TITLE: Vendas por Região 2024"
             )
         }
     else:
@@ -73,7 +85,14 @@ def _build_secure_system_prompt(
                 f"{security_rules}"
                 f"The only allowed physical table name is: {physical_names[0]}\n"
                 "Use ONLY existing columns from the schema provided.\n"
-                "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+                "Generate only the SQL query (or IMPOSSIBLE: <reason>).\n"
+                "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
+                "Format: -- TITLE: <Title Text>\n"
+                "Rules for Title:\n"
+                f"- Language: {detected_language} (always)\n"
+                "- Max 60 chars\n"
+                "- Be specific (include region, product, year if in query)\n"
+                "- Example: -- TITLE: Vendas por Região 2024"
             )
         }
 
@@ -262,6 +281,31 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
         return result
     
     return ""
+
+
+def _extract_title_from_sql(sql_text: str) -> Tuple[Optional[str], str]:
+    """
+    Extrai o título do comentário na primeira linha do SQL.
+    Retorna (titulo, sql_sem_titulo).
+    """
+    if not sql_text:
+        return None, ""
+    
+    lines = sql_text.splitlines()
+    if not lines:
+        return None, sql_text
+
+    first_line = lines[0].strip()
+    # Procura por -- TITLE: ...
+    match = re.search(r"^--\s*TITLE:\s*(.*)", first_line, flags=re.IGNORECASE)
+    
+    if match:
+        title = match.group(1).strip()
+        # Remove a primeira linha e junta o resto
+        clean_sql = "\n".join(lines[1:]).strip()
+        return title, clean_sql
+    
+    return None, sql_text
 
 
 # ==================== SPECIALIST NODE ====================
@@ -476,6 +520,34 @@ def run_specialist(
             "  * 'distribuição' → GROUP BY relevant dimension, COUNT or SUM\n"
         )
     
+    # Identificar idioma
+    detected_language = state.get("detected_language") or "English"
+    if detected_language.lower() in ["pt", "pt-br", "portuguese"]:
+        detected_language = "Portuguese"
+    elif detected_language.lower() in ["en", "en-us", "english"]:
+        detected_language = "English"
+    elif detected_language.lower() in ["es", "es-es", "spanish"]:
+        detected_language = "Spanish"
+
+    # Define the security rules string to pass to _build_secure_system_prompt
+    # This allows _build_secure_system_prompt to use it directly
+    security_rules_str = (
+        "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
+        "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
+        "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
+        "   Example: SELECT year, SUM(amount) FROM data_table GROUP BY year ORDER BY year LIMIT {max_limit}\n"
+        "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
+        "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
+        "4. NEVER use ; (semicolon) except at the very end - only one query\n"
+        "5. NEVER use comments -- or /* */\n"
+        "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
+        "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
+        "8. NEVER use subqueries that access unauthorized tables\n"
+        "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
+        "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
+        "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
+    )
+
     if use_multiple_tables:
         # Modo JOIN: instruções para múltiplas tabelas
         physical_names = [t.physical_name for t in tables]
@@ -490,11 +562,14 @@ def run_specialist(
                 "Look for columns ending in '_id' that might reference other tables."
             )
         
+        # Constrói prompt
         system_msg = _build_secure_system_prompt(
             physical_names=physical_names,
+            max_limit=150,  # Aumentei um pouco caso precise
+            max_columns=50, # Updated max_columns
             use_multiple_tables=True,
-            max_limit=100,
-            max_columns=10
+            security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
+            detected_language=detected_language,
         )
         
         # Adicionar instruções específicas de JOIN
@@ -537,9 +612,11 @@ def run_specialist(
         # Modo tabela única (comportamento original)
         system_msg = _build_secure_system_prompt(
             physical_names=[primary_table.physical_name],
-            use_multiple_tables=False,
             max_limit=100,
-            max_columns=10
+            max_columns=10,
+            use_multiple_tables=False,
+            security_rules=security_rules_str.format(max_limit=100, max_columns=10),
+            detected_language=detected_language,
         )
         
         # Adicionar instruções de agregação
@@ -625,7 +702,11 @@ def run_specialist(
         return state
 
     # === Extrai SQL ===
-    sql = _parse_specialist_output(raw, primary_table)
+    raw_sql = _parse_specialist_output(raw, primary_table)
+    
+    # Extrair título e limpar SQL
+    generated_title, sql = _extract_title_from_sql(raw_sql)
+    state["generated_title"] = generated_title
     
     # Log do parsing
     log_event(
@@ -633,6 +714,7 @@ def run_specialist(
         {
             "agent_id": agent_config.id,
             "sql_extracted": bool(sql),
+            "title_extracted": generated_title,
             "sql_preview": sql[:200] if sql else None,
             "sql_length": len(sql) if sql else 0,
         },

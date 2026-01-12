@@ -51,6 +51,7 @@ class AgentState(TypedDict, total=False):
 
     # Saída do specialist
     sql: Optional[str]
+    generated_title: Optional[str]  # Novo: título gerado pelo specialist
     data: Optional[List[Dict[str, Any]]]
     impossible_reason: Optional[str]
     error: Optional[str]

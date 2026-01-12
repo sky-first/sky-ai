@@ -731,8 +731,6 @@ def generate_dashboard_plan(
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
-            f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
-            "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
             f"- Language for titles/questions: {language}\n"
             "- EXACTLY N widgets.\n"
