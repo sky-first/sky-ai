@@ -11,6 +11,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 from core.data_sources.base import BaseDataSource
+from core.dialects import Dialect
 from core.logging_utils import log_event
 
 
@@ -48,6 +49,7 @@ class BigQueryDataSource:
         self.credentials_path = credentials_path
         self.credentials_json = credentials_json
         self.label = label
+        self.dialect = Dialect.BIGQUERY
 
         self._client: Optional[bigquery.Client] = None
 

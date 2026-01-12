@@ -50,6 +50,12 @@ class AgentState(TypedDict, total=False):
     join_relationships: Optional[List[Dict[str, str]]]  # relacionamentos para JOINs (novo)
 
     # Saída do specialist
+    # Multi-source fields
+    is_multi_source: bool
+    plan: Optional[str]  # Natural language plan from orchestrator
+    partial_results: List[Dict[str, Any]]  # Results from parallel executions
+    
+    # Common fields
     sql: Optional[str]
     generated_title: Optional[str]  # Novo: título gerado pelo specialist
     data: Optional[List[Dict[str, Any]]]
@@ -192,6 +198,97 @@ def build_generic_sql_graph(
         )
         return new_state
 
+    def parallel_specialist_node(state: AgentState) -> AgentState:
+        """
+        [PHASE 2] Parallel Specialist Node:
+        - Detects multi-source requirement
+        - Spawns threads to run_specialist for each chosen table/connection
+        - Aggregates results into state["partial_results"]
+        """
+        # Importação tardia
+        from core.llm.specialist import run_specialist
+        from core.llm.factory import create_llm_specialist
+        import concurrent.futures
+
+        chosen_tables = state.get("chosen_tables", [])
+        if not chosen_tables:
+            return state
+
+        # Criar LLM dinamicamente
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_specialist(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_specialist
+
+        # Prepare tasks
+        tasks = []
+        for tbl_name in chosen_tables:
+            # Find the table object to get connection info if needed
+            tbl_obj = next((t for t in agent_config.tables if t.logical_name == tbl_name), None)
+            
+            # Create a localized state for this thread
+            thread_state = state.copy()
+            thread_state["chosen_table"] = tbl_name
+            thread_state["chosen_table_physical"] = tbl_obj.physical_name if tbl_obj else None
+            # Nuke the multi-table fields to force single-table mode inside the specialist
+            thread_state["chosen_tables"] = None 
+            thread_state["join_relationships"] = None
+            
+            tasks.append({
+                "state": thread_state,
+                "table": tbl_obj
+            })
+        
+        results = []
+        
+        # Parallel Execution
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_task = {}
+            for task in tasks:
+                future = executor.submit(
+                    run_specialist, 
+                    task["state"], 
+                    agent_config, 
+                    data_source, 
+                    dynamic_llm
+                )
+                future_to_task[future] = task
+
+            for future in concurrent.futures.as_completed(future_to_task):
+                try:
+                    res_state = future.result()
+                    # Collect data
+                    if res_state.get("data"):
+                        results.append({
+                            "table": res_state.get("chosen_table"),
+                            "data": res_state.get("data"),
+                            "sql": res_state.get("sql"),
+                            "metadata": {
+                                "source": "unknown", # placeholder
+                                "title": res_state.get("generated_title"),
+                                "dialect": "unknown"
+                            }
+                        })
+                except Exception as e:
+                    log_event("parallel_specialist_error", {"error": str(e)})
+
+        # Update main state
+        state["partial_results"] = results
+        return state
+
+    def merger_node(state: AgentState) -> AgentState:
+        """
+        [PHASE 2] Merger Node:
+        - Consolidates partial_results using Python/Pandas
+        """
+        from core.llm.merger import run_merger
+        
+        # Use the orchestrator LLM (smart model) for merger
+        # If dynamic config exists, we might want to create one, but for now reuse orchestrator
+        return run_merger(state, agent_config, llm_orchestrator)
+
     def formatter_node(state: AgentState) -> AgentState:
         """
         Node formatter:
@@ -221,11 +318,29 @@ def build_generic_sql_graph(
 
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("specialist", specialist_node)
+    graph.add_node("parallel_specialist", parallel_specialist_node)
+    graph.add_node("merger", merger_node)
     graph.add_node("formatter", formatter_node)
 
+    def route_orchestrator(state: AgentState):
+        if state.get("is_multi_source", False):
+            return "parallel_specialist"
+        return "specialist"
+
     graph.set_entry_point("orchestrator")
-    graph.add_edge("orchestrator", "specialist")
+    
+    graph.add_conditional_edges(
+        "orchestrator",
+        route_orchestrator,
+        {
+            "specialist": "specialist",
+            "parallel_specialist": "parallel_specialist"
+        }
+    )
+    
     graph.add_edge("specialist", "formatter")
+    graph.add_edge("parallel_specialist", "merger")
+    graph.add_edge("merger", "formatter")
     graph.add_edge("formatter", END)
 
     app = graph.compile()

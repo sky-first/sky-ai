@@ -708,26 +708,38 @@ def run_orchestrator(
                         "detected_language": lang,
                     },
                 )
-        else:
-            # Apenas uma tabela escolhida (ou extração retornou apenas uma)
-            chosen_logical = chosen_logicals[0] if chosen_logicals else agent_config.tables[0].logical_name
-            chosen_table_obj = next(
-                (t for t in agent_config.tables if t.logical_name == chosen_logical),
-                agent_config.tables[0],
-            )
-            state["chosen_table"] = chosen_table_obj.logical_name
-            state["chosen_table_physical"] = chosen_table_obj.physical_name
-            
-            log_event(
-                "orchestrator_choice_single",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "chosen_logical": chosen_table_obj.logical_name,
-                    "chosen_physical": chosen_table_obj.physical_name,
-                    "detected_language": lang,
-                },
-            )
+        # Multi-connection check on chosen logicals
+        # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
+        # This runs for all cases where len(chosen_logicals) > 1
+        chosen_schemas_chk = []
+        for name in chosen_logicals:
+            t = next((tbl for tbl in agent_config.tables if tbl.logical_name == name), None)
+            if t:
+                chosen_schemas_chk.append(t)
+        
+        # Check distinct connections
+        connection_ids = set()
+        for t in chosen_schemas_chk:
+            conn_id = getattr(t, "data_connection_id", "default")
+            connection_ids.add(conn_id)
+        
+        is_multi_source = len(connection_ids) > 1
+
+        # Populate new fields
+        state["is_multi_source"] = is_multi_source
+        if is_multi_source:
+            state["plan"] = f"Query {len(chosen_schemas_chk)} tables across {len(connection_ids)} connections: {chosen_logicals}"
+
+        log_event(
+            "orchestrator_choice_multiple_check",
+            {
+                "agent_id": agent_config.id,
+                "chosen_tables": chosen_logicals,
+                "is_multi_source": is_multi_source, 
+                "num_connections": len(connection_ids)
+            }
+        )
+
     else:
         # Modo tabela única (quando há apenas uma tabela disponível)
         chosen_logical = _extract_table_choice(raw, agent_config.tables)

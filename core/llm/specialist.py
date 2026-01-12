@@ -20,6 +20,7 @@ from core.security.security_config import (
     validate_sql_against_security,
     build_security_prompt_instructions,
 )
+from core.dialects import Dialect, get_dialect_specifics
 
 
 # ==================== HELPERS ====================
@@ -31,6 +32,7 @@ def _build_secure_system_prompt(
     use_multiple_tables: bool = False,
     security_rules: str = "",
     detected_language: str = "English",
+    dialect: Dialect = Dialect.POSTGRES,
 ) -> Dict[str, str]:
     """
     Constrói system prompt com regras de segurança explícitas.
@@ -56,12 +58,46 @@ def _build_secure_system_prompt(
             "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
         ).format(max_limit=max_limit, max_columns=max_columns)
     
+    # Get dialect specifics
+    dialect_info = get_dialect_specifics(dialect)
+    details = dialect_info.get("details", {})
+    type_ = dialect_info.get("type", "sql")
+
+    if type_ == "nosql":
+        # Strategy for NoSQL (MongoDB, etc.)
+        # This overrides the standard SQL prompt construction
+        query_lang = details.get("query_language", "NoSQL")
+        output_fmt = details.get("output_format", "JSON")
+        example = details.get("example", "")
+        
+        return {
+            "role": "system",
+            "content": (
+                f"You are a database expert in {dialect.value.upper()} ({query_lang}).\n"
+                f"Your task is to generate a VALID {query_lang} query/command.\n"
+                f"Output format: {output_fmt}\n\n"
+                f"Rules:\n"
+                f"- Language: {detected_language} (always)\n"
+                f"- Do NOT generate SQL if the dialect is NoSQL.\n"
+                f"- Example valid query: {example}\n"
+                f"IMPORTANT: You MUST generate a descriptive title as a comment (or field if JSON) on the FIRST LINE.\n"
+                f"Format: -- TITLE: <Title Text> (if text) or field 'title' if JSON.\n"
+            )
+        }
+
+    # SQL Strategy (default)
+    id_quote = details.get("identifier_quote", '"')
+    string_quote = details.get("string_quote", "'")
+    date_func = details.get("date_func", "CURRENT_DATE")
+
     if use_multiple_tables:
         return {
             "role": "system",
             "content": (
                 "You are a SQL expert. Your job is to generate a single SELECT query "
-                "with JOINs to answer the user's question.\n\n"
+                "with JOINs to answer the user's question.\n"
+                f"Dialect: {dialect.value.upper()}\n"
+                f"Rules: Use {id_quote} for identifiers, {string_quote} for strings. Date func: {date_func}.\n\n"
                 f"{security_rules}"
                 f"Allowed physical table names: {', '.join(physical_names)}\n"
                 f"Main table (FROM): {physical_names[0]}\n"
@@ -81,7 +117,9 @@ def _build_secure_system_prompt(
             "role": "system",
             "content": (
                 "You are a SQL expert. Your job is to generate a single SELECT query "
-                "to answer the user's question.\n\n"
+                "to answer the user's question.\n"
+                f"Dialect: {dialect.value.upper()}\n"
+                f"Rules: Use {id_quote} for identifiers, {string_quote} for strings. Date func: {date_func}.\n\n"
                 f"{security_rules}"
                 f"The only allowed physical table name is: {physical_names[0]}\n"
                 "Use ONLY existing columns from the schema provided.\n"
@@ -570,6 +608,7 @@ def run_specialist(
             use_multiple_tables=True,
             security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
             detected_language=detected_language,
+            dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
         )
         
         # Adicionar instruções específicas de JOIN
@@ -617,6 +656,7 @@ def run_specialist(
             use_multiple_tables=False,
             security_rules=security_rules_str.format(max_limit=100, max_columns=10),
             detected_language=detected_language,
+            dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
         )
         
         # Adicionar instruções de agregação

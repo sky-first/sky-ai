@@ -13,6 +13,7 @@ from core.data_sources.base import (
 )
 from core.data_sources.bigquery_source import BigQueryDataSource
 from core.logging_utils import log_event
+from core.dialects import Dialect
 
 
 class DataSourceFactory:
@@ -100,7 +101,19 @@ class DataSourceFactory:
                 },
             )
 
-            return SQLAlchemyDataSource(engine=engine, label=label)
+            # Determine dialect
+            # For now only Postgres is fully wired in the factory logic
+            # but we prepare for others
+            dialect = Dialect.POSTGRES
+            # If type was mysql, etc we would map here
+            if ds_type == "mysql":
+                dialect = Dialect.MYSQL
+            elif ds_type == "sqlserver":
+                dialect = Dialect.SQLSERVER
+            elif ds_type == "sqlite":
+                dialect = Dialect.SQLITE
+            
+            return SQLAlchemyDataSource(engine=engine, dialect=dialect, label=label)
 
         else:
             # Tipo não suportado ainda
