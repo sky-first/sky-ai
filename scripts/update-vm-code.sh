@@ -10,9 +10,18 @@ echo '=========================================='
 echo ''
 
 # Configurar URL com token se fornecido
+# Configurar URL com token se fornecido
 if [ -n "$GITHUB_TOKEN" ]; then
-  AUTH_REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com"
-  echo '🔐 Usando token para autenticação Git'
+  # Detectar tipo de token
+  if [[ "$GITHUB_TOKEN" == "ghp_"* ]] || [[ "$GITHUB_TOKEN" == "github_pat_"* ]]; then
+    # Personal Access Token (PAT): Usar token como username
+    AUTH_REPO_URL="https://${GITHUB_TOKEN}@github.com"
+    echo '🔐 Usando Personal Access Token (PAT) para autenticação Git'
+  else
+    # GitHub Action Token (GITHUB_TOKEN): Usar x-access-token como user
+    AUTH_REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com"
+    echo '🔐 Usando GitHub Action/Installation Token'
+  fi
 else
   AUTH_REPO_URL="https://github.com"
   echo '⚠️  GITHUB_TOKEN não fornecido - usando URLs públicas'
@@ -48,9 +57,12 @@ echo '📂 Diretório atual:'
 pwd
 echo ''
 
-# Corrigir erro de "dubious ownership" do Git
+# Corrigir erro de "dubious ownership" do Git (CRÍTICO para CI/CD na Azure)
 echo '🛡️  Configurando diretórios seguros para o Git...'
-git config --global --add safe.directory '*'
+# Para o root (quem geralmente executa o script via RunCommand)
+git config --global --add safe.directory '*' || true
+# Para o azureuser (quem é o dono dos arquivos)
+sudo -u azureuser git config --global --add safe.directory '*' || true
 echo ''
 
 echo "📋 Configuração:"
