@@ -108,8 +108,7 @@ def _build_secure_system_prompt(
                 "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
                 "Format: -- TITLE: <Title Text>\n"
                 "Rules for Title:\n"
-                "Rules for Title:\n"
-                f"- Language: English (always)\n"
+                "- Language: English (always) - EVEN IF USER SPEAKS ANOTHER LANGUAGE\n"
                 "- Max 60 chars\n"
                 "- Be specific (include region, product, year if in query)\n"
                 "- Example: -- TITLE: Sales by Region 2024"
@@ -130,8 +129,7 @@ def _build_secure_system_prompt(
                 "IMPORTANT: You MUST generate a descriptive title for this query as a comment on the VERY FIRST LINE.\n"
                 "Format: -- TITLE: <Title Text>\n"
                 "Rules for Title:\n"
-                "Rules for Title:\n"
-                f"- Language: English (always)\n"
+                "- Language: English (always) - EVEN IF USER SPEAKS ANOTHER LANGUAGE\n"
                 "- Max 60 chars\n"
                 "- Be specific (include region, product, year if in query)\n"
                 "- Example: -- TITLE: Sales by Region 2024"
@@ -653,7 +651,6 @@ def run_specialist(
             max_columns=10,
             use_multiple_tables=False,
             security_rules=security_rules_str.format(max_limit=100, max_columns=10),
-            detected_language=detected_language,
             dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
         )
         
