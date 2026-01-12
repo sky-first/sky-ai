@@ -3041,7 +3041,9 @@ async def _stream_connection_query(
                 meta = {
                     "detected_language": lang,
                     "chosen_table": final_state.get("chosen_table"),
+                    "chosen_datasets": final_state.get("chosen_tables"),
                     "sql": final_state.get("sql"),
+                    "title": final_state.get("generated_title"),  # ✅ NOVO: Título gerado dinamicamente
                     "num_rows": 0,
                     "error": str(final_state.get("error")),
                 }
