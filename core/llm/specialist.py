@@ -603,7 +603,6 @@ def run_specialist(
             max_columns=50, # Updated max_columns
             use_multiple_tables=True,
             security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
-            detected_language=detected_language,
             dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
         )
         
