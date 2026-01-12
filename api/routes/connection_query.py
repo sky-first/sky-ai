@@ -3201,6 +3201,50 @@ async def query_connection_stream(
     )
 
 
+from decimal import Decimal
+from datetime import date
+
+def _serialize_for_json(obj: Any) -> Any:
+    """Helper to serialize datetime/decimal for JSON."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, list):
+        return [_serialize_for_json(i) for i in obj]
+    if isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    return obj
+
+def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
+    """Compute basic stats for context."""
+    if not data:
+        return "No data."
+    
+    first_row = data[0]
+    total_cols = len(first_row.keys())
+    
+    # Identify numeric columns
+    numeric_cols = []
+    for k, v in first_row.items():
+        if isinstance(v, (int, float, Decimal)):
+            numeric_cols.append(k)
+            
+    stats = []
+    for col in numeric_cols[:3]: # Limit to top 3 numeric
+        try:
+            values = [float(row[col]) for row in data if row.get(col) is not None]
+            if values:
+                avg = sum(values) / len(values)
+                stats.append(f"{col}: avg={avg:.2f}, max={max(values):.2f}")
+        except:
+            pass
+            
+    return f"Columns: {total_cols}. " + "; ".join(stats)
+
+
 @router.post("/{connection_id}/validate-sql", response_model=ValidateSQLResponse)
 async def validate_sql(
     connection_id: str,
@@ -3393,12 +3437,61 @@ async def validate_sql(
                 },
             )
             
+            explanation = None
+            if body.include_explanation and data:
+                try:
+                    # 1. Preparar dados para o formatter similar ao streaming
+                    data_sample = data[:15]
+                    serialized_sample = _serialize_for_json(data_sample)
+                    sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
+                    stats_text = _compute_basic_stats(data_sample)
+                    
+                    # 2. Criar contexto do sistema
+                    system_msg = {
+                        "role": "system",
+                        "content": (
+                            "You are a data analyst helper.\n"
+                            "Your job is to explain the query results clearly and concisely.\n\n"
+                            "RULES:\n"
+                            "- Answer in English (always).\n"
+                            "- Use the provided data sample to derive insights.\n"
+                            "- Keep it short (max 3 sentences).\n"
+                            "- Start directly with the insight (e.g. 'The data shows that...').\n"
+                            "- Do not mention 'JSON', 'query', or technical details."
+                        ),
+                    }
+                    
+                    # 3. Criar mensagem do usuário
+                    user_msg = {
+                        "role": "user",
+                        "content": (
+                            f"Context Question: {body.question or 'No specific question'}\n"
+                            f"Total rows: {len(data)}\n"
+                            f"{stats_text}\n\n"
+                            "Data Sample:\n"
+                            f"{sample_json}\n\n"
+                            "Explain the results."
+                        ),
+                    }
+                    
+                    # 4. Chamar LLM
+                    llm_formatter = create_llm_formatter()
+                    response = llm_formatter.invoke([system_msg, user_msg])
+                    explanation = getattr(response, "content", "") or ""
+                except Exception as e:
+                    log_event(
+                        "validate_sql_explanation_error",
+                        {"connection_id": connection_id, "error": str(e)}
+                    )
+                    explanation = None
+
             return ValidateSQLResponse(
                 is_valid=True,
                 preview_data=data[:5],  # Máximo 5 linhas
                 num_rows=len(data),
                 execution_time_ms=execution_time_ms,
-                columns=columns
+                columns=columns,
+                explanation=explanation
             )
         except Exception as e:
             error_msg = str(e)[:500]

@@ -344,6 +344,15 @@ class ValidateSQLRequest(BaseModel):
         default=None,
         description="Configuração de segurança para validar o SQL contra regras de RLS e colunas."
     )
+    # ✅ NOVO: Pedir explicação da IA
+    question: Optional[str] = Field(
+        default=None,
+        description="Pergunta original do usuário (contexto para a explicação)."
+    )
+    include_explanation: Optional[bool] = Field(
+        default=False,
+        description="Se True, gera uma explicação textual dos resultados usando a IA."
+    )
 
 
 class ValidateSQLResponse(BaseModel):
@@ -356,3 +365,6 @@ class ValidateSQLResponse(BaseModel):
     num_rows: Optional[int] = Field(None, description="Número de linhas retornadas.")
     execution_time_ms: Optional[float] = Field(None, description="Tempo de execução em ms.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
+    explanation: Optional[str] = Field(
+        None, description="Explicação textual gerada pela IA (se solicitado)."
+    )
