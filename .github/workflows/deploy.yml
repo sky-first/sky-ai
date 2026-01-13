@@ -404,7 +404,7 @@ jobs:
               
               # Verificar se está no estado do Terraform
               echo "Verificando se Resource Group está no estado do Terraform..."
-              if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+              if terraform state show azurerm_resource_group.aks > /dev/null 2>&1; then
                 echo "✅ Resource Group está no estado do Terraform"
                 echo "Listando recursos no estado para debug:"
                 terraform state list | grep -E "resource_group|azurerm_resource_group" || echo "  (nenhum resource_group encontrado na listagem)"
@@ -440,7 +440,7 @@ jobs:
                 if [ -n "$VM_NAME" ]; then
                   echo "    -var=\"vm_name=${VM_NAME}\" \\"
                 fi
-                echo "    azurerm_resource_group.main \"$RESOURCE_ID\""
+                echo "    azurerm_resource_group.aks \"$RESOURCE_ID\""
                 echo ""
                 echo "FALHANDO workflow para evitar erro no terraform apply"
                 exit 1
@@ -575,7 +575,7 @@ jobs:
               fi
               
               # Verificar ações do Resource Group
-              PLAN_RG_ACTIONS=$(jq -r '.resource_changes[]? | select(.address == "azurerm_resource_group.main") | .change.actions[]?' tfplan.json 2>/dev/null | sort -u | tr '\n' ',' | sed 's/,$//' || echo "")
+              PLAN_RG_ACTIONS=$(jq -r '.resource_changes[]? | select(.address == "azurerm_resource_group.aks") | .change.actions[]?' tfplan.json 2>/dev/null | sort -u | tr '\n' ',' | sed 's/,$//' || echo "")
               
               if echo "$PLAN_RG_ACTIONS" | grep -q "create" && ! echo "$PLAN_RG_ACTIONS" | grep -q "delete"; then
                 PLAN_RG_CREATE=true
@@ -584,9 +584,9 @@ jobs:
               fi
             else
               # Fallback: verificar via terraform show (texto)
-              if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+              if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.aks.*will be created"; then
                 PLAN_RG_CREATE=true
-              elif terraform show tfplan 2>/dev/null | grep -qE "azurerm_resource_group.main.*must be replaced|azurerm_resource_group.main.*destroy and then create"; then
+              elif terraform show tfplan 2>/dev/null | grep -qE "azurerm_resource_group.aks.*must be replaced|azurerm_resource_group.aks.*destroy and then create"; then
                 PLAN_RG_REPLACEMENT=true
               fi
             fi
@@ -621,8 +621,8 @@ jobs:
                 echo "⚠️  Resource Group existe no Azure. Verificando se replacement é apenas por diferença de nome/tags..."
                 
                 # Verificar se Resource Group está no estado
-                if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-                  CURRENT_RG_NAME=$(terraform state show azurerm_resource_group.main 2>/dev/null | grep -E "^ +name +=" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" || echo "")
+                if terraform state show azurerm_resource_group.aks > /dev/null 2>&1; then
+                  CURRENT_RG_NAME=$(terraform state show azurerm_resource_group.aks 2>/dev/null | grep -E "^ +name +=" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" || echo "")
                   
                   if [ -n "$CURRENT_RG_NAME" ] && [ "$CURRENT_RG_NAME" != "$PLAN_RG_NAME" ]; then
                     echo "⚠️  Diferença de nome detectada: Estado='$CURRENT_RG_NAME', Tfvars='$PLAN_RG_NAME'"
@@ -633,7 +633,7 @@ jobs:
                     terraform apply -refresh-only -auto-approve > /dev/null 2>&1 || true
                     
                     # Verificar novamente após refresh
-                    CURRENT_RG_NAME_AFTER=$(terraform state show azurerm_resource_group.main 2>/dev/null | grep -E "^ +name +=" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" || echo "")
+                    CURRENT_RG_NAME_AFTER=$(terraform state show azurerm_resource_group.aks 2>/dev/null | grep -E "^ +name +=" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" || echo "")
                     
                     if [ "$CURRENT_RG_NAME_AFTER" = "$PLAN_RG_NAME" ]; then
                       echo "✅ Nome corrigido após refresh! Regenerando plan..."
@@ -1706,12 +1706,12 @@ jobs:
               
               if command -v jq >/dev/null 2>&1; then
                 if terraform show -json tfplan | \
-                  jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                  jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.aks" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
                   PLAN_TRIES_TO_CREATE_RG=true
                 fi
               else
                 # Fallback: verificar via terraform show (texto)
-                if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.aks.*will be created"; then
                   PLAN_TRIES_TO_CREATE_RG=true
                 fi
               fi
@@ -1724,7 +1724,7 @@ jobs:
                   echo "⚠️  RG existe no Azure, mas o plan quer criar."
                   
                   # CRÍTICO: Verificar se já está no estado do Terraform antes de tentar importar
-                  if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                  if terraform state show azurerm_resource_group.aks > /dev/null 2>&1; then
                     echo "✅ Resource Group já está no estado do Terraform."
                     echo "⚠️  O plan quer criar porque há diferença entre estado e configuração."
                     echo "⚠️  Fazendo refresh-only para sincronizar estado com Azure..."
@@ -1747,11 +1747,11 @@ jobs:
                     PLAN_STILL_CREATES_RG=false
                     if command -v jq >/dev/null 2>&1; then
                       if terraform show -json tfplan | \
-                        jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                        jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.aks" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
                         PLAN_STILL_CREATES_RG=true
                       fi
                     else
-                      if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                      if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.aks.*will be created"; then
                         PLAN_STILL_CREATES_RG=true
                       fi
                     fi
@@ -1819,7 +1819,7 @@ jobs:
                     set +e  # Desabilitar exit on error temporariamente
                     terraform import \
                       -var-file="$TFVARS_FILE" \
-                      azurerm_resource_group.main "$RESOURCE_ID" 2>&1 | tee import-output.txt
+                      azurerm_resource_group.aks "$RESOURCE_ID" 2>&1 | tee import-output.txt
                     IMPORT_EXIT_CODE=${PIPESTATUS[0]}
                     set -e  # Reabilitar exit on error
                     
@@ -1830,7 +1830,7 @@ jobs:
                       if grep -q "Resource already managed" import-output.txt 2>/dev/null || grep -q "already managed" import-output.txt 2>/dev/null; then
                         echo "⚠️  Resource Group já está no estado (import falhou porque já estava gerenciado)"
                         # Verificar se realmente está no estado
-                        if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
+                        if terraform state show azurerm_resource_group.aks > /dev/null 2>&1; then
                           echo "✅ Confirmado: Resource Group está no estado"
                         else
                           echo "❌ ERRO: Import falhou e Resource Group não está no estado"
@@ -1844,7 +1844,7 @@ jobs:
                     fi
                     
                     echo "Verificando state do RG após import..."
-                    terraform state show azurerm_resource_group.main || true
+                    terraform state show azurerm_resource_group.aks || true
                     
                     echo "Regerando plan após import..."
                     terraform plan \
@@ -1858,11 +1858,11 @@ jobs:
                     PLAN_STILL_CREATES_RG_AFTER_IMPORT=false
                     if command -v jq >/dev/null 2>&1; then
                       if terraform show -json tfplan | \
-                        jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.main" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
+                        jq -e '.resource_changes[]? | select(.address == "azurerm_resource_group.aks" and (.change.actions[]? == "create"))' > /dev/null 2>&1; then
                         PLAN_STILL_CREATES_RG_AFTER_IMPORT=true
                       fi
                     else
-                      if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.main.*will be created"; then
+                      if terraform show tfplan 2>/dev/null | grep -q "azurerm_resource_group.aks.*will be created"; then
                         PLAN_STILL_CREATES_RG_AFTER_IMPORT=true
                       fi
                     fi
