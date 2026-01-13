@@ -140,11 +140,27 @@ def run_formatter(
     data = state.get("data") or []
     error = state.get("error")
     impossible_reason = state.get("impossible_reason")
+    impossible_reason = state.get("impossible_reason")
     detected_language = state.get("detected_language")
 
-    # Se já existe uma answer preenchida, não mexe
-    if state.get("answer"):
-        return state
+    # Tratamento de Arrow Table (se houver)
+    total_rows = 0
+    data_sample_list = []
+    
+    is_arrow = False
+    try:
+        import pyarrow as pa
+        if isinstance(data, pa.Table):
+            is_arrow = True
+            total_rows = data.num_rows
+            # Converter apenas as primeiras 15 linhas para dicts para o prompt
+            data_sample_list = data.slice(0, 15).to_pylist()
+        else:
+            total_rows = len(data) if data else 0
+            data_sample_list = data[:15] if data else []
+    except ImportError:
+        total_rows = len(data) if data else 0
+        data_sample_list = data[:15] if data else []
 
     # Garante idioma base
     lang = _ensure_language(question, detected_language)
@@ -197,11 +213,11 @@ def run_formatter(
         return state
 
     # 4) Dados retornados: gera explicação em linguagem natural
-
-    data_sample = data[:15]
-    serialized_sample = _serialize_for_json(data_sample)
+    
+    # data_sample_list e total_rows já foram calculados acima
+    serialized_sample = _serialize_for_json(data_sample_list)
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
-    stats_text = _compute_basic_stats(data_sample)
+    stats_text = _compute_basic_stats(data_sample_list)
 
     # Obter configurações de formato e instruções do estado
     response_format = state.get("response_format")
@@ -264,7 +280,7 @@ def run_formatter(
         "role": "user",
         "content": (
             f"User question:\n{question}\n\n"
-            f"Total rows returned (not all shown): {len(data)}\n"
+            f"Total rows returned (not all shown): {total_rows}\n"
             f"{stats_text}\n\n"
             "Sample of the data (up to 15 rows, JSON):\n"
             f"{sample_json}\n\n"

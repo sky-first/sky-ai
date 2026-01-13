@@ -28,16 +28,34 @@ def _generate_merger_prompt(
         alias = f"dataset_{i+1}"
         
         columns = []
-        if rows and len(rows) > 0:
-            columns = list(rows[0].keys())
+        row_count = 0
+        sample_data = []
+
+        is_arrow = False
+        try:
+            import pyarrow as pa
+            if isinstance(rows, pa.Table):
+                is_arrow = True
+                columns = rows.column_names
+                row_count = rows.num_rows
+                sample_data = rows.slice(0, 2).to_pylist()
+        except ImportError:
+            pass
+
+        if not is_arrow:
+            # Fallback List[Dict]
+            row_count = len(rows)
+            if rows and len(rows) > 0:
+                columns = list(rows[0].keys())
+            sample_data = rows[:2]
         
         summary = (
             f"--- TABLE '{alias}' ---\n"
             f"Original Source: {meta.get('source', 'Unknown')}\n"
             f"Title: {meta.get('title', 'Unknown')}\n"
             f"Columns: {columns}\n"
-            f"Row Count: {len(rows)}\n"
-            f"Sample Data: {rows[:2]}\n"
+            f"Row Count: {row_count}\n"
+            f"Sample Data: {sample_data}\n"
         )
         data_summary.append(summary)
 
