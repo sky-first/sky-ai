@@ -14,15 +14,33 @@ class DuckEngine:
         
     def register_data(self, table_name: str, data: List[Dict[str, Any]]) -> None:
         """
-        Registra uma lista de dicionários como uma tabela SQL.
-        
-        Args:
-            table_name: Nome da tabela (alias)
-            data: Lista de registros (ex: [{'id': 1}, {'id': 2}])
+        Registra dados na tabela SQL.
+        Aceita:
+          - Lista de dicionários (converte via Pandas)
+          - pyarrow.Table (nativo, zero-copy)
         """
+        if not data and not isinstance(data, list): 
+             # Se for lista vazia, ok. Se for arrow table vazia, também tem boolean value?
+             # Arrow table tem .num_rows.
+             pass
+
+        # Check for Pyarrow Table
+        is_arrow = False
+        try:
+            import pyarrow as pa
+            if isinstance(data, pa.Table):
+                is_arrow = True
+        except ImportError:
+            pass
+
+        if is_arrow:
+            # DuckDB aceita Arrow Table diretamente
+            self.conn.register(table_name, data)
+            return
+
+        # Fallback para Lista de Dicts
         if not data:
-            print(f"Warning: Empty data for {table_name}")
-            # Cria tabela vazia se necessário ou ignora warning
+            # print(f"Warning: Empty data for {table_name}")
             return
 
         # Converte para DataFrame (DuckDB ingere Pandas eficientemente)

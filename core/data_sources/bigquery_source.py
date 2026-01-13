@@ -276,3 +276,44 @@ class BigQueryDataSource:
                 },
             )
             raise
+
+    def run_query_arrow(self, sql: str) -> Any:
+        """
+        Executa query no BigQuery e retorna pyarrow.Table nativamente.
+        Bypassa a conversão Python de linhas individuais.
+        """
+        client = self._get_client()
+
+        log_event(
+            "datasource_query_arrow_start",
+            {
+                "datasource": self.label,
+                "sql_preview": sql[:500],
+            },
+        )
+
+        try:
+            job = client.query(sql)
+            # BigQuery API otimizada: to_arrow() baixa blocos binários Arrow
+            arrow_table = job.result().to_arrow()
+            
+            log_event(
+                "datasource_query_arrow_success",
+                {
+                    "datasource": self.label,
+                    "num_rows": arrow_table.num_rows,
+                    "num_cols": arrow_table.num_columns,
+                    "size_bytes": arrow_table.nbytes
+                },
+            )
+            return arrow_table
+
+        except Exception as e:
+            log_event(
+                "datasource_query_arrow_error",
+                {
+                    "datasource": self.label,
+                    "error": str(e)[:500],
+                },
+            )
+            raise

@@ -44,6 +44,15 @@ class BaseDataSource(Protocol):
     def run_query(self, sql: str) -> List[Dict[str, Any]]:
         ...
 
+    def run_query_arrow(self, sql: str) -> Any:
+        """
+        Executa query e retorna pyarrow.Table.
+        Implementações devem sobrescrever para otimização nativa se possível.
+        Retorna Any para evitar dependência dura de pyarrow no type hint se não instalado,
+        mas runtime deve garantir retorno de pyarrow.Table.
+        """
+        ...
+
 
 class SQLAlchemyDataSource:
     """
@@ -89,3 +98,20 @@ class SQLAlchemyDataSource:
                 },
             )
             raise
+
+    def run_query_arrow(self, sql: str) -> Any:
+        """
+        Implementação fallback: roda query normal e converte para Arrow.
+        Útil para padronização.
+        """
+        import pyarrow as pa
+        
+        # 1. Obter dados como lista de dicts
+        data = self.run_query(sql)
+        
+        # 2. Converter para Arrow Table
+        # Se data estiver vazio, precisamos cuidar do schema, mas pyarrow lida bem com lista vazia se inferir
+        if not data:
+             return pa.Table.from_pylist([])
+             
+        return pa.Table.from_pylist(data)

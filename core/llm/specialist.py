@@ -931,7 +931,12 @@ def run_specialist(
     )
     
     try:
-        rows = data_source.run_query(sql)
+        # Tenta usar fluxo Arrow Otimizado se disponível (BaseDataSource define, mas checamos para segurança)
+        if hasattr(data_source, "run_query_arrow"):
+             rows = data_source.run_query_arrow(sql)
+        else:
+             rows = data_source.run_query(sql)
+             
     except Exception as e:
         state["error"] = f"Error executing SQL: {str(e)[:500]}"
         state["sql"] = sql
@@ -950,6 +955,12 @@ def run_specialist(
     state["sql"] = sql
     state["data"] = rows
 
+    real_num_rows = 0
+    if hasattr(rows, "num_rows"): # Arrow Table
+        real_num_rows = rows.num_rows
+    elif isinstance(rows, list):
+        real_num_rows = len(rows)
+
     log_event(
         "specialist_query_success",
         {
@@ -958,7 +969,7 @@ def run_specialist(
             "chosen_physical": chosen_tables_physical if use_multiple_tables else chosen_physical,
             "num_tables": len(chosen_tables_logical) if use_multiple_tables else 1,
             "has_joins": use_multiple_tables,
-            "num_rows": len(rows) if isinstance(rows, list) else None,
+            "num_rows": real_num_rows,
         },
     )
 
