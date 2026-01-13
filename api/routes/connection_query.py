@@ -2452,6 +2452,14 @@ async def query_connection(
     
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
+
+    # ✅ CORREÇÃO ARROW: Converter pyarrow.Table para lista de dicts
+    try:
+        import pyarrow as pa
+        if isinstance(data, pa.Table):
+            data = data.to_pylist()
+    except ImportError:
+        pass
     detected_language = final_state.get("detected_language")
     chosen_table = final_state.get("chosen_table")
     chosen_tables = final_state.get("chosen_tables")  # List of tables (new)
