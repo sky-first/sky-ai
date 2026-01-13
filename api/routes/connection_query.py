@@ -2454,12 +2454,23 @@ async def query_connection(
     data = final_state.get("data") or []
 
     # ✅ CORREÇÃO ARROW: Converter pyarrow.Table para lista de dicts
+    # ✅ CORREÇÃO ARROW: Converter pyarrow.Table para lista de dicts
+    # A conversão DEVE acontecer imediatamente aqui para garantir que loggers e PII funcionem
     try:
         import pyarrow as pa
-        if isinstance(data, pa.Table):
-            data = data.to_pylist()
-    except ImportError:
-        pass
+        # Verifica se é Table ou se tem método to_pylist (caso o isinstance falhe por reload de modulo)
+        if isinstance(data, pa.Table) or hasattr(data, "to_pylist"):
+            # Apenas converte se tiver to_pylist
+            if hasattr(data, "to_pylist"):
+                data = data.to_pylist()
+            else:
+                # Fallback muito improvável, mas seguro
+                data = [row.as_py() for row in data]
+    except Exception as e:
+        print(f"ERROR converting Arrow data: {e}")
+        # Se falhar, tenta manter o que tem ou vazio se for inusável
+        if not isinstance(data, list):
+             data = []
     detected_language = final_state.get("detected_language")
     chosen_table = final_state.get("chosen_table")
     chosen_tables = final_state.get("chosen_tables")  # List of tables (new)

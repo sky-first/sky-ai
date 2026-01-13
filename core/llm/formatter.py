@@ -153,8 +153,13 @@ def run_formatter(
         if isinstance(data, pa.Table):
             is_arrow = True
             total_rows = data.num_rows
-            # Converter apenas as primeiras 15 linhas para dicts para o prompt
-            data_sample_list = data.slice(0, 15).to_pylist()
+            # ✅ CORREÇÃO: Converter e atualizar estado para lista de dicts
+            data_list = data.to_pylist()
+            state["data"] = data_list
+            data = data_list # Atualiza local para uso nas samples
+            
+            # Amostra para o prompt
+            data_sample_list = data[:15]
         else:
             total_rows = len(data) if data else 0
             data_sample_list = data[:15] if data else []
