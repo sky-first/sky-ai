@@ -2631,8 +2631,14 @@ async def query_connection(
         answer = "I cannot display sensitive personal information in the results."
         pii_blocked = True
     
+    
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
         # Filtrar dados sensíveis
+        print(f"DEBUG PII BLOCK: Blocking data due to PII detection")
+        print(f"  - PII Types: {pii_response_data_result.pii_types}")
+        print(f"  - SQL: {sql[:200] if sql else 'None'}")
+        print(f"  - Data Sample (first row): {data_sample[0] if data_sample else 'Empty'}")
+        print(f"  - Allow in aggregate: {allow_pii_in_data}")
         data_sample = []
         pii_blocked = True
     # ✅ CAMADA 4: Detecção de PII na resposta
