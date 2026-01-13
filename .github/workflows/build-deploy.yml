@@ -3,12 +3,14 @@ name: Build and Push to ACR
 on:
   push:
     branches:
-      - staging
       - main
+      - staging
+      - 'fix/*'
+      - 'feat/*'
   pull_request:
     branches:
-      - staging
       - main
+      - staging
 
 env:
   ACR_NAME: skyacrstaging
