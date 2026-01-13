@@ -177,7 +177,8 @@ jobs:
       TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
       TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
-      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -491,7 +492,6 @@ jobs:
           set +e  # Desabilitar exit on error temporariamente
           terraform plan \
             -var-file="$TFVARS_FILE" \
-            -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -out=tfplan \
             -no-color \
             -detailed-exitcode 2>&1 | tee plan-output.txt
@@ -743,6 +743,8 @@ jobs:
       TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
       TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1730,7 +1732,6 @@ jobs:
                     # Fazer refresh-only para sincronizar estado
                     terraform apply -refresh-only \
                       -var-file="$TFVARS_FILE" \
-                      -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
                       -auto-approve \
                       -input=false 2>&1 | tee refresh-output.txt || {
                       echo "⚠️  Refresh-only falhou, mas continuando..."
@@ -1739,7 +1740,6 @@ jobs:
                     echo "Regerando plan após refresh-only..."
                     terraform plan \
                       -var-file="$TFVARS_FILE" \
-                      -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
                       -out=tfplan \
                       -no-color
                     
@@ -1819,7 +1819,6 @@ jobs:
                     set +e  # Desabilitar exit on error temporariamente
                     terraform import \
                       -var-file="$TFVARS_FILE" \
-                      -var="subscription_id=${SUBSCRIPTION_ID}" \
                       azurerm_resource_group.main "$RESOURCE_ID" 2>&1 | tee import-output.txt
                     IMPORT_EXIT_CODE=${PIPESTATUS[0]}
                     set -e  # Reabilitar exit on error
@@ -1850,7 +1849,6 @@ jobs:
                     echo "Regerando plan após import..."
                     terraform plan \
                       -var-file="$TFVARS_FILE" \
-                      -var="subscription_id=${SUBSCRIPTION_ID}" \
                       -out=tfplan \
                       -no-color
                     
@@ -2072,6 +2070,8 @@ jobs:
       TF_BACKEND_STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
       TF_BACKEND_CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
