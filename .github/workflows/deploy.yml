@@ -409,41 +409,28 @@ jobs:
                 echo "Listando recursos no estado para debug:"
                 terraform state list | grep -E "resource_group|azurerm_resource_group" || echo "  (nenhum resource_group encontrado na listagem)"
               else
-                echo "❌ ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
-                echo ""
-                echo "Estado atual do Terraform:"
-                echo "Recursos no estado:"
-                terraform state list | head -20 || echo "  (não foi possível listar estado)"
-                echo ""
-                echo "Isso causará erro no terraform apply quando tentar criar um recurso existente."
-                echo ""
-                echo "O step 'Sync Existing Resources' deveria ter importado este recurso."
-                echo "Verifique os logs do step anterior para identificar o problema."
-                echo ""
-                echo "Possíveis causas:"
-                echo "  1. Import falhou silenciosamente (verifique logs do step 'Sync Existing Resources')"
-                echo "  2. Workspace diferente entre steps"
-                echo "  3. Backend do Terraform não está sincronizado"
-                echo ""
-                echo "Solução manual:"
+                echo "⚠️  WARNING: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+                echo "Tentando importar automaticamente..."
                 SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
                 RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
-                echo "  terraform import -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\" \\"
-                ENVIRONMENT=$(grep "^environment" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-                VM_NAME=$(grep "^vm_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-                if [ -n "$ENVIRONMENT" ]; then
-                  echo "    -var=\"environment=${ENVIRONMENT}\" \\"
+                
+                # Desabilitar exit on error para o import
+                set +e
+                terraform import -var-file="$TFVARS_FILE" \
+                  -var="subscription_id=${SUBSCRIPTION_ID}" \
+                  azurerm_resource_group.aks "$RESOURCE_ID" 2>&1 | tee import-output.txt
+                IMPORT_EXIT_CODE=${PIPESTATUS[0]}
+                set -e
+                
+                if [ $IMPORT_EXIT_CODE -eq 0 ]; then
+                  echo "✅ Resource Group importado com sucesso para o estado"
+                  # Refresh para garantir que o estado está sincronizado após import
+                  terraform refresh -var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}"
+                else
+                  echo "❌ ERRO: Falha ao importar Resource Group automaticamente"
+                  cat import-output.txt
+                  exit 1
                 fi
-                if [ -n "$RESOURCE_GROUP_NAME" ]; then
-                  echo "    -var=\"resource_group_name=${RESOURCE_GROUP_NAME}\" \\"
-                fi
-                if [ -n "$VM_NAME" ]; then
-                  echo "    -var=\"vm_name=${VM_NAME}\" \\"
-                fi
-                echo "    azurerm_resource_group.aks \"$RESOURCE_ID\""
-                echo ""
-                echo "FALHANDO workflow para evitar erro no terraform apply"
-                exit 1
               fi
             else
               echo "✅ Resource Group não existe no Azure - será criado pelo Terraform"
