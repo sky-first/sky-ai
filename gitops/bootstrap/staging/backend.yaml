@@ -25,6 +25,13 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
+        probes:
+          liveness:
+            path: /
+            initialDelaySeconds: 30
+          readiness:
+            path: /
+            initialDelaySeconds: 10
         # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
           enabled: true

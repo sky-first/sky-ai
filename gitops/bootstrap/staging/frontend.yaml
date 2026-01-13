@@ -29,6 +29,13 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
+        probes:
+          liveness:
+            path: /
+            initialDelaySeconds: 15
+          readiness:
+            path: /
+            initialDelaySeconds: 5
         autoscaling:
           enabled: true
           minReplicas: 2
