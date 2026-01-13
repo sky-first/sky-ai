@@ -2632,18 +2632,30 @@ async def query_connection(
         pii_blocked = True
     
     
-    # ✅ SOLUÇÃO: Detectar queries agregadas para permitir PII em contexto seguro
-    # Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
-    # dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
+    # ✅ SOLUÇÃO: Detectar queries agregadas ou com LIMIT baixo para permitir PII em contexto seguro
+    # 1. Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
+    #    dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
+    # 2. Queries com LIMIT <= 150 são consideradas "amostras" e não dumps completos de dados
     is_aggregated_query = False
+    is_sample_query = False
+    
     if sql:
         sql_upper = sql.upper()
+        
+        # Detectar agregação
         has_group_by = 'GROUP BY' in sql_upper
         has_aggregation = any(func in sql_upper for func in ['SUM(', 'AVG(', 'COUNT(', 'MAX(', 'MIN('])
         is_aggregated_query = has_group_by or has_aggregation
+        
+        # Detectar LIMIT baixo (amostra)
+        import re
+        limit_match = re.search(r'LIMIT\s+(\d+)', sql_upper)
+        if limit_match:
+            limit_value = int(limit_match.group(1))
+            is_sample_query = limit_value <= 150
     
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
-        # Se for query agregada, NÃO bloquear (dados já estão anonimizados por agregação)
+        # Permitir dados se for query agregada OU amostra (LIMIT baixo)
         if is_aggregated_query:
             log_event(
                 "pii_allowed_aggregated_context",
@@ -2656,8 +2668,19 @@ async def query_connection(
                 }
             )
             pii_blocked = False  # Não bloquear dados agregados
+        elif is_sample_query:
+            log_event(
+                "pii_allowed_sample_query",
+                {
+                    "connection_id": connection_id,
+                    "limit_value": limit_value if 'limit_value' in locals() else None,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
+            pii_blocked = False  # Não bloquear amostras (LIMIT baixo)
         else:
-            # Filtrar dados sensíveis (apenas para queries não-agregadas)
+            # Bloquear apenas queries sem agregação E sem LIMIT (ou LIMIT muito alto)
             log_event(
                 "pii_blocked_non_aggregated",
                 {
