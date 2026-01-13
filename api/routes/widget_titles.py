@@ -26,86 +26,84 @@ class SuggestTitleRequest(BaseModel):
         default=None, description="Título atual do widget (pode ser genérico)"
     )
     language: str = Field(
-        default="pt", description="Idioma para o título (pt, en, es)"
+        default="en", description="Language for the title (en, pt, es)"
     )
 
 
 class SuggestTitleResponse(BaseModel):
-    """Response com título sugerido."""
-    title: str = Field(..., description="Título sugerido pela IA")
+    """Response with suggested title."""
+    title: str = Field(..., description="Title suggested by AI")
 
 
 @router.post("/suggest-title", response_model=SuggestTitleResponse)
 async def suggest_widget_title(request: SuggestTitleRequest):
     """
-    Sugere um título melhor e mais descritivo para um widget baseado nos dados retornados.
+    Suggests a better and more descriptive title for a widget based on the returned data.
     
-    Esta função analisa:
-    - A pergunta original
-    - Os dados retornados (amostra)
-    - A resposta textual da IA (se disponível)
-    - O título atual (que pode ser genérico)
+    This function analyzes:
+    - The original question
+    - The returned data (sample)
+    - The AI's textual answer (if available)
+    - The current title (which might be generic)
     
-    E gera um título mais específico e informativo.
+    And generates a more specific and informative title.
     """
     try:
-        # Criar instância do LLM (usar modelo mais leve para tarefa simples)
+        # Create LLM instance
         llm = LangChainChatOpenAIProvider(
             model=settings.llm_model_formatter or "gpt-4o-mini",
-            temperature=0.3,  # Um pouco mais criativo para títulos
-            max_tokens=50,  # Títulos são curtos
+            temperature=0.3,
+            max_tokens=50,
         )
         
-        # Preparar amostra dos dados como texto
+        # Prepare data sample as text
         data_text = ""
         if request.data_sample:
-            sample = request.data_sample[:5]  # Limitar a 5 linhas
+            sample = request.data_sample[:5]
             if sample:
-                data_text = "\nDados retornados (amostra):\n"
+                data_text = "\nReturned data (sample):\n"
                 for i, row in enumerate(sample, 1):
-                    # Formatar linha de forma legível
                     row_str = ", ".join([f"{k}: {v}" for k, v in row.items()])
-                    data_text += f"  Linha {i}: {row_str}\n"
+                    data_text += f"  Row {i}: {row_str}\n"
         
-        # Construir mensagens para o LLM
+        # Build messages for the LLM
         system_msg = {
             "role": "system",
             "content": (
-                "Você é um especialista em criar títulos descritivos e concisos para widgets de dashboard.\n"
-                "Analise a pergunta, os dados retornados e sugira um título claro e informativo.\n\n"
-                "REGRAS IMPORTANTES:\n"
-                "- O título deve ser CURTO (máximo 60 caracteres)\n"
-                "- Deve descrever claramente o que o widget mostra\n"
-                "- Use o idioma especificado pelo usuário\n"
-                "- Seja ESPECÍFICO: evite títulos genéricos como 'Widget', 'Chart', 'Dados', 'Gráfico'\n"
-                "- Baseie-se nos DADOS REAIS retornados, não apenas na pergunta\n"
-                "- Se os dados mostram métricas específicas, mencione-as no título\n"
-                "- Se os dados mostram categorias ou dimensões, inclua-as no título\n"
-                "- Retorne APENAS o título, sem aspas, sem explicações, sem prefixos\n"
-                "- Exemplos de bons títulos:\n"
-                "  * 'Vendas por Mês' (não 'Gráfico de Vendas')\n"
-                "  * 'Top 10 Clientes' (não 'Widget de Clientes')\n"
-                "  * 'Receita Total 2024' (não 'KPI')\n"
-                "  * 'Distribuição por Região' (não 'Chart')\n"
+                "You are an expert in creating descriptive and concise titles for dashboard widgets.\n"
+                "Analyze the question, the returned data, and suggest a clear and informative title.\n\n"
+                "IMPORTANT RULES:\n"
+                "- The title must be SHORT (maximum 60 characters)\n"
+                "- It must clearly describe what the widget shows\n"
+                "- Use ONLY English for the title, regardless of the user's language or input\n"
+                "- Be SPECIFIC: avoid generic titles like 'Widget', 'Chart', 'Data', 'Graph'\n"
+                "- Base it on the ACTUAL results returned, not just the question\n"
+                "- If data shows specific metrics, mention them in the title\n"
+                "- If data shows categories or dimensions, include them in the title\n"
+                "- Return ONLY the title, no quotes, no explanations, no prefixes\n"
+                "- Examples of good titles:\n"
+                "  * 'Sales by Month' (not 'Sales Chart')\n"
+                "  * 'Top 10 Customers' (not 'Customer Widget')\n"
+                "  * 'Total Revenue 2024' (not 'KPI')\n"
+                "  * 'Distribution by Region' (not 'Chart')\n"
             )
         }
         
-        user_content = f"Pergunta original: {request.question}\n\n"
+        user_content = f"Original question: {request.question}\n\n"
         
         if request.current_title:
-            user_content += f"Título atual (genérico): {request.current_title}\n\n"
+            user_content += f"Current title (generic): {request.current_title}\n\n"
         
         if data_text:
             user_content += data_text + "\n"
         
         if request.answer:
-            # Limitar resposta a 200 caracteres para não sobrecarregar
             answer_snippet = request.answer[:200]
-            user_content += f"Resposta da IA: {answer_snippet}\n\n"
+            user_content += f"AI Answer: {answer_snippet}\n\n"
         
         user_content += (
-            f"Idioma desejado: {request.language}\n\n"
-            "Sugira um título melhor e mais descritivo para este widget baseado nas informações acima."
+            "Suggest a better and more descriptive title for this widget based on the information above "
+            "(ALWAYS in English)."
         )
         
         user_msg = {

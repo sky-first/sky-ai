@@ -462,9 +462,9 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
             {
                 "widget_key": "w1",
                 "type": "chart",
-                "title": "Original Question",
+                "title": "Main Insight",
                 "question": original_question.strip(),
-                "viz": {"type": "bar"},
+                "viz": {"type": "bar", "index": "category", "categories": ["value"]},
             }
         )
         # Ajustar max_widgets restantes
@@ -537,7 +537,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
                 "type": "kpi",
                 "title": f"Total rows in {picked[0]}",
                 "question": f"How many rows are in the `{picked[0]}` table? Return a single number.",
-                "viz": {"type": "kpi"},
+                "viz": {"type": "kpi", "index": "count", "categories": ["value"]},
             }
         )
 
@@ -727,11 +727,15 @@ def generate_dashboard_plan(
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- Visualization (viz) RULES:\n"
+            "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
+            "  * For charts, it MUST contain 'index' (the X-axis column name) and 'categories' (a list of Y-axis column names/metrics).\n"
+            "  * Example: {\"type\": \"bar\", \"index\": \"month\", \"categories\": [\"total_sales\"]}.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
-            f"- Language for titles/questions: English\n"
+            f"- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
@@ -781,6 +785,10 @@ def generate_dashboard_plan(
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- Visualization (viz) RULES:\n"
+            "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
+            "  * For charts, it MUST contain 'index' (the X-axis column name) and 'categories' (a list of Y-axis column names/metrics).\n"
+            "  * Example: {\"type\": \"bar\", \"index\": \"month\", \"categories\": [\"total_sales\"]}.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., fact_table + dimension_table, transaction + entity) to produce better business metrics.\n"
@@ -788,7 +796,7 @@ def generate_dashboard_plan(
             f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
             "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
-            "- Language for titles/questions: English (always) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
+            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
             "- DATA SAFETY: Do not invent columns. Only use columns present in 'Schema sample'.\n"
             "- AVOID EMPTY WIDGETS: Ensure your questions ask for aggregated data (COUNT, SUM) that is likely to exist.\n"
             "- EXACTLY N widgets.\n"
