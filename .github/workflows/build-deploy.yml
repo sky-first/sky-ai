@@ -65,13 +65,3 @@ jobs:
           cache-to: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
-
-      - name: Image digest
-        run: echo ${{ steps.build.outputs.digest }}
-
-      - name: Trigger ArgoCD Sync (Optional)
-        if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
-        run: |
-          echo "Image pushed successfully to ACR"
-          echo "ArgoCD will auto-detect and sync within 3 minutes"
-          echo "Tags: ${{ steps.meta.outputs.tags }}"
