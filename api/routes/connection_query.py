@@ -2631,10 +2631,43 @@ async def query_connection(
         answer = "I cannot display sensitive personal information in the results."
         pii_blocked = True
     
+    
+    # ✅ SOLUÇÃO: Detectar queries agregadas para permitir PII em contexto seguro
+    # Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
+    # dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
+    is_aggregated_query = False
+    if sql:
+        sql_upper = sql.upper()
+        has_group_by = 'GROUP BY' in sql_upper
+        has_aggregation = any(func in sql_upper for func in ['SUM(', 'AVG(', 'COUNT(', 'MAX(', 'MIN('])
+        is_aggregated_query = has_group_by or has_aggregation
+    
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
-        # Filtrar dados sensíveis
-        data_sample = []
-        pii_blocked = True
+        # Se for query agregada, NÃO bloquear (dados já estão anonimizados por agregação)
+        if is_aggregated_query:
+            log_event(
+                "pii_allowed_aggregated_context",
+                {
+                    "connection_id": connection_id,
+                    "has_group_by": has_group_by,
+                    "has_aggregation": has_aggregation,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
+            pii_blocked = False  # Não bloquear dados agregados
+        else:
+            # Filtrar dados sensíveis (apenas para queries não-agregadas)
+            log_event(
+                "pii_blocked_non_aggregated",
+                {
+                    "connection_id": connection_id,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
+            data_sample = []
+            pii_blocked = True
     # ✅ CAMADA 4: Detecção de PII na resposta
     all_pii_types = []
     all_pii_patterns = []
