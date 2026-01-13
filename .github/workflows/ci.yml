@@ -10,35 +10,37 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - 'infra/**'
-      - 'docker/**'
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docker-compose*.yml'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'env.example'
+      - "infra/**"
+      - "docker/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/linters/**"
+      - "docker-compose*.yml"
+      - "scripts/**"
+      - "docs/**"
+      - "README.md"
+      - "env.example"
   push:
     branches: [staging, main]
     paths:
-      - 'infra/**'
-      - 'docker/**'
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'docker-compose*.yml'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'env.example'
+      - "infra/**"
+      - "docker/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/linters/**"
+      - "docker-compose*.yml"
+      - "scripts/**"
+      - "docs/**"
+      - "README.md"
+      - "env.example"
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:
-  TERRAFORM_VERSION: '1.9.0'
-  TF_WORKING_DIR: 'infra/azure'
+  TERRAFORM_VERSION: "1.9.0"
+  TF_WORKING_DIR: "infra/aks"
 
 jobs:
   yaml-lint:
@@ -56,7 +58,7 @@ jobs:
           import yaml
           import sys
           import glob
-          
+
           errors = []
           for file in glob.glob('.github/**/*.yml', recursive=True) + glob.glob('.github/**/*.yaml', recursive=True):
               try:
@@ -65,7 +67,7 @@ jobs:
               except yaml.YAMLError as e:
                   errors.append(f'{file}: {e}')
                   print(f'{file}: {e}')
-          
+
           if errors:
               sys.exit(1)
           "
@@ -85,6 +87,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISABLE_ALL: true
           VALIDATE_YAML: true
+          # Skip Helm templates which cause syntax errors in standard YAML linters
+          FILTER_REGEX_EXCLUDE: ".*gitops/charts/.*"
+          # Super-linter will auto-detect .github/linters/yamllint.yml
 
   terraform-validation:
     name: Terraform Validation
@@ -170,22 +175,22 @@ jobs:
           set -euo pipefail
           # Remover arquivo anterior se existir
           rm -f tfsec-results.json
-          
+
           # Criar arquivo vazio com permissões corretas antes de executar tfsec
           touch tfsec-results.json
           chmod 666 tfsec-results.json
-          
+
           # Executar tfsec usando usuário do host para garantir permissões
           docker run --rm -v "$PWD:/src" -w /src \
             --user "$(id -u):$(id -g)" \
             aquasec/tfsec:latest /src \
             --format json --out /src/tfsec-results.json --no-colour || true
-          
+
           # Se arquivo não foi criado ou está vazio, criar estrutura JSON válida
           if [ ! -f tfsec-results.json ] || [ ! -s tfsec-results.json ]; then
             echo '{"results":[]}' > tfsec-results.json
           fi
-          
+
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT
             
@@ -209,7 +214,7 @@ jobs:
           docker run --rm -v "$PWD:/data" \
             ghcr.io/terraform-linters/tflint:latest \
             --format json --filter . > tflint-results.json || true
-          
+
           if [ -f tflint-results.json ]; then
             cat tflint-results.json | jq -r '.issues[]? | "\(.severity | ascii_upcase): \(.message) - \(.range.filename):\(.range.start.line)"' || true
           fi
@@ -260,21 +265,21 @@ jobs:
             const varsStatus = '${{ steps.validate-vars.outcome }}' === 'success' ? '✅ Passed' : '❌ Failed';
             const securityTfsecStatus = '${{ steps.security-tfsec.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
             const lintTflintStatus = '${{ steps.lint-tflint.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
-            
+
             const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' && 
                                       '${{ steps.validate.outcome }}' === 'success' &&
                                       '${{ steps.validate-vars.outcome }}' === 'success';
-            
+
             const output = `## Terraform Validation Results
-            
+
             - **Format Check**: ${fmtStatus}
             - **Validation**: ${validateStatus}
             - **Variables Validation**: ${varsStatus}
             - **Security Scan (tfsec)**: ${securityTfsecStatus}
             - **Lint (tflint)**: ${lintTflintStatus}
-            
+
             ${allCriticalPassed ? '✅ All critical Terraform checks passed successfully.' : '❌ Some critical checks failed. Please review the errors above.'}`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -319,7 +324,7 @@ jobs:
             echo "Verifique se os caminhos estão corretos: devem ser ../sky-poc-backend, ../sky-poc-frontend"
             exit 1
           fi
-          
+
           if grep -q "context: ../sky-poc-backend" docker-compose.yml; then
              echo "✅ Caminho correto para backend encontrado"
           else
@@ -382,7 +387,7 @@ jobs:
           else
             BASE_REF="${{ github.ref_name }}"
           fi
-          
+
           if [[ "${BASE_REF}" == "staging" ]]; then
             ENV="staging"
           elif [[ "${BASE_REF}" == "main" ]]; then
@@ -445,20 +450,20 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
-          
+
           # Inicializar outputs com valores padrão
           echo "plan_generated=false" >> $GITHUB_OUTPUT
           echo "plan_exit_code=1" >> $GITHUB_OUTPUT
-          
+
           # Executar terraform plan
           terraform plan \
             -var-file=${{ steps.detect-env.outputs.tfvars }} \
             -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -no-color \
             -out=tfplan-preview 2>&1 | tee plan-output.txt
-          
+
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
-          
+
           # Verificar se o arquivo do plan foi gerado
           if [ -f "tfplan-preview" ]; then
             echo "plan_generated=true" >> $GITHUB_OUTPUT
@@ -487,7 +492,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            
+
             let planOutput = '';
             const planFilePath = path.join('${{ env.TF_WORKING_DIR }}', 'plan-output.txt');
             try {
@@ -495,24 +500,24 @@ jobs:
             } catch (error) {
               planOutput = 'Plan output not available';
             }
-            
+
             // Verificar se o plan foi gerado
             const planGenerated = '${{ steps.plan.outputs.plan_generated }}' === 'true';
             const planStatus = '${{ steps.plan.outcome }}';
-            
+
             // Se o plan foi gerado, buscar outputs da validação
             let hasDestroy = false;
             let resourceCount = 'N/A';
-            
+
             if (planGenerated && '${{ steps.validate-plan.outcome }}' === 'success') {
               hasDestroy = '${{ steps.validate-plan.outputs.has_destroy }}' === 'true';
               resourceCount = '${{ steps.validate-plan.outputs.resource_count }}' || 'N/A';
             }
-            
+
             let status = 'SUCCESS';
             let statusText = 'Plan generated successfully';
             let statusIcon = '✅';
-            
+
             if (!planGenerated || planStatus !== 'success') {
               status = 'FAILED';
               statusText = 'Plan generation failed';
@@ -522,29 +527,28 @@ jobs:
               statusText = 'Plan contains destructive changes - Review carefully!';
               statusIcon = '⚠️';
             }
-            
+
             const output = `## ${statusIcon} ${status} Terraform Plan Preview
-            
+
             **Environment**: ${{ steps.detect-env.outputs.env }}
             **Resources to change**: ${resourceCount}
             **Status**: ${statusText}
-            
+
             <details>
             <summary>Plan Output</summary>
-            
+
             \`\`\`
             ${planOutput.substring(0, 60000)}${planOutput.length > 60000 ? '\n... (truncated)' : ''}
             \`\`\`
-            
+
             </details>
-            
+
             ${hasDestroy ? '⚠️ **Warning**: This plan contains destructive changes. Please review carefully before merging.' : ''}
             ${planStatus !== 'success' ? '❌ **Error**: Failed to generate plan. Check the logs for details.' : ''}`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: output
             });
-

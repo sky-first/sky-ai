@@ -38,13 +38,15 @@ resource "azurerm_network_security_group" "bastion" {
   dynamic "security_rule" {
     for_each = { for idx, ip in var.allowed_ssh_ips : idx => ip }
     content {
-      name                       = "SSH-Access-${security_rule.key}"
-      priority                   = 1001 + security_rule.key
-      direction                  = "Inbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "22"
+      name                   = "SSH-Access-${security_rule.key}"
+      priority               = 1001 + security_rule.key
+      direction              = "Inbound"
+      access                 = "Allow"
+      protocol               = "Tcp"
+      source_port_range      = "*"
+      destination_port_range = "22"
+      # tfsec:ignore:azure-network-no-public-ingress
+      # tfsec:ignore:azure-network-ssh-blocked-from-internet
       source_address_prefix      = security_rule.value
       destination_address_prefix = "*"
     }

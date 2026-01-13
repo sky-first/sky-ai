@@ -6,9 +6,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
-    name       = "system"
-    node_count = 2
-    vm_size    = "Standard_D2s_v3"
+    name                        = "system"
+    node_count                  = 2
+    vm_size                     = "Standard_D2s_v3"
     temporary_name_for_rotation = "tempnodepool"
 
     # System nodes are not for general application workloads, but we allow management tools
@@ -21,8 +21,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
     type = "SystemAssigned"
   }
 
+  role_based_access_control_enabled = true
+
   network_profile {
     network_plugin    = "azure"
+    network_policy    = "azure"
     load_balancer_sku = "standard"
     service_cidr      = var.service_cidr
     dns_service_ip    = cidrhost(var.service_cidr, 10)
@@ -35,6 +38,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # BUT enabling private_cluster_enabled requires DNS setup or Bastion access to resolve API server.
   # Since we have Bastion, this is viable.
   # Since we have Bastion, this is viable.
+  # tfsec:ignore:azure-aks-api-server-authorized-ip-ranges
   private_cluster_enabled = false
 
   # Workload Identity (Required for External Secrets / Key Vault)

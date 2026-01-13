@@ -21,6 +21,11 @@ resource "azurerm_key_vault" "main" {
   # RBAC Authorization is recommended over Access Policies for Workload Identity
   enable_rbac_authorization = true
 
+  network_acls {
+    default_action = "Deny"
+    bypass         = "AzureServices"
+  }
+
   tags = {
     Environment = var.environment
   }

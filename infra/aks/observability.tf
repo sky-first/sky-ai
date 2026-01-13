@@ -10,6 +10,7 @@ resource "azurerm_storage_account" "loki" {
   location                 = azurerm_resource_group.aks.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
+  min_tls_version          = "TLS1_2"
   access_tier              = "Cool" # Cheaper for logs
 
   tags = {
