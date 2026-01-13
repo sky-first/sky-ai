@@ -213,9 +213,9 @@ def run_formatter(
         return state
 
     # 4) Dados retornados: gera explicação em linguagem natural
-    
-    # data_sample_list e total_rows já foram calculados acima
-    serialized_sample = _serialize_for_json(data_sample_list)
+
+    data_sample = data_sample_list
+    serialized_sample = _serialize_for_json(data_sample)
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
     stats_text = _compute_basic_stats(data_sample_list)
 
