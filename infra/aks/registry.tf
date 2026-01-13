@@ -1,5 +1,5 @@
 resource "azurerm_container_registry" "acr" {
-  name                = "skyacr${var.environment}" # Must be globally unique, strictly alphanumeric
+  name                = "skyacr${var.environment}${random_string.storage_suffix.result}" # Must be globally unique, strictly alphanumeric
   resource_group_name = azurerm_resource_group.aks.name
   location            = azurerm_resource_group.aks.location
   sku                 = "Standard"

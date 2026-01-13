@@ -19,7 +19,7 @@ resource "azurerm_key_vault" "main" {
   # access_policy {}
 
   # RBAC Authorization is recommended over Access Policies for Workload Identity
-  enable_rbac_authorization = true
+  enable_rbac_authorization = false
 
   network_acls {
     default_action = "Deny"
@@ -31,12 +31,15 @@ resource "azurerm_key_vault" "main" {
   }
 }
 
-# Grant "Key Vault Secrets Officer" to the Current User (Terraform Runner)
-# This allows Terraform to create the secrets below.
-resource "azurerm_role_assignment" "current_user_kv_officer" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
+# Grant Access to the Current User (Terraform Runner)
+resource "azurerm_key_vault_access_policy" "current" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
 }
 
 # --- Workload Identity for External Secrets Operator ---
@@ -59,10 +62,14 @@ resource "azurerm_federated_identity_credential" "eso" {
 }
 
 # 3. Grant Access to Key Vault (Key Vault Secrets User) - Read Only for ESO
-resource "azurerm_role_assignment" "eso_kv_access" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.eso.principal_id
+resource "azurerm_key_vault_access_policy" "eso" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_user_assigned_identity.eso.principal_id
+
+  secret_permissions = [
+    "Get", "List"
+  ]
 }
 
 
@@ -84,28 +91,28 @@ resource "azurerm_key_vault_secret" "postgres_password" {
   name         = "postgres-password"
   value        = random_password.postgres.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "redis_password" {
   name         = "redis-password"
   value        = random_password.redis.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "database_url" {
   name         = "database-url"
   value        = "postgresql://postgres:${random_password.postgres.result}@postgres:5432/ai_saas_db"
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "redis_url" {
   name         = "redis-url"
   value        = "redis://:${random_password.redis.result}@redis:6379/0"
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "random_password" "jwt_secret" {
@@ -116,7 +123,7 @@ resource "azurerm_key_vault_secret" "jwt_secret_key" {
   name         = "jwt-secret-key"
   value        = random_password.jwt_secret.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "random_password" "encryption_key" {
@@ -127,14 +134,14 @@ resource "azurerm_key_vault_secret" "encryption_key" {
   name         = "encryption-key"
   value        = random_password.encryption_key.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "openai_api_key" {
   name         = "openai-api-key"
   value        = "sk-placeholder-replace-me" # Placeholder for OpenAI
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 resource "azurerm_key_vault_secret" "qdrant_url" {
