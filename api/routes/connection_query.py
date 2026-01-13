@@ -1633,7 +1633,7 @@ async def dashboards_plan(
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
             dashboard_name=plan.dashboard_name,
-            title=plan.dashboard_name, # ✅ Title is alias for dashboard_name
+            title=plan.dashboard_name,
             description=plan.description,
             widgets=widgets,
             meta={
@@ -1641,7 +1641,7 @@ async def dashboards_plan(
                 "num_tables": len(logical_tables),
                 "prompt_tables": max_tables_in_prompt,
                 "agent_id": None,
-                "cached": False,  # Indica que esta resposta não veio do cache
+                "cached": False,
                 "has_original_question": original_question is not None,
             },
         )
