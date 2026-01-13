@@ -1834,7 +1834,11 @@ async def load_agent_config_from_connection(
                 else:
                     physical_name = name
 
-                logical_name = _normalize_logical_name(name)
+                # Use logical_name from metadata if exists, otherwise normalize
+                logical_name = (
+                    t.get("logical_name") 
+                    or _normalize_logical_name(name)
+                )
                 cols = t.get("columns") or []
                 columns = []
                 if isinstance(cols, list):
@@ -2307,13 +2311,12 @@ async def query_connection(
                 r"(\bwhat can i ask\b)",
                 q,
                 flags=re.IGNORECASE,
-                    chosen_table=None,
-                    chosen_datasets=None,
-                    sql=None,
-                    num_rows=0,
-                    error="examples_question_blocked",
-                )
             )
+        )
+        
+        # Log available tables for debug
+        print(f"DEBUG: Available Logical Tables: {logical_tables}")
+
     except Exception:
         # Never fail the main query path due to these heuristics.
         pass
@@ -2468,7 +2471,7 @@ async def query_connection(
         validator = AdvancedSQLValidator(
             allowed_tables=allowed_tables,
             allowed_columns=None,  # Opcional: filtrar colunas também
-            max_limit=100,
+            max_limit=5000,
             max_columns=10,
             max_group_by=3
         )
@@ -2484,9 +2487,11 @@ async def query_connection(
                     "error": validation_error,
                 },
             )
+            print(f"DEBUG: Invalid SQL: {sql}")
+            print(f"DEBUG: Validation Error: {validation_error}")
             raise HTTPException(
                 status_code=500,
-                detail="Generated SQL is invalid. Please try again.",
+                detail=f"Generated SQL is invalid. | DEBUG: {validation_error}",
             )
     
     # Debug: log all keys in final_state to see what's available
@@ -2961,7 +2966,7 @@ async def _stream_connection_query(
                                 validator = AdvancedSQLValidator(
                                     allowed_tables=allowed_tables,
                                     allowed_columns=None,
-                                    max_limit=100,
+                                    max_limit=5000,
                                     max_columns=10,
                                     max_group_by=3,
                                 )
@@ -2995,7 +3000,7 @@ async def _stream_connection_query(
                                     )
                                     
                                     # Mensagem amigável para erro técnico no streaming
-                                    msg = get_message("TECHNICAL_ERROR", lang)
+                                    msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                                     return
@@ -3009,7 +3014,7 @@ async def _stream_connection_query(
             # Se houve erro no agente, enviar amigável e terminar
             if final_state.get("error"):
                 lang = _ensure_language(body.question, final_state.get("detected_language"))
-                msg = get_message("TECHNICAL_ERROR", lang)
+                msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -3154,7 +3159,7 @@ async def _stream_connection_query(
         except Exception as e:
             import traceback
             error_detail = str(e)
-            msg = get_message("TECHNICAL_ERROR", lang)
+            msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
@@ -3165,7 +3170,7 @@ async def _stream_connection_query(
             )
     
     except Exception as e:
-        msg = get_message("TECHNICAL_ERROR", lang)
+        msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
         yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
 
 

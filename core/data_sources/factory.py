@@ -48,7 +48,7 @@ class DataSourceFactory:
             project_id = cfg_dict.get("project_id")
             dataset = cfg_dict.get("dataset")  # ex: "project.dataset"
             credentials_path = cfg_dict.get("credentials_path")
-            service_account_json = cfg_dict.get("service_account_json")
+            service_account_json = cfg_dict.get("service_account_json") or cfg_dict.get("credentials_json")
             location = cfg_dict.get("location")
 
             ds_cfg = DataSourceConfig(

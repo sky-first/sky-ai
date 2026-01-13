@@ -809,7 +809,7 @@ def run_specialist(
         validator = AdvancedSQLValidator(
             allowed_tables=allowed_tables,
             allowed_columns=None,
-            max_limit=100,
+            max_limit=5000,
             max_columns=10,
             max_group_by=3,
         )
