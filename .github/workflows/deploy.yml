@@ -3288,8 +3288,8 @@ jobs:
           BRANCH_INPUT="${{ needs.detect-environment.outputs.branch }}"
 
           if [[ "$BRANCH_INPUT" == "manual" ]]; then
-            # Para poc-sky, usar staging; para outros ambientes, usar main
-            if [[ "$ENV" == "poc-sky" ]]; then
+            # Para poc-sky e staging, usar staging; para prod, usar main
+            if [[ "$ENV" == "poc-sky" ]] || [[ "$ENV" == "staging" ]]; then
               GIT_BRANCH="staging"
             else
               GIT_BRANCH="main"
