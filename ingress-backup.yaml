@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{},"labels":{"app.kubernetes.io/instance":"sky-frontend-staging","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"common-app","app.kubernetes.io/version":"1.0.0","argocd.argoproj.io/instance":"sky-frontend-staging","helm.sh/chart":"common-app-0.1.0"},"name":"sky-frontend-staging-common-app","namespace":"staging"},"spec":{"ingressClassName":"nginx","rules":[{"host":"sky.example.com","http":{"paths":[{"backend":{"service":{"name":"sky-frontend-staging-common-app","port":{"number":80}}},"path":"/","pathType":"Prefix"}]}}]}}
+  creationTimestamp: "2026-01-13T11:20:36Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/instance: sky-frontend-staging
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/version: 1.0.0
+    argocd.argoproj.io/instance: sky-frontend-staging
+    helm.sh/chart: common-app-0.1.0
+  name: sky-frontend-staging-common-app
+  namespace: staging
+  resourceVersion: "25067"
+  uid: a242dfdd-d2f1-47d1-bdb8-2ab228014d86
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: sky.example.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: sky-frontend-staging-common-app
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+status:
+  loadBalancer:
+    ingress:
+    - ip: 68.220.132.21

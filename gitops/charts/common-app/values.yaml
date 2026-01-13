@@ -1,0 +1,89 @@
+# Default values for common-app.
+replicaCount: 1
+
+image:
+  repository: nginx
+  pullPolicy: Always
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# Database Migration Hook
+migration:
+  enabled: false
+  command: ["/bin/sh", "-c"]
+  args: ["echo 'No migration configured'"]
+
+# Environment Secrets (Managed by GitOps or manually)
+# Values provided here will be base64 encoded into a Secret
+envSecrets: {}
+  # database-url: "postgres://..."
+  # redis-url: "redis://..."
+
+# External Secrets Configuration
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-keyvault
+    kind: ClusterSecretStore
+  data: []
+  # - secretKey: jwt-secret-key
+  #   remoteRef:
+  #     key: jwt-secret-key
+
+# Extra Environment Variables
+extraEnv: []

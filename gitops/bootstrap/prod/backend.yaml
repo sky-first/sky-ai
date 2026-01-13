@@ -1,0 +1,86 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-backend-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: fix-infra-multi-env
+    helm:
+      values: |
+        image:
+          repository: skyacrstaging.azurecr.io/sky-poc-backend
+          tag: "latest"
+        service:
+          port: 80
+          targetPort: 8000
+        ingress:
+          enabled: true
+          className: "nginx"
+          hosts:
+            - host: api.sky-prod.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+        # Configure External Secret to fetch keys from Azure Key Vault
+        externalSecret:
+          enabled: true
+          secretStoreRef:
+            name: azure-keyvault
+          data:
+            - secretKey: jwt-secret-key
+              remoteRef:
+                key: jwt-secret-key
+            - secretKey: encryption-key
+              remoteRef:
+                key: encryption-key
+            - secretKey: openai-api-key
+              remoteRef:
+                key: openai-api-key
+            - secretKey: database-url
+              remoteRef:
+                key: database-url
+            - secretKey: redis-url
+              remoteRef:
+                key: redis-url
+
+        # Map the synced secrets to Env Vars in the container
+        envSecrets:
+          # These keys will be present in the secret created by ExternalSecret
+          jwt-secret-key:
+            name: sky-backend-prod-common-app-secrets
+            key: jwt-secret-key
+          encryption-key:
+            name: sky-backend-prod-common-app-secrets
+            key: encryption-key
+          openai-api-key:
+            name: sky-backend-prod-common-app-secrets
+            key: openai-api-key
+          DATABASE_URL:
+            name: sky-backend-prod-common-app-secrets
+            key: database-url
+          REDIS_URL:
+            name: sky-backend-prod-common-app-secrets
+            key: redis-url
+            
+        extraEnv:
+          - name: CORS_ORIGINS
+            value: "https://sky.example.com,http://localhost:3000"
+          - name: DEBUG
+            value: "false"
+        migration:
+          enabled: true
+          command: ["alembic"]
+          args: ["upgrade", "head"]
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

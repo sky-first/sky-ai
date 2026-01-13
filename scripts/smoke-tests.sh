@@ -86,9 +86,14 @@ test_endpoint() {
     local timeout="${4:-10}"
     
     echo -n "Testando $description... "
+
+    local host_arg=""
+    if [ -n "${HOST_HEADER:-}" ]; then
+        host_arg="-H \"Host: $HOST_HEADER\""
+    fi
     
     # Adicionar -L para seguir redirecionamentos (307, 301, etc.)
-    response=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time "$timeout" --connect-timeout 5 "$url" 2>/dev/null || echo "000")
+    response=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time "$timeout" --connect-timeout 5 $host_arg "$url" 2>/dev/null || echo "000")
     
     if VALID_CODE=$(validate_http_code "$response"); then
         if [ "$VALID_CODE" = "$expected_status" ]; then
@@ -141,11 +146,17 @@ check_service_readiness() {
     
     while [ $elapsed -lt $max_wait ]; do
         # Curl melhorado conforme recomendação - adicionar -L para seguir redirecionamentos
+        local host_arg=""
+        if [ -n "${HOST_HEADER:-}" ]; then
+            host_arg="-H \"Host: $HOST_HEADER\""
+        fi
+
         local http_code=$(curl -s -L \
             --connect-timeout 5 \
             --max-time 10 \
             -o /dev/null \
             -w "%{http_code}" \
+            $host_arg \
             "http://${vm_ip}/health" 2>/dev/null || echo "000")
         
         if VALID_CODE=$(validate_http_code "$http_code"); then

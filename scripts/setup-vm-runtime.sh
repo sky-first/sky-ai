@@ -426,33 +426,21 @@ echo "🚀 Iniciando containers..."
 echo "   Compose file: $COMPOSE_FILE_ABS"
 echo "   Env file: $ENV_FILE_ABS"
 if ! $DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" up -d --build; then
-  echo '⚠️  Primeira tentativa de build falhou. Isso pode indicar cache corrompido.'
-  echo '🧹 Executando limpeza profunda do Docker (system prune e builder prune)...'
-  
-  # Limpar builder cache (frequentemente a causa de "parent snapshot does not exist")
-  docker builder prune --force --all || true
-  # Limpar containers parados, réseaux não usados e imagens "dangling"
-  docker system prune --force || true
-  
-  echo '♻️  Tentando build novamente (limpo)...'
-  if ! $DOCKER_CMD -f "$COMPOSE_FILE_ABS" --env-file "$ENV_FILE_ABS" up -d --build; then
-    echo '❌ ERRO: Falha ao iniciar containers após limpeza e retry'
-    echo ''
-    echo '📊 Status dos containers após falha:'
-    $DOCKER_CMD -f "$COMPOSE_FILE_ABS" ps -a 2>/dev/null || true
-    echo ''
-    echo '📋 Últimos logs de erro:'
-    $DOCKER_CMD -f "$COMPOSE_FILE_ABS" logs --tail=50 2>/dev/null || true
-    echo ''
-    echo '💡 Diagnóstico:'
-    echo "   - Diretório atual: $CURRENT_DIR"
-    echo "   - INFRA_DIR: $INFRA_DIR"
-    echo "   - Arquivo compose: $COMPOSE_FILE_ABS"
-    echo "   - Arquivo .env: $ENV_FILE_ABS"
-    echo "   - Serviços esperados: $SERVICE_COUNT"
-    exit 1
-  fi
-  echo '✅ Containers iniciados com sucesso na segunda tentativa (após limpeza)'
+  echo '❌ ERRO: Falha ao iniciar containers'
+  echo ''
+  echo '📊 Status dos containers após falha:'
+  $DOCKER_CMD -f "$COMPOSE_FILE_ABS" ps -a 2>/dev/null || true
+  echo ''
+  echo '📋 Últimos logs de erro:'
+  $DOCKER_CMD -f "$COMPOSE_FILE_ABS" logs --tail=50 2>/dev/null || true
+  echo ''
+  echo '💡 Diagnóstico:'
+  echo "   - Diretório atual: $CURRENT_DIR"
+  echo "   - INFRA_DIR: $INFRA_DIR"
+  echo "   - Arquivo compose: $COMPOSE_FILE_ABS"
+  echo "   - Arquivo .env: $ENV_FILE_ABS"
+  echo "   - Serviços esperados: $SERVICE_COUNT"
+  exit 1
 fi
 
 echo '✅ Containers iniciados com sucesso'

@@ -1,0 +1,22 @@
+spec:
+  rules:
+  - host: sky.example.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: sky-frontend-staging-common-app
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  - host: "68.220.132.21"
+    http:
+      paths:
+      - backend:
+          service:
+            name: sky-frontend-staging-common-app
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

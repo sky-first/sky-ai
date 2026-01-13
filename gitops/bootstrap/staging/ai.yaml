@@ -1,0 +1,67 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-ai-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: fix-infra-multi-env
+    helm:
+      values: |
+        image:
+          repository: skyacrstaging.azurecr.io/sky-poc-ai
+          tag: "latest"
+        service:
+          port: 80
+          targetPort: 8000
+        ingress:
+          enabled: true
+          className: "nginx"
+          hosts:
+            - host: ai.sky.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+        # Configure External Secret to fetch keys from Azure Key Vault
+        externalSecret:
+          enabled: true
+          secretStoreRef:
+            name: azure-keyvault
+          data:
+            - secretKey: openai-api-key
+              remoteRef:
+                key: openai-api-key
+            - secretKey: qdrant-url
+              remoteRef:
+                key: qdrant-url
+                
+        # Map the synced secrets to Env Vars in the container
+        envSecrets:
+          openai-api-key:
+            name: sky-ai-secrets 
+            key: openai-api-key
+          qdrant-url:
+            name: sky-ai-secrets
+            key: qdrant-url
+            
+        extraEnv:
+          - name: DEBUG
+            value: "false"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

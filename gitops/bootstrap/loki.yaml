@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://grafana.github.io/helm-charts"
+    chart: loki-stack
+    targetRevision: 2.9.11
+    helm:
+      values: |
+        loki:
+          enabled: true
+          persistence:
+            enabled: true
+            # We will use Azure Storage for chunks, configured via secret usually
+            # For simplicity here we assume local PV or further config via values
+        promtail:
+          enabled: true
+        grafana:
+          enabled: false
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

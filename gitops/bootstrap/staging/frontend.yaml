@@ -1,0 +1,53 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-frontend-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: fix-infra-multi-env
+    helm:
+      values: |
+        image:
+          repository: skyacrstaging.azurecr.io/sky-poc-frontend
+          tag: "latest"
+        service:
+          port: 80
+          targetPort: 3000
+        ingress:
+          enabled: true
+          className: "nginx"
+          hosts:
+            - host: sky.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+            - host: ""
+              paths:
+                - path: /
+                  pathType: Prefix
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 10
+        extraEnv:
+          - name: NEXT_PUBLIC_API_URL
+            value: "https://api.sky.example.com"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
