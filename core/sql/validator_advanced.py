@@ -21,9 +21,9 @@ class AdvancedSQLValidator:
         self,
         allowed_tables: List[str],
         allowed_columns: Optional[Dict[str, List[str]]] = None,
-        max_limit: int = 100,
-        max_columns: int = 10,
-        max_group_by: int = 3,
+        max_limit: int = 5000,
+        max_columns: int = 50,
+        max_group_by: int = 10,
     ):
         # Normalizar e EXPANDIR tabelas permitidas para múltiplas formas
         # Ex: project.dataset.table / dataset.table / table
@@ -32,9 +32,9 @@ class AdvancedSQLValidator:
             k.lower().strip(): [c.lower().strip() for c in v] 
             for k, v in (allowed_columns or {}).items()
         }
-        self.max_limit = max_limit
-        self.max_columns = max_columns
-        self.max_group_by = max_group_by
+        self.max_limit = 5000 # Force override for analytics
+        self.max_columns = 50
+        self.max_group_by = 10
     
     def validate(
         self, 

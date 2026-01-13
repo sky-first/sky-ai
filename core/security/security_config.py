@@ -89,7 +89,7 @@ class SecurityConfig(BaseModel):
         description="Colunas bloqueadas em todas as tabelas."
     )
     max_rows_limit: int = Field(
-        default=100,
+        default=5000,
         description="Limite máximo de linhas por query."
     )
     allow_joins: bool = Field(
@@ -116,7 +116,7 @@ class SecurityConfig(BaseModel):
                     }
                 },
                 "global_blocked_columns": ["password", "ssn", "credit_score"],
-                "max_rows_limit": 100,
+                "max_rows_limit": 5000,
                 "allow_joins": True,
                 "allow_subqueries": False
             }
@@ -144,7 +144,7 @@ def get_default_security_config() -> SecurityConfig:
             "credit_score", "score_credito",
             "api_key", "secret", "token",
         ],
-        max_rows_limit=100,
+        max_rows_limit=5000,
         allow_joins=True,
         allow_subqueries=False,
     )

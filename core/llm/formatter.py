@@ -153,7 +153,7 @@ def run_formatter(
     # 1) Se houve erro técnico (SQL, conexão, etc.) -> passa amigável
     if error:
         # Se for um erro do validador ou execução, usamos mensagem amigável
-        state["answer"] = get_message("TECHNICAL_ERROR", lang)
+        state["answer"] = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(error)}"
         log_event(
             "formatter_error_passthrough",
             {

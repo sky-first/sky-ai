@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 import re
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -239,6 +240,7 @@ def run_orchestrator(
     - escolhe UMA logical table com base em pergunta + contexto
     """
     question = (state.get("question") or "").strip()
+
 
     if not question:
         state["answer"] = "Question cannot be empty."
@@ -687,6 +689,41 @@ def run_orchestrator(
                         "detected_language": lang,
                     },
                 )
+        elif len(chosen_logicals) == 1:
+            # ✅ FIX: Handle single table choice when multiple are available
+            chosen_logical = chosen_logicals[0]
+            chosen_table_obj = next(
+                (t for t in agent_config.tables if t.logical_name == chosen_logical),
+                agent_config.tables[0],
+            )
+
+            state["chosen_table"] = chosen_table_obj.logical_name
+            state["chosen_table_physical"] = chosen_table_obj.physical_name
+            
+            # For compatibility with specialist multi-table path
+            state["chosen_tables"] = [chosen_table_obj.logical_name]
+            state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
+
+            log_event(
+                "orchestrator_choice_single_in_multi_mode",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "chosen_logical": chosen_table_obj.logical_name,
+                    "detected_language": lang,
+                },
+            )
+        else:
+            # No tables found by extraction
+            log_event(
+                "orchestrator_no_tables_found",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "llm_response": str(raw)[:500],
+                },
+            )
+
         # Multi-connection check on chosen logicals
         # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
         # This runs for all cases where len(chosen_logicals) > 1

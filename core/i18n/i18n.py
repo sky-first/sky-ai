@@ -108,6 +108,10 @@ def detect_language(text: str) -> str:
             detected = detect(text)
             # Normaliza códigos tipo "pt-BR" -> "pt"
             lang = detected.split("-")[0].lower()
+            # Sanity check: if langdetect thinks it is NOT English, but heuristics say it IS English, trust heuristics
+            # (langdetect is known to be flakey with short business/SQL queries)
+            if lang != "en" and _heuristic_detect(text) == "en":
+                return "en"
             # Correção: langdetect costuma confundir PT/ES/IT em frases curtas.
             # Aplicamos um pós-processamento simples por heurística de marcadores.
             if lang in {"pt", "es", "it"}:
