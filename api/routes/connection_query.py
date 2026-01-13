@@ -1055,7 +1055,7 @@ async def chat_bootstrap(
         tables = all_tables
     else:
         # Modo collaborative: filtrar por permissões
-        tables = _filter_tables_by_permissions(
+        tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=body.space_id,
@@ -1169,15 +1169,15 @@ async def chat_bootstrap(
             lines = [f"📊 {table_name}:"]
             if "row_count" in stats:
                 row_count = stats["row_count"]
-                lines.append(f"  • Total de registros: {row_count:,}")
+                lines.append(f"  • Total records: {row_count:,}")
             if "amount_stats" in stats:
                 amt = stats["amount_stats"]
                 if amt.get("total") is not None:
-                    lines.append(f"  • Valor total: {amt['total']:,.2f}")
+                    lines.append(f"  • Total value: {amt['total']:,.2f}")
                 if amt.get("avg") is not None:
-                    lines.append(f"  • Valor médio: {amt['avg']:,.2f}")
+                    lines.append(f"  • Average value: {amt['avg']:,.2f}")
                 if amt.get("is_sampled"):
-                    lines.append(f"  • (Estatísticas baseadas em amostra)")
+                    lines.append(f"  • (Statistics based on sample)")
             if "date_range" in stats:
                 dr = stats["date_range"]
                 lines.append(f"  • Período: {dr['min']} até {dr['max']}")
@@ -3074,12 +3074,11 @@ async def _stream_connection_query(
                     "- Mention table names, column names, or database structure\n\n"
                     "YOU MUST:\n"
                     "- Only use the data provided in the results\n"
-                    "- Answer in the same language as the question\n"
+                    "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
                     "- If data is insufficient, say 'Insufficient data to answer this question'\n"
                     "- Keep the answer concise and objective (maximum 4 sentences)\n\n"
                     "CRITICAL LANGUAGE REQUIREMENT:\n"
-                    f"- The user question is in language code '{lang}'.\n"
-                    "- You MUST answer in the same language as the question.\n"
+                    "- You MUST answer in English, even if the user question is in another language.\n"
                 ),
             }
             
@@ -3092,7 +3091,7 @@ async def _stream_connection_query(
                     "Sample of the data (up to 15 rows, JSON):\n"
                     f"{sample_json}\n\n"
                     "Explain the main insight(s) from this data in a concise way, "
-                    "in the same language as the user's question."
+                    "in English."
                 ),
             }
             
