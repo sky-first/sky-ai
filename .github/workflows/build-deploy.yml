@@ -3,12 +3,14 @@ name: Build and Push to ACR
 on:
   push:
     branches:
-      - staging
       - main
+      - staging
+      - 'fix/*'
+      - 'feat/*'
   pull_request:
     branches:
-      - staging
       - main
+      - staging
 
 env:
   ACR_NAME: skyacrstaging
@@ -21,7 +23,6 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -48,7 +49,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -62,13 +63,3 @@ jobs:
           cache-to: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
-
-      - name: Image digest
-        run: echo ${{ steps.build.outputs.digest }}
-
-      - name: Trigger ArgoCD Sync (Optional)
-        if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
-        run: |
-          echo "Image pushed successfully to ACR"
-          echo "ArgoCD will auto-detect and sync within 3 minutes"
-          echo "Tags: ${{ steps.meta.outputs.tags }}"
