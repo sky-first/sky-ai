@@ -1,0 +1,8 @@
+environment         = "prod"
+resource_group_name = "sky-aks-prod-rg"
+aks_cluster_name    = "sky-aks-prod"
+dns_prefix          = "sky-aks-prod"
+location            = "eastus2"
+vnet_address_space  = ["10.2.0.0/16"]
+service_cidr        = "10.3.0.0/16"
+kubernetes_version  = "1.30"

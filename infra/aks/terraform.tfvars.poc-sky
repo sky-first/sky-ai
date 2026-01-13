@@ -1,0 +1,8 @@
+environment         = "poc-sky"
+resource_group_name = "sky-aks-poc-rg"
+aks_cluster_name    = "sky-aks-poc"
+dns_prefix          = "sky-aks-poc"
+location            = "eastus2"
+vnet_address_space  = ["10.4.0.0/16"]
+service_cidr        = "10.5.0.0/16"
+kubernetes_version  = "1.30"
