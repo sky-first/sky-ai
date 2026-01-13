@@ -148,7 +148,7 @@ resource "azurerm_key_vault_secret" "qdrant_url" {
   name         = "qdrant-url"
   value        = "http://qdrant:6333" # Internal Qdrant if used, or external
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [azurerm_role_assignment.current_user_kv_officer]
+  depends_on   = [azurerm_key_vault_access_policy.current]
 }
 
 # Outputs are now in outputs.tf
