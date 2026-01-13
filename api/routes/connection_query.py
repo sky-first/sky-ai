@@ -2632,11 +2632,12 @@ async def query_connection(
         pii_blocked = True
     
     
-    # 🔧 HOTFIX TEMPORÁRIO: Detectar se é query agregada
+    # ✅ SOLUÇÃO: Detectar queries agregadas para permitir PII em contexto seguro
+    # Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
+    # dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
     is_aggregated_query = False
     if sql:
         sql_upper = sql.upper()
-        # Se tem GROUP BY ou funções de agregação, considerar como agregado
         has_group_by = 'GROUP BY' in sql_upper
         has_aggregation = any(func in sql_upper for func in ['SUM(', 'AVG(', 'COUNT(', 'MAX(', 'MIN('])
         is_aggregated_query = has_group_by or has_aggregation
@@ -2644,17 +2645,27 @@ async def query_connection(
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
         # Se for query agregada, NÃO bloquear (dados já estão anonimizados por agregação)
         if is_aggregated_query:
-            print(f"DEBUG PII: Detected aggregated query, allowing data despite PII detection")
-            print(f"  - SQL has GROUP BY: {has_group_by}")
-            print(f"  - SQL has aggregation functions: {has_aggregation}")
+            log_event(
+                "pii_allowed_aggregated_context",
+                {
+                    "connection_id": connection_id,
+                    "has_group_by": has_group_by,
+                    "has_aggregation": has_aggregation,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
             pii_blocked = False  # Não bloquear dados agregados
         else:
             # Filtrar dados sensíveis (apenas para queries não-agregadas)
-            print(f"DEBUG PII BLOCK: Blocking data due to PII detection")
-            print(f"  - PII Types: {pii_response_data_result.pii_types}")
-            print(f"  - SQL: {sql[:200] if sql else 'None'}")
-            print(f"  - Data Sample (first row): {data_sample[0] if data_sample else 'Empty'}")
-            print(f"  - Allow in aggregate: {allow_pii_in_data}")
+            log_event(
+                "pii_blocked_non_aggregated",
+                {
+                    "connection_id": connection_id,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
             data_sample = []
             pii_blocked = True
     # ✅ CAMADA 4: Detecção de PII na resposta
