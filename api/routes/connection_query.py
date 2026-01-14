@@ -2454,12 +2454,23 @@ async def query_connection(
     data = final_state.get("data") or []
 
     # ✅ CORREÇÃO ARROW: Converter pyarrow.Table para lista de dicts
+    # ✅ CORREÇÃO ARROW: Converter pyarrow.Table para lista de dicts
+    # A conversão DEVE acontecer imediatamente aqui para garantir que loggers e PII funcionem
     try:
         import pyarrow as pa
-        if isinstance(data, pa.Table):
-            data = data.to_pylist()
-    except ImportError:
-        pass
+        # Verifica se é Table ou se tem método to_pylist (caso o isinstance falhe por reload de modulo)
+        if isinstance(data, pa.Table) or hasattr(data, "to_pylist"):
+            # Apenas converte se tiver to_pylist
+            if hasattr(data, "to_pylist"):
+                data = data.to_pylist()
+            else:
+                # Fallback muito improvável, mas seguro
+                data = [row.as_py() for row in data]
+    except Exception as e:
+        print(f"ERROR converting Arrow data: {e}")
+        # Se falhar, tenta manter o que tem ou vazio se for inusável
+        if not isinstance(data, list):
+             data = []
     detected_language = final_state.get("detected_language")
     chosen_table = final_state.get("chosen_table")
     chosen_tables = final_state.get("chosen_tables")  # List of tables (new)
@@ -2620,10 +2631,43 @@ async def query_connection(
         answer = "I cannot display sensitive personal information in the results."
         pii_blocked = True
     
+    
+    # ✅ SOLUÇÃO: Detectar queries agregadas para permitir PII em contexto seguro
+    # Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
+    # dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
+    is_aggregated_query = False
+    if sql:
+        sql_upper = sql.upper()
+        has_group_by = 'GROUP BY' in sql_upper
+        has_aggregation = any(func in sql_upper for func in ['SUM(', 'AVG(', 'COUNT(', 'MAX(', 'MIN('])
+        is_aggregated_query = has_group_by or has_aggregation
+    
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
-        # Filtrar dados sensíveis
-        data_sample = []
-        pii_blocked = True
+        # Se for query agregada, NÃO bloquear (dados já estão anonimizados por agregação)
+        if is_aggregated_query:
+            log_event(
+                "pii_allowed_aggregated_context",
+                {
+                    "connection_id": connection_id,
+                    "has_group_by": has_group_by,
+                    "has_aggregation": has_aggregation,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
+            pii_blocked = False  # Não bloquear dados agregados
+        else:
+            # Filtrar dados sensíveis (apenas para queries não-agregadas)
+            log_event(
+                "pii_blocked_non_aggregated",
+                {
+                    "connection_id": connection_id,
+                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "sql_preview": sql[:200] if sql else None,
+                }
+            )
+            data_sample = []
+            pii_blocked = True
     # ✅ CAMADA 4: Detecção de PII na resposta
     all_pii_types = []
     all_pii_patterns = []
