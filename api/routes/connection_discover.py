@@ -93,7 +93,7 @@ async def discover_tables(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
-    auto_generate_embeddings: bool = True,  # Novo parâmetro: gerar embeddings automaticamente
+    auto_generate_embeddings: bool = False,  # ✅ PATCH 1: Desabilitar por padrão para evitar transaction poisoning
 ) -> dict:
     """
     Descobre automaticamente todas as tabelas de uma DataConnection.
@@ -144,6 +144,12 @@ async def discover_tables(
                                     embedding_provider=embedding_provider,
                                 )
                             except Exception as e:
+                                # ✅ PATCH 2: CRITICAL - Rollback em background task também
+                                try:
+                                    await bg_db.rollback()
+                                except Exception:
+                                    pass
+                                
                                 log_event(
                                     "discover_auto_embed_error",
                                     {
@@ -209,6 +215,12 @@ async def discover_tables(
                     },
                 )
             except Exception as e:
+                # ✅ PATCH 2: CRITICAL - Rollback para não deixar transação abortada
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                
                 log_event(
                     "discover_auto_embed_error",
                     {

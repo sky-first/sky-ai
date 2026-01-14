@@ -78,8 +78,21 @@ async def search_embeddings_async(
             .limit(top_k)
         )
         
-        result = await db.execute(query)
-        results: List[EmbeddingRecord] = list(result.scalars().all())
+        try:
+            result = await db.execute(query)
+            results: List[EmbeddingRecord] = list(result.scalars().all())
+        except Exception as e:
+            # ✅ PATCH 3: CRITICAL - Rollback para não deixar transação abortada
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            
+            log_event(
+                "search_embeddings_fallback_error",
+                {"space_id": space_id, "error": str(e)[:500]},
+            )
+            return []
         
         log_event(
             "search_embeddings_fallback",
@@ -139,8 +152,21 @@ async def search_embeddings_async(
             .limit(top_k)
         )
         
-        result = await db.execute(query)
-        results: List[EmbeddingRecord] = list(result.scalars().all())
+        try:
+            result = await db.execute(query)
+            results: List[EmbeddingRecord] = list(result.scalars().all())
+        except Exception as e:
+            # ✅ PATCH 3: CRITICAL - Rollback em fallback também
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            
+            log_event(
+                "search_embeddings_vector_fallback_error",
+                {"space_id": space_id, "error": str(e)[:500]},
+            )
+            return []
 
     log_event(
         "search_embeddings",
