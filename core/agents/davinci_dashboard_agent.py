@@ -464,7 +464,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
                 "type": "chart",
                 "title": "Main Insight",
                 "question": original_question.strip(),
-                "viz": {"type": "bar", "index": "category", "categories": ["value"]},
+                "viz": {"type": "bar", "mapping": {"x": "category", "y": "value"}},
             }
         )
         # Ajustar max_widgets restantes
@@ -537,7 +537,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
                 "type": "kpi",
                 "title": f"Total rows in {picked[0]}",
                 "question": f"How many rows are in the `{picked[0]}` table? Return a single number.",
-                "viz": {"type": "kpi", "index": "count", "categories": ["value"]},
+                "viz": {"type": "kpi"},
             }
         )
 
@@ -729,8 +729,11 @@ def generate_dashboard_plan(
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
             "- Visualization (viz) RULES:\n"
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
-            "  * For charts, it MUST contain 'index' (the X-axis column name) and 'categories' (a list of Y-axis column names/metrics).\n"
-            "  * Example: {\"type\": \"bar\", \"index\": \"month\", \"categories\": [\"total_sales\"]}.\n"
+            "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
+            "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
+            "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
+            "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
+            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
@@ -787,8 +790,11 @@ def generate_dashboard_plan(
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
             "- Visualization (viz) RULES:\n"
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
-            "  * For charts, it MUST contain 'index' (the X-axis column name) and 'categories' (a list of Y-axis column names/metrics).\n"
-            "  * Example: {\"type\": \"bar\", \"index\": \"month\", \"categories\": [\"total_sales\"]}.\n"
+            "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
+            "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
+            "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
+            "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
+            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., fact_table + dimension_table, transaction + entity) to produce better business metrics.\n"
