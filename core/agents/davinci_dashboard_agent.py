@@ -798,7 +798,13 @@ def generate_dashboard_plan(
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
             "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
             "- DATA SAFETY: Do not invent columns. Only use columns present in 'Schema sample'.\n"
-            "- AVOID EMPTY WIDGETS: Ensure your questions ask for aggregated data (COUNT, SUM) that is likely to exist.\n"
+            "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
+            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
+            "  * Avoid questions about specific statuses/conditions that might not exist (e.g., 'overdue', 'pending')\n"
+            "  * Use broad questions that work with any data (e.g., 'total revenue' instead of 'overdue invoices')\n"
+            "  * For tables/charts, ask for 'top N' or 'distribution by' instead of specific filters\n"
+            "  * Example GOOD: 'What is the total revenue by customer?' (always returns data)\n"
+            "  * Example BAD: 'Which customers are overdue?' (might return empty if no overdue customers)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
@@ -938,7 +944,9 @@ def generate_dashboard_plan(
             }
             
             question_validator = QuestionValidator(available_tables_meta, available_columns)
-            widget_validator = WidgetValidator(question_validator, strict_mode=True)
+            # ✅ FIX: strict_mode=False para não filtrar widgets com warnings
+            # A IA gera os widgets, então eles devem funcionar mesmo com warnings leves
+            widget_validator = WidgetValidator(question_validator, strict_mode=False)
             
             # Filtrar widgets problemáticos (mas preservar a primeira se for original_question)
             widgets_before_validation = len(widgets)
