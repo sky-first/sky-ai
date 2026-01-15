@@ -22,10 +22,10 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = false
 
   network_acls {
-    # Allow access by default to permit GitHub Actions runner interactions
-    # In production, this should be restricted to specific VNETs/IPs
-    default_action = "Allow"
-    bypass         = "AzureServices"
+    # Restricted access to AKS Subnet and Azure Services only
+    default_action             = "Deny"
+    bypass                     = "AzureServices"
+    virtual_network_subnet_ids = [azurerm_subnet.aks.id]
   }
 
   tags = {

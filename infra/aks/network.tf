@@ -15,7 +15,8 @@ resource "azurerm_subnet" "aks" {
   resource_group_name  = azurerm_resource_group.aks.name
   virtual_network_name = azurerm_virtual_network.aks.name
   # Calculate /22 subnet (0-3)
-  address_prefixes = [cidrsubnet(var.vnet_address_space[0], 6, 0)]
+  address_prefixes  = [cidrsubnet(var.vnet_address_space[0], 6, 0)]
+  service_endpoints = ["Microsoft.KeyVault"]
 }
 
 

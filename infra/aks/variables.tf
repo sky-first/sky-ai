@@ -35,8 +35,10 @@ variable "admin_username" {
 }
 
 variable "ssh_public_key" {
-  description = "SSH Public Key content or path"
+  description = "SSH Public Key content or path (optional - set to null to skip Bastion creation)"
   type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "aks_cluster_name" {

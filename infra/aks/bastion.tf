@@ -1,4 +1,5 @@
 resource "azurerm_public_ip" "bastion" {
+  count               = var.ssh_public_key != null ? 1 : 0
   name                = "bastion-pip-${var.environment}"
   location            = azurerm_resource_group.aks.location
   resource_group_name = azurerm_resource_group.aks.name
@@ -7,6 +8,7 @@ resource "azurerm_public_ip" "bastion" {
 }
 
 resource "azurerm_network_interface" "bastion" {
+  count               = var.ssh_public_key != null ? 1 : 0
   name                = "bastion-nic-${var.environment}"
   location            = azurerm_resource_group.aks.location
   resource_group_name = azurerm_resource_group.aks.name
@@ -15,18 +17,19 @@ resource "azurerm_network_interface" "bastion" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.bastion.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.bastion.id
+    public_ip_address_id          = azurerm_public_ip.bastion[0].id
   }
 }
 
 resource "azurerm_linux_virtual_machine" "bastion" {
+  count               = var.ssh_public_key != null ? 1 : 0
   name                = "bastion-vm-${var.environment}"
   location            = azurerm_resource_group.aks.location
   resource_group_name = azurerm_resource_group.aks.name
   size                = "Standard_B1s"
   admin_username      = var.admin_username
   network_interface_ids = [
-    azurerm_network_interface.bastion.id,
+    azurerm_network_interface.bastion[0].id,
   ]
 
   os_disk {

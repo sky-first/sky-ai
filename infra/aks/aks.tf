@@ -38,11 +38,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # BUT enabling private_cluster_enabled requires DNS setup or Bastion access to resolve API server.
   # Since we have Bastion, this is viable.
   # Since we have Bastion, this is viable.
-  # tfsec:ignore:azure-aks-api-server-authorized-ip-ranges
   api_server_access_profile {
-    authorized_ip_ranges = ["0.0.0.0/0"]
+    authorized_ip_ranges = []
   }
-  private_cluster_enabled = false
+  private_cluster_enabled = true
 
   # Workload Identity (Required for External Secrets / Key Vault)
   workload_identity_enabled = true
