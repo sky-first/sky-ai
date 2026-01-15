@@ -52,9 +52,9 @@ variable "dns_prefix" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version"
+  description = "Kubernetes version (leave empty for latest stable)"
   type        = string
-  default     = "1.33.5"
+  default     = ""
 }
 
 variable "allowed_ssh_ips" {

@@ -1,9 +1,15 @@
+# Get supported versions for the region
+data "azurerm_kubernetes_service_versions" "current" {
+  location = azurerm_resource_group.aks.location
+  include_preview = false
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = var.aks_cluster_name
   location            = azurerm_resource_group.aks.location
   resource_group_name = azurerm_resource_group.aks.name
   dns_prefix          = var.dns_prefix
-  kubernetes_version  = var.kubernetes_version
+  kubernetes_version  = var.kubernetes_version != "" ? var.kubernetes_version : data.azurerm_kubernetes_service_versions.current.latest_version
 
   default_node_pool {
     name                        = "system"
