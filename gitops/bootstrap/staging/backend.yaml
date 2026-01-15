@@ -25,6 +25,10 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
+            - host: ""
+              paths:
+                - path: /api
+                  pathType: Prefix
         probes:
           liveness:
             path: /
