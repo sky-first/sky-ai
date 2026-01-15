@@ -198,6 +198,13 @@ jobs:
               echo "AKS Cluster doesn't exist in Azure yet"
             fi
 
+            # Import User Node Pool
+            NODE_POOL_NAME="userapps"
+            import_if_needed \
+              "azurerm_kubernetes_cluster_node_pool.user_pool" \
+              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" \
+              "AKS User Node Pool"
+
             # Import Public IP (Bastion)
             PIP_NAME="bastion-pip-${ENV}"
             if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
