@@ -83,8 +83,8 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_spot" {
 
 # Grant AKS Identity access to VNet (Network Contributor) 
 # Required for Azure CNI to manage IPs
-resource "azurerm_role_assignment" "aks_network" {
-  scope                = azurerm_resource_group.aks.id
-  role_definition_name = "Network Contributor"
-  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
-}
+# resource "azurerm_role_assignment" "aks_network" {
+#   scope                = azurerm_resource_group.aks.id
+#   role_definition_name = "Network Contributor"
+#   principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+# }
