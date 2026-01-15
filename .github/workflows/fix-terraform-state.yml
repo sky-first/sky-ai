@@ -145,6 +145,7 @@ jobs:
 
           # Import AKS Cluster (only if RG exists)
           if az group show -n "$RG_NAME" >/dev/null 2>&1; then
+            # Import AKS
             if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
               import_if_needed \
                 "azurerm_kubernetes_cluster.aks" \
@@ -152,6 +153,33 @@ jobs:
                 "AKS Cluster"
             else
               echo "AKS Cluster doesn't exist in Azure yet"
+            fi
+
+            # Import Public IP (Bastion)
+            PIP_NAME="bastion-pip-${ENV}"
+            if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_public_ip.bastion" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/publicIPAddresses/$PIP_NAME" \
+                "Bastion Public IP"
+            fi
+
+            # Import User Assigned Identity (GH Actions)
+            ID_GH_NAME="id-gh-actions-${ENV}"
+            if az identity show -g "$RG_NAME" -n "$ID_GH_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_user_assigned_identity.gh_actions" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$ID_GH_NAME" \
+                "GH Actions Identity"
+            fi
+
+            # Import User Assigned Identity (ESO)
+            ID_ESO_NAME="id-eso-${ENV}"
+            if az identity show -g "$RG_NAME" -n "$ID_ESO_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_user_assigned_identity.eso" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$ID_ESO_NAME" \
+                "ESO Identity"
             fi
           fi
 

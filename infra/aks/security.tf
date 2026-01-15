@@ -22,7 +22,9 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = false
 
   network_acls {
-    default_action = "Deny"
+    # Allow access by default to permit GitHub Actions runner interactions
+    # In production, this should be restricted to specific VNETs/IPs
+    default_action = "Allow"
     bypass         = "AzureServices"
   }
 
