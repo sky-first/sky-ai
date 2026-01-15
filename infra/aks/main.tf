@@ -10,6 +10,10 @@ terraform {
     }
   }
   required_version = ">= 1.2.0"
+
+  # Backend configuration for Azure Storage
+  # Values are passed via -backend-config in CI/CD pipeline
+  backend "azurerm" {}
 }
 
 provider "azurerm" {

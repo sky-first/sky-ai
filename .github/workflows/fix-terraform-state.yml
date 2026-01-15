@@ -166,7 +166,9 @@ jobs:
           TFVARS="terraform.tfvars.${ENV}"
 
           echo "Refreshing Terraform state to sync with Azure..."
-          terraform apply -refresh-only -auto-approve -var-file="$TFVARS"
+          # Use refresh to update state without planning changes
+          # This avoids "Cannot apply non-applyable plan" errors
+          terraform refresh -var-file="$TFVARS"
           echo "✅ State refreshed successfully"
 
       - name: Show State List
