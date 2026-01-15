@@ -58,11 +58,16 @@ jobs:
       - name: Generate Backend Config
         run: |
           ENV="${{ inputs.environment }}"
+
+          # Use same key format as deploy.yml (with fallback)
+          KEY_PREFIX="${{ secrets.TF_BACKEND_KEY_PREFIX }}"
+          KEY_PREFIX="${KEY_PREFIX:-poc-deploy}"
+
           cat > backend.hcl <<EOF
           resource_group_name  = "${{ secrets.TF_BACKEND_RESOURCE_GROUP }}"
           storage_account_name = "${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}"
           container_name       = "${{ secrets.TF_BACKEND_CONTAINER }}"
-          key                  = "${{ secrets.TF_BACKEND_KEY_PREFIX }}-${ENV}.tfstate"
+          key                  = "${KEY_PREFIX}-${ENV}.tfstate"
           use_azuread_auth     = true
           EOF
 
