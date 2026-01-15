@@ -164,6 +164,41 @@ jobs:
                 "Bastion Public IP"
             fi
 
+            # Import VNET
+            VNET_NAME="sky-aks-vnet-${ENV}"
+            if az network vnet show -g "$RG_NAME" -n "$VNET_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_virtual_network.aks" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME" \
+                "AKS VNet"
+            fi
+
+            # Import NSG
+            NSG_NAME="bastion-nsg-${ENV}"
+            if az network nsg show -g "$RG_NAME" -n "$NSG_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_network_security_group.bastion" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/networkSecurityGroups/$NSG_NAME" \
+                "Bastion NSG"
+            fi
+
+            # Import Subnets (AKS & Bastion)
+            if az network vnet subnet show -g "$RG_NAME" --vnet-name "$VNET_NAME" -n "aks-subnet" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_subnet.aks" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME/subnets/aks-subnet" \
+                "AKS Subnet"
+            fi
+
+            if az network vnet subnet show -g "$RG_NAME" --vnet-name "$VNET_NAME" -n "bastion-subnet" >/dev/null 2>&1; then
+              # Bastion subnet might be under a different resource name in code depending on naming
+              # Based on network.tf: resource "azurerm_subnet" "bastion"
+              import_if_needed \
+                "azurerm_subnet.bastion" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME/subnets/bastion-subnet" \
+                "Bastion Subnet"
+            fi
+
             # Import User Assigned Identity (GH Actions)
             ID_GH_NAME="id-gh-actions-${ENV}"
             if az identity show -g "$RG_NAME" -n "$ID_GH_NAME" >/dev/null 2>&1; then
