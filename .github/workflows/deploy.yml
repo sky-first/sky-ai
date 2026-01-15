@@ -1286,13 +1286,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Tentar init normal primeiro
-          if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
+          # Tentar init normal - DEVE funcionar se o Plan funcionou
+          # Não tentar migração ou reconfiguração aqui para garantir integridade do lineage
+          if terraform init -input=false -upgrade -backend-config=backend.hcl; then
             echo "✅ Terraform init concluído com sucesso"
           else
             echo "❌ ERRO: Terraform init falhou"
-            echo "Backend mismatch detectado ou falha de conexão."
-            echo "Migration desativada no Apply para evitar erros de linhagem."
+            echo "CRÍTICO: O ambiente de execução do Apply deve ser idêntico ao do Plan."
+            echo "Se houve mudança de backend, ela deve ser tratada no Plan ou em pipeline separado."
             exit 1
           fi
 
@@ -1322,6 +1323,8 @@ jobs:
           echo "Selecionando workspace: $WORKSPACE"
 
           # Tentar selecionar workspace existente
+          # Tentar selecionar workspace existente
+          # CRÍTICO: Não criar workspace novo aqui. Se não existir, falhar.
           if terraform workspace select "$WORKSPACE"; then
             echo "✅ Workspace $WORKSPACE selecionado com sucesso"
           else
@@ -1330,8 +1333,8 @@ jobs:
             echo "Workspaces disponíveis:"
             terraform workspace list || echo " (falha ao listar workspaces)"
             echo ""
-            echo "CRÍTICO: O workspace DEVE existir, pois foi usado no terraform plan."
-            echo "Se o workspace não existe aqui, o backend pode estar configurado incorretamente ou o state file foi perdido."
+            echo "CRÍTICO: O workspace '$WORKSPACE' DEVE existir, pois foi usado no terraform plan."
+            echo "Se o workspace não existe aqui, o backend pode estar desincronizado."
             exit 1
           fi
 
