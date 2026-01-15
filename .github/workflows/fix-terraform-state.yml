@@ -263,14 +263,12 @@ jobs:
                 "Bastion NIC"
             fi
 
-            # Import Bastion VM
+            # Import Bastion VM (Try unconditionally to ensure it lands in state)
             VM_NAME="bastion-vm-${ENV}"
-            if az vm show -g "$RG_NAME" -n "$VM_NAME" >/dev/null 2>&1; then
-              import_if_needed \
-                "azurerm_linux_virtual_machine.bastion" \
-                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Compute/virtualMachines/$VM_NAME" \
-                "Bastion VM"
-            fi
+            import_if_needed \
+              "azurerm_linux_virtual_machine.bastion" \
+              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Compute/virtualMachines/$VM_NAME" \
+              "Bastion VM"
 
             # Identity Imports (already present above) -> Moving cleanup logic after them
             
