@@ -409,28 +409,17 @@ jobs:
                 echo "Listando recursos no estado para debug:"
                 terraform state list | grep -E "resource_group|azurerm_resource_group" || echo "  (nenhum resource_group encontrado na listagem)"
               else
-                echo "⚠️  WARNING: Resource Group existe no Azure mas NÃO está no estado do Terraform"
-                echo "Tentando importar automaticamente..."
-                SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}"
-                RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}"
-                
-                # Desabilitar exit on error para o import
-                set +e
-                terraform import -var-file="$TFVARS_FILE" \
-                  -var="subscription_id=${SUBSCRIPTION_ID}" \
-                  azurerm_resource_group.aks "$RESOURCE_ID" 2>&1 | tee import-output.txt
-                IMPORT_EXIT_CODE=${PIPESTATUS[0]}
-                set -e
-                
-                if [ $IMPORT_EXIT_CODE -eq 0 ]; then
-                  echo "✅ Resource Group importado com sucesso para o estado"
-                  # Refresh para garantir que o estado está sincronizado após import
-                  terraform refresh -var-file="$TFVARS_FILE" -var="subscription_id=${SUBSCRIPTION_ID}"
-                else
-                  echo "❌ ERRO: Falha ao importar Resource Group automaticamente"
-                  cat import-output.txt
-                  exit 1
-                fi
+                echo "❌ ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado do Terraform"
+                echo ""
+                echo "SOLUÇÃO: Execute o workflow 'Fix Terraform State' primeiro para importar recursos existentes:"
+                echo "  1. Vá em Actions > Fix Terraform State"
+                echo "  2. Run workflow > selecione environment: ${{ needs.detect-environment.outputs.environment }}"
+                echo "  3. Aguarde conclusão"
+                echo "  4. Execute este deploy novamente"
+                echo ""
+                echo "ALTERNATIVA: Se preferir importar manualmente, execute:"
+                echo "  terraform import -var-file=\"$TFVARS_FILE\" azurerm_resource_group.aks \"/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}\""
+                exit 1
               fi
             else
               echo "✅ Resource Group não existe no Azure - será criado pelo Terraform"

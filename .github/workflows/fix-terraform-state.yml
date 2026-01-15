@@ -30,6 +30,14 @@ jobs:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
 
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_USE_OIDC: true
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,49 +79,119 @@ jobs:
           echo "Selecting workspace: $ENV"
           terraform workspace select "$ENV" || terraform workspace new "$ENV"
 
-      - name: Import Resource Group
-        env:
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      - name: Import Existing Resources
         run: |
           set -e
           ENV="${{ inputs.environment }}"
           TFVARS="terraform.tfvars.${ENV}"
 
-          # Get RG Name from tfvars
-          RG_NAME=$(grep "^resource_group_name" "$TFVARS" | cut -d'"' -f2)
-          echo "Target Resource Group: $RG_NAME"
+          echo "=========================================="
+          echo "Importing existing Azure resources to Terraform state"
+          echo "Environment: $ENV"
+          echo "=========================================="
+          echo ""
 
-          # Check if RG exists in Azure
-          if az group show -n "$RG_NAME" >/dev/null 2>&1; then
-            echo "Resource Group exists in Azure."
+          # Extract values from tfvars
+          RG_NAME=$(grep "^resource_group_name" "$TFVARS" | cut -d'"' -f2)
+          AKS_NAME=$(grep "^aks_cluster_name" "$TFVARS" | cut -d'"' -f2)
+
+          echo "Target Resources:"
+          echo "  Resource Group: $RG_NAME"
+          echo "  AKS Cluster: $AKS_NAME"
+          echo ""
+
+          # Function to import if resource exists in Azure but not in state
+          import_if_needed() {
+            local TF_ADDRESS="$1"
+            local AZURE_ID="$2"
+            local RESOURCE_NAME="$3"
             
-            # Check if RG needs import
-            if ! terraform state show azurerm_resource_group.aks >/dev/null 2>&1; then
-              echo "Importing Resource Group..."
-              terraform import -var-file="$TFVARS" \
-                -var="subscription_id=$ARM_SUBSCRIPTION_ID" \
-                azurerm_resource_group.aks \
-                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
-            else
-              echo "Resource Group already in state."
+            echo "Checking $RESOURCE_NAME..."
+            
+            if terraform state show "$TF_ADDRESS" >/dev/null 2>&1; then
+              echo "  ✅ Already in state"
+              return 0
             fi
-          else
-            echo "Resource Group does not exist in Azure. Skipping import."
+            
+            echo "  ⚠️  Not in state, attempting import..."
+            if terraform import -var-file="$TFVARS" "$TF_ADDRESS" "$AZURE_ID" 2>&1 | tee import-temp.log; then
+              echo "  ✅ Import successful"
+              return 0
+            else
+              # Check if error is because resource doesn't exist in Azure
+              if grep -q "Cannot import non-existent" import-temp.log || \
+                 grep -q "does not exist" import-temp.log || \
+                 grep -q "was not found" import-temp.log; then
+                echo "  ℹ️  Resource doesn't exist in Azure (will be created by Terraform)"
+                return 0
+              else
+                echo "  ❌ Import failed"
+                cat import-temp.log
+                return 1
+              fi
+            fi
+          }
+
+          # Import Resource Group
+          import_if_needed \
+            "azurerm_resource_group.aks" \
+            "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME" \
+            "Resource Group"
+
+          # Import AKS Cluster (only if RG exists)
+          if az group show -n "$RG_NAME" >/dev/null 2>&1; then
+            if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
+              import_if_needed \
+                "azurerm_kubernetes_cluster.aks" \
+                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME" \
+                "AKS Cluster"
+            else
+              echo "AKS Cluster doesn't exist in Azure yet"
+            fi
           fi
 
-      - name: Sync/Refresh State
-        env:
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          echo ""
+          echo "=========================================="
+          echo "Import phase completed"
+          echo "=========================================="
+
+      - name: Refresh State
         run: |
           ENV="${{ inputs.environment }}"
           TFVARS="terraform.tfvars.${ENV}"
 
-          echo "Running refresh-only to sync state with Azure..."
-          terraform apply -refresh-only -auto-approve \
-            -var-file="$TFVARS" \
-            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+          echo "Refreshing Terraform state to sync with Azure..."
+          terraform plan -refresh-only -var-file="$TFVARS" -out=refresh.tfplan
+          terraform apply refresh.tfplan
+          echo "✅ State refreshed successfully"
 
       - name: Show State List
-        run: terraform state list
+        run: |
+          echo "Current resources in Terraform state:"
+          terraform state list
+
+      - name: Verify State
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "State Verification"
+          echo "=========================================="
+
+          # Check if we have any resources
+          RESOURCE_COUNT=$(terraform state list | wc -l)
+          echo "Total resources in state: $RESOURCE_COUNT"
+
+          if [ "$RESOURCE_COUNT" -eq 0 ]; then
+            echo "⚠️  WARNING: State is empty. This might be expected for a new environment."
+          else
+            echo "✅ State contains resources"
+          fi
+
+          # Try to get outputs (will fail if infrastructure doesn't exist yet)
+          echo ""
+          echo "Attempting to retrieve outputs..."
+          if terraform output >/dev/null 2>&1; then
+            terraform output
+          else
+            echo "ℹ️  No outputs available yet (infrastructure may not be fully deployed)"
+          fi
