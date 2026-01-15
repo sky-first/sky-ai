@@ -5,4 +5,4 @@ dns_prefix          = "sky-aks-staging"
 location            = "eastus2"
 vnet_address_space  = ["10.1.0.0/16"]
 service_cidr        = "10.0.0.0/16"
-kubernetes_version  = "1.29.7"
+kubernetes_version  = "1.30.0"
