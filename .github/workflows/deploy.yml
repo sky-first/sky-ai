@@ -1330,15 +1330,20 @@ jobs:
           set -euo pipefail
           WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
 
-          if terraform workspace select "$WORKSPACE" 2>/dev/null; then
-            echo "OK: Workspace $WORKSPACE selecionado"
+          echo "Selecionando workspace: $WORKSPACE"
+
+          # Tentar selecionar workspace existente
+          if terraform workspace select "$WORKSPACE"; then
+            echo "✅ Workspace $WORKSPACE selecionado com sucesso"
           else
-            echo "Criando workspace $WORKSPACE..."
-            if ! terraform workspace new "$WORKSPACE"; then
-              echo "ERRO: Falha ao criar workspace $WORKSPACE"
-              exit 1
-            fi
-            echo "OK: Workspace $WORKSPACE criado"
+            echo "❌ ERRO: Falha ao selecionar workspace $WORKSPACE"
+            echo "Diagnostics:"
+            echo "Workspaces disponíveis:"
+            terraform workspace list || echo " (falha ao listar workspaces)"
+            echo ""
+            echo "CRÍTICO: O workspace DEVE existir, pois foi usado no terraform plan."
+            echo "Se o workspace não existe aqui, o backend pode estar configurado incorretamente ou o state file foi perdido."
+            exit 1
           fi
 
           # Verificar workspace atual
