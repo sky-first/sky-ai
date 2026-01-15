@@ -49,6 +49,49 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
+      - name: Verify Permission (User Access Administrator)
+        run: |
+          set -euo pipefail
+          echo "Verifying RBAC permissions for Runner Identity..."
+
+          # Get current client ID (Identity)
+          CLIENT_ID=$(az account show --query user.name -o tsv)
+          echo "Current Client ID: $CLIENT_ID"
+
+          RG_NAME="sky-aks-${{ github.event.inputs.environment }}-rg"
+          echo "Checking permissions on Resource Group: $RG_NAME"
+
+          # Check if identity has Owner or User Access Administrator
+          # Note: We use 'grep' because the caller might have inherited permissions
+          ROLES=$(az role assignment list --assignee "$CLIENT_ID" --resource-group "$RG_NAME" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
+
+          echo "Assigned Roles found: $ROLES"
+
+          if echo "$ROLES" | grep -qE "Owner|User Access Administrator"; then
+            echo "✅ Permission Verified: Identity has sufficient privileges to manage Role Assignments."
+          else
+            echo "⚠️  WARNING: 'Owner' or 'User Access Administrator' role NOT found on Resource Group '$RG_NAME'."
+            echo "⚠️  Checking Subscription level permissions..."
+            SUB_ROLES=$(az role assignment list --assignee "$CLIENT_ID" --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
+            echo "Subscription Roles: $SUB_ROLES"
+            
+            if echo "$SUB_ROLES" | grep -qE "Owner|User Access Administrator"; then
+               echo "✅ Permission Verified (Inherited from Subscription)."
+            else
+               echo "❌ CRITICAL ERROR: Identidade do Pipeline NÃO tem permissão para gerenciar acessos."
+               echo "❌ O Terraform falhará ao tentar criar 'Role Assignments' (Erro 403)."
+               echo ""
+               echo "AÇÃO MANUAL NECESSÁRIA:"
+               echo "1. Vá no Azure Portal > Resource Group ($RG_NAME)"
+               echo "2. IAM > Add Role Assignment"
+               echo "3. Role: 'User Access Administrator'"
+               echo "4. Assignee: Managed Identity ($CLIENT_ID)"
+               echo ""
+               echo "Falhando workflow para evitar erros parciais..."
+               exit 1
+            fi
+          fi
+
       - name: Setup Terraform
         uses: ./.github/actions/terraform-setup
         with:
@@ -59,9 +102,8 @@ jobs:
         run: |
           ENV="${{ inputs.environment }}"
 
-          # Use same key format as deploy.yml (with fallback)
-          KEY_PREFIX="${{ secrets.TF_BACKEND_KEY_PREFIX }}"
-          KEY_PREFIX="${KEY_PREFIX:-poc-deploy}"
+          # Use same key format as deploy.yml
+          KEY_PREFIX="${{ secrets.TF_BACKEND_KEY_PREFIX || 'poc-deploy' }}"
 
           cat > backend.hcl <<EOF
           resource_group_name  = "${{ secrets.TF_BACKEND_RESOURCE_GROUP }}"
