@@ -1,0 +1,117 @@
+name: Fix Terraform State
+
+on:
+    workflow_dispatch:
+        inputs:
+            environment:
+                description: "Environment to fix"
+                required: true
+                type: choice
+                options:
+                    - staging
+                    - prod
+                    - poc-sky
+
+permissions:
+    contents: read
+    id-token: write
+
+env:
+    TERRAFORM_VERSION: "1.9.0"
+    TF_WORKING_DIR: "infra/aks"
+
+jobs:
+    fix-state:
+        name: Fix State for ${{ inputs.environment }}
+        runs-on: ubuntu-latest
+        environment: ${{ inputs.environment == 'prod' && 'production' || inputs.environment == 'poc-sky' && 'poc-sky' || 'staging' }}
+
+        defaults:
+            run:
+                working-directory: ${{ env.TF_WORKING_DIR }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Azure Authentication
+              uses: ./.github/actions/azure-auth
+              with:
+                  subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+                  tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+                  client_id: ${{ secrets.AZURE_CLIENT_ID }}
+
+            - name: Setup Terraform
+              uses: ./.github/actions/terraform-setup
+              with:
+                  terraform_version: ${{ env.TERRAFORM_VERSION }}
+                  working_directory: ${{ env.TF_WORKING_DIR }}
+
+            - name: Generate Backend Config
+              run: |
+                  ENV="${{ inputs.environment }}"
+                  cat > backend.hcl <<EOF
+                  resource_group_name  = "${{ secrets.TF_BACKEND_RESOURCE_GROUP }}"
+                  storage_account_name = "${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}"
+                  container_name       = "${{ secrets.TF_BACKEND_CONTAINER }}"
+                  key                  = "${{ secrets.TF_BACKEND_KEY_PREFIX }}-${ENV}.tfstate"
+                  use_azuread_auth     = true
+                  EOF
+
+                  echo "Backend Config generated for $ENV"
+                  cat backend.hcl
+
+            - name: Terraform Init
+              run: |
+                  terraform init -backend-config=backend.hcl
+
+            - name: Select Workspace
+              run: |
+                  ENV="${{ inputs.environment }}"
+                  echo "Selecting workspace: $ENV"
+                  terraform workspace select "$ENV" || terraform workspace new "$ENV"
+
+            - name: Import Resource Group
+              env:
+                  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+              run: |
+                  set -e
+                  ENV="${{ inputs.environment }}"
+                  TFVARS="terraform.tfvars.${ENV}"
+
+                  # Get RG Name from tfvars
+                  RG_NAME=$(grep "^resource_group_name" "$TFVARS" | cut -d'"' -f2)
+                  echo "Target Resource Group: $RG_NAME"
+
+                  # Check if RG exists in Azure
+                  if az group show -n "$RG_NAME" >/dev/null 2>&1; then
+                    echo "Resource Group exists in Azure."
+                    
+                    # Check if RG needs import
+                    if ! terraform state show azurerm_resource_group.aks >/dev/null 2>&1; then
+                      echo "Importing Resource Group..."
+                      terraform import -var-file="$TFVARS" \
+                        -var="subscription_id=$ARM_SUBSCRIPTION_ID" \
+                        azurerm_resource_group.aks \
+                        "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
+                    else
+                      echo "Resource Group already in state."
+                    fi
+                  else
+                    echo "Resource Group does not exist in Azure. Skipping import."
+                  fi
+
+            - name: Sync/Refresh State
+              env:
+                  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+              run: |
+                  ENV="${{ inputs.environment }}"
+                  TFVARS="terraform.tfvars.${ENV}"
+
+                  echo "Running refresh-only to sync state with Azure..."
+                  terraform apply -refresh-only -auto-approve \
+                    -var-file="$TFVARS" \
+                    -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+
+            - name: Show State List
+              run: terraform state list
