@@ -161,8 +161,7 @@ jobs:
           TFVARS="terraform.tfvars.${ENV}"
 
           echo "Refreshing Terraform state to sync with Azure..."
-          terraform plan -refresh-only -var-file="$TFVARS" -out=refresh.tfplan
-          terraform apply refresh.tfplan
+          terraform apply -refresh-only -auto-approve -var-file="$TFVARS"
           echo "✅ State refreshed successfully"
 
       - name: Show State List
