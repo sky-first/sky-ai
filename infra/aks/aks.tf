@@ -39,6 +39,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # Since we have Bastion, this is viable.
   # Since we have Bastion, this is viable.
   # tfsec:ignore:azure-aks-api-server-authorized-ip-ranges
+  api_server_access_profile {
+    authorized_ip_ranges = ["0.0.0.0/0"]
+  }
   private_cluster_enabled = false
 
   # Workload Identity (Required for External Secrets / Key Vault)

@@ -1290,21 +1290,10 @@ jobs:
           if terraform init -input=false -upgrade -backend-config=backend.hcl 2>&1; then
             echo "✅ Terraform init concluído com sucesso"
           else
-            # Se falhou por mudança de backend, tentar migrar estado com resposta automática
-            echo "⚠️  Mudança no backend detectada, tentando migrar estado..."
-            # Usar echo "yes" para responder automaticamente à pergunta de migração
-            if echo "yes" | terraform init -input=false -upgrade -migrate-state -backend-config=backend.hcl 2>&1; then
-              echo "✅ Estado migrado com sucesso"
-            else
-              # Se migração falhar, criar workspace primeiro (se necessário) e depois reconfigurar
-              echo "⚠️  Migração falhou, criando workspace se necessário e forçando reconfiguração..."
-              WORKSPACE="${{ needs.detect-environment.outputs.workspace }}"
-              # Criar workspace antes do reconfigure (se não existir)
-              terraform workspace select "$WORKSPACE" 2>/dev/null || terraform workspace new "$WORKSPACE" 2>/dev/null || true
-              # Forçar reconfiguração do backend
-              terraform init -input=false -upgrade -reconfigure -backend-config=backend.hcl
-              echo "✅ Backend reconfigurado"
-            fi
+            echo "❌ ERRO: Terraform init falhou"
+            echo "Backend mismatch detectado ou falha de conexão."
+            echo "Migration desativada no Apply para evitar erros de linhagem."
+            exit 1
           fi
 
       - name: Validate Terraform Workspace
