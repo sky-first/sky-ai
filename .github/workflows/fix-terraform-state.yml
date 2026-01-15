@@ -263,12 +263,14 @@ jobs:
                 "Bastion NIC"
             fi
 
-            # Import Bastion VM (Try unconditionally to ensure it lands in state)
+            # Import Bastion VM (Try unconditionally and ignore failures to ensure we don't block the script)
             VM_NAME="bastion-vm-${ENV}"
+            VM_ID="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Compute/virtualMachines/$VM_NAME"
+            echo "Attempting robust import for Bastion VM ($VM_NAME)..."
             import_if_needed \
               "azurerm_linux_virtual_machine.bastion" \
-              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Compute/virtualMachines/$VM_NAME" \
-              "Bastion VM"
+              "$VM_ID" \
+              "Bastion VM" || echo "⚠️  Bastion VM import had issues, but continuing..."
 
             # Identity Imports (already present above) -> Moving cleanup logic after them
             
