@@ -1,15 +1,9 @@
-# Get supported versions for the region
-data "azurerm_kubernetes_service_versions" "current" {
-  location = azurerm_resource_group.aks.location
-  include_preview = false
-}
-
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = var.aks_cluster_name
   location            = azurerm_resource_group.aks.location
   resource_group_name = azurerm_resource_group.aks.name
   dns_prefix          = var.dns_prefix
-  kubernetes_version  = var.kubernetes_version != "" ? var.kubernetes_version : data.azurerm_kubernetes_service_versions.current.latest_version
+  kubernetes_version  = var.kubernetes_version != "" ? var.kubernetes_version : null
 
   default_node_pool {
     name                        = "system"
@@ -59,21 +53,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# User Node Pool - Spot Instances for Cost Savings
-resource "azurerm_kubernetes_cluster_node_pool" "user_spot" {
+# User Node Pool - Standard Instances
+resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   name                  = "userapps"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D2s_v3" # or larger depending on app needs
+  vm_size               = "Standard_D2s_v3"
   enable_auto_scaling   = true
   min_count             = 1
-  max_count             = 5
-  priority              = "Spot"
-  eviction_policy       = "Delete"
-  spot_max_price        = -1 # Market price
+  max_count             = 3
+  priority              = "Regular"
 
   node_labels = {
-    "kubernetes.azure.com/scalesetpriority" = "spot"
-    "workload_type"                         = "application"
+    "workload_type" = "application"
   }
 
   node_taints = [
