@@ -26,6 +26,7 @@ resource "azurerm_key_vault" "main" {
     default_action             = "Deny"
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
+    ip_rules                   = var.runner_ip != null ? [var.runner_ip] : []
   }
 
   tags = {

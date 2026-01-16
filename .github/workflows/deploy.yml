@@ -199,7 +199,25 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
-      - name: Write backend config
+          EOF
+
+      - name: Get Runner IP
+        id: ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "Runner IP: $RUNNER_IP"
+
+      - name: Whitelist Runner IP on Key Vault
+        uses: azure/CLI@v2
+        if: env.KEYVAULT_NAME != ''
+        with:
+          inlineScript: |
+            echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
+            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
+
+      - name: Write backend config (updated)
         run: |
           ENV="${{ needs.detect-environment.outputs.environment }}"
           cat > backend.hcl <<EOF
@@ -461,6 +479,7 @@ jobs:
           set +e  # Desabilitar exit on error temporariamente
           terraform plan \
             -var-file="$TFVARS_FILE" \
+            -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -out=tfplan \
             -no-color \
             -detailed-exitcode 2>&1 | tee plan-output.txt
@@ -491,6 +510,7 @@ jobs:
             terraform plan \
               -var-file="$TFVARS_FILE" \
               -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+              -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
               -out=tfplan \
               -no-color \
               -detailed-exitcode 2>&1 | tee plan-output.txt
@@ -693,6 +713,14 @@ jobs:
           tail -100 plan-output.txt >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
 
+      - name: Cleanup Key Vault IP
+        if: always() && env.KEYVAULT_NAME != '' && steps.ip.outcome == 'success'
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            echo "Removing Runner IP ${{ steps.ip.outputs.runner_ip }} from Key Vault ${{ env.KEYVAULT_NAME }}..."
+            az keyvault network-rule remove --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }} || echo "Failed to remove IP, continuing..."
+
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
@@ -798,6 +826,22 @@ jobs:
             AUTH_TYPE="TOKEN"
             git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           else
+
+      - name: Get Runner IP
+        id: ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "Runner IP: $RUNNER_IP"
+
+      - name: Whitelist Runner IP on Key Vault
+        uses: azure/CLI@v2
+        if: env.KEYVAULT_NAME != ''
+        with:
+          inlineScript: |
+            echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
+            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
             echo "WARNING: Nenhum token disponível - apenas repositórios públicos serão acessíveis"
             GITHUB_URL_PREFIX="https://github.com/"
             AUTH_TYPE="NONE"
