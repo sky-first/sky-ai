@@ -1382,10 +1382,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Reusing Plan's .terraform directory - NO -upgrade or -reconfigure needed
-          # This ensures Apply uses the exact same backend config as Plan
-          if terraform init -input=false -backend-config=backend.hcl; then
-            echo "✅ Terraform init concluído com sucesso (reutilizando estado do Plan)"
+          # Reusing Plan's backend.hcl - use -reconfigure to force acceptance
+          # This ensures Apply uses the exact same backend config as Plan without migration prompts
+          if terraform init -input=false -reconfigure -backend-config=backend.hcl; then
+            echo "✅ Terraform init concluído com sucesso (reutilizando backend do Plan)"
           else
             echo "❌ ERRO: Terraform init falhou"
             echo "CRÍTICO: O ambiente de execução do Apply deve ser idêntico ao do Plan."
