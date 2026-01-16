@@ -29,6 +29,12 @@ resource "azurerm_key_vault" "main" {
     ip_rules                   = var.runner_ip != null ? [var.runner_ip] : []
   }
 
+  lifecycle {
+    ignore_changes = [
+      network_acls[0].ip_rules
+    ]
+  }
+
   tags = {
     Environment = var.environment
   }
