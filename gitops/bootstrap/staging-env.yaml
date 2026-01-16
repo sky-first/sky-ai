@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root-app
+  name: staging-env
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     targetRevision: staging
-    path: gitops/bootstrap
+    path: gitops/bootstrap/staging
   destination:
     server: "https://kubernetes.default.svc"
     namespace: argocd
