@@ -44,19 +44,19 @@ spec:
           secretStoreRef:
             name: azure-keyvault
           data:
-            - secretKey: jwt-secret-key
+            - secretKey: jwt_secret_key
               remoteRef:
                 key: jwt-secret-key
-            - secretKey: encryption-key
+            - secretKey: encryption_key
               remoteRef:
                 key: encryption-key
-            - secretKey: openai-api-key
+            - secretKey: openai_api_key
               remoteRef:
                 key: openai-api-key
-            - secretKey: database-url
+            - secretKey: database_url
               remoteRef:
                 key: database-url
-            - secretKey: redis-url
+            - secretKey: redis_url
               remoteRef:
                 key: redis-url
 
@@ -65,19 +65,19 @@ spec:
           # These keys will be present in the secret created by ExternalSecret
           jwt-secret-key:
             name: sky-backend-staging-common-app-secrets
-            key: jwt-secret-key
+            key: jwt_secret_key
           encryption-key:
             name: sky-backend-staging-common-app-secrets
-            key: encryption-key
+            key: encryption_key
           openai-api-key:
             name: sky-backend-staging-common-app-secrets
-            key: openai-api-key
+            key: openai_api_key
           DATABASE_URL:
             name: sky-backend-staging-common-app-secrets
-            key: database-url
+            key: database_url
           REDIS_URL:
             name: sky-backend-staging-common-app-secrets
-            key: redis-url
+            key: redis_url
             
         extraEnv:
           - name: CORS_ORIGINS

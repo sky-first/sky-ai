@@ -40,10 +40,10 @@ spec:
           secretStoreRef:
             name: azure-keyvault
           data:
-            - secretKey: openai-api-key
+            - secretKey: openai_api_key
               remoteRef:
                 key: openai-api-key
-            - secretKey: qdrant-url
+            - secretKey: qdrant_url
               remoteRef:
                 key: qdrant-url
                 
@@ -51,10 +51,10 @@ spec:
         envSecrets:
           openai-api-key:
             name: sky-ai-secrets 
-            key: openai-api-key
+            key: openai_api_key
           qdrant-url:
             name: sky-ai-secrets
-            key: qdrant-url
+            key: qdrant_url
             
         extraEnv:
           - name: REDIS_PORT
