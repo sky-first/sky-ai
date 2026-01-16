@@ -18,7 +18,7 @@ spec:
           tag: "latest"
         service:
           port: 80
-          targetPort: 8000
+          targetPort: 8001
         ingress:
           enabled: true
           className: "nginx"
