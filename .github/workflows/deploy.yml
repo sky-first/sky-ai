@@ -1196,7 +1196,9 @@ jobs:
             else
               echo "WARNING: WARNING: Nenhuma role encontrada para App Registration"
               echo "Recomendado: Contributor ou Owner no nível de subscription"
-                echo "OK: Validação de permissões RBAC concluída"
+            fi
+          fi
+          echo "OK: Validação de permissões RBAC concluída"
 
       - name: Open Key Vault Internal Firewalls
         id: kv_override
