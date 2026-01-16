@@ -8,11 +8,16 @@ import json
 import time
 from typing import Dict, List, Any
 
+import os
+
 # Configuration
 BASE_URL = "http://localhost:8000"
 CONNECTION_ID = "8bb5db88-93cf-4982-97c0-d979c157c52d"
 SPACE_ID = "bbd2cef9-8d77-427f-a351-0b32a5c20abe"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZTFhODY0MC1mODY4LTRkMmEtOWRlYS05YWE0ZTIxYjVkZmMiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3Njg0Nzk3NzcsInR5cGUiOiJhY2Nlc3MifQ.nQcdpbieKLSO99oduZkYesXw8jO97bWHbAXas4mIcMc"
+TOKEN = os.getenv("AUTH_TOKEN", "")
+
+if not TOKEN:
+    print("WARNING: AUTH_TOKEN environment variable not set. Tests may fail 401 Unauthorized.")
 
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
