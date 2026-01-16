@@ -1251,15 +1251,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
-          path: _tfplan_artifact
+          path: ${{ env.TF_WORKING_DIR }}
 
-      - name: Restore Plan and Backend Config
+      - name: Verify Artifact Contents
         run: |
           set -euo pipefail
-          echo "Restaurando plan e backend config do artifact..."
-          cp -f _tfplan_artifact/tfplan tfplan
-          cp -f _tfplan_artifact/backend.hcl backend.hcl
-          echo "✅ Plan e backend.hcl restaurados"
+          echo "Verificando conteúdo do artifact..."
+          ls -la
+          echo ""
           echo "Conteúdo do backend.hcl:"
           cat backend.hcl
 
