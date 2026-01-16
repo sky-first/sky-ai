@@ -16,6 +16,12 @@ spec:
           persistence:
             enabled: true
             size: 10Gi
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - grafana.example.com
+            path: /
         prometheus:
           prometheusSpec:
             retention: 10d
