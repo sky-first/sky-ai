@@ -1749,6 +1749,95 @@ jobs:
           echo "recreate_count=$RECREATE_COUNT" >> $GITHUB_OUTPUT
           echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
 
+      - name: Pre-Apply Setup (Import & Key Vault)
+        run: |
+          set -euo pipefail
+          echo "=========================================="
+          echo "Pre-Apply Setup: Imports & Key Vault Config"
+          echo "=========================================="
+          
+          # Import existing resources if they exist (idempotent)
+          echo "🔍 Checking for resources that need importing..."
+          
+          # Function to safely import resource
+          import_if_exists() {
+            local tf_address="$1"
+            local azure_id="$2"
+            local resource_name="$3"
+            
+            # Check if already in state
+            if terraform state show "$tf_address" &>/dev/null; then
+              echo "  ✅ $resource_name already in state"
+              return 0
+            fi
+            
+            # Check if resource exists in Azure
+            if az resource show --ids "$azure_id" &>/dev/null; then
+              echo "  📥 Importing $resource_name..."
+              if terraform import "$tf_address" "$azure_id"; then
+                echo "  ✅ $resource_name imported successfully"
+              else
+                echo "  ⚠️  Import failed for $resource_name (may not be critical)"
+              fi
+            else
+              echo "  ℹ️  $resource_name doesn't exist in Azure (will be created)"
+            fi
+          }
+          
+          # Import Bastion Public IP (conditional resource)
+          import_if_exists \
+            'azurerm_public_ip.bastion[0]' \
+            '/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ needs.detect-environment.outputs.resource_group }}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${{ needs.detect-environment.outputs.environment }}' \
+            'Bastion Public IP'
+          
+          # Import ESO Identity
+          import_if_exists \
+            'azurerm_user_assigned_identity.eso' \
+            '/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ needs.detect-environment.outputs.resource_group }}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${{ needs.detect-environment.outputs.environment }}' \
+            'External Secrets Operator Identity'
+          
+          echo ""
+          echo "🔐 Configuring Key Vault firewall..."
+          
+          # Get all Key Vaults in the resource group
+          KV_LIST="${KV_OVERRIDE_LIST:-}"
+          if [ -z "$KV_LIST" ]; then
+            echo "  ℹ️  No Key Vault override list, discovering from resource group..."
+            KV_LIST=$(az keyvault list \
+              --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
+              --query "[].name" -o tsv | tr '\n' ' ')
+          fi
+          
+          if [ -n "$KV_LIST" ]; then
+            for KV_NAME in $KV_LIST; do
+              echo "  🔧 Configuring $KV_NAME..."
+              
+              # Add runner IP to firewall (idempotent)
+              if az keyvault network-rule add \
+                --name "$KV_NAME" \
+                --ip-address "${RUNNER_IP}/32" \
+                --only-show-errors 2>/dev/null; then
+                echo "    ✅ Runner IP whitelisted"
+              else
+                echo "    ℹ️  IP already whitelisted or firewall disabled"
+              fi
+              
+              # Ensure AzureServices bypass is enabled
+              az keyvault update \
+                --name "$KV_NAME" \
+                --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
+                --bypass AzureServices \
+                --only-show-errors >/dev/null 2>&1 || true
+            done
+            echo "  ✅ Key Vault configuration complete"
+          else
+            echo "  ℹ️  No Key Vaults found (will be created during apply)"
+          fi
+          
+          echo ""
+          echo "✅ Pre-apply setup complete"
+          echo "=========================================="
+
       - name: Terraform Apply
         id: apply
         run: |
