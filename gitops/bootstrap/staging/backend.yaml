@@ -8,9 +8,11 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: fix-infra-multi-env
+    targetRevision: staging
     helm:
       values: |
+        imagePullSecrets:
+          - name: regcred
         image:
           repository: skyacrstaging.azurecr.io/sky-poc-backend
           tag: "latest"
@@ -80,6 +82,8 @@ spec:
         extraEnv:
           - name: CORS_ORIGINS
             value: "https://sky.example.com,http://localhost:3000"
+          - name: REDIS_PORT
+            value: "6379"
           - name: DEBUG
             value: "false"
         migration:

@@ -8,9 +8,11 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: fix-infra-multi-env
+    targetRevision: staging
     helm:
       values: |
+        imagePullSecrets:
+          - name: regcred
         image:
           repository: skyacrstaging.azurecr.io/sky-poc-frontend
           tag: "latest"
