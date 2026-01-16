@@ -17,6 +17,12 @@ spec:
         {{- include "common-app.selectorLabels" . | nindent 8 }}
     spec:
       restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
