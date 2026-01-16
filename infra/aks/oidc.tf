@@ -22,6 +22,8 @@ resource "azurerm_user_assigned_identity" "gh_actions" {
 }
 
 # Grant AcrPush to the GitHub Actions Identity
+# NOTE: The GitHub Actions Service Principal REQUIRES "User Access Administrator" or "Owner" 
+# at the scope level to manage these role assignments via Terraform.
 resource "azurerm_role_assignment" "gh_actions_acr_push" {
   scope                = azurerm_container_registry.acr.id
   role_definition_name = "AcrPush"
