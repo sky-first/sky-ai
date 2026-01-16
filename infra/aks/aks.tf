@@ -37,7 +37,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # For this specific setup user asked for "API Server privado".
   # BUT enabling private_cluster_enabled requires DNS setup or Bastion access to resolve API server.
   # Since we have Bastion, this is viable.
-  private_cluster_enabled = true
+  api_server_access_profile {
+    authorized_ip_ranges = var.runner_ip != null ? [var.runner_ip] : []
+  }
+  private_cluster_enabled = false
 
   # Workload Identity (Required for External Secrets / Key Vault)
   workload_identity_enabled = true
