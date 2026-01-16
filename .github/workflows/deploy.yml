@@ -247,15 +247,41 @@ jobs:
         with:
           inlineScript: |
             if [ -z "${{ env.KEYVAULT_NAME }}" ]; then
-              echo "ERRO: KEYVAULT_NAME is not set"
+               echo "ERRO: KEYVAULT_NAME não está definido no ambiente!"
+               exit 1
+            fi
+
+            echo "🔥 Adicionando IP ${{ steps.ip.outputs.runner_ip }} as regras de rede do Key Vault: ${{ env.KEYVAULT_NAME }}"
+            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
+
+            echo "⏳ Aguardando propagação e verificando acesso..."
+
+            # Loop de tentativa de acesso (Max 5 minutos)
+            MAX_RETRIES=30
+            SLEEP_SEC=10
+            SUCCESS=false
+
+            for ((i=1;i<=MAX_RETRIES;i++)); do
+              echo "Tentativa $i/$MAX_RETRIES: Verificando acesso a secrets..."
+              
+              # Tenta listar secrets (requer firewall + access policy)
+              if az keyvault secret list --vault-name ${{ env.KEYVAULT_NAME }} --max-results 1 >/dev/null 2>&1; then
+                echo "✅ ACESSO CONFIRMADO! O Firewall propagou."
+                SUCCESS=true
+                break
+              else
+                echo "❌ Acesso ainda negado (403 ou similar). Aguardando ${SLEEP_SEC}s..."
+                sleep $SLEEP_SEC
+              fi
+            done
+
+            if [ "$SUCCESS" = "false" ]; then
+              echo "⛔ ERRO: Timeout aguardando propagação do Firewall do Key Vault."
+              echo "Não foi possível acessar secrets após $((MAX_RETRIES * SLEEP_SEC)) segundos."
+              echo "Verifique permissões de Access Policy além do Firewall."
+              az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
               exit 1
             fi
-            echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
-            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
-            echo "Verifying firewall rules..."
-            az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
-            echo "Waiting 30s for firewall rule propagation..."
-            sleep 30
 
       - name: Write backend config (updated)
         run: |
@@ -1265,11 +1291,34 @@ jobs:
             echo "🔥 Adicionando IP ${{ steps.ip.outputs.runner_ip }} as regras de rede do Key Vault: ${{ env.KEYVAULT_NAME }}"
             az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
 
-            echo "⏳ Aguardando propagação (30s)..."
-            sleep 30
+            echo "⏳ Aguardando propagação e verificando acesso..."
 
-            echo "🔍 Verificando se a regra foi aplicada..."
-            az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
+            # Loop de tentativa de acesso (Max 5 minutos)
+            MAX_RETRIES=30
+            SLEEP_SEC=10
+            SUCCESS=false
+
+            for ((i=1;i<=MAX_RETRIES;i++)); do
+              echo "Tentativa $i/$MAX_RETRIES: Verificando acesso a secrets..."
+              
+              # Tenta listar secrets (requer firewall + access policy)
+              if az keyvault secret list --vault-name ${{ env.KEYVAULT_NAME }} --max-results 1 >/dev/null 2>&1; then
+                echo "✅ ACESSO CONFIRMADO! O Firewall propagou."
+                SUCCESS=true
+                break
+              else
+                echo "❌ Acesso ainda negado (403 ou similar). Aguardando ${SLEEP_SEC}s..."
+                sleep $SLEEP_SEC
+              fi
+            done
+
+            if [ "$SUCCESS" = "false" ]; then
+              echo "⛔ ERRO: Timeout aguardando propagação do Firewall do Key Vault."
+              echo "Não foi possível acessar secrets após $((MAX_RETRIES * SLEEP_SEC)) segundos."
+              echo "Verifique permissões de Access Policy além do Firewall."
+              az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
+              exit 1
+            fi
 
       - name: Write backend config
         run: |
