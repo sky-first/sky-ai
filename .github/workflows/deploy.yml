@@ -199,39 +199,43 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
-      - name: Detect Key Vault Name
-        id: kv_detect
+      - name: Open Key Vault Internal Firewalls
+        id: kv_override
         run: |
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          echo "Detecting Key Vault in tfvars: $TFVARS_FILE"
+          echo "Buscando Key Vaults no tfvars: $TFVARS_FILE"
 
-          if [ -f "$TFVARS_FILE" ]; then
-            cat "$TFVARS_FILE"
-            RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-            
-            if [ -n "$RG_NAME" ]; then
-              echo "Resource Group: $RG_NAME"
-              # Show all key vaults for debug
-              az keyvault list --resource-group "$RG_NAME" -o table
-              
-              KV_NAME=$(az keyvault list --resource-group "$RG_NAME" --query "[0].name" -o tsv)
-              
-              if [ -n "$KV_NAME" ]; then
-                echo "Found Key Vault: $KV_NAME"
-                echo "KEYVAULT_NAME=$KV_NAME" >> $GITHUB_ENV
-              else
-                echo "ERRO: No Key Vault found in $RG_NAME"
-                exit 1
-              fi
-            else
-              echo "ERRO: Resource Group name not found in $TFVARS_FILE"
-              exit 1
-            fi
-          else
-            echo "ERRO: tfvars file not found: $TFVARS_FILE"
-            ls -R
+          if [ ! -f "$TFVARS_FILE" ]; then
+             echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
+             exit 1
+          fi
+
+          RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+
+          if [ -z "$RG_NAME" ]; then
+            echo "ERRO: Resource Group não encontrado em $TFVARS_FILE"
             exit 1
+          fi
+
+          echo "Resource Group: $RG_NAME"
+
+          # Listar todos os KVs no RG
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv)
+
+          if [ -z "$KV_LIST" ]; then
+             echo "WARNING: Nenhum Key Vault encontrado no RG $RG_NAME"
+          else
+             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
+             # Salvar lista para o cleanup
+             echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
+             
+             for kv in $KV_LIST; do
+               echo "🔥 Abrindo firewall do Key Vault: $kv"
+               az keyvault update --name "$kv" --default-action Allow
+             done
+             echo "⏳ Aguardando propagação (15s)..."
+             sleep 15
           fi
 
       - name: Get Runner IP
@@ -241,47 +245,6 @@ jobs:
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
           echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
           echo "Runner IP: $RUNNER_IP"
-
-      - name: Whitelist Runner IP on Key Vault
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            if [ -z "${{ env.KEYVAULT_NAME }}" ]; then
-               echo "ERRO: KEYVAULT_NAME não está definido no ambiente!"
-               exit 1
-            fi
-
-            echo "🔥 Adicionando IP ${{ steps.ip.outputs.runner_ip }} as regras de rede do Key Vault: ${{ env.KEYVAULT_NAME }}"
-            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
-
-            echo "⏳ Aguardando propagação e verificando acesso..."
-
-            # Loop de tentativa de acesso (Max 5 minutos)
-            MAX_RETRIES=30
-            SLEEP_SEC=10
-            SUCCESS=false
-
-            for ((i=1;i<=MAX_RETRIES;i++)); do
-              echo "Tentativa $i/$MAX_RETRIES: Verificando acesso a secrets..."
-              
-              # Tenta listar secrets (requer firewall + access policy)
-              if az keyvault secret list --vault-name ${{ env.KEYVAULT_NAME }} --max-results 1 >/dev/null 2>&1; then
-                echo "✅ ACESSO CONFIRMADO! O Firewall propagou."
-                SUCCESS=true
-                break
-              else
-                echo "❌ Acesso ainda negado (403 ou similar). Aguardando ${SLEEP_SEC}s..."
-                sleep $SLEEP_SEC
-              fi
-            done
-
-            if [ "$SUCCESS" = "false" ]; then
-              echo "⛔ ERRO: Timeout aguardando propagação do Firewall do Key Vault."
-              echo "Não foi possível acessar secrets após $((MAX_RETRIES * SLEEP_SEC)) segundos."
-              echo "Verifique permissões de Access Policy além do Firewall."
-              az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
-              exit 1
-            fi
 
       - name: Write backend config (updated)
         run: |
@@ -779,13 +742,15 @@ jobs:
           tail -100 plan-output.txt >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
 
-      - name: Cleanup Key Vault IP
-        if: always() && env.KEYVAULT_NAME != '' && steps.ip.outcome == 'success'
+      - name: Restrict Key Vault Internal Firewalls
+        if: always() && env.KV_OVERRIDE_LIST != ''
         uses: azure/CLI@v2
         with:
           inlineScript: |
-            echo "Removing Runner IP ${{ steps.ip.outputs.runner_ip }} from Key Vault ${{ env.KEYVAULT_NAME }}..."
-            az keyvault network-rule remove --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }} || echo "Failed to remove IP, continuing..."
+            for kv in ${{ env.KV_OVERRIDE_LIST }}; do
+              echo "🔒 Restringindo firewall do Key Vault: $kv"
+              az keyvault update --name "$kv" --default-action Deny || echo "Failed to restrict $kv"
+            done
 
   terraform-apply:
     name: Terraform Apply
@@ -1231,21 +1196,17 @@ jobs:
             else
               echo "WARNING: WARNING: Nenhuma role encontrada para App Registration"
               echo "Recomendado: Contributor ou Owner no nível de subscription"
-            fi
-          fi
+                echo "OK: Validação de permissões RBAC concluída"
 
-          echo "OK: Validação de permissões RBAC concluída"
-
-      - name: Detect Key Vault Name
-        id: kv_detect
+      - name: Open Key Vault Internal Firewalls
+        id: kv_override
         run: |
           set -euo pipefail
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          echo "Detecting Key Vault in tfvars: $TFVARS_FILE"
+          echo "Buscando Key Vaults no tfvars: $TFVARS_FILE"
 
           if [ ! -f "$TFVARS_FILE" ]; then
              echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
-             ls -R
              exit 1
           fi
 
@@ -1258,18 +1219,21 @@ jobs:
 
           echo "Resource Group: $RG_NAME"
 
-          # Tentativa robusta de achar o KV
-          KV_NAME=$(az keyvault list --resource-group "$RG_NAME" --query "[0].name" -o tsv 2>/dev/null || echo "")
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv)
 
-          if [ -z "$KV_NAME" ]; then
-             echo "ERRO: Nenhum Key Vault encontrado no Resource Group $RG_NAME"
-             echo "Listando recursos no RG para debug:"
-             az resource list --resource-group "$RG_NAME" -o table
-             exit 1
+          if [ -z "$KV_LIST" ]; then
+             echo "WARNING: Nenhum Key Vault encontrado no RG $RG_NAME"
+          else
+             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
+             echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
+             
+             for kv in $KV_LIST; do
+               echo "🔥 Abrindo firewall do Key Vault: $kv"
+               az keyvault update --name "$kv" --default-action Allow
+             done
+             echo "⏳ Aguardando propagação (15s)..."
+             sleep 15
           fi
-
-          echo "✅ Key Vault encontrado: $KV_NAME"
-          echo "KEYVAULT_NAME=$KV_NAME" >> $GITHUB_ENV
 
       - name: Get Runner IP
         id: ip
@@ -1278,47 +1242,6 @@ jobs:
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
           echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
           echo "Runner IP: $RUNNER_IP"
-
-      - name: Whitelist Runner IP on Key Vault
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            if [ -z "${{ env.KEYVAULT_NAME }}" ]; then
-               echo "ERRO: KEYVAULT_NAME não está definido no ambiente!"
-               exit 1
-            fi
-
-            echo "🔥 Adicionando IP ${{ steps.ip.outputs.runner_ip }} as regras de rede do Key Vault: ${{ env.KEYVAULT_NAME }}"
-            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
-
-            echo "⏳ Aguardando propagação e verificando acesso..."
-
-            # Loop de tentativa de acesso (Max 5 minutos)
-            MAX_RETRIES=30
-            SLEEP_SEC=10
-            SUCCESS=false
-
-            for ((i=1;i<=MAX_RETRIES;i++)); do
-              echo "Tentativa $i/$MAX_RETRIES: Verificando acesso a secrets..."
-              
-              # Tenta listar secrets (requer firewall + access policy)
-              if az keyvault secret list --vault-name ${{ env.KEYVAULT_NAME }} --max-results 1 >/dev/null 2>&1; then
-                echo "✅ ACESSO CONFIRMADO! O Firewall propagou."
-                SUCCESS=true
-                break
-              else
-                echo "❌ Acesso ainda negado (403 ou similar). Aguardando ${SLEEP_SEC}s..."
-                sleep $SLEEP_SEC
-              fi
-            done
-
-            if [ "$SUCCESS" = "false" ]; then
-              echo "⛔ ERRO: Timeout aguardando propagação do Firewall do Key Vault."
-              echo "Não foi possível acessar secrets após $((MAX_RETRIES * SLEEP_SEC)) segundos."
-              echo "Verifique permissões de Access Policy além do Firewall."
-              az keyvault network-rule list --name ${{ env.KEYVAULT_NAME }} --query "ipRules[?value=='${{ steps.ip.outputs.runner_ip }}']"
-              exit 1
-            fi
 
       - name: Write backend config
         run: |
@@ -1959,14 +1882,15 @@ jobs:
             terraform-state-backup-*.json
           retention-days: 90
 
-      - name: Cleanup Key Vault IP
-        if: always() && env.KEYVAULT_NAME != '' && steps.ip.outcome == 'success'
+      - name: Restrict Key Vault Internal Firewalls
+        if: always() && env.KV_OVERRIDE_LIST != ''
         uses: azure/CLI@v2
         with:
           inlineScript: |
-            echo "Removing Runner IP ${{ steps.ip.outputs.runner_ip }} from Key Vault ${{ env.KEYVAULT_NAME }}..."
-            az keyvault network-rule remove --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
-
+            for kv in ${{ env.KV_OVERRIDE_LIST }}; do
+              echo "🔒 Restringindo firewall do Key Vault: $kv"
+              az keyvault update --name "$kv" --default-action Deny || echo "Failed to restrict $kv"
+            done
   rollback:
     name: Rollback on Failure
     runs-on: ubuntu-latest
