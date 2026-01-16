@@ -22,11 +22,11 @@ resource "azurerm_user_assigned_identity" "gh_actions" {
 }
 
 # Grant AcrPush to the GitHub Actions Identity
-# resource "azurerm_role_assignment" "gh_actions_acr_push" {
-#   scope                = azurerm_container_registry.acr.id
-#   role_definition_name = "AcrPush"
-#   principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
-# }
+resource "azurerm_role_assignment" "gh_actions_acr_push" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
+}
 
 # Grant AcrPull (for verification/signing if needed)
 # resource "azurerm_role_assignment" "gh_actions_acr_pull" {
