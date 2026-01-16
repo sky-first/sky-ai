@@ -42,6 +42,8 @@ spec:
                   {{- end }}
                   optional: true
             {{- end }}
+            - name: REDIS_PORT
+              value: "6379"
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
