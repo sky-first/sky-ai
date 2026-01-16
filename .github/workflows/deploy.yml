@@ -199,6 +199,33 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
+      - name: Detect Key Vault Name
+        id: kv_detect
+        run: |
+          set -euo pipefail
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          echo "Detecting Key Vault in tfvars: $TFVARS_FILE"
+
+          if [ -f "$TFVARS_FILE" ]; then
+            RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            
+            if [ -n "$RG_NAME" ]; then
+              echo "Resource Group: $RG_NAME"
+              KV_NAME=$(az keyvault list --resource-group "$RG_NAME" --query "[0].name" -o tsv 2>/dev/null || echo "")
+              
+              if [ -n "$KV_NAME" ]; then
+                echo "Found Key Vault: $KV_NAME"
+                echo "KEYVAULT_NAME=$KV_NAME" >> $GITHUB_ENV
+              else
+                echo "WARNING: No Key Vault found in $RG_NAME"
+              fi
+            else
+              echo "WARNING: Resource Group name not found in $TFVARS_FILE"
+            fi
+          else
+            echo "WARNING: tfvars file not found: $TFVARS_FILE"
+          fi
+
       - name: Get Runner IP
         id: ip
         run: |
@@ -214,6 +241,8 @@ jobs:
           inlineScript: |
             echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
             az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
+            echo "Waiting 30s for firewall rule propagation..."
+            sleep 30
 
       - name: Write backend config (updated)
         run: |
@@ -1168,6 +1197,33 @@ jobs:
 
           echo "OK: Validação de permissões RBAC concluída"
 
+      - name: Detect Key Vault Name
+        id: kv_detect
+        run: |
+          set -euo pipefail
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          echo "Detecting Key Vault in tfvars: $TFVARS_FILE"
+
+          if [ -f "$TFVARS_FILE" ]; then
+            RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+            
+            if [ -n "$RG_NAME" ]; then
+              echo "Resource Group: $RG_NAME"
+              KV_NAME=$(az keyvault list --resource-group "$RG_NAME" --query "[0].name" -o tsv 2>/dev/null || echo "")
+              
+              if [ -n "$KV_NAME" ]; then
+                echo "Found Key Vault: $KV_NAME"
+                echo "KEYVAULT_NAME=$KV_NAME" >> $GITHUB_ENV
+              else
+                echo "WARNING: No Key Vault found in $RG_NAME"
+              fi
+            else
+              echo "WARNING: Resource Group name not found in $TFVARS_FILE"
+            fi
+          else
+            echo "WARNING: tfvars file not found: $TFVARS_FILE"
+          fi
+
       - name: Get Runner IP
         id: ip
         run: |
@@ -1183,6 +1239,8 @@ jobs:
           inlineScript: |
             echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
             az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
+            echo "Waiting 30s for firewall rule propagation..."
+            sleep 30
 
       - name: Write backend config
         run: |
