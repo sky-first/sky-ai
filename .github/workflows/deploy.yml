@@ -724,6 +724,7 @@ jobs:
           cp -f tfplan "$ARTIFACT_DIR/tfplan"
           cp -f plan-output.txt "$ARTIFACT_DIR/plan-output.txt"
           cp -f backend.hcl "$ARTIFACT_DIR/backend.hcl"
+          cp -rf .terraform "$ARTIFACT_DIR/.terraform"
           echo "Artifact preparado em: $ARTIFACT_DIR"
           ls -la "$ARTIFACT_DIR"
 
@@ -735,6 +736,7 @@ jobs:
             _tfplan_artifact/tfplan
             _tfplan_artifact/plan-output.txt
             _tfplan_artifact/backend.hcl
+            _tfplan_artifact/.terraform
           retention-days: 30
 
       - name: Save Plan Summary
@@ -1261,6 +1263,9 @@ jobs:
           echo ""
           echo "Conteúdo do backend.hcl:"
           cat backend.hcl
+          echo ""
+          echo "Verificando .terraform directory:"
+          ls -la .terraform/ || echo "WARNING: .terraform directory not found"
 
       - name: Validate Terraform Backend
         run: |
@@ -1377,10 +1382,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Tentar init normal - DEVE funcionar se o Plan funcionou
-          # Não tentar migração ou reconfiguração aqui para garantir integridade do lineage
-          if terraform init -input=false -upgrade -backend-config=backend.hcl; then
-            echo "✅ Terraform init concluído com sucesso"
+          # Reusing Plan's .terraform directory - NO -upgrade or -reconfigure needed
+          # This ensures Apply uses the exact same backend config as Plan
+          if terraform init -input=false -backend-config=backend.hcl; then
+            echo "✅ Terraform init concluído com sucesso (reutilizando estado do Plan)"
           else
             echo "❌ ERRO: Terraform init falhou"
             echo "CRÍTICO: O ambiente de execução do Apply deve ser idêntico ao do Plan."
