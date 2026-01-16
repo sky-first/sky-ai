@@ -351,12 +351,26 @@ def _enforce_distribution_and_fact_dim(
                 title = "Total records"
             widgets[i] = {**widgets[i], "type": "kpi", "title": widgets[i].get("title") or title, "question": question, "viz": {"type": "kpi"}}
         else:
+            # ✅ FIX: Usar terminologia de negócio em vez de técnica
             t = logical_tables[0]
+            # Mapear nomes técnicos para termos de negócio
+            business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+            if "credit" in t.lower() and "memo" in t.lower():
+                business_name = "credit notes"
+            elif "invoice" in t.lower():
+                business_name = "invoices"
+            elif "payment" in t.lower():
+                business_name = "payments"
+            elif "customer" in t.lower():
+                business_name = "customers"
+            elif "refund" in t.lower():
+                business_name = "refunds"
+            
             widgets[i] = {
                 **widgets[i],
                 "type": "kpi",
-                "title": widgets[i].get("title") or f"Total rows in {t}",
-                "question": f"How many rows are in the `{t}` table? Return a single number.",
+                "title": widgets[i].get("title") or f"Total {business_name.title()}",
+                "question": f"How many {business_name} are there in total? Return a single number.",
                 "viz": {"type": "kpi"},
             }
 
@@ -531,12 +545,26 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         )
         widgets.append({"widget_key": "w1", "type": "kpi", "title": title, "question": question, "viz": {"type": "kpi"}})
     else:
+        # ✅ FIX: Usar terminologia de negócio
+        t = picked[0]
+        business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        if "credit" in t.lower() and "memo" in t.lower():
+            business_name = "credit notes"
+        elif "invoice" in t.lower():
+            business_name = "invoices"
+        elif "payment" in t.lower():
+            business_name = "payments"
+        elif "customer" in t.lower():
+            business_name = "customers"
+        elif "refund" in t.lower():
+            business_name = "refunds"
+        
         widgets.append(
             {
                 "widget_key": "w1",
                 "type": "kpi",
-                "title": f"Total rows in {picked[0]}",
-                "question": f"How many rows are in the `{picked[0]}` table? Return a single number.",
+                "title": f"Total {business_name.title()}",
+                "question": f"How many {business_name} are there in total? Return a single number.",
                 "viz": {"type": "kpi"},
             }
         )
@@ -554,13 +582,26 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         )
         widgets.append({"widget_key": "w2", "type": "kpi", "title": title, "question": question, "viz": {"type": "kpi"}})
     else:
+        # ✅ FIX: Usar terminologia de negócio
         t = picked[1] if len(picked) > 1 else picked[0]
+        business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        if "credit" in t.lower() and "memo" in t.lower():
+            business_name = "credit notes"
+        elif "invoice" in t.lower():
+            business_name = "invoices"
+        elif "payment" in t.lower():
+            business_name = "payments"
+        elif "customer" in t.lower():
+            business_name = "customers"
+        elif "refund" in t.lower():
+            business_name = "refunds"
+        
         widgets.append(
             {
                 "widget_key": "w2",
                 "type": "kpi",
-                "title": f"Total rows in {t}",
-                "question": f"How many rows are in the `{t}` table? Return a single number.",
+                "title": f"Total {business_name.title()}",
+                "question": f"How many {business_name} are there in total? Return a single number.",
                 "viz": {"type": "kpi"},
             }
         )
@@ -584,15 +625,31 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
             }
         )
     else:
-        widgets.append(
-            {
+        # ✅ FIX: Melhorar pergunta de tabela para especificar ordem
+        # Problema: "Show the latest 15 rows" é ambíguo - não especifica como ordenar
+        # Resultado: IA não sabe qual coluna usar para "latest", retorna vazio
+        t = picked[0]
+        t_cols = table_cols.get(t, [])
+        dt = _choose_date_col(t_cols)
+        
+        if dt:
+            # Se temos coluna de data, usar ela para ordenar
+            widgets.append({
                 "widget_key": "w3",
                 "type": "table",
-                "title": f"Latest rows from {picked[0]}",
-                "question": f"Show the latest 15 rows from `{picked[0]}`.",
+                "title": f"Recent Records from {t}",
+                "question": f"Show the 15 most recent records from `{t}` ordered by `{dt}` descending.",
                 "viz": {"type": "table"},
-            }
-        )
+            })
+        else:
+            # Sem coluna de data, pedir amostra representativa
+            widgets.append({
+                "widget_key": "w3",
+                "type": "table",
+                "title": f"Sample Records from {t}",
+                "question": f"Show a sample of 15 records from `{t}` with key information.",
+                "viz": {"type": "table"},
+            })
 
     # Charts: force required viz set for a "super dashboard"
     # Ajustar índice inicial se já temos pergunta original
@@ -646,17 +703,45 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
 
             widgets.append({"widget_key": f"w{i}", "type": "chart", "title": title, "question": question, "viz": viz})
         else:
-            # Single-table fallback for charts
+            # ✅ MELHORIA: Single-table fallback com perguntas específicas
             t = picked[(i - 1) % max(1, len(picked))]
-            widgets.append(
-                {
-                    "widget_key": f"w{i}",
-                    "type": "chart",
-                    "title": f"{viz_type.title()} insight from {t}",
-                    "question": f"Show a small aggregated result from `{t}` suitable for a {viz_type} chart (<= 15 rows).",
-                    "viz": {"type": viz_type},
-                }
-            )
+            t_cols = table_cols.get(t, [])
+            metric = _choose_metric_col(t_cols)
+            dim = _choose_dim_col(t_cols)
+            dt = _choose_date_col(t_cols)
+            
+            # Gerar pergunta específica baseada no tipo de viz e colunas disponíveis
+            if viz_type in {"line", "area"} and dt and metric:
+                question = f"What is the trend of {metric} over time using `{dt}` from `{t}`? Show monthly aggregation."
+                viz = {"type": viz_type, "mapping": {"x": "period", "y": "value"}}
+                title = f"{metric.replace('_', ' ').title()} Trend"
+            elif viz_type == "pie" and dim and metric:
+                question = f"What is the distribution of {metric} by {dim} in `{t}`? Show top 8 categories."
+                viz = {"type": "pie", "mapping": {"x": "category", "y": "value"}}
+                title = f"{metric.replace('_', ' ').title()} by {dim.replace('_', ' ').title()}"
+            elif viz_type == "scatter" and metric:
+                # Scatter precisa de duas métricas numéricas
+                question = f"Show the relationship between {metric} and record count in `{t}`. Return x, y, and category columns."
+                viz = {"type": "scatter", "mapping": {"x": "x", "y": "y"}}
+                title = f"{metric.replace('_', ' ').title()} Analysis"
+            elif metric and dim:
+                # Bar/column padrão
+                question = f"What are the top 10 {dim} by total {metric} in `{t}`?"
+                viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}}
+                title = f"Top {dim.replace('_', ' ').title()}"
+            else:
+                # Último recurso: pergunta genérica mas ainda melhor que antes
+                question = f"What is the distribution of records in `{t}` by main dimension? Show top 10."
+                viz = {"type": viz_type, "mapping": {"x": "category", "y": "value"}}
+                title = f"Distribution in {t}"
+            
+            widgets.append({
+                "widget_key": f"w{i}",
+                "type": "chart",
+                "title": title,
+                "question": question,
+                "viz": viz,
+            })
 
     # Trim / pad deterministically
     widgets = widgets[:max_widgets]
@@ -713,18 +798,29 @@ def generate_dashboard_plan(
     if original_question:
         system = (
             "You are Davinci, a dashboard planner.\n"
-            "You propose a dashboard (name + widgets) based on accessible tables.\n"
+            "\n"
+            "🎯 PRIMARY GOAL: The user asked a SPECIFIC question. Your dashboard MUST focus on answering THAT question.\n"
+            "⚠️ DO NOT generate a generic 'overview' dashboard that happens to include the question.\n"
+            "⚠️ DO NOT try to use all available tables if they're not relevant to the question.\n"
+            "\n"
             "CRITICAL REQUIREMENT: The user has provided an ORIGINAL QUESTION that MUST be the FIRST widget.\n"
+            "\n"
             "Rules:\n"
             "- Output STRICT JSON only.\n"
             "- The FIRST widget MUST be exactly the user's original question (provided below).\n"
-            "- The remaining 7 widgets MUST be strongly related to the original question (70-80% weight).\n"
-            "- These 7 widgets should be variations, complements, deeper insights, or related metrics based on the original question.\n"
-            "- Think of them as: 'What else would be useful to know related to this question?'\n"
+            "- The remaining 7 widgets MUST be DIRECTLY RELATED to the original question (80-90% relevance).\n"
+            "- Think: 'What specific insights would help answer or expand on this exact question?'\n"
+            "- AVOID: Generic widgets that could apply to any dashboard (e.g., 'customer distribution' when question is about refunds).\n"
             "- Use ONLY the provided logical table names.\n"
             "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
             "- Each widget must have: widget_key, type, title, question, viz.\n"
             "- Widget types allowed: chart, kpi, table, text.\n"
+            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical:\n"
+            "  * AVOID: 'How many rows are in the table?', 'Total rows in silver_credit_memos', 'Count of records'\n"
+            "  * PREFER: 'How many credit notes were issued?', 'Total number of invoices', 'Count of active customers'\n"
+            "  * Think: 'What business metric does this represent?' not 'What's in the database?'\n"
+            "  * Use business terminology: 'credit notes' not 'credit_memos table rows', 'customers' not 'customer records'\n"
+            "  * Focus on INSIGHTS, not data structure: 'revenue trends' not 'sum of amount column'\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
             "- Visualization (viz) RULES:\n"
@@ -733,11 +829,21 @@ def generate_dashboard_plan(
             "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
             "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
             "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
-            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
+            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X (like 'reason', 'status', 'category'), use 'bar' or 'pie'.\n"
+            "  * CRITICAL: For questions about 'distribution by X', use 'bar' or 'pie', NOT 'scatter'.\n"
+            "  * CRITICAL: Match viz type to data - categorical data needs bar/pie, time series needs line/area, numeric correlation needs scatter.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
+            "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
+            "  * DO NOT use restrictive time filters like 'last 30 days' or 'last week' - data might not exist in that range.\n"
+            "  * Instead, use 'recent' or 'latest' without specific date ranges, or use broader ranges like 'last 12 months'.\n"
+            "  * For 'recent transactions', ask for 'latest 15 records ordered by date' instead of 'records from last 30 days'.\n"
+            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries.\n"
+            "  * Avoid questions about specific statuses/conditions that might not exist.\n"
+            "  * Example GOOD: 'Show the 15 most recent refund transactions ordered by date descending'.\n"
+            "  * Example BAD: 'Show refund transactions from the last 30 days' (might be empty).\n"
             f"- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
@@ -767,13 +873,49 @@ def generate_dashboard_plan(
         
         user = (
             f"N={max_widgets}\n"
-            f"ORIGINAL QUESTION (MUST be first widget, word-for-word): {original_question}\n"
+            f"\n"
+            f"🎯 ORIGINAL QUESTION (MUST be first widget, word-for-word): {original_question}\n"
+            f"\n"
+            f"📋 INSTRUCTIONS:\n"
+            f"Generate 7 additional widgets that are DIRECTLY RELATED to the question above.\n"
+            f"\n"
+            f"✅ GOOD EXAMPLE (if question is about 'monthly refund performance'):\n"
+            f"- Widget 1: {original_question} (exact question)\n"
+            f"- Widget 2: What is the total refund amount over time? (business metric)\n"
+            f"- Widget 3: What are the top reasons for refunds? (business insight)\n"
+            f"- Widget 4: What is the refund rate by customer segment? (business analysis)\n"
+            f"- Widget 5: What is the average refund processing time? (operational metric)\n"
+            f"- Widget 6: How are refund amounts distributed? (business distribution)\n"
+            f"- Widget 7: Which products have the most refunds? (business insight)\n"
+            f"- Widget 8: What are the recent refund transactions? (business data)\n"
+            f"\n"
+            f"❌ BAD EXAMPLE (technical/literal questions - AVOID):\n"
+            f"- Widget 1: {original_question}\n"
+            f"- Widget 2: How many rows are in the refunds table? (technical, not useful)\n"
+            f"- Widget 3: Show all columns from credit_memos (technical, not insightful)\n"
+            f"- Widget 4: Count of records in payments table (technical, not business-oriented)\n"
+            f"- Widget 5: Sum of amount column (technical, lacks context)\n"
+            f"\n"
+            f"❌ BAD EXAMPLE (generic overview - AVOID):\n"
+            f"- Widget 1: {original_question}\n"
+            f"- Widget 2: Payment methods (NOT about refunds)\n"
+            f"- Widget 3: Customer distribution (NOT about refunds)\n"
+            f"- Widget 4: Credit memos (NOT about refunds)\n"
+            f"- Widget 5: Revenue trends (NOT about refunds)\n"
+            f"\n"
+            f"❌ BAD EXAMPLE (filters that return empty results):\n"
+            f"- Widget: 'What are the recent high-value invoices?' (implies WHERE category='High' -> EMPTY)\n"
+            f"- Widget: 'Show refunds from last week' (temporal filter -> EMPTY)\n"
+            f"- INSTEAD USE SORTING: 'Show the recent invoices with highest amounts' (ORDER BY amount DESC -> DATA)\n"
+            f"- INSTEAD USE SORTING: 'Show the 15 most recent refund transactions' (ORDER BY date DESC -> DATA)\n"
+            f"\n"
             f"{context_str}"
             f"Goal: {goal}\n"
             f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
             f"Schema sample:\n{schema_summary}\n"
-            f"\nGenerate 7 additional widgets that are STRONGLY RELATED (70-80% weight) to the original question above. "
-            f"They should complement, extend, or provide deeper insights related to: '{original_question}'"
+            f"\n"
+            f"🎯 CRITICAL: Focus on '{original_question}'. Extract the key metric/dimension and build ALL widgets around it.\n"
+            f"Generate a dashboard that comprehensively answers: '{original_question}'\n"
         )
     else:
         # Prompt original (sem pergunta original)

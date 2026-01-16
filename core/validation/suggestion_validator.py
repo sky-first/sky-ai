@@ -58,9 +58,10 @@ class SuggestionValidator:
         critical_errors = [i for i in issues if i.severity == ValidationSeverity.ERROR]
         warnings = [i for i in issues if i.severity == ValidationSeverity.WARNING]
         
+        # ✅ AJUSTE: Aumentar threshold de warnings de 2 para 3
         # Filtrar se:
         # 1. Tem erros críticos
-        # 2. Tem 2 ou mais warnings (muitos problemas)
+        # 2. Tem 3 ou mais warnings (muitos problemas) - MUDANÇA: era 2, agora 3
         # 3. Tem warning de filtro temporal restritivo (RESTRICTIVE_TIME_FILTER) - esses frequentemente retornam vazio
         has_restrictive_time_filter = any(
             i.code == "RESTRICTIVE_TIME_FILTER" for i in warnings
@@ -68,9 +69,24 @@ class SuggestionValidator:
         
         should_filter = (
             len(critical_errors) > 0 
-            or len(warnings) >= 2
+            or len(warnings) >= 3  # ✅ MUDANÇA: era 2, agora 3 (mais tolerante)
             or has_restrictive_time_filter  # Filtrar sugestões com filtros temporais restritivos
         )
+        
+        # ✅ NOVO: Logging detalhado para entender o que está sendo filtrado
+        if should_filter:
+            from core.logging_utils import log_event
+            log_event(
+                "suggestion_filtered_detailed",
+                {
+                    "suggestion": suggestion[:200],
+                    "critical_errors": len(critical_errors),
+                    "warnings": len(warnings),
+                    "has_restrictive_time_filter": has_restrictive_time_filter,
+                    "error_codes": [e.code for e in critical_errors],
+                    "warning_codes": [w.code for w in warnings],
+                }
+            )
         
         return should_filter
     

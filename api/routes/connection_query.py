@@ -281,7 +281,23 @@ def _get_dashboard_plan_cache_key(
     crews_str = ",".join(sorted(context_crews or []))
     tables_str = str(len(context_tables or [])) # Apenas contagem para cache, pois tabelas mudam pouco
     
-    return f"dashboard_plan:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
+    # ✅ NOVO: Adicionar versão para invalidar cache antigo após melhorias
+    # Incrementar versão quando houver mudanças significativas na lógica de geração
+    # v2: validação menos restritiva + fallback melhorado
+    # v3: cache key fix + table query improvements
+    CACHE_VERSION = "v3"
+    
+    # ✅ FIX: Usar hash completo da resposta inicial para diferenciar contextos
+    # Problema: dashboards idênticos para perguntas diferentes porque initial_ai_response
+    # não estava sendo usado corretamente na chave de cache
+    if initial_ai_response:
+        # Usar hash completo (não apenas primeiros 8 chars) para garantir unicidade
+        initial_resp_hash = hashlib.md5(initial_ai_response.encode()).hexdigest()
+        initial_resp_norm = initial_resp_hash
+    else:
+        initial_resp_norm = "no_context"
+    
+    return f"dashboard_plan:{CACHE_VERSION}:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
 
 
 def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
