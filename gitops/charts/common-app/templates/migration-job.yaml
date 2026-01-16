@@ -29,4 +29,20 @@ spec:
                   name: {{ include "common-app.fullname" . }}-secrets
                   key: database-url
                   optional: true
+            {{- range $key, $val := .Values.envSecrets }}
+            - name: {{ $key | replace "-" "_" | upper }}
+              valueFrom:
+                secretKeyRef:
+                  {{- if kindIs "map" $val }}
+                  name: {{ $val.name }}
+                  key: {{ $val.key }}
+                  {{- else }}
+                  name: {{ include "common-app.fullname" $ }}-secrets
+                  key: {{ $key }}
+                  {{- end }}
+                  optional: true
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
 {{- end }}
