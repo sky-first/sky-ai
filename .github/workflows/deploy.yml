@@ -1749,55 +1749,13 @@ jobs:
           echo "recreate_count=$RECREATE_COUNT" >> $GITHUB_OUTPUT
           echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
 
-      - name: Pre-Apply Setup (Import & Key Vault)
+      - name: Configure Key Vault Firewall
         run: |
-          set -euo pipefail
+          set +e  # Don't fail on Key Vault errors
           echo "=========================================="
-          echo "Pre-Apply Setup: Imports & Key Vault Config"
+          echo "🔐 Configuring Key Vault Firewall"
+          echo "Runner IP: ${RUNNER_IP}"
           echo "=========================================="
-          
-          # Import existing resources if they exist (idempotent)
-          echo "🔍 Checking for resources that need importing..."
-          
-          # Function to safely import resource
-          import_if_exists() {
-            local tf_address="$1"
-            local azure_id="$2"
-            local resource_name="$3"
-            
-            # Check if already in state
-            if terraform state show "$tf_address" &>/dev/null; then
-              echo "  ✅ $resource_name already in state"
-              return 0
-            fi
-            
-            # Check if resource exists in Azure
-            if az resource show --ids "$azure_id" &>/dev/null; then
-              echo "  📥 Importing $resource_name..."
-              if terraform import "$tf_address" "$azure_id"; then
-                echo "  ✅ $resource_name imported successfully"
-              else
-                echo "  ⚠️  Import failed for $resource_name (may not be critical)"
-              fi
-            else
-              echo "  ℹ️  $resource_name doesn't exist in Azure (will be created)"
-            fi
-          }
-          
-          # Import Bastion Public IP (conditional resource)
-          import_if_exists \
-            'azurerm_public_ip.bastion[0]' \
-            '/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ needs.detect-environment.outputs.resource_group }}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${{ needs.detect-environment.outputs.environment }}' \
-            'Bastion Public IP'
-          
-          # Import ESO Identity
-          import_if_exists \
-            'azurerm_user_assigned_identity.eso' \
-            '/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ needs.detect-environment.outputs.resource_group }}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${{ needs.detect-environment.outputs.environment }}' \
-            'External Secrets Operator Identity'
-          
-          echo ""
-          echo "🔐 Configuring Key Vault firewall..."
           
           # Get all Key Vaults in the resource group
           KV_LIST="${KV_OVERRIDE_LIST:-}"
@@ -1805,12 +1763,13 @@ jobs:
             echo "  ℹ️  No Key Vault override list, discovering from resource group..."
             KV_LIST=$(az keyvault list \
               --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
-              --query "[].name" -o tsv | tr '\n' ' ')
+              --query "[].name" -o tsv | tr '\n' ' ' || echo "")
           fi
           
           if [ -n "$KV_LIST" ]; then
             for KV_NAME in $KV_LIST; do
-              echo "  🔧 Configuring $KV_NAME..."
+              echo ""
+              echo "  🔧 Configuring: $KV_NAME"
               
               # Add runner IP to firewall (idempotent)
               if az keyvault network-rule add \
@@ -1828,15 +1787,87 @@ jobs:
                 --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
                 --bypass AzureServices \
                 --only-show-errors >/dev/null 2>&1 || true
+                
+              echo "    ✅ Configuration complete"
             done
-            echo "  ✅ Key Vault configuration complete"
           else
             echo "  ℹ️  No Key Vaults found (will be created during apply)"
           fi
           
           echo ""
-          echo "✅ Pre-apply setup complete"
+          echo "✅ Key Vault firewall configuration complete"
           echo "=========================================="
+          
+          # Always succeed (Key Vault config is best-effort)
+          exit 0
+      
+      - name: Import Existing Resources
+        run: |
+          set +e  # Don't fail on import errors
+          echo "=========================================="
+          echo "📥 Importing Existing Resources"
+          echo "=========================================="
+          
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          RG="${{ needs.detect-environment.outputs.resource_group }}"
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          
+          # Function to safely import resource
+          import_resource() {
+            local tf_address="$1"
+            local azure_id="$2"
+            local name="$3"
+            
+            echo ""
+            echo "🔍 Checking: $name"
+            
+            # Check if already in state
+            if terraform state show "$tf_address" &>/dev/null; then
+              echo "  ✅ Already in state"
+              return 0
+            fi
+            
+            # Check if exists in Azure
+            if ! az resource show --ids "$azure_id" &>/dev/null; then
+              echo "  ℹ️  Doesn't exist in Azure (will be created)"
+              return 0
+            fi
+            
+            # Import
+            echo "  📥 Importing..."
+            if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
+              echo "  ✅ Import successful"
+            else
+              if grep -q "already managed\|Cannot import" /tmp/import.log; then
+                echo "  ✅ Already managed or will be created"
+              else
+                echo "  ⚠️  Import failed (continuing anyway)"
+              fi
+            fi
+          }
+          
+          # Import resources
+          import_resource \
+            'azurerm_public_ip.bastion[0]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${ENV}" \
+            "Bastion Public IP"
+          
+          import_resource \
+            'azurerm_user_assigned_identity.eso' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${ENV}" \
+            "ESO Identity"
+          
+          import_resource \
+            'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-infra"]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
+            "Federated Credential: sky-poc-infra"
+          
+          echo ""
+          echo "✅ Import process complete"
+          echo "=========================================="
+          
+          # Always succeed (imports are best-effort)
+          exit 0
 
       - name: Terraform Apply
         id: apply
