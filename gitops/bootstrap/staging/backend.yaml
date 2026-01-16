@@ -87,7 +87,7 @@ spec:
           - name: DEBUG
             value: "false"
         migration:
-          enabled: false
+          enabled: true
           command: ["alembic"]
           args: ["upgrade", "head"]
   destination:
