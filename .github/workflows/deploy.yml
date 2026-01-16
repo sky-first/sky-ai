@@ -199,8 +199,6 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
-          EOF
-
       - name: Get Runner IP
         id: ip
         run: |
@@ -826,22 +824,6 @@ jobs:
             AUTH_TYPE="TOKEN"
             git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           else
-
-      - name: Get Runner IP
-        id: ip
-        run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org)
-          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
-          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
-          echo "Runner IP: $RUNNER_IP"
-
-      - name: Whitelist Runner IP on Key Vault
-        uses: azure/CLI@v2
-        if: env.KEYVAULT_NAME != ''
-        with:
-          inlineScript: |
-            echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
-            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
             echo "WARNING: Nenhum token disponível - apenas repositórios públicos serão acessíveis"
             GITHUB_URL_PREFIX="https://github.com/"
             AUTH_TYPE="NONE"
@@ -1185,6 +1167,22 @@ jobs:
           fi
 
           echo "OK: Validação de permissões RBAC concluída"
+
+      - name: Get Runner IP
+        id: ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "Runner IP: $RUNNER_IP"
+
+      - name: Whitelist Runner IP on Key Vault
+        uses: azure/CLI@v2
+        if: env.KEYVAULT_NAME != ''
+        with:
+          inlineScript: |
+            echo "Authorizing Runner IP ${{ steps.ip.outputs.runner_ip }} on Key Vault ${{ env.KEYVAULT_NAME }}..."
+            az keyvault network-rule add --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
 
       - name: Write backend config
         run: |
@@ -1824,6 +1822,14 @@ jobs:
           path: |
             terraform-state-backup-*.json
           retention-days: 90
+
+      - name: Cleanup Key Vault IP
+        if: always() && env.KEYVAULT_NAME != '' && steps.ip.outcome == 'success'
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            echo "Removing Runner IP ${{ steps.ip.outputs.runner_ip }} from Key Vault ${{ env.KEYVAULT_NAME }}..."
+            az keyvault network-rule remove --name ${{ env.KEYVAULT_NAME }} --ip-address ${{ steps.ip.outputs.runner_ip }}
 
   rollback:
     name: Rollback on Failure
