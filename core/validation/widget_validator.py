@@ -97,14 +97,21 @@ class WidgetValidator:
         issues.extend(viz_issues)
         
         # Determinar se deve filtrar
-        # Em strict_mode: filtra se houver qualquer ERROR ou WARNING
-        # Em modo normal: filtra apenas se houver ERROR
+        # ✅ AJUSTE: strict_mode agora realmente faz diferença
+        # Em strict_mode=True: filtra se houver qualquer ERROR ou WARNING
+        # Em strict_mode=False: filtra APENAS se houver ERROR (ignora warnings)
         has_error = any(issue.severity == ValidationSeverity.ERROR for issue in issues)
         has_warning = any(issue.severity == ValidationSeverity.WARNING for issue in issues)
         
-        should_filter = has_error or (self.strict_mode and has_warning)
+        # ✅ MUDANÇA: strict_mode=False agora é verdadeiramente leniente
+        if self.strict_mode:
+            # Modo estrito: filtrar errors E warnings
+            should_filter = has_error or has_warning
+        else:
+            # Modo leniente: filtrar APENAS errors críticos
+            should_filter = has_error
         
-        # Log se necessário
+        # ✅ NOVO: Log detalhado se necessário
         if should_filter:
             log_event(
                 "davinci_widget_filtered",
@@ -112,10 +119,14 @@ class WidgetValidator:
                     "widget_index": widget_index,
                     "widget_key": widget.get("widget_key", "unknown"),
                     "widget_type": widget.get("type", "unknown"),
+                    "widget_title": widget.get("title", "unknown")[:100],
+                    "question": widget.get("question", "")[:200],
                     "issues_count": len(issues),
                     "has_error": has_error,
                     "has_warning": has_warning,
                     "strict_mode": self.strict_mode,
+                    "error_codes": [i.code for i in issues if i.severity == ValidationSeverity.ERROR],
+                    "warning_codes": [i.code for i in issues if i.severity == ValidationSeverity.WARNING],
                 },
             )
         

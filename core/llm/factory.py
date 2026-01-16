@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 from config.settings import settings
-from core.llm.providers import LangChainChatOpenAIProvider
+from core.llm.providers import LangChainChatOpenAIProvider, OllamaProvider, LLMProvider
 from core.rag.embeddings import OpenAIEmbeddingProvider
 
 
@@ -52,8 +52,16 @@ def _convert_length_to_max_tokens(length: Optional[int]) -> Optional[int]:
         return int(1000 + ((length - 50) / 50.0) * (4000 - 1000))
 
 
-def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[int] = None) -> LangChainChatOpenAIProvider:
+def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
     """Cria o LLM orchestrator usando configurações centralizadas e opcionalmente dinâmicas."""
+    if settings.use_local_models:
+        return OllamaProvider(
+            model=settings.llm_model_orchestrator_local,
+            base_url=settings.ollama_base_url,
+            temperature=0.0,  # Orchestrator sempre determinístico
+            num_ctx=4096
+        )
+
     temperature = _convert_creativity_to_temperature(creativity)
     max_tokens = _convert_length_to_max_tokens(length)
     return LangChainChatOpenAIProvider(
@@ -63,8 +71,16 @@ def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[i
     )
 
 
-def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int] = None) -> LangChainChatOpenAIProvider:
+def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
     """Cria o LLM specialist usando configurações centralizadas e opcionalmente dinâmicas."""
+    if settings.use_local_models:
+        return OllamaProvider(
+            model=settings.llm_model_specialist_local,
+            base_url=settings.ollama_base_url,
+            temperature=0.0,  # SQL deve ser determinístico
+            num_ctx=4096
+        )
+
     temperature = _convert_creativity_to_temperature(creativity)
     max_tokens = _convert_length_to_max_tokens(length)
     return LangChainChatOpenAIProvider(
@@ -74,8 +90,16 @@ def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int
     )
 
 
-def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int] = None) -> LangChainChatOpenAIProvider:
+def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
     """Cria o LLM formatter usando configurações centralizadas e opcionalmente dinâmicas."""
+    if settings.use_local_models:
+        return OllamaProvider(
+            model=settings.llm_model_formatter_local,
+            base_url=settings.ollama_base_url,
+            temperature=0.3,
+            num_ctx=4096
+        )
+
     temperature = _convert_creativity_to_temperature(creativity)
     max_tokens = _convert_length_to_max_tokens(length)
     return LangChainChatOpenAIProvider(

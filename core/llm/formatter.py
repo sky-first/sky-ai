@@ -8,6 +8,7 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
 from core.i18n.i18n import detect_language, get_message
 from core.logging_utils import log_event
+from config.settings import settings
 
 
 def _extract_topic(question: str) -> str:
@@ -255,44 +256,76 @@ def run_formatter(
     if instructions:
         instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
 
-    system_msg = {
-        "role": "system",
-        "content": (
-            "You are a data response narrator.\n"
-            "Your ONLY job: translate query results into natural language.\n\n"
-            "CRITICAL RULES:\n"
-            "YOU MUST NOT:\n"
-            "- Mention SQL, tables, columns, or technical database terms\n"
-            "- Infer data beyond what was provided in the results\n"
-            "- Create new queries or suggest queries\n"
-            "- Explain how data was retrieved\n"
-            "- Answer questions not answered by the results\n"
-            "- Mention table names, column names, or database structure\n\n"
-            "YOU MUST:\n"
-            "- Only use the data provided in the results\n"
-            "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
-            "- If data is insufficient, say 'Insufficient data to answer this question'\n"
-            "- Keep the answer concise and objective\n\n"
-            "CRITICAL LANGUAGE REQUIREMENT:\n"
-            "- You MUST answer in English, even if the user question is in another language.\n"
-            f"{length_guidance}"
-            f"{format_guidance}"
-            f"{instructions_block}"
-        ),
-    }
+    if settings.use_local_models:
+        # Mode Ollama (Phi-3): Generates Title + Explanation
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a data analyst. Analyze the SQL query results.\\n\\n"
+                "Output format (EXACTLY):\\n"
+                "-- TITLE: <Concise English title, max 60 chars>\\n"
+                "<Natural language explanation in user's language>\\n\\n"
+                "Rules:\\n"
+                "- Title MUST be in English\\n"
+                "- Title MUST start with '-- TITLE:'\\n"
+                "- Explanation should be in the detected language\\n"
+                "- Be concise and clear\\n"
+                f"{length_guidance}\\n"
+                f"{format_guidance}\\n"
+                f"{instructions_block}"
+            )
+        }
+        user_msg = {
+            "role": "user",
+            "content": (
+                f"Question: {question}\\n"
+                f"SQL: {state.get('sql', 'N/A')}\\n"
+                f"Total rows: {total_rows}\\n"
+                f"{stats_text}\\n"
+                f"Results sample: {sample_json}\\n"
+                f"Language: {lang}"
+            )
+        }
+    else:
+        # Mode OpenAI (Original)
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a data response narrator.\\n"
+                "Your ONLY job: translate query results into natural language.\\n\\n"
+                "CRITICAL RULES:\\n"
+                "YOU MUST NOT:\\n"
+                "- Mention SQL, tables, columns, or technical database terms\\n"
+                "- Infer data beyond what was provided in the results\\n"
+                "- Create new queries or suggest queries\\n"
+                "- Explain how data was retrieved\\n"
+                "- Answer questions not answered by the results\\n"
+                "- Mention table names, column names, or database structure\\n\\n"
+                "YOU MUST:\\n"
+                "- Only use the data provided in the results\\n"
+                "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\\n"
+                "- If data is insufficient, say 'Insufficient data to answer this question'\\n"
+                "- Keep the answer concise and objective\\n\\n"
+                "CRITICAL LANGUAGE REQUIREMENT:\\n"
+                "- You MUST answer in English, even if the user question is in another language.\\n"
+                f"{length_guidance}"
+                f"{format_guidance}"
+                f"{instructions_block}"
+            ),
+        }
 
-    user_msg = {
-        "role": "user",
-        "content": (
-            f"User question:\n{question}\n\n"
-            f"Total rows returned (not all shown): {total_rows}\n"
-            f"{stats_text}\n\n"
-            "Sample of the data (up to 15 rows, JSON):\n"
-            f"{sample_json}\n\n"
-            "Explain the main insight(s) from this data in a concise way, "
-            "in the same language as the user's question."
-        ),
-    }
+        user_msg = {
+            "role": "user",
+            "content": (
+                f"User question:\\n{question}\\n\\n"
+                f"Total rows returned (not all shown): {total_rows}\\n"
+                f"{stats_text}\\n\\n"
+                "Sample of the data (up to 15 rows, JSON):\\n"
+                f"{sample_json}\\n\\n"
+                "Explain the main insight(s) from this data in a concise way, "
+                "in the same language as the user's question."
+            ),
+        }
 
     try:
         answer = _invoke_llm(llm, system_msg, user_msg)
@@ -311,6 +344,20 @@ def run_formatter(
             },
         )
         return state
+
+    if settings.use_local_models:
+        lines = answer.strip().split('\n')
+        title = None
+        answer_lines = []
+        for line in lines:
+            if line.strip().upper().startswith("-- TITLE:"):
+                title = line.split(":", 1)[1].strip()
+            elif line.strip():
+                answer_lines.append(line)
+        
+        if title:
+            state["generated_title"] = title
+        answer = "\n".join(answer_lines).strip()
 
     answer = answer.strip() or "No explanation available."
     state["answer"] = answer

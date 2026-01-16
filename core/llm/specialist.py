@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Dict, Any, Tuple
 
+from config.settings import settings
+
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.data_sources.base import BaseDataSource
 from core.llm.providers import LLMProvider
@@ -34,10 +36,42 @@ def _build_secure_system_prompt(
 
     # detected_language removed
     dialect: Dialect = Dialect.POSTGRES,
+    use_local_models: bool = False,
 ) -> Dict[str, str]:
     """
     Constrói system prompt com regras de segurança explícitas.
     """
+
+    # Se estivermos usando modelos locais (SQLCoder), usamos um prompt específico
+    # sem regras de título e sem comentários forçados.
+    if use_local_models:
+        if use_multiple_tables:
+            content = (
+                "### Task\\n"
+                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\\n\\n"
+                "### Instructions\\n"
+                f"- Use ONLY these tables: {', '.join(physical_names)}\\n"
+                f"- Main table (FROM): {physical_names[0]}\\n"
+                "- Use ONLY existing columns from the schemas provided\\n"
+                f"- ALWAYS end with LIMIT {max_limit}\\n"
+                "- NEVER use SELECT *\\n"
+                "- Output ONLY the SQL code, no explanations\\n\\n"
+                "### SQL Query\\n"
+            )
+        else:
+            content = (
+                "### Task\\n"
+                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\\n\\n"
+                "### Instructions\\n"
+                f"- Use ONLY this table: {physical_names[0]}\\n"
+                "- Use ONLY existing columns from the schema\\n"
+                f"- ALWAYS end with LIMIT {max_limit}\\n"
+                "- NEVER use SELECT *\\n"
+                "- Output ONLY the SQL code, no explanations\\n\\n"
+                "### SQL Query\\n"
+            )
+        
+        return {"role": "system", "content": content}
     
     # Use the passed security_rules string directly
     # If security_rules is empty, use a default set of rules
@@ -54,8 +88,14 @@ def _build_secure_system_prompt(
             "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
             "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
             "8. NEVER use subqueries that access unauthorized tables\n"
-            "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
+            "9. NEVER use functions like pg_read_file, exec, system, etc.\n"
+            "10. 🔴 CRITICAL: NEVER use WHERE with DATE_SUB, INTERVAL, or temporal filters like 'last X days/weeks'\n"
+            "    - Data might not exist in recent ranges → EMPTY RESULTS\n"
+            "    - For 'recent' data, use ORDER BY date_column DESC LIMIT N\n"
+            "    - Example BAD: WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)\n"
+            "    - Example GOOD: ORDER BY date DESC LIMIT 15\n\n"
             "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
+            "⚠️ REMEMBER: DO NOT use DATE_SUB or temporal WHERE filters - use ORDER BY instead!\n"
             "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
         ).format(max_limit=max_limit, max_columns=max_columns)
     
@@ -609,6 +649,7 @@ def run_specialist(
             use_multiple_tables=True,
             security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
             dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
+            use_local_models=settings.use_local_models,
         )
         
         # Adicionar instruções específicas de JOIN
@@ -631,8 +672,23 @@ def run_specialist(
             "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
         )
         
+        # ✅ CRITICAL: Adicionar instruções sobre filtros temporais
+        temporal_filter_guidance = (
+            "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
+            "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
+            "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
+            "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
+            "- Examples:\n"
+            "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
+            "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
+            "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
+            "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
+            "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
+            "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
+        )
+        
         # Atualizar content com instruções adicionais
-        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance
+        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance
 
         user_msg = {
             "role": "user",
@@ -656,6 +712,7 @@ def run_specialist(
             use_multiple_tables=False,
             security_rules=security_rules_str.format(max_limit=100, max_columns=10),
             dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
+            use_local_models=settings.use_local_models,
         )
         
         # Adicionar instruções de agregação
@@ -671,8 +728,23 @@ def run_specialist(
             "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
         )
         
+        # ✅ CRITICAL: Adicionar instruções sobre filtros temporais
+        temporal_filter_guidance = (
+            "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
+            "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
+            "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
+            "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
+            "- Examples:\n"
+            "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
+            "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
+            "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
+            "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
+            "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
+            "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
+        )
+        
         # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction + column_guidance
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance
 
         user_msg = {
             "role": "user",
@@ -745,7 +817,76 @@ def run_specialist(
     
     # Extrair título e limpar SQL
     generated_title, sql = _extract_title_from_sql(raw_sql)
+
+    # 🔄 AUTO-CORRECTION: Verificar filtros temporais proibidos e fazer RETRY
+    # Se detectar DATE_SUB, CURRENT_DATE, etc., forçar reescrita
+    temporal_forbidden = ["DATE_SUB", "CURRENT_DATE", "NOW()", "INTERVAL", "current_date", "now()"]
+    has_temporal_filter = any(term in sql.upper() for term in temporal_forbidden) and "WHERE" in sql.upper()
+    
+    # 🔄 AUTO-CORRECTION: Verificar filtro de categoria 'High' que retorna vazio
+    has_high_value_filter = "INVOICE_VALUE_CATEGORY = 'HIGH'" in sql.upper() or "INVOICE_VALUE_CATEGORY = \"HIGH\"" in sql.upper()
+    
+    # Só faz retry se não for a segunda tentativa (evitar loop infinito)
+    retry_count = state.get("specialist_retry_count", 0)
+    
+    if (has_temporal_filter or has_high_value_filter) and retry_count < 1:
+        reason_msg = ""
+        if has_temporal_filter:
+            reason_msg = "Detected prohibited temporal filter (DATE_SUB/CURRENT_DATE)"
+            error_details = (
+                "⚠️ SYSTEM ERROR: You used prohibited temporal filters (DATE_SUB, CURRENT_DATE, INTERVAL, NOW).\n"
+                "The dataset is HISTORICAL (from 2023-2024). Using 'last 30 days' from today (2026) returns EMPTY results.\n"
+                "rules violation: 10. NEVER use WHERE with temporal filters.\n"
+            )
+        else:
+             reason_msg = "Detected problematic 'High' category filter"
+             error_details = (
+                "⚠️ SYSTEM ERROR: Do not filter by invoice_value_category = 'High' - this value does not exist or returns empty data.\n"
+                "Instead of filtering by category, SORT by the amount to show the highest values.\n"
+             )
+
+        log_event(
+            "specialist_retry_triggered",
+            {
+                "agent_id": agent_config.id,
+                "bad_sql": sql,
+                "reason": reason_msg
+            }
+        )
+        
+        # Criar mensagem de erro para o LLM
+        retry_msg = (
+            f"{error_details}\n"
+            "👉 FIX: Rewrite the query specifically using 'ORDER BY {amount_col} DESC LIMIT {limit}' instead of WHERE ...\n"
+            "Example: SELECT ... FROM ... ORDER BY total_amount DESC LIMIT 15"
+        )
+        
+        # Adicionar ao histórico e chamar novamente
+        new_messages = [system_msg, user_msg, {"role": "assistant", "content": raw.content if hasattr(raw, "content") else str(raw)}, {"role": "user", "content": retry_msg}]
+        
+        try:
+            log_event("specialist_retrying", {"attempt": 2})
+            raw_retry = llm.invoke(new_messages)
+            
+            # Reprocessar saída
+            raw_sql_retry = _parse_specialist_output(raw_retry, primary_table)
+            generated_title_retry, sql_retry = _extract_title_from_sql(raw_sql_retry)
+            
+            if sql_retry:
+                sql = sql_retry
+                generated_title = generated_title_retry
+                log_event("specialist_retry_success", {"new_sql": sql})
+            
+            # Atualizar contador para não tentar de novo
+            state["specialist_retry_count"] = retry_count + 1
+            
+        except Exception as e:
+            log_event("specialist_retry_failed", {"error": str(e)})
+            # Continua com o SQL original se falhar o retry
+            pass
+
     state["generated_title"] = generated_title
+    
     
     # Log do parsing
     log_event(

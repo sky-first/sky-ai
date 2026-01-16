@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     
     # Embedding Models
     embedding_model: str = "text-embedding-3-large"
+
+    # Ollama Configuration
+    use_local_models: bool = False
+    ollama_base_url: str = "http://localhost:11434"
+    
+    # Modelos locais (sobrescrevem os da OpenAI quando use_local_models=True)
+    llm_model_orchestrator_local: str = "phi3-sky"
+    llm_model_specialist_local: str = "sqlcoder-sky"
+    llm_model_formatter_local: str = "phi3-sky"
     
     # Celery
     # DEVOPS: Em produção, estas URLs são construídas automaticamente a partir de REDIS_PASSWORD

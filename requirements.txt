@@ -6,6 +6,7 @@ uvicorn[standard]==0.29.0
 langgraph==0.2.19
 langchain-core>=0.3.15,<0.4.0
 langchain-openai==0.2.5
+langchain-community>=0.0.20
 
 # --- YAML ---
 pyyaml==6.0.1
