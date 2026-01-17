@@ -347,6 +347,12 @@ jobs:
                   fi
                 else
                   echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
+                  # IMPORTANTE: Mesmo que a role já exista, pode haver propagação pendente
+                  # Especialmente após mudanças de firewall/IP ou roles concedidas recentemente
+                  echo "   ⏳ Aguardando propagação RBAC/firewall (role já existe, mas pode precisar propagar)..."
+                  if ! wait_for_rbac_propagation "$kv" 180; then
+                    echo "   ⚠️  RBAC pode não estar totalmente propagado, mas continuando validação..."
+                  fi
                 fi
               else
                 echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
@@ -355,13 +361,23 @@ jobs:
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
               # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
               echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
-              az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1 || {
-                echo "   ⚠️  Não foi possível alterar default-action (pode estar já configurado)"
-              }
+              FIREWALL_CHANGED=false
+              if az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1; then
+                echo "   ✅ Firewall ajustado para Allow"
+                FIREWALL_CHANGED=true
+              else
+                echo "   ℹ️  Firewall já está configurado ou não pôde ser alterado"
+              fi
+              
+              # Aguardar propagação de firewall se foi alterado (pode levar 30-60s)
+              if [ "$FIREWALL_CHANGED" == "true" ]; then
+                echo "   ⏳ Aguardando propagação de firewall (30s)..."
+                sleep 30
+              fi
               
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
               echo "   🔍 Validando conectividade real..."
-              MAX_VALIDATION_ATTEMPTS=12
+              MAX_VALIDATION_ATTEMPTS=24  # Aumentado de 12 para 24 (2 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
               
@@ -383,10 +399,27 @@ jobs:
               if [ "$CONNECTED" == "false" ]; then
                 echo ""
                 echo "❌ ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
-                echo "Verifique:"
-                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP"
+                echo ""
+                echo "🔍 Diagnóstico:"
+                echo "  Key Vault: $kv"
+                echo "  Runner IP: $RUNNER_IP"
+                echo "  Service Principal: $CLIENT_ID"
+                if [ "$RBAC_ENABLED" == "true" ]; then
+                  echo "  RBAC habilitado: Sim"
+                  echo "  Role 'Key Vault Secrets User': $([ "$HAS_ROLE" != "0" ] && echo "Existe" || echo "NÃO existe")"
+                else
+                  echo "  RBAC habilitado: Não (usa Access Policies)"
+                fi
+                echo ""
+                echo "📋 Verificações necessárias:"
+                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP/32"
                 echo "  2. Permissões RBAC/Access Policies estão corretas"
-                echo "  3. Service Principal tem permissões adequadas"
+                echo "  3. Service Principal ($CLIENT_ID) tem role 'Key Vault Secrets User'"
+                echo "  4. Propagação RBAC/firewall pode levar até 5 minutos"
+                echo ""
+                echo "🛠️  Comandos de diagnóstico:"
+                echo "  az role assignment list --assignee $CLIENT_ID --scope \"${KV_SCOPE_PREFIX}/${kv}\""
+                echo "  az keyvault show --name $kv --query \"{firewall:properties.networkAcls, rbac:properties.enableRbacAuthorization}\""
                 exit 1
               fi
             done
@@ -1694,6 +1727,12 @@ jobs:
                   fi
                 else
                   echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
+                  # IMPORTANTE: Mesmo que a role já exista, pode haver propagação pendente
+                  # Especialmente após mudanças de firewall/IP ou roles concedidas recentemente
+                  echo "   ⏳ Aguardando propagação RBAC/firewall (role já existe, mas pode precisar propagar)..."
+                  if ! wait_for_rbac_propagation "$kv" 180; then
+                    echo "   ⚠️  RBAC pode não estar totalmente propagado, mas continuando validação..."
+                  fi
                 fi
               else
                 echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
@@ -1702,13 +1741,23 @@ jobs:
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
               # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
               echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
-              az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1 || {
-                echo "   ⚠️  Não foi possível alterar default-action (pode estar já configurado)"
-              }
+              FIREWALL_CHANGED=false
+              if az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1; then
+                echo "   ✅ Firewall ajustado para Allow"
+                FIREWALL_CHANGED=true
+              else
+                echo "   ℹ️  Firewall já está configurado ou não pôde ser alterado"
+              fi
+              
+              # Aguardar propagação de firewall se foi alterado (pode levar 30-60s)
+              if [ "$FIREWALL_CHANGED" == "true" ]; then
+                echo "   ⏳ Aguardando propagação de firewall (30s)..."
+                sleep 30
+              fi
               
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
               echo "   🔍 Validando conectividade real..."
-              MAX_VALIDATION_ATTEMPTS=12
+              MAX_VALIDATION_ATTEMPTS=24  # Aumentado de 12 para 24 (2 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
               
@@ -1730,10 +1779,27 @@ jobs:
               if [ "$CONNECTED" == "false" ]; then
                 echo ""
                 echo "❌ ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
-                echo "Verifique:"
-                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP"
+                echo ""
+                echo "🔍 Diagnóstico:"
+                echo "  Key Vault: $kv"
+                echo "  Runner IP: $RUNNER_IP"
+                echo "  Service Principal: $CLIENT_ID"
+                if [ "$RBAC_ENABLED" == "true" ]; then
+                  echo "  RBAC habilitado: Sim"
+                  echo "  Role 'Key Vault Secrets User': $([ "$HAS_ROLE" != "0" ] && echo "Existe" || echo "NÃO existe")"
+                else
+                  echo "  RBAC habilitado: Não (usa Access Policies)"
+                fi
+                echo ""
+                echo "📋 Verificações necessárias:"
+                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP/32"
                 echo "  2. Permissões RBAC/Access Policies estão corretas"
-                echo "  3. Service Principal tem permissões adequadas"
+                echo "  3. Service Principal ($CLIENT_ID) tem role 'Key Vault Secrets User'"
+                echo "  4. Propagação RBAC/firewall pode levar até 5 minutos"
+                echo ""
+                echo "🛠️  Comandos de diagnóstico:"
+                echo "  az role assignment list --assignee $CLIENT_ID --scope \"${KV_SCOPE_PREFIX}/${kv}\""
+                echo "  az keyvault show --name $kv --query \"{firewall:properties.networkAcls, rbac:properties.enableRbacAuthorization}\""
                 exit 1
               fi
             done
