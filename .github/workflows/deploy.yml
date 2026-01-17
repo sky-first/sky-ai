@@ -334,25 +334,26 @@ jobs:
                     --scope "$KV_SCOPE" \
                     --only-show-errors >/dev/null 2>&1; then
                     echo "   ✅ Role concedida"
-                    
-                    # Aguardar propagação RBAC antes de validar
-                    if ! wait_for_rbac_propagation "$kv"; then
-                      echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
-                    fi
+                    ROLE_GRANTED_NOW=true
                   else
                     echo "   ⚠️  Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
                     echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
-                    echo "   ℹ️  Tentando validar acesso mesmo assim (role pode já existir por outro método)..."
-                    # Não falhar aqui - tentar validar acesso na próxima etapa
+                    echo "   ℹ️  A role pode já existir e estar propagando (verificação pode ter falhado)"
+                    ROLE_GRANTED_NOW=false
                   fi
                 else
-                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
-                  # IMPORTANTE: Mesmo que a role já exista, pode haver propagação pendente
-                  # Especialmente após mudanças de firewall/IP ou roles concedidas recentemente
-                  echo "   ⏳ Aguardando propagação RBAC/firewall (role já existe, mas pode precisar propagar)..."
-                  if ! wait_for_rbac_propagation "$kv" 180; then
-                    echo "   ⚠️  RBAC pode não estar totalmente propagado, mas continuando validação..."
-                  fi
+                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe (detectada)"
+                  ROLE_GRANTED_NOW=false
+                fi
+                
+                # CRÍTICO: SEMPRE aguardar propagação RBAC quando usa RBAC
+                # Mesmo se não detectou a role ou não conseguiu conceder, ela pode existir e estar propagando
+                # A função wait_for_rbac_propagation valida acesso REAL (secret list), não apenas verifica role
+                echo "   ⏳ Aguardando propagação RBAC (pode levar até 5 minutos)..."
+                echo "   ℹ️  Isso garante que permissões RBAC estejam totalmente propagadas"
+                if ! wait_for_rbac_propagation "$kv" 300; then
+                  echo "   ⚠️  RBAC não propagado após 5 minutos, mas continuando validação..."
+                  echo "   ℹ️  A role pode ter sido concedida manualmente e ainda estar propagando"
                 fi
               else
                 echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
@@ -1714,25 +1715,26 @@ jobs:
                     --scope "$KV_SCOPE" \
                     --only-show-errors >/dev/null 2>&1; then
                     echo "   ✅ Role concedida"
-                    
-                    # Aguardar propagação RBAC antes de validar
-                    if ! wait_for_rbac_propagation "$kv"; then
-                      echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
-                    fi
+                    ROLE_GRANTED_NOW=true
                   else
                     echo "   ⚠️  Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
                     echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
-                    echo "   ℹ️  Tentando validar acesso mesmo assim (role pode já existir por outro método)..."
-                    # Não falhar aqui - tentar validar acesso na próxima etapa
+                    echo "   ℹ️  A role pode já existir e estar propagando (verificação pode ter falhado)"
+                    ROLE_GRANTED_NOW=false
                   fi
                 else
-                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
-                  # IMPORTANTE: Mesmo que a role já exista, pode haver propagação pendente
-                  # Especialmente após mudanças de firewall/IP ou roles concedidas recentemente
-                  echo "   ⏳ Aguardando propagação RBAC/firewall (role já existe, mas pode precisar propagar)..."
-                  if ! wait_for_rbac_propagation "$kv" 180; then
-                    echo "   ⚠️  RBAC pode não estar totalmente propagado, mas continuando validação..."
-                  fi
+                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe (detectada)"
+                  ROLE_GRANTED_NOW=false
+                fi
+                
+                # CRÍTICO: SEMPRE aguardar propagação RBAC quando usa RBAC
+                # Mesmo se não detectou a role ou não conseguiu conceder, ela pode existir e estar propagando
+                # A função wait_for_rbac_propagation valida acesso REAL (secret list), não apenas verifica role
+                echo "   ⏳ Aguardando propagação RBAC (pode levar até 5 minutos)..."
+                echo "   ℹ️  Isso garante que permissões RBAC estejam totalmente propagadas"
+                if ! wait_for_rbac_propagation "$kv" 300; then
+                  echo "   ⚠️  RBAC não propagado após 5 minutos, mas continuando validação..."
+                  echo "   ℹ️  A role pode ter sido concedida manualmente e ainda estar propagando"
                 fi
               else
                 echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
