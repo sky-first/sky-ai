@@ -238,7 +238,7 @@ jobs:
              echo "🔍 Verificando conectividade com Key Vaults..."
              for kv in $KV_LIST; do
                echo "   Verificando $kv..."
-               for ((i=1; i<=24; i++)); do
+               for ((i=1; i<=60; i++)); do
                  if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
                    echo "   ✅ Conectividade confirmada para $kv"
                    break
@@ -493,6 +493,16 @@ jobs:
             'azurerm_network_interface.bastion[0]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/networkInterfaces/bastion-nic-${ENV}" \
             "Bastion NIC"
+
+          import_resource \
+            'azurerm_linux_virtual_machine.bastion[0]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Compute/virtualMachines/bastion-vm-${ENV}" \
+            "Bastion VM"
+
+          import_resource \
+            'azurerm_federated_identity_credential.eso' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${ENV}/federatedIdentityCredentials/fed-eso-${ENV}" \
+            "Federated Credential: ESO"
 
           import_resource \
             'azurerm_user_assigned_identity.eso' \
@@ -1334,7 +1344,7 @@ jobs:
              echo "🔍 Verificando conectividade com Key Vaults..."
              for kv in $KV_LIST; do
                echo "   Verificando $kv..."
-               for ((i=1; i<=24; i++)); do
+               for ((i=1; i<=60; i++)); do
                  if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
                    echo "   ✅ Conectividade confirmada para $kv"
                    break
@@ -1936,9 +1946,11 @@ jobs:
                 
               # Active Verification Loop
               echo "    🔍 Verificando acesso efetivo..."
-              for ((i=1; i<=24; i++)); do
+              for ((i=1; i<=60; i++)); do
                 if az keyvault secret list --vault-name "$KV_NAME" --maxresults 1 >/dev/null 2>&1; then
                   echo "    ✅ Acesso confirmado!"
+                  echo "    ⏳ Aguardando estabilização (5s extra)..."
+                  sleep 5
                   break
                 fi
                 if [ $i -eq 24 ]; then
