@@ -179,6 +179,7 @@ jobs:
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_key_vault_firewall_allow: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1245,6 +1246,7 @@ jobs:
       TF_BACKEND_KEY_PREFIX: ${{ secrets.TF_BACKEND_KEY_PREFIX }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_key_vault_firewall_allow: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -23,7 +23,7 @@ resource "azurerm_key_vault" "main" {
 
   network_acls {
     # Restricted access to AKS Subnet and Azure Services only
-    default_action             = "Deny"
+    default_action             = var.key_vault_firewall_allow ? "Allow" : "Deny"
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
     ip_rules                   = var.runner_ip != null ? [var.runner_ip] : []

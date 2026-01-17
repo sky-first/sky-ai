@@ -76,3 +76,9 @@ variable "runner_ip" {
   type        = string
   default     = null
 }
+
+variable "key_vault_firewall_allow" {
+  description = "Temporarily allow all access to Key Vault (managed by pipeline during apply)"
+  type        = bool
+  default     = false
+}
