@@ -415,6 +415,79 @@ jobs:
           terraform workspace select ${{ needs.detect-environment.outputs.workspace }} || \
           terraform workspace new ${{ needs.detect-environment.outputs.workspace }}
 
+      - name: Import Existing Resources (Pre-Plan)
+        run: |
+          set +e  # Don't fail on import errors
+          echo "=========================================="
+          echo "📥 Importing Existing Resources (Before Plan)"
+          echo "=========================================="
+
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+          # Get Resource Group from tfvars
+          RG=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+
+          if [ -z "$RG" ]; then
+             echo "⚠️  Could not determine Resource Group from tfvars. Skipping imports."
+             exit 0
+          fi
+
+          # Function to safely import resource
+          import_resource() {
+            local tf_address="$1"
+            local azure_id="$2"
+            local name="$3"
+            
+            echo ""
+            echo "🔍 Checking: $name"
+            
+            # Check if already in state
+            if terraform state show "$tf_address" &>/dev/null; then
+              echo "  ✅ Already in state"
+              return 0
+            fi
+            
+            # Check if exists in Azure
+            if ! az resource show --ids "$azure_id" &>/dev/null; then
+              echo "  ℹ️  Doesn't exist in Azure (will be created)"
+              return 0
+            fi
+            
+            # Import
+            echo "  📥 Importing..."
+            if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
+              echo "  ✅ Import successful"
+            else
+              if grep -q "already managed\|Cannot import" /tmp/import.log; then
+                echo "  ✅ Already managed or will be created"
+              else
+                echo "  ⚠️  Import failed (continuing anyway)"
+              fi
+            fi
+          }
+
+          # Import resources
+          import_resource \
+            'azurerm_public_ip.bastion[0]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${ENV}" \
+            "Bastion Public IP"
+
+          import_resource \
+            'azurerm_user_assigned_identity.eso' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${ENV}" \
+            "ESO Identity"
+
+          import_resource \
+            'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-infra"]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
+            "Federated Credential: sky-poc-infra"
+
+          echo ""
+          echo "✅ Import process complete"
+          echo "=========================================="
+
       - name: Terraform Plan
         id: plan
         run: |
@@ -1756,7 +1829,7 @@ jobs:
           echo "🔐 Configuring Key Vault Firewall"
           echo "Runner IP: ${RUNNER_IP}"
           echo "=========================================="
-          
+
           # Get all Key Vaults in the resource group
           KV_LIST="${KV_OVERRIDE_LIST:-}"
           if [ -z "$KV_LIST" ]; then
@@ -1765,7 +1838,7 @@ jobs:
               --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
               --query "[].name" -o tsv | tr '\n' ' ' || echo "")
           fi
-          
+
           if [ -n "$KV_LIST" ]; then
             for KV_NAME in $KV_LIST; do
               echo ""
@@ -1793,80 +1866,12 @@ jobs:
           else
             echo "  ℹ️  No Key Vaults found (will be created during apply)"
           fi
-          
+
           echo ""
           echo "✅ Key Vault firewall configuration complete"
           echo "=========================================="
-          
+
           # Always succeed (Key Vault config is best-effort)
-          exit 0
-      
-      - name: Import Existing Resources
-        run: |
-          set +e  # Don't fail on import errors
-          echo "=========================================="
-          echo "📥 Importing Existing Resources"
-          echo "=========================================="
-          
-          ENV="${{ needs.detect-environment.outputs.environment }}"
-          RG="${{ needs.detect-environment.outputs.resource_group }}"
-          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          
-          # Function to safely import resource
-          import_resource() {
-            local tf_address="$1"
-            local azure_id="$2"
-            local name="$3"
-            
-            echo ""
-            echo "🔍 Checking: $name"
-            
-            # Check if already in state
-            if terraform state show "$tf_address" &>/dev/null; then
-              echo "  ✅ Already in state"
-              return 0
-            fi
-            
-            # Check if exists in Azure
-            if ! az resource show --ids "$azure_id" &>/dev/null; then
-              echo "  ℹ️  Doesn't exist in Azure (will be created)"
-              return 0
-            fi
-            
-            # Import
-            echo "  📥 Importing..."
-            if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
-              echo "  ✅ Import successful"
-            else
-              if grep -q "already managed\|Cannot import" /tmp/import.log; then
-                echo "  ✅ Already managed or will be created"
-              else
-                echo "  ⚠️  Import failed (continuing anyway)"
-              fi
-            fi
-          }
-          
-          # Import resources
-          import_resource \
-            'azurerm_public_ip.bastion[0]' \
-            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${ENV}" \
-            "Bastion Public IP"
-          
-          import_resource \
-            'azurerm_user_assigned_identity.eso' \
-            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${ENV}" \
-            "ESO Identity"
-          
-          import_resource \
-            'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-infra"]' \
-            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
-            "Federated Credential: sky-poc-infra"
-          
-          echo ""
-          echo "✅ Import process complete"
-          echo "=========================================="
-          
-          # Always succeed (imports are best-effort)
           exit 0
 
       - name: Terraform Apply
