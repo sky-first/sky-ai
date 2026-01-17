@@ -199,67 +199,199 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
+      - name: Get Runner IP
+        id: ip
+        run: |
+          set -euo pipefail
+          RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 https://checkip.amazonaws.com || echo "")
+          if [ -z "$RUNNER_IP" ]; then
+            echo "ERRO: Não foi possível obter IP do runner"
+            exit 1
+          fi
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "✅ Runner IP obtido: $RUNNER_IP"
+
       - name: Open Key Vault Internal Firewalls
         id: kv_override
         run: |
           set -euo pipefail
+          
+          # Validar variáveis obrigatórias
+          if [ -z "${ARM_CLIENT_ID:-}" ]; then
+            echo "ERRO: ARM_CLIENT_ID não definido"
+            exit 1
+          fi
+          if [ -z "${ARM_SUBSCRIPTION_ID:-}" ]; then
+            echo "ERRO: ARM_SUBSCRIPTION_ID não definido"
+            exit 1
+          fi
+          if [ -z "${RUNNER_IP:-}" ]; then
+            echo "ERRO: RUNNER_IP não definido (deve ser obtido no step anterior)"
+            exit 1
+          fi
+          
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          echo "Buscando Key Vaults no tfvars: $TFVARS_FILE"
-
           if [ ! -f "$TFVARS_FILE" ]; then
-             echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
-             exit 1
+            echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
+            exit 1
           fi
 
+          # Extrair Resource Group com validação
           RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-
           if [ -z "$RG_NAME" ]; then
             echo "ERRO: Resource Group não encontrado em $TFVARS_FILE"
+            echo "Verifique se o arquivo contém: resource_group_name = \"...\""
             exit 1
           fi
 
           echo "Resource Group: $RG_NAME"
-
-          # Listar todos os KVs no RG
-          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv)
-
-          if [ -z "$KV_LIST" ]; then
-             echo "WARNING: Nenhum Key Vault encontrado no RG $RG_NAME"
-          else
-             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
-             # Salvar lista para o cleanup
-             echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
-             
-             for kv in $KV_LIST; do
-               echo "🔥 Abrindo firewall do Key Vault: $kv"
-               az keyvault update --name "$kv" --default-action Allow
-             done
-             # Active Verification Loop
-             echo "🔍 Verificando conectividade com Key Vaults..."
-             for kv in $KV_LIST; do
-               echo "   Verificando $kv..."
-               for ((i=1; i<=60; i++)); do
-                 if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
-                   echo "   ✅ Conectividade confirmada para $kv"
-                   break
-                 fi
-                 if [ $i -eq 24 ]; then
-                   echo "   ⚠️ Timeout aguardando propagação para $kv (continuando mesmo assim...)"
-                 else
-                   echo "   ⏳ Aguardando propagação... ($i/24)"
-                   sleep 5
-                 fi
-               done
-             done
-          fi
-
-      - name: Get Runner IP
-        id: ip
-        run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org)
-          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
-          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
           echo "Runner IP: $RUNNER_IP"
+
+          # Obter Client ID e scope para RBAC
+          CLIENT_ID="${ARM_CLIENT_ID}"
+          KV_SCOPE_PREFIX="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.KeyVault/vaults"
+
+          # Listar todos os Key Vaults no Resource Group
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$KV_LIST" ]; then
+            echo "ℹ️  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
+          else
+            echo "Encontrados os seguintes Key Vaults: $KV_LIST"
+            # Salvar lista para cleanup posterior
+            echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
+            
+            # Função auxiliar para validar propagação RBAC com retry exponencial
+            wait_for_rbac_propagation() {
+              local kv_name=$1
+              local max_wait=${2:-300}  # 5 minutos padrão
+              local retry_interval=${3:-5}
+              local elapsed=0
+              
+              echo "   ⏳ Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
+              
+              while [ $elapsed -lt $max_wait ]; do
+                # Testar acesso real ao secret
+                if az keyvault secret list --vault-name "$kv_name" --maxresults 1 >/dev/null 2>&1; then
+                  echo "   ✅ RBAC propagado após ${elapsed}s"
+                  return 0
+                fi
+                
+                sleep $retry_interval
+                elapsed=$((elapsed + retry_interval))
+                
+                if [ $((elapsed % 30)) -eq 0 ]; then
+                  echo "   ⏳ Aguardando propagação... (${elapsed}s/${max_wait}s)"
+                fi
+              done
+              
+              echo "   ⚠️  Timeout aguardando propagação RBAC após ${elapsed}s"
+              return 1
+            }
+            
+            # Configurar cada Key Vault
+            for kv in $KV_LIST; do
+              echo ""
+              echo "🔧 Configurando Key Vault: $kv"
+              
+              # 1. Primeiro adicionar IP à whitelist (mais seguro)
+              echo "   📍 Adicionando IP do runner à whitelist..."
+              if az keyvault network-rule add \
+                --name "$kv" \
+                --ip-address "${RUNNER_IP}/32" \
+                --only-show-errors >/dev/null 2>&1; then
+                echo "   ✅ IP ${RUNNER_IP}/32 adicionado à whitelist"
+              else
+                echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
+              fi
+              
+              # 2. Garantir que AzureServices bypass está habilitado
+              az keyvault update \
+                --name "$kv" \
+                --bypass AzureServices \
+                --only-show-errors >/dev/null 2>&1 || true
+              
+              # 3. Verificar se usa RBAC e conceder permissões se necessário
+              RBAC_ENABLED=$(az keyvault show --name "$kv" --query "properties.enableRbacAuthorization" -o tsv 2>/dev/null || echo "false")
+              
+              if [ "$RBAC_ENABLED" == "true" ]; then
+                echo "   🔐 Key Vault usa RBAC - verificando permissões..."
+                KV_SCOPE="${KV_SCOPE_PREFIX}/${kv}"
+                
+                # Verificar se já tem a role
+                HAS_ROLE=$(az role assignment list \
+                  --assignee "$CLIENT_ID" \
+                  --scope "$KV_SCOPE" \
+                  --role "Key Vault Secrets User" \
+                  --query "[].id" -o tsv 2>/dev/null | wc -l || echo "0")
+                
+                if [ "$HAS_ROLE" -eq "0" ]; then
+                  echo "   🔑 Concedendo role 'Key Vault Secrets User'..."
+                  if az role assignment create \
+                    --assignee "$CLIENT_ID" \
+                    --role "Key Vault Secrets User" \
+                    --scope "$KV_SCOPE" \
+                    --only-show-errors >/dev/null 2>&1; then
+                    echo "   ✅ Role concedida"
+                    
+                    # Aguardar propagação RBAC antes de validar
+                    if ! wait_for_rbac_propagation "$kv"; then
+                      echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
+                    fi
+                  else
+                    echo "   ❌ ERRO: Falha ao conceder role RBAC"
+                    exit 1
+                  fi
+                else
+                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
+                fi
+              else
+                echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
+              fi
+              
+              # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
+              # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
+              echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
+              az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1 || {
+                echo "   ⚠️  Não foi possível alterar default-action (pode estar já configurado)"
+              }
+              
+              # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
+              echo "   🔍 Validando conectividade real..."
+              MAX_VALIDATION_ATTEMPTS=12
+              VALIDATION_DELAY=5
+              CONNECTED=false
+              
+              for ((i=1; i<=MAX_VALIDATION_ATTEMPTS; i++)); do
+                # ÚNICA validação real: tentar listar secrets
+                if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
+                  echo "   ✅ Conectividade confirmada para $kv (acesso a secrets validado)"
+                  CONNECTED=true
+                  break
+                fi
+                
+                if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
+                  echo "   ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
+                  sleep $VALIDATION_DELAY
+                fi
+              done
+              
+              # FALHAR se não conseguir conectar (não continuar silenciosamente)
+              if [ "$CONNECTED" == "false" ]; then
+                echo ""
+                echo "❌ ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
+                echo "Verifique:"
+                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP"
+                echo "  2. Permissões RBAC/Access Policies estão corretas"
+                echo "  3. Service Principal tem permissões adequadas"
+                exit 1
+              fi
+            done
+            
+            echo ""
+            echo "✅ Todos os Key Vaults configurados e validados com sucesso"
+          fi
 
       - name: Write backend config (updated)
         run: |
@@ -298,24 +430,120 @@ jobs:
 
           # Verificar se Container existe
           echo "Verificando Container: ${TF_BACKEND_CONTAINER}"
-          if ! az storage container show \
+          CONTAINER_EXISTS=false
+          if az storage container show \
             --name "${TF_BACKEND_CONTAINER}" \
             --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
             --auth-mode login \
             --query name -o tsv > /dev/null 2>&1; then
+            echo "OK: Container encontrado"
+            CONTAINER_EXISTS=true
+          else
             echo "WARNING: Container não encontrado, criando..."
+            
+            # Tentar criar container
             if ! az storage container create \
               --name "${TF_BACKEND_CONTAINER}" \
               --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
               --auth-mode login \
               --public-access off > /dev/null 2>&1; then
-              echo "ERRO: Falha ao criar container"
-              echo "Verifique permissões da App Registration no Storage Account"
-              exit 1
+              echo "⚠️  Falha ao criar container - tentando conceder permissões RBAC..."
+              
+              # Obter Client ID e Storage Account scope
+              if [ -z "${ARM_CLIENT_ID:-}" ]; then
+                echo "ERRO: ARM_CLIENT_ID não definido"
+                exit 1
+              fi
+              CLIENT_ID="${ARM_CLIENT_ID}"
+              STORAGE_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${TF_BACKEND_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${TF_BACKEND_STORAGE_ACCOUNT}"
+              
+              # Verificar se já tem a role
+              HAS_ROLE=$(az role assignment list \
+                --assignee "$CLIENT_ID" \
+                --scope "$STORAGE_SCOPE" \
+                --role "Storage Blob Data Contributor" \
+                --query "[].id" -o tsv 2>/dev/null | wc -l || echo "0")
+              
+              ROLE_GRANTED=false
+              if [ "$HAS_ROLE" == "0" ]; then
+                echo "   🔐 Concedendo role 'Storage Blob Data Contributor'..."
+                if az role assignment create \
+                  --assignee "$CLIENT_ID" \
+                  --role "Storage Blob Data Contributor" \
+                  --scope "$STORAGE_SCOPE" \
+                  --only-show-errors >/dev/null 2>&1; then
+                  echo "   ✅ Role concedida"
+                  ROLE_GRANTED=true
+                else
+                  echo "   ❌ Falha ao conceder role automaticamente"
+                  echo ""
+                  echo "ERRO: Não foi possível criar container nem conceder permissões"
+                  echo "Conceda manualmente a role 'Storage Blob Data Contributor' para a App Registration:"
+                  echo "  az role assignment create \\"
+                  echo "    --assignee ${CLIENT_ID} \\"
+                  echo "    --role 'Storage Blob Data Contributor' \\"
+                  echo "    --scope '${STORAGE_SCOPE}'"
+                  exit 1
+                fi
+              else
+                echo "   ℹ️  Role 'Storage Blob Data Contributor' já existe"
+              fi
+              
+              # Aguardar propagação RBAC com retry exponencial (máximo 5 minutos)
+              if [ "$ROLE_GRANTED" == "true" ] || [ "$HAS_ROLE" != "0" ]; then
+                MAX_RBAC_WAIT=300  # 5 minutos
+                RBAC_RETRY_INTERVAL=5
+                elapsed=0
+                
+                echo "   ⏳ Aguardando propagação RBAC (máximo ${MAX_RBAC_WAIT}s)..."
+                
+                while [ $elapsed -lt $MAX_RBAC_WAIT ]; do
+                  # Testar acesso real: tentar criar container
+                  if az storage container create \
+                    --name "${TF_BACKEND_CONTAINER}" \
+                    --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+                    --auth-mode login \
+                    --public-access off >/dev/null 2>&1; then
+                    echo "   ✅ Container criado após ${elapsed}s - RBAC propagado"
+                    break
+                  fi
+                  
+                  sleep $RBAC_RETRY_INTERVAL
+                  elapsed=$((elapsed + RBAC_RETRY_INTERVAL))
+                  
+                  # Log a cada 30 segundos
+                  if [ $((elapsed % 30)) -eq 0 ]; then
+                    echo "   ⏳ Aguardando propagação RBAC... (${elapsed}s/${MAX_RBAC_WAIT}s)"
+                  fi
+                done
+                
+                # Verificar se criou com sucesso
+                if [ $elapsed -ge $MAX_RBAC_WAIT ]; then
+                  # Última tentativa antes de falhar
+                  if ! az storage container create \
+                    --name "${TF_BACKEND_CONTAINER}" \
+                    --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+                    --auth-mode login \
+                    --public-access off >/dev/null 2>&1; then
+                    echo "ERRO: Falha ao criar container após ${elapsed}s de espera por propagação RBAC"
+                    echo "Verifique:"
+                    echo "  1. Role 'Storage Blob Data Contributor' foi concedida corretamente"
+                    echo "  2. Service Principal tem permissões para criar role assignments"
+                    echo "  3. Container pode já existir (verifique manualmente)"
+                    echo ""
+                    echo "Ou crie o container manualmente:"
+                    echo "  az storage container create \\"
+                    echo "    --name ${TF_BACKEND_CONTAINER} \\"
+                    echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
+                    echo "    --auth-mode login \\"
+                    echo "    --public-access off"
+                    exit 1
+                  fi
+                fi
+              fi
+            else
+              echo "OK: Container criado com sucesso"
             fi
-            echo "OK: Container criado com sucesso"
-          else
-            echo "OK: Container encontrado"
           fi
 
           # Verificar permissões de escrita
@@ -358,21 +586,24 @@ jobs:
           if [ -n "$LOCK_INFO" ]; then
             # Tentar calcular idade do lock (pode falhar em alguns sistemas)
             LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_INFO" +%s 2>/dev/null || echo 0)))
-            # Se lock tem mais de 10 minutos, considerar preso (reduzido de 1 hora)
-            # Locks de workflows que falharam geralmente ficam presos
-            if [ "$LOCK_AGE" -gt 600 ] 2>/dev/null; then
-              echo "WARNING: Lock preso detectado (idade: ${LOCK_AGE}s, mais de 10 minutos)"
-              echo "Removendo lock preso..."
-              az storage blob delete \
-                --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-                --container-name "${TF_BACKEND_CONTAINER}" \
-                --name ".terraform.tfstate.lock.info" \
-                --auth-mode login \
-                --output none 2>/dev/null || echo "Não foi possível remover lock"
-              echo "✅ Lock removido"
+            # Aumentar threshold para 1 hora - workflows grandes podem levar mais tempo
+            # Não remover locks automaticamente para evitar race conditions
+            LOCK_AGE_THRESHOLD=3600  # 1 hora
+            
+            if [ "$LOCK_AGE" -gt $LOCK_AGE_THRESHOLD ] 2>/dev/null; then
+              echo "⚠️  Lock muito antigo detectado (idade: ${LOCK_AGE}s, mais de $((LOCK_AGE_THRESHOLD / 60)) minutos)"
+              echo "ERRO: Lock provavelmente preso, mas NÃO removendo automaticamente por segurança"
+              echo "Por favor, verifique manualmente se há workflows ativos antes de remover:"
+              echo "  az storage blob delete \\"
+              echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
+              echo "    --container-name ${TF_BACKEND_CONTAINER} \\"
+              echo "    --name '.terraform.tfstate.lock.info' \\"
+              echo "    --auth-mode login"
+              exit 1
             else
-              echo "INFO: Lock ativo detectado (idade: ${LOCK_AGE}s) - pode ser de outro workflow em execução"
-              echo "Se o lock persistir e bloquear este workflow, ele será removido antes do plan"
+              echo "INFO: Lock detectado (idade: ${LOCK_AGE}s) - pode ser de workflow ativo"
+              echo "INFO: Terraform tentará obter o lock - se falhar, aguarde ou remova manualmente"
+              # Não falhar aqui - deixar Terraform lidar com o lock
             fi
           else
             echo "OK: Nenhum lock detectado"
@@ -588,18 +819,24 @@ jobs:
             
             if [ -n "$LOCK_MODIFIED" ]; then
               LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_MODIFIED" +%s 2>/dev/null || echo 0)))
-              # Se lock tem mais de 5 minutos, remover (pode ser de workflow anterior que falhou)
-              if [ "$LOCK_AGE" -gt 300 ] 2>/dev/null; then
-                echo "⚠️  Removendo lock preso (idade: ${LOCK_AGE}s, mais de 5 minutos)..."
-                az storage blob delete \
-                  --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-                  --container-name "${TF_BACKEND_CONTAINER}" \
-                  --name "$LOCK_BLOB" \
-                  --auth-mode login \
-                  --output none 2>/dev/null && echo "✅ Lock removido" || echo "⚠️  Não foi possível remover lock"
+              # Aumentar threshold para 1 hora (workflows grandes podem levar mais de 30 min)
+              # Não remover locks de workflows possivelmente ativos
+              LOCK_AGE_THRESHOLD=3600  # 1 hora
+              
+              if [ "$LOCK_AGE" -gt $LOCK_AGE_THRESHOLD ] 2>/dev/null; then
+                echo "⚠️  Lock muito antigo detectado (idade: ${LOCK_AGE}s, mais de $((LOCK_AGE_THRESHOLD / 60)) minutos)"
+                echo "ERRO: Lock provavelmente preso, mas NÃO removendo automaticamente por segurança"
+                echo "Por favor, verifique manualmente se há workflows ativos antes de remover:"
+                echo "  az storage blob delete \\"
+                echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
+                echo "    --container-name ${TF_BACKEND_CONTAINER} \\"
+                echo "    --name '$LOCK_BLOB' \\"
+                echo "    --auth-mode login"
+                exit 1
               else
-                echo "INFO: Lock recente (idade: ${LOCK_AGE}s) - pode ser de outro workflow ativo"
-                echo "Tentando executar plan mesmo assim (pode falhar se lock estiver ativo)..."
+                echo "INFO: Lock detectado (idade: ${LOCK_AGE}s) - pode ser de workflow ativo"
+                echo "INFO: Se este workflow estiver travado, aguarde ou remova o lock manualmente"
+                # Não falhar - deixar Terraform lidar com o lock
               fi
             fi
           else
@@ -1307,65 +1544,199 @@ jobs:
           fi
           echo "OK: Validação de permissões RBAC concluída"
 
+      - name: Get Runner IP
+        id: ip
+        run: |
+          set -euo pipefail
+          RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 https://checkip.amazonaws.com || echo "")
+          if [ -z "$RUNNER_IP" ]; then
+            echo "ERRO: Não foi possível obter IP do runner"
+            exit 1
+          fi
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "✅ Runner IP obtido: $RUNNER_IP"
+
       - name: Open Key Vault Internal Firewalls
         id: kv_override
         run: |
           set -euo pipefail
+          
+          # Validar variáveis obrigatórias
+          if [ -z "${ARM_CLIENT_ID:-}" ]; then
+            echo "ERRO: ARM_CLIENT_ID não definido"
+            exit 1
+          fi
+          if [ -z "${ARM_SUBSCRIPTION_ID:-}" ]; then
+            echo "ERRO: ARM_SUBSCRIPTION_ID não definido"
+            exit 1
+          fi
+          if [ -z "${RUNNER_IP:-}" ]; then
+            echo "ERRO: RUNNER_IP não definido (deve ser obtido no step anterior)"
+            exit 1
+          fi
+          
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          echo "Buscando Key Vaults no tfvars: $TFVARS_FILE"
-
           if [ ! -f "$TFVARS_FILE" ]; then
-             echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
-             exit 1
+            echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
+            exit 1
           fi
 
+          # Extrair Resource Group com validação
           RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-
           if [ -z "$RG_NAME" ]; then
             echo "ERRO: Resource Group não encontrado em $TFVARS_FILE"
+            echo "Verifique se o arquivo contém: resource_group_name = \"...\""
             exit 1
           fi
 
           echo "Resource Group: $RG_NAME"
-
-          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv)
-
-          if [ -z "$KV_LIST" ]; then
-             echo "WARNING: Nenhum Key Vault encontrado no RG $RG_NAME"
-          else
-             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
-             echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
-             
-             for kv in $KV_LIST; do
-               echo "🔥 Abrindo firewall do Key Vault: $kv"
-               az keyvault update --name "$kv" --default-action Allow
-             done
-             # Active Verification Loop
-             echo "🔍 Verificando conectividade com Key Vaults..."
-             for kv in $KV_LIST; do
-               echo "   Verificando $kv..."
-               for ((i=1; i<=60; i++)); do
-                 if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
-                   echo "   ✅ Conectividade confirmada para $kv"
-                   break
-                 fi
-                 if [ $i -eq 24 ]; then
-                   echo "   ⚠️ Timeout aguardando propagação para $kv (continuando mesmo assim...)"
-                 else
-                   echo "   ⏳ Aguardando propagação... ($i/24)"
-                   sleep 5
-                 fi
-               done
-             done
-          fi
-
-      - name: Get Runner IP
-        id: ip
-        run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org)
-          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
-          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
           echo "Runner IP: $RUNNER_IP"
+
+          # Obter Client ID e scope para RBAC
+          CLIENT_ID="${ARM_CLIENT_ID}"
+          KV_SCOPE_PREFIX="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.KeyVault/vaults"
+
+          # Listar todos os Key Vaults no Resource Group
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$KV_LIST" ]; then
+            echo "ℹ️  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
+          else
+            echo "Encontrados os seguintes Key Vaults: $KV_LIST"
+            # Salvar lista para cleanup posterior
+            echo "KV_OVERRIDE_LIST=$(echo $KV_LIST | tr '\n' ' ')" >> $GITHUB_ENV
+            
+            # Função auxiliar para validar propagação RBAC com retry exponencial
+            wait_for_rbac_propagation() {
+              local kv_name=$1
+              local max_wait=${2:-300}  # 5 minutos padrão
+              local retry_interval=${3:-5}
+              local elapsed=0
+              
+              echo "   ⏳ Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
+              
+              while [ $elapsed -lt $max_wait ]; do
+                # Testar acesso real ao secret
+                if az keyvault secret list --vault-name "$kv_name" --maxresults 1 >/dev/null 2>&1; then
+                  echo "   ✅ RBAC propagado após ${elapsed}s"
+                  return 0
+                fi
+                
+                sleep $retry_interval
+                elapsed=$((elapsed + retry_interval))
+                
+                if [ $((elapsed % 30)) -eq 0 ]; then
+                  echo "   ⏳ Aguardando propagação... (${elapsed}s/${max_wait}s)"
+                fi
+              done
+              
+              echo "   ⚠️  Timeout aguardando propagação RBAC após ${elapsed}s"
+              return 1
+            }
+            
+            # Configurar cada Key Vault
+            for kv in $KV_LIST; do
+              echo ""
+              echo "🔧 Configurando Key Vault: $kv"
+              
+              # 1. Primeiro adicionar IP à whitelist (mais seguro)
+              echo "   📍 Adicionando IP do runner à whitelist..."
+              if az keyvault network-rule add \
+                --name "$kv" \
+                --ip-address "${RUNNER_IP}/32" \
+                --only-show-errors >/dev/null 2>&1; then
+                echo "   ✅ IP ${RUNNER_IP}/32 adicionado à whitelist"
+              else
+                echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
+              fi
+              
+              # 2. Garantir que AzureServices bypass está habilitado
+              az keyvault update \
+                --name "$kv" \
+                --bypass AzureServices \
+                --only-show-errors >/dev/null 2>&1 || true
+              
+              # 3. Verificar se usa RBAC e conceder permissões se necessário
+              RBAC_ENABLED=$(az keyvault show --name "$kv" --query "properties.enableRbacAuthorization" -o tsv 2>/dev/null || echo "false")
+              
+              if [ "$RBAC_ENABLED" == "true" ]; then
+                echo "   🔐 Key Vault usa RBAC - verificando permissões..."
+                KV_SCOPE="${KV_SCOPE_PREFIX}/${kv}"
+                
+                # Verificar se já tem a role
+                HAS_ROLE=$(az role assignment list \
+                  --assignee "$CLIENT_ID" \
+                  --scope "$KV_SCOPE" \
+                  --role "Key Vault Secrets User" \
+                  --query "[].id" -o tsv 2>/dev/null | wc -l || echo "0")
+                
+                if [ "$HAS_ROLE" -eq "0" ]; then
+                  echo "   🔑 Concedendo role 'Key Vault Secrets User'..."
+                  if az role assignment create \
+                    --assignee "$CLIENT_ID" \
+                    --role "Key Vault Secrets User" \
+                    --scope "$KV_SCOPE" \
+                    --only-show-errors >/dev/null 2>&1; then
+                    echo "   ✅ Role concedida"
+                    
+                    # Aguardar propagação RBAC antes de validar
+                    if ! wait_for_rbac_propagation "$kv"; then
+                      echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
+                    fi
+                  else
+                    echo "   ❌ ERRO: Falha ao conceder role RBAC"
+                    exit 1
+                  fi
+                else
+                  echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
+                fi
+              else
+                echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
+              fi
+              
+              # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
+              # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
+              echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
+              az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1 || {
+                echo "   ⚠️  Não foi possível alterar default-action (pode estar já configurado)"
+              }
+              
+              # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
+              echo "   🔍 Validando conectividade real..."
+              MAX_VALIDATION_ATTEMPTS=12
+              VALIDATION_DELAY=5
+              CONNECTED=false
+              
+              for ((i=1; i<=MAX_VALIDATION_ATTEMPTS; i++)); do
+                # ÚNICA validação real: tentar listar secrets
+                if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
+                  echo "   ✅ Conectividade confirmada para $kv (acesso a secrets validado)"
+                  CONNECTED=true
+                  break
+                fi
+                
+                if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
+                  echo "   ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
+                  sleep $VALIDATION_DELAY
+                fi
+              done
+              
+              # FALHAR se não conseguir conectar (não continuar silenciosamente)
+              if [ "$CONNECTED" == "false" ]; then
+                echo ""
+                echo "❌ ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
+                echo "Verifique:"
+                echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP"
+                echo "  2. Permissões RBAC/Access Policies estão corretas"
+                echo "  3. Service Principal tem permissões adequadas"
+                exit 1
+              fi
+            done
+            
+            echo ""
+            echo "✅ Todos os Key Vaults configurados e validados com sucesso"
+          fi
 
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
@@ -1410,13 +1781,68 @@ jobs:
             --auth-mode login \
             --query name -o tsv > /dev/null 2>&1; then
             echo "WARNING: Container não encontrado, criando..."
+            
+            # Tentar criar container
             if ! az storage container create \
               --name "${TF_BACKEND_CONTAINER}" \
               --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
               --auth-mode login \
               --public-access off > /dev/null 2>&1; then
-              echo "ERRO: Falha ao criar container"
-              exit 1
+              echo "⚠️  Falha ao criar container - tentando conceder permissões RBAC..."
+              
+              # Obter Client ID e Storage Account scope
+              CLIENT_ID="${ARM_CLIENT_ID}"
+              STORAGE_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${TF_BACKEND_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${TF_BACKEND_STORAGE_ACCOUNT}"
+              
+              # Verificar se já tem a role
+              HAS_ROLE=$(az role assignment list \
+                --assignee "$CLIENT_ID" \
+                --scope "$STORAGE_SCOPE" \
+                --role "Storage Blob Data Contributor" \
+                --query "[].id" -o tsv 2>/dev/null | wc -l || echo "0")
+              
+              if [ "$HAS_ROLE" == "0" ]; then
+                echo "   🔐 Concedendo role 'Storage Blob Data Contributor'..."
+                if az role assignment create \
+                  --assignee "$CLIENT_ID" \
+                  --role "Storage Blob Data Contributor" \
+                  --scope "$STORAGE_SCOPE" \
+                  --only-show-errors >/dev/null 2>&1; then
+                  echo "   ✅ Role concedida - aguardando propagação (10s)..."
+                  sleep 10
+                else
+                  echo "   ❌ Falha ao conceder role automaticamente"
+                  echo ""
+                  echo "ERRO: Não foi possível criar container nem conceder permissões"
+                  echo "Conceda manualmente a role 'Storage Blob Data Contributor' para a App Registration:"
+                  echo "  az role assignment create \\"
+                  echo "    --assignee ${CLIENT_ID} \\"
+                  echo "    --role 'Storage Blob Data Contributor' \\"
+                  echo "    --scope '${STORAGE_SCOPE}'"
+                  exit 1
+                fi
+              else
+                echo "   ℹ️  Role 'Storage Blob Data Contributor' já existe - aguardando propagação (10s)..."
+                sleep 10
+              fi
+              
+              # Tentar criar novamente após conceder permissões
+              echo "   🔄 Tentando criar container novamente..."
+              if ! az storage container create \
+                --name "${TF_BACKEND_CONTAINER}" \
+                --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
+                --auth-mode login \
+                --public-access off > /dev/null 2>&1; then
+                echo "ERRO: Falha ao criar container mesmo após conceder permissões"
+                echo "Verifique se a App Registration tem permissões suficientes no Storage Account"
+                echo "Ou crie o container manualmente:"
+                echo "  az storage container create \\"
+                echo "    --name ${TF_BACKEND_CONTAINER} \\"
+                echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
+                echo "    --auth-mode login \\"
+                echo "    --public-access off"
+                exit 1
+              fi
             fi
             echo "OK: Container criado com sucesso"
           else
@@ -1907,11 +2333,17 @@ jobs:
 
       - name: Configure Key Vault Firewall
         run: |
-          set +e  # Don't fail on Key Vault errors
+          set -euo pipefail  # Falhar em erro - não mascarar problemas
           echo "=========================================="
           echo "🔐 Configuring Key Vault Firewall"
-          echo "Runner IP: ${RUNNER_IP}"
+          echo "Runner IP: ${RUNNER_IP:-<não definido>}"
           echo "=========================================="
+          
+          # Validar variáveis obrigatórias
+          if [ -z "${RUNNER_IP:-}" ]; then
+            echo "ERRO: RUNNER_IP não definido"
+            exit 1
+          fi
 
           # Get all Key Vaults in the resource group
           KV_LIST="${KV_OVERRIDE_LIST:-}"
@@ -1923,6 +2355,8 @@ jobs:
           fi
 
           if [ -n "$KV_LIST" ]; then
+            CONFIGURATION_FAILURES=0
+            
             for KV_NAME in $KV_LIST; do
               echo ""
               echo "  🔧 Configuring: $KV_NAME"
@@ -1931,7 +2365,7 @@ jobs:
               if az keyvault network-rule add \
                 --name "$KV_NAME" \
                 --ip-address "${RUNNER_IP}/32" \
-                --only-show-errors 2>/dev/null; then
+                --only-show-errors >/dev/null 2>&1; then
                 echo "    ✅ Runner IP whitelisted"
               else
                 echo "    ℹ️  IP already whitelisted or firewall disabled"
@@ -1942,24 +2376,43 @@ jobs:
                 --name "$KV_NAME" \
                 --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
                 --bypass AzureServices \
-                --only-show-errors >/dev/null 2>&1 || true
+                --only-show-errors >/dev/null 2>&1 || {
+                echo "    ⚠️  Não foi possível habilitar AzureServices bypass"
+              }
                 
-              # Active Verification Loop
-              echo "    🔍 Verificando acesso efetivo..."
-              for ((i=1; i<=60; i++)); do
+              # Validar acesso REAL (apenas secret list)
+              echo "    🔍 Validando acesso efetivo..."
+              MAX_VALIDATION_ATTEMPTS=12
+              VALIDATION_DELAY=5
+              ACCESS_CONFIRMED=false
+              
+              for ((i=1; i<=MAX_VALIDATION_ATTEMPTS; i++)); do
                 if az keyvault secret list --vault-name "$KV_NAME" --maxresults 1 >/dev/null 2>&1; then
-                  echo "    ✅ Acesso confirmado!"
-                  echo "    ⏳ Aguardando estabilização (5s extra)..."
-                  sleep 5
+                  echo "    ✅ Acesso confirmado para $KV_NAME!"
+                  ACCESS_CONFIRMED=true
                   break
                 fi
-                if [ $i -eq 24 ]; then
-                  echo "    ⚠️ Acesso ainda falhando após 2 minutos. Terraform pode falhar."
-                else
-                  sleep 5
+                
+                if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
+                  echo "    ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
+                  sleep $VALIDATION_DELAY
                 fi
               done
+              
+              # FALHAR se não conseguir validar acesso
+              if [ "$ACCESS_CONFIRMED" == "false" ]; then
+                echo "    ❌ ERRO: Key Vault $KV_NAME não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
+                CONFIGURATION_FAILURES=$((CONFIGURATION_FAILURES + 1))
+              fi
             done
+            
+            # FALHAR se houver falhas na configuração
+            if [ $CONFIGURATION_FAILURES -gt 0 ]; then
+              echo ""
+              echo "❌ ERRO: Falha ao configurar $CONFIGURATION_FAILURES Key Vault(s)"
+              echo "Terraform Apply pode falhar devido a Key Vaults inacessíveis"
+              exit 1
+            fi
           else
             echo "  ℹ️  No Key Vaults found (will be created during apply)"
           fi
@@ -1967,9 +2420,6 @@ jobs:
           echo ""
           echo "✅ Key Vault firewall configuration complete"
           echo "=========================================="
-
-          # Always succeed (Key Vault config is best-effort)
-          exit 0
 
       - name: Terraform Apply
         id: apply

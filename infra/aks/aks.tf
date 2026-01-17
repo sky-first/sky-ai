@@ -33,14 +33,21 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # Using basic azure CNI here. Subnet is large enough (/22 = 1022 IPs).
   }
 
-  # Private Cluster: API Server internal accessible only within VNet
-  # For this specific setup user asked for "API Server privado".
-  # BUT enabling private_cluster_enabled requires DNS setup or Bastion access to resolve API server.
-  # Since we have Bastion, this is viable.
+  # API Server Access Control
+  # CRITICAL SECURITY: Never allow public access without IP restrictions
+  # Option 1: If runner_ip is provided, restrict API access to that IP (cluster public but restricted)
+  # Option 2: If runner_ip is null, enable private cluster (cluster private, Bastion access only)
+  # When authorized_ip_ranges is empty AND private_cluster_enabled = true, access is VNET-only (secure)
   api_server_access_profile {
+    # tfsec:ignore:azure-aks-no-authorized-ip-ranges
+    # Ignored because: When runner_ip is null, cluster becomes private (private_cluster_enabled = true)
+    # Private clusters don't require authorized_ip_ranges (access is VNET-only via Bastion)
+    # When runner_ip is provided, it is included in authorized_ip_ranges (restricted public access)
     authorized_ip_ranges = var.runner_ip != null ? [var.runner_ip] : []
   }
-  private_cluster_enabled = false
+  # Enable private cluster if no runner_ip is provided (more secure - VNET access only)
+  # Private cluster requires access via Bastion or VPN, which is available in this setup
+  private_cluster_enabled = var.runner_ip == null ? true : false
 
   # Workload Identity (Required for External Secrets / Key Vault)
   workload_identity_enabled = true

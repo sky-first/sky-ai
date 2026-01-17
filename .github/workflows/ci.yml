@@ -143,7 +143,20 @@ jobs:
           ARM_USE_OIDC: true
         run: |
           set -euo pipefail
-          terraform init -backend=false -input=false
+          
+          # Limpar cache do Terraform para evitar tentar usar backend configurado
+          echo "Limpando cache do Terraform..."
+          rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup
+          
+          # Inicializar SEM backend (apenas para validação)
+          echo "Inicializando Terraform sem backend..."
+          terraform init -backend=false -input=false -reconfigure 2>&1 | tee init-output.txt || {
+            echo "❌ Terraform init falhou"
+            cat init-output.txt
+            exit 1
+          }
+          
+          echo "✅ Terraform init concluído (sem backend)"
 
       - name: Terraform Validate
         id: validate
