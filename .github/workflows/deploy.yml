@@ -340,8 +340,10 @@ jobs:
                       echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
                     fi
                   else
-                    echo "   ❌ ERRO: Falha ao conceder role RBAC"
-                    exit 1
+                    echo "   ⚠️  Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
+                    echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
+                    echo "   ℹ️  Tentando validar acesso mesmo assim (role pode já existir por outro método)..."
+                    # Não falhar aqui - tentar validar acesso na próxima etapa
                   fi
                 else
                   echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
@@ -1685,8 +1687,10 @@ jobs:
                       echo "   ⚠️  RBAC não propagado completamente, mas continuando..."
                     fi
                   else
-                    echo "   ❌ ERRO: Falha ao conceder role RBAC"
-                    exit 1
+                    echo "   ⚠️  Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
+                    echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
+                    echo "   ℹ️  Tentando validar acesso mesmo assim (role pode já existir por outro método)..."
+                    # Não falhar aqui - tentar validar acesso na próxima etapa
                   fi
                 else
                   echo "   ℹ️  Role 'Key Vault Secrets User' já existe"
