@@ -234,8 +234,23 @@ jobs:
                echo "🔥 Abrindo firewall do Key Vault: $kv"
                az keyvault update --name "$kv" --default-action Allow
              done
-             echo "⏳ Aguardando propagação (15s)..."
-             sleep 15
+             # Active Verification Loop
+             echo "🔍 Verificando conectividade com Key Vaults..."
+             for kv in $KV_LIST; do
+               echo "   Verificando $kv..."
+               for ((i=1; i<=24; i++)); do
+                 if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
+                   echo "   ✅ Conectividade confirmada para $kv"
+                   break
+                 fi
+                 if [ $i -eq 24 ]; then
+                   echo "   ⚠️ Timeout aguardando propagação para $kv (continuando mesmo assim...)"
+                 else
+                   echo "   ⏳ Aguardando propagação... ($i/24)"
+                   sleep 5
+                 fi
+               done
+             done
           fi
 
       - name: Get Runner IP
@@ -473,6 +488,11 @@ jobs:
             'azurerm_public_ip.bastion[0]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${ENV}" \
             "Bastion Public IP"
+            
+          import_resource \
+            'azurerm_network_interface.bastion[0]' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/networkInterfaces/bastion-nic-${ENV}" \
+            "Bastion NIC"
 
           import_resource \
             'azurerm_user_assigned_identity.eso' \
@@ -1310,8 +1330,23 @@ jobs:
                echo "🔥 Abrindo firewall do Key Vault: $kv"
                az keyvault update --name "$kv" --default-action Allow
              done
-             echo "⏳ Aguardando propagação (15s)..."
-             sleep 15
+             # Active Verification Loop
+             echo "🔍 Verificando conectividade com Key Vaults..."
+             for kv in $KV_LIST; do
+               echo "   Verificando $kv..."
+               for ((i=1; i<=24; i++)); do
+                 if az keyvault secret list --vault-name "$kv" --maxresults 1 >/dev/null 2>&1; then
+                   echo "   ✅ Conectividade confirmada para $kv"
+                   break
+                 fi
+                 if [ $i -eq 24 ]; then
+                   echo "   ⚠️ Timeout aguardando propagação para $kv (continuando mesmo assim...)"
+                 else
+                   echo "   ⏳ Aguardando propagação... ($i/24)"
+                   sleep 5
+                 fi
+               done
+             done
           fi
 
       - name: Get Runner IP
@@ -1822,6 +1857,44 @@ jobs:
           echo "recreate_count=$RECREATE_COUNT" >> $GITHUB_OUTPUT
           echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
 
+      - name: Check AKS State (Circuit Breaker)
+        run: |
+          set -euo pipefail
+          echo "=========================================="
+          echo "🔍 Verificando saúde do AKS antes do Apply"
+          echo "=========================================="
+
+          RG="${{ needs.detect-environment.outputs.resource_group }}"
+          CLUSTER="sky-aks-${{ needs.detect-environment.outputs.environment }}"
+
+          if az aks show --resource-group "$RG" --name "$CLUSTER" >/dev/null 2>&1; then
+            echo "Cluster encontrado: $CLUSTER"
+            
+            # Polling para garantir estado Succeeded
+            for ((i=1; i<=60; i++)); do
+              STATE=$(az aks show --resource-group "$RG" --name "$CLUSTER" --query provisioningState -o tsv)
+              echo "Estado atual: $STATE"
+              
+              if [ "$STATE" == "Succeeded" ]; then
+                echo "✅ Cluster estável. Prosseguindo."
+                break
+              elif [ "$STATE" == "Failed" ]; then
+                 echo "⚠️ Cluster em estado Failed. Tentando recuperar/prosseguir (Terraform pode corrigir)..."
+                 break
+              else
+                 echo "⏳ Cluster em atualização ($STATE). Aguardando... ($i/60)"
+                 sleep 10
+              fi
+              
+              if [ $i -eq 60 ]; then
+                echo "❌ Timeout aguardando cluster estabilizar. Abortando para evitar conflito."
+                exit 1
+              fi
+            done
+          else
+            echo "ℹ️ Cluster não existe ainda. Safe to proceed."
+          fi
+
       - name: Configure Key Vault Firewall
         run: |
           set +e  # Don't fail on Key Vault errors
@@ -1861,7 +1934,19 @@ jobs:
                 --bypass AzureServices \
                 --only-show-errors >/dev/null 2>&1 || true
                 
-              echo "    ✅ Configuration complete"
+              # Active Verification Loop
+              echo "    🔍 Verificando acesso efetivo..."
+              for ((i=1; i<=24; i++)); do
+                if az keyvault secret list --vault-name "$KV_NAME" --maxresults 1 >/dev/null 2>&1; then
+                  echo "    ✅ Acesso confirmado!"
+                  break
+                fi
+                if [ $i -eq 24 ]; then
+                  echo "    ⚠️ Acesso ainda falhando após 2 minutos. Terraform pode falhar."
+                else
+                  sleep 5
+                fi
+              done
             done
           else
             echo "  ℹ️  No Key Vaults found (will be created during apply)"
