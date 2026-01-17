@@ -430,6 +430,18 @@ jobs:
                 fi
               else
                 echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
+                echo "   🔐 Verificando/Concedendo permissão via Access Policy..."
+                
+                # Conceder permissão explícita para o runner
+                if az keyvault set-policy \
+                  --name "$kv" \
+                  --spn "$CLIENT_ID" \
+                  --secret-permissions get list \
+                  --only-show-errors >/dev/null 2>&1; then
+                  echo "   ✅ Access Policy concedida/atualizada para o runner"
+                else
+                  echo "   ⚠️  Falha ao definir Access Policy (pode já existir ou falta de permissão)"
+                fi
               fi
               
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
