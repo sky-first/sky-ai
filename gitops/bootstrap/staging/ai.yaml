@@ -14,7 +14,7 @@ spec:
         imagePullSecrets:
           - name: regcred
         image:
-          repository: skyacrstaging.azurecr.io/sky-poc-ai
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-ai
           tag: "staging"
         service:
           port: 80
