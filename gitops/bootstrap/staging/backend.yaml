@@ -15,7 +15,7 @@ spec:
           - name: regcred
         image:
           repository: skyacrstaging.azurecr.io/sky-poc-backend
-          tag: "latest"
+          tag: "staging"
         service:
           port: 80
           targetPort: 8000
