@@ -9,7 +9,7 @@ set -euo pipefail
 LEGACY_VM_NAMES=("skyfirstlabs-staging" "poc-sky" "skyfirstlabs-prod")
 # If legacy resources are in a specific legacy RG, define it here (or leave empty to search globally/current RG)
 # Assuming legacy might be in the SAME RG or a specific 'poc-sky' RG based on history.
-TARGET_RGS=("sky-aks-staging-rg" "poc-sky") # Add other RGs if known
+TARGET_RGS=("sky-aks-staging-rg" "poc-sky" "AI-SAAS-RG" "RG-AI-SAAS-DEV") # Add other RGs if known
 
 echo "🔥 STARTING LEGACY REMEDIATION - Kubernetes Purification Protocol"
 echo "----------------------------------------------------------------"
