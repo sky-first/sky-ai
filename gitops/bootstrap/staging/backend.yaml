@@ -22,6 +22,9 @@ spec:
         ingress:
           enabled: true
           className: "nginx"
+          annotations:
+            nginx.ingress.kubernetes.io/configuration-snippet: |
+              rewrite ^/api/(?!v1/)(.*)$ /api/v1/$1 break;
           hosts:
             - host: api.sky.example.com
               paths:
