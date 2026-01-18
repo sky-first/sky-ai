@@ -23,16 +23,17 @@ spec:
           enabled: true
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/configuration-snippet: 'rewrite ^/api/(?!v1/)(.*)$ /api/v1/$1 break;'
+            nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$1
+            nginx.ingress.kubernetes.io/use-regex: "true"
           hosts:
             - host: api.sky.example.com
               paths:
-                - path: /
-                  pathType: Prefix
+                - path: /(.*)
+                  pathType: ImplementationSpecific
             - host: ""
               paths:
-                - path: /api
-                  pathType: Prefix
+                - path: /api/(.*)
+                  pathType: ImplementationSpecific
         probes:
           liveness:
             path: /
