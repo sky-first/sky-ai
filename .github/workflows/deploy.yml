@@ -2372,8 +2372,8 @@ jobs:
             if [ -n "$RG_TO_CHECK" ]; then
               echo "Verificando recursos no Resource Group: $RG_TO_CHECK"
               
-              # Verificar VM
-              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_linux_virtual_machine"; then
+              # Verificar VM Principal
+              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_linux_virtual_machine.main"; then
                 # Verificar se VM existe no RG atual (migração) ou novo
                 VM_TO_CHECK="${VM_NAME_FROM_STATE:-${VM_NAME_NEW:-$VM_NAME_CURRENT}}"
                 
@@ -2382,11 +2382,9 @@ jobs:
                   if az vm show -g "$RG_NAME_NEW" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
                     echo "  ✅ VM '$VM_TO_CHECK' já existe no Resource Group destino '$RG_NAME_NEW'"
                     echo "  ℹ️  Isso é uma migração - recursos já estão no destino"
-                    RESOURCES_EXIST_IN_AZURE=true
                   elif az vm show -g "$RG_NAME_FROM_STATE" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
                     echo "  ✅ VM '$VM_TO_CHECK' existe no Resource Group origem '$RG_NAME_FROM_STATE'"
                     echo "  ℹ️  Será migrada para '$RG_NAME_NEW' (não destruída)"
-                    RESOURCES_EXIST_IN_AZURE=true
                   else
                     echo "  ⚠️  VM '$VM_TO_CHECK' NÃO existe em nenhum Resource Group"
                     RESOURCES_EXIST_IN_AZURE=false
@@ -2399,6 +2397,23 @@ jobs:
                     echo "  ⚠️  VM '$VM_TO_CHECK' NÃO existe no Azure"
                     RESOURCES_EXIST_IN_AZURE=false
                   fi
+                fi
+              fi
+
+              # Verificar Bastion VM
+              if echo "$DESTROYED_RESOURCES" | grep -q "azurerm_linux_virtual_machine.bastion"; then
+                BASTION_VM_NAME="bastion-vm-${ENV}"
+                if az vm show -g "$RG_TO_CHECK" -n "$BASTION_VM_NAME" --query id -o tsv > /dev/null 2>&1; then
+                   echo "  ✅ Bastion VM '$BASTION_VM_NAME' existe no Azure"
+                else
+                   # Tentar nome alternativo (se for o caso)
+                   echo "  ⚠️  Bastion VM '$BASTION_VM_NAME' não encontrado, tentando 'bastion-vm'..."
+                   if az vm show -g "$RG_TO_CHECK" -n "bastion-vm" --query id -o tsv > /dev/null 2>&1; then
+                      echo "  ✅ Bastion VM 'bastion-vm' existe no Azure"
+                   else
+                      echo "  ⚠️  Bastion VM NÃO existe no Azure"
+                      RESOURCES_EXIST_IN_AZURE=false
+                   fi
                 fi
               fi
               
