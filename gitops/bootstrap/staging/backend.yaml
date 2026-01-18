@@ -89,6 +89,8 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
+          - name: TEST_VAR
+            value: "true"
         migration:
           enabled: true
           command: ["alembic"]
