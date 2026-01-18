@@ -44,7 +44,7 @@ spec:
           maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "/api"
+            value: "/api/v1"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging

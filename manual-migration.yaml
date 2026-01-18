@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: manual-migration-fix
+  namespace: staging
+spec:
+  template:
+    metadata:
+      name: manual-migration-fix
+    spec:
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: false
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: migrate
+          image: "skyacrstaging.azurecr.io/sky-poc-backend:latest"
+          imagePullPolicy: Always
+          command: ["alembic"]
+          args: ["upgrade", "head"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: database-url
+                  name: sky-backend-staging-common-app-secrets
+                  optional: true
+            - name: REDIS_PORT
+              value: "6379"
+            - name: DEBUG
+              value: "false"
