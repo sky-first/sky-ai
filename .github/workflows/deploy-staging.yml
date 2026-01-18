@@ -51,29 +51,8 @@ jobs:
       - name: Build and Push to ACR
         run: |
           az acr login --name $ACR_NAME
-
-          # Build usando cache da imagem 'staging' para máxima velocidade
           docker build \
             --cache-from $ACR_NAME.azurecr.io/$IMAGE_NAME:staging \
-            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} \
             -t $ACR_NAME.azurecr.io/$IMAGE_NAME:staging .
-
-          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
           docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:staging
 
-      - name: Set AKS Context
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: ${{ env.RESOURCE_GROUP }}
-          cluster-name: ${{ env.CLUSTER_NAME }}
-
-      - name: Deploy to AKS
-        run: |
-          # Atualiza a imagem no Deployment do Kubernetes
-          kubectl set image deployment/$IMAGE_NAME $IMAGE_NAME=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -n staging
-
-      - name: Verify Health
-        run: |
-          echo "🏥 Aguardando Rollout do AI Service..."
-          # AI service pode demorar mais para iniciar devido ao carregamento de modelos
-          kubectl rollout status deployment/$IMAGE_NAME -n staging --timeout=180s
