@@ -16,6 +16,8 @@ spec:
             annotations:
               service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
           config:
+            # Enable Ingress snippets for path rewrites
+            allow-snippet-annotations: "true"
             # Enable ModSecurity WAF
             enable-modsecurity: "true"
             enable-owasp-modsecurity-crs: "true"
