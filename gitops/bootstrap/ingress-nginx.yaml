@@ -14,8 +14,10 @@ spec:
         controller:
           service:
             annotations:
-              service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /
+              service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /login
           config:
+            # Enable Ingress snippets for path rewrites
+            allow-snippet-annotations: "true"
             # Enable ModSecurity WAF
             enable-modsecurity: "true"
             enable-owasp-modsecurity-crs: "true"
