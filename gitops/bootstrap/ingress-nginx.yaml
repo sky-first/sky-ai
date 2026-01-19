@@ -15,6 +15,7 @@ spec:
           service:
             annotations:
               service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /login
+            externalTrafficPolicy: Local
           config:
             # Enable Ingress snippets for path rewrites
             allow-snippet-annotations: "true"
