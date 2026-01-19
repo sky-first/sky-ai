@@ -27,10 +27,6 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
-            - host: ""
-              paths:
-                - path: /
-                  pathType: Prefix
         probes:
           liveness:
             path: /

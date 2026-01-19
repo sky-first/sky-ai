@@ -1,0 +1,29 @@
+{{- range $name, $config := .Values.podMonitors }}
+{{- if $config.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $config.name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- include "observability.labels" $ | nindent 4 }}
+    app: {{ $config.name }}
+spec:
+  jobLabel: {{ $config.name }}
+  namespaceSelector:
+    matchNames:
+      - {{ $config.namespace }}
+  selector:
+    matchLabels:
+      {{- toYaml $config.selector.matchLabels | nindent 6 }}
+  podMetricsEndpoints:
+    {{- range $config.podMetricsEndpoints }}
+    - port: {{ .port }}
+      interval: {{ .interval | default "30s" }}
+      {{- if .path }}
+      path: {{ .path }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

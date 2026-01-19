@@ -1,0 +1,36 @@
+{{- range $name, $config := .Values.serviceMonitors }}
+{{- if $config.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $config.name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- include "observability.labels" $ | nindent 4 }}
+    app: {{ $config.name }}
+spec:
+  jobLabel: {{ $config.name }}
+  namespaceSelector:
+    matchNames:
+      - {{ $config.namespace }}
+  selector:
+    matchLabels:
+      {{- toYaml $config.selector.matchLabels | nindent 6 }}
+  endpoints:
+    {{- range $config.endpoints }}
+    - port: {{ .port }}
+      path: {{ .path | default "/metrics" }}
+      interval: {{ .interval | default "30s" }}
+      scrapeTimeout: {{ .scrapeTimeout | default "10s" }}
+      {{- if .relabelings }}
+      relabelings:
+        {{- toYaml .relabelings | nindent 8 }}
+      {{- end }}
+      {{- if .metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml .metricRelabelings | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

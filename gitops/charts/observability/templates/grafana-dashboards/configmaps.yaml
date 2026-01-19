@@ -1,0 +1,20 @@
+{{- if .Values.grafanaDashboards.enabled }}
+{{- range .Values.grafanaDashboards.dashboards }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-{{ .name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- include "observability.labels" $ | nindent 4 }}
+    {{- range $key, $value := $.Values.grafanaDashboards.labels }}
+    {{ $key }}: "{{ $value }}"
+    {{- end }}
+  annotations:
+    grafana_folder: {{ .folder | default "General" }}
+data:
+  {{ .name }}.json: |-
+    {{- $.Files.Get (printf "dashboards/%s" .file) | nindent 4 }}
+{{- end }}
+{{- end }}

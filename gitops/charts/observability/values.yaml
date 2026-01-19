@@ -1,0 +1,328 @@
+# =============================================================================
+# OBSERVABILITY CHART VALUES
+# Stack de observabilidade customizada para produção
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# NAMESPACE
+# -----------------------------------------------------------------------------
+namespace: monitoring
+
+# -----------------------------------------------------------------------------
+# LABELS GLOBAIS
+# Aplicados a todos os recursos
+# -----------------------------------------------------------------------------
+commonLabels:
+  environment: staging
+  managed-by: argocd
+  release: kube-prometheus-stack  # Necessário para ser descoberto pelo Prometheus
+
+# -----------------------------------------------------------------------------
+# SERVICE MONITORS
+# Configuração de scraping de métricas das aplicações
+# -----------------------------------------------------------------------------
+serviceMonitors:
+  # Backend API
+  backend:
+    enabled: true
+    name: sky-backend
+    namespace: staging
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: common-app
+        app.kubernetes.io/instance: sky-backend-staging
+    endpoints:
+      - port: http
+        path: /metrics
+        interval: 30s
+        scrapeTimeout: 10s
+    # Métricas customizadas que o backend expõe
+    # - http_requests_total
+    # - http_request_duration_seconds
+    # - db_connections_active
+
+  # Frontend (se tiver métricas)
+  frontend:
+    enabled: true
+    name: sky-frontend
+    namespace: staging
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: common-app
+        app.kubernetes.io/instance: sky-frontend-staging
+    endpoints:
+      - port: http
+        path: /api/metrics
+        interval: 60s
+        scrapeTimeout: 10s
+
+  # AI Service
+  ai:
+    enabled: true
+    name: sky-ai
+    namespace: staging
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: common-app
+        app.kubernetes.io/instance: sky-ai-staging
+    endpoints:
+      - port: http
+        path: /metrics
+        interval: 30s
+        scrapeTimeout: 10s
+
+# -----------------------------------------------------------------------------
+# POD MONITORS
+# Para pods sem Service (ex: StatefulSets)
+# -----------------------------------------------------------------------------
+podMonitors:
+  # PostgreSQL
+  postgres:
+    enabled: true
+    name: postgres
+    namespace: staging
+    selector:
+      matchLabels:
+        app: postgres
+    podMetricsEndpoints:
+      - port: metrics
+        interval: 30s
+
+# -----------------------------------------------------------------------------
+# PROMETHEUS RULES (ALERTAS)
+# Regras de alerta para infraestrutura e aplicações
+# -----------------------------------------------------------------------------
+prometheusRules:
+  # ---------------------------------------------
+  # ALERTAS DE INFRAESTRUTURA KUBERNETES
+  # ---------------------------------------------
+  kubernetes:
+    enabled: true
+    groups:
+      - name: kubernetes-pods
+        rules:
+          # Pod em CrashLoopBackOff
+          - alert: PodCrashLooping
+            expr: |
+              increase(kube_pod_container_status_restarts_total[1h]) > 5
+            for: 5m
+            labels:
+              severity: critical
+              team: platform
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} está crashando"
+              description: "Pod teve {{ $value }} restarts na última hora"
+              runbook_url: "https://runbooks.example.com/pod-crashloop"
+
+          # Pod não está Ready
+          - alert: PodNotReady
+            expr: |
+              kube_pod_status_ready{condition="true"} == 0
+            for: 15m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} não está Ready"
+              description: "Pod está em estado não-ready há mais de 15 minutos"
+
+          # Pod em estado Pending
+          - alert: PodPending
+            expr: |
+              kube_pod_status_phase{phase="Pending"} == 1
+            for: 15m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} está Pending"
+              description: "Pod não consegue ser agendado há mais de 15 minutos"
+
+      - name: kubernetes-nodes
+        rules:
+          # Node não está Ready
+          - alert: NodeNotReady
+            expr: |
+              kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 5m
+            labels:
+              severity: critical
+              team: platform
+            annotations:
+              summary: "Node {{ $labels.node }} não está Ready"
+              description: "Node está indisponível há mais de 5 minutos"
+
+          # Node com pressão de memória
+          - alert: NodeMemoryPressure
+            expr: |
+              kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+            for: 5m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Node {{ $labels.node }} com pressão de memória"
+              description: "Node está com memória insuficiente"
+
+          # Node com pressão de disco
+          - alert: NodeDiskPressure
+            expr: |
+              kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+            for: 5m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Node {{ $labels.node }} com pressão de disco"
+              description: "Node está com disco quase cheio"
+
+      - name: kubernetes-resources
+        rules:
+          # CPU do container > 80%
+          - alert: ContainerHighCPU
+            expr: |
+              (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace, pod, container) 
+              / sum(kube_pod_container_resource_limits{resource="cpu"}) by (namespace, pod, container)) * 100 > 80
+            for: 10m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Container {{ $labels.container }} em {{ $labels.pod }} com CPU alta"
+              description: "CPU está em {{ $value | printf \"%.1f\" }}%"
+
+          # Memória do container > 80%
+          - alert: ContainerHighMemory
+            expr: |
+              (sum(container_memory_working_set_bytes{container!=""}) by (namespace, pod, container) 
+              / sum(kube_pod_container_resource_limits{resource="memory"}) by (namespace, pod, container)) * 100 > 80
+            for: 10m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "Container {{ $labels.container }} em {{ $labels.pod }} com memória alta"
+              description: "Memória está em {{ $value | printf \"%.1f\" }}%"
+
+          # PVC quase cheio
+          - alert: PVCNearlyFull
+            expr: |
+              (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+              team: platform
+            annotations:
+              summary: "PVC {{ $labels.persistentvolumeclaim }} quase cheio"
+              description: "Volume está {{ $value | printf \"%.1f\" }}% cheio"
+
+  # ---------------------------------------------
+  # ALERTAS DE APLICAÇÃO
+  # ---------------------------------------------
+  application:
+    enabled: true
+    groups:
+      - name: backend-application
+        rules:
+          # Taxa de erros HTTP alta
+          - alert: HighHTTPErrorRate
+            expr: |
+              sum(rate(http_requests_total{status=~"5.."}[5m])) by (namespace, service)
+              / sum(rate(http_requests_total[5m])) by (namespace, service) * 100 > 5
+            for: 5m
+            labels:
+              severity: critical
+              team: backend
+            annotations:
+              summary: "Taxa de erros HTTP alta em {{ $labels.service }}"
+              description: "{{ $value | printf \"%.1f\" }}% das requisições estão falhando"
+
+          # Latência P99 alta
+          - alert: HighLatencyP99
+            expr: |
+              histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, namespace, service)) > 2
+            for: 10m
+            labels:
+              severity: warning
+              team: backend
+            annotations:
+              summary: "Latência P99 alta em {{ $labels.service }}"
+              description: "P99 está em {{ $value | printf \"%.2f\" }}s"
+
+          # Conexões de banco esgotando
+          - alert: DatabaseConnectionsHigh
+            expr: |
+              db_connections_active / db_connections_max * 100 > 80
+            for: 5m
+            labels:
+              severity: warning
+              team: backend
+            annotations:
+              summary: "Conexões de banco altas"
+              description: "{{ $value | printf \"%.1f\" }}% das conexões em uso"
+
+  # ---------------------------------------------
+  # SRE GOLDEN SIGNALS
+  # ---------------------------------------------
+  goldenSignals:
+    enabled: true
+    groups:
+      - name: sre-golden-signals
+        rules:
+          # Disponibilidade < 99.9%
+          - alert: ServiceAvailabilityLow
+            expr: |
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
+              / sum(rate(http_requests_total[1h])) by (service))) * 100 < 99.9
+            for: 5m
+            labels:
+              severity: critical
+              team: sre
+            annotations:
+              summary: "Disponibilidade de {{ $labels.service }} abaixo de 99.9%"
+              description: "Disponibilidade atual: {{ $value | printf \"%.2f\" }}%"
+
+          # Error Budget queimando rápido
+          - alert: ErrorBudgetBurning
+            expr: |
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
+              / sum(rate(http_requests_total[1h])) by (service))) < 0.999
+              and
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) 
+              / sum(rate(http_requests_total[5m])) by (service))) < 0.99
+            for: 2m
+            labels:
+              severity: critical
+              team: sre
+            annotations:
+              summary: "Error budget queimando rápido para {{ $labels.service }}"
+              description: "Taxa de erro atual muito alta, error budget será esgotado em breve"
+
+# -----------------------------------------------------------------------------
+# GRAFANA DASHBOARDS
+# Dashboards provisionados automaticamente
+# -----------------------------------------------------------------------------
+grafanaDashboards:
+  enabled: true
+  
+  # Labels para o ConfigMap (necessário para o sidecar do Grafana)
+  labels:
+    grafana_dashboard: "1"
+  
+  # Dashboards a serem criados
+  dashboards:
+    - name: cluster-overview
+      folder: Kubernetes
+      file: cluster-overview.json
+    
+    - name: pods-workloads
+      folder: Kubernetes
+      file: pods-workloads.json
+    
+    - name: backend-logs
+      folder: Applications
+      file: backend-logs.json
+    
+    - name: sre-golden-signals
+      folder: SRE
+      file: sre-golden-signals.json
