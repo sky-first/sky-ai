@@ -40,6 +40,18 @@ spec:
               defaultFolderName: "General"
             datasources:
               enabled: true
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              url: http://loki-stack.monitoring.svc.cluster.local:3100
+              access: proxy
+              isDefault: false
+              jsonData:
+                derivedFields:
+                  - datasourceUid: prometheus
+                    matcherRegex: "traceID=(\\w+)"
+                    name: TraceID
+                    url: "$${__value.raw}"
         
         # Prometheus Configuration
         prometheus:
