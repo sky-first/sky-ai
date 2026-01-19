@@ -7,10 +7,13 @@ metadata:
   name: {{ $fullName }}
   labels:
     {{- include "common-app.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- if .Values.ingress.annotations -}}
+    {{- toYaml .Values.ingress.annotations | nindent 4 -}}
+    {{- end }}
+    {{- if .Values.ingress.rewrite }}
+    nginx.ingress.kubernetes.io/rewrite-target: {{ .Values.ingress.rewrite }}
+    {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
