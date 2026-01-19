@@ -27,7 +27,7 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
-            - host: ""
+            - host: "135.18.146.170"
               paths:
                 - path: /
                   pathType: Prefix
