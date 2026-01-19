@@ -36,10 +36,17 @@ docker/nginx/nginx.conf.backup.*
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
+# .terraform.lock.hcl -> MANTIDO para reprodutibilidade (Production-grade)
 backend.hcl
 tfplan
 tfplan*
+
+# Defesa em profundidade (Segredos)
+**/secrets/
+**/*secret*.yaml
+**/*secret*.json
+!gitops/bootstrap/**/*.yaml # Permitir manifestos de ArgoCD
+!gitops/manifests/**/*.yaml  # Permitir manifestos de infra
 
 # Local tools
 .tools/
@@ -55,5 +62,4 @@ keys/**/*_key
 keys/**/*.pem
 # Permitir chaves públicas
 !keys/**/*.pub
-sky-poc-frontend/
 sky-poc-frontend/
