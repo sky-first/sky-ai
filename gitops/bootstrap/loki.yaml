@@ -18,6 +18,9 @@ spec:
         loki:
           enabled: true
           
+          # Evitar conflito de Default Datasource com Prometheus
+          isDefault: false
+
           # Persistência habilitada
           persistence:
             enabled: true
