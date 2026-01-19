@@ -31,7 +31,6 @@ spec:
             ingressClassName: nginx
             hosts:
               - grafana.135.18.146.170.nip.io
-              - 135.18.146.170
             path: /
             pathType: Prefix
           # Dashboards automáticos
