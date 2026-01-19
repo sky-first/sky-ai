@@ -12,7 +12,8 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2024-01-19T12:17"
+          rollout-trigger: "2024-01-19T15:05"
+        replicaCount: 2
         imagePullSecrets:
           - name: regcred
         image:
@@ -38,7 +39,7 @@ spec:
         probes:
           liveness:
             path: /
-            initialDelaySeconds: 30
+            initialDelaySeconds: 45
           readiness:
             path: /
             initialDelaySeconds: 10
