@@ -105,6 +105,11 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "true"
+          # AI Service Configuration - CRITICAL for AI responses
+          - name: AI_SERVICE_TYPE
+            value: "real"
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-staging-common-app.staging.svc.cluster.local"
         migration:
           enabled: true
           command: ["alembic"]
