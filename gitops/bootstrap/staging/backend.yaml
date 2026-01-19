@@ -22,8 +22,8 @@ spec:
         ingress:
           enabled: true
           className: "nginx"
+          rewrite: /api/v1/$1
           annotations:
-            nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$1
             nginx.ingress.kubernetes.io/use-regex: "true"
           hosts:
             - host: api.sky.example.com
