@@ -22,18 +22,17 @@ spec:
         ingress:
           enabled: true
           className: "nginx"
-          rewrite: /api/v1/$1
           annotations:
-            nginx.ingress.kubernetes.io/use-regex: "true"
+            nginx.ingress.kubernetes.io/configuration-snippet: 'rewrite ^/api/(?!v1/)(.*)$ /api/v1/$1 break;'
           hosts:
             - host: api.sky.example.com
               paths:
-                - path: /(.*)
-                  pathType: ImplementationSpecific
+                - path: /
+                  pathType: Prefix
             - host: ""
               paths:
-                - path: /api/(.*)
-                  pathType: ImplementationSpecific
+                - path: /api
+                  pathType: Prefix
         probes:
           liveness:
             path: /
@@ -89,8 +88,6 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
-          - name: TEST_VAR
-            value: "true"
         migration:
           enabled: true
           command: ["alembic"]
