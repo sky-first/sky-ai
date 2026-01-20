@@ -92,9 +92,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu_spot" {
   enable_auto_scaling   = true
   min_count             = 0 # Scale to zero when not in use
   max_count             = 1
-  priority              = "Spot"
-  eviction_policy       = "Delete"
-  spot_max_price        = -1 # Use current market price
+  priority              = "Regular"
 
   node_labels = {
     "sky-poc-type"  = "gpu"
