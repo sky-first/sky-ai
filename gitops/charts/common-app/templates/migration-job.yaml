@@ -29,12 +29,6 @@ spec:
           command: {{ .Values.migration.command | toJson }}
           args: {{ .Values.migration.args | toJson }}
           env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "common-app.fullname" . }}-secrets
-                  key: database-url
-                  optional: true
             {{- range $key, $val := .Values.envSecrets }}
             - name: {{ $key | replace "-" "_" | upper }}
               valueFrom:
@@ -48,8 +42,6 @@ spec:
                   {{- end }}
                   optional: true
             {{- end }}
-            - name: REDIS_PORT
-              value: "6379"
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
