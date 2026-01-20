@@ -33,6 +33,8 @@ def log_query_audit(
     crew_ids: Optional[List[str]],
     thread_id: Optional[str],
     question: str,
+    platform_role: Optional[str] = None,
+    crew_role: Optional[str] = None,
     sql_generated: Optional[str] = None,
     sql_executed: Optional[str] = None,
     sql_validated: Optional[bool] = None,
@@ -69,6 +71,8 @@ def log_query_audit(
         "space_id": str(space_id) if space_id else None,
         "crew_ids": crew_ids or [],
         "thread_id": thread_id,
+        "platform_role": platform_role,
+        "crew_role": crew_role,
         "question": question[:1000] if question else None,  # Limitar tamanho
         "sql_generated": sql_generated[:5000] if sql_generated else None,
         "sql_executed": sql_executed[:5000] if sql_executed else None,
@@ -174,7 +178,10 @@ async def _ensure_audit_table_async() -> None:
                         user_id VARCHAR(255),
                         space_id UUID,
                         crew_ids TEXT[],
+                        crew_ids TEXT[],
                         thread_id VARCHAR(255),
+                        platform_role VARCHAR(50),
+                        crew_role VARCHAR(50),
                         question TEXT NOT NULL,
                         sql_generated TEXT,
                         sql_executed TEXT,
@@ -232,6 +239,15 @@ async def _ensure_audit_table_async() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
                 )
             )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
+                )
+            )
+
+            # --- Migrations para colunas novas (Best-effort) ---
+            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
+            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
             
             # --- Tabela security_alerts ---
             await db.execute(
@@ -324,6 +340,7 @@ async def _flush_audit_buffer_async():
                     """
                     INSERT INTO query_audit_log (
                         id, connection_id, user_id, space_id, crew_ids, thread_id,
+                        platform_role, crew_role,
                         question, sql_generated, sql_executed, sql_validated, validation_error,
                         num_rows, execution_time_ms, has_error, error_message,
                         was_rate_limited, prompt_injection_detected, prompt_injection_pattern,
@@ -338,6 +355,8 @@ async def _flush_audit_buffer_async():
                         CAST(:space_id AS uuid),
                         :crew_ids,
                         :thread_id,
+                        :platform_role,
+                        :crew_role,
                         :question,
                         :sql_generated,
                         :sql_executed,
@@ -376,6 +395,8 @@ async def _flush_audit_buffer_async():
                             "space_id": entry.get("space_id"),
                             "crew_ids": entry.get("crew_ids") or [],
                             "thread_id": entry.get("thread_id"),
+                            "platform_role": entry.get("platform_role"),
+                            "crew_role": entry.get("crew_role"),
                             "question": entry.get("question"),
                             "sql_generated": entry.get("sql_generated"),
                             "sql_executed": entry.get("sql_executed"),

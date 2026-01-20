@@ -13,11 +13,35 @@ class User(BaseModel):
 
 
 class UserContext(BaseModel):
-    """User context with permissions."""
+    """User context with permissions and roles for AI injection.
+    
+    This schema is used to inject user context into LangGraph nodes,
+    enabling personalized responses and security rules.
+    
+    Attributes:
+        user: Core user information (id, email, name, is_active)
+        space_id: Current space context (equivalent to department)
+        crew_id: Current crew context (equivalent to sub-department)
+        crew_ids: All crews the user belongs to
+        platform_role: Platform-level role (admin | user | viewer)
+        crew_role: Crew-level role (commander | navigator | explorer | guest)
+        permissions: List of permission strings
+        locale: User locale for response language (fixed to "en" for now)
+    """
     user: User
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    crew_ids: List[UUID] = []  # All crews the user belongs to
+    
+    # Roles
+    platform_role: str = "user"  # admin | user | viewer
+    crew_role: str = "guest"     # commander | navigator | explorer | guest
+    
+    # Permissions
     permissions: List[str] = []  # List of permission strings (e.g., ["read", "write"])
+    
+    # Locale
+    locale: str = "en"  # Fixed to English for now
     
     def has_permission(self, permission: str) -> bool:
         """Check if user has a specific permission."""
