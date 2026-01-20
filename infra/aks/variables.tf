@@ -82,3 +82,9 @@ variable "key_vault_firewall_allow" {
   type        = bool
   default     = false
 }
+
+variable "authorized_ips" {
+  description = "List of public IPs authorized to access the AKS API server"
+  type        = list(string)
+  default     = []
+}
