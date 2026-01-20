@@ -59,6 +59,9 @@ spec:
                 encryption_key: "{{ .encryption_key }}"
                 openai_api_key: "{{ .openai_api_key }}"
                 redis_url: "{{ .redis_url }}"
+                # Derivando URLs do Celery a partir da redis_url do segredo
+                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
                 # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
                 "database-url": "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
@@ -97,6 +100,12 @@ spec:
           REDIS_URL:
             name: sky-backend-staging-common-app-secrets
             key: redis_url
+          CELERY_BROKER_URL:
+            name: sky-backend-staging-common-app-secrets
+            key: celery_broker_url
+          CELERY_RESULT_BACKEND:
+            name: sky-backend-staging-common-app-secrets
+            key: celery_result_backend
             
         extraEnv:
           - name: CORS_ORIGINS

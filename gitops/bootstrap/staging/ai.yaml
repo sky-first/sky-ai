@@ -48,6 +48,9 @@ spec:
                 openai_api_key: "{{ .openai_api_key }}"
                 qdrant_url: "{{ .qdrant_url }}"
                 redis_url: "{{ .redis_url }}"
+                # Derivando URLs do Celery a partir da redis_url do segredo
+                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
           data:
             - secretKey: openai_api_key
@@ -77,6 +80,12 @@ spec:
           redis-url:
             name: sky-ai-staging-common-app-secrets
             key: redis_url
+          CELERY_BROKER_URL:
+            name: sky-ai-staging-common-app-secrets
+            key: celery_broker_url
+          CELERY_RESULT_BACKEND:
+            name: sky-ai-staging-common-app-secrets
+            key: celery_result_backend
             
         extraEnv:
           - name: REDIS_PORT
