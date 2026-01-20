@@ -1691,9 +1691,25 @@ async def dashboards_plan(
         
         return response
     except HTTPException:
-        raise
+        raise  # Re-raise HTTP exceptions without modification
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate dashboard plan: {str(e)}")
+        # Log technical details internally
+        logger.error(
+            "Dashboard generation failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "connection_id": connection_id,
+                "user_id": str(body.user_id) if body.user_id else None,
+                "space_id": str(body.space_id) if body.space_id else None,
+            }
+        )
+        
+        # User-friendly message (NO stack trace or technical details)
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to generate dashboard. Please try selecting specific tables or simplifying your request."
+        )
 
 
 @router.get("/{connection_id}/tables")
@@ -2167,11 +2183,32 @@ async def query_connection(
         llm_client=llm_client_for_security
     )
     
-    # Detectar idioma para mensagens de erro/resposta
+    # Detectar idioma para validação
     try:
         lang = detect_language(body.question or "")
     except:
         lang = "en"
+    
+    # ✅ LANGUAGE VALIDATION: Only accept English questions
+    if lang != "en":
+        log_event(
+            "non_english_question_rejected",
+            {
+                "connection_id": connection_id,
+                "user_id": str(body.user_id) if body.user_id else None,
+                "detected_language": lang,
+                "question_preview": body.question[:100] if body.question else ""
+            }
+        )
+        
+        return QueryResponse(
+            answer="I only understand questions in English. Please ask your question in English.",
+            sql=None,
+            data=[],
+            meta=QueryResultMeta(num_rows=0),
+            has_error=True,
+            error_code="language_not_supported"
+        )
     
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
@@ -2545,11 +2582,23 @@ async def query_connection(
                     "error": validation_error,
                 },
             )
-            print(f"DEBUG: Invalid SQL: {sql}")
-            print(f"DEBUG: Validation Error: {validation_error}")
+            
+            # Log technical details internally (NOT exposed to client)
+            logger.error(
+                "SQL validation failed - technical details",
+                extra={
+                    "full_sql": sql,
+                    "validation_error": validation_error,
+                    "user_id": str(body.user_id) if body.user_id else None,
+                    "space_id": str(body.space_id) if body.space_id else None,
+                    "connection_id": connection_id,
+                }
+            )
+            
+            # User-friendly message (NO technical/SQL details exposed)
             raise HTTPException(
                 status_code=500,
-                detail=f"Generated SQL is invalid. | DEBUG: {validation_error}",
+                detail="I couldn't process your request. Please try rephrasing your question."
             )
     
     # Debug: log all keys in final_state to see what's available

@@ -17,20 +17,53 @@ class SQLAlchemySource(BaseDataSource):
         self.engine = create_engine(connection_string, pool_pre_ping=True)
     
     def execute_query(self, query: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Execute a SQL query using SQLAlchemy."""
+        """Execute a SQL query using SQLAlchemy with timeout protection."""
         if limit:
             # Try to add LIMIT clause if not present
             query_upper = query.upper().strip()
             if "LIMIT" not in query_upper:
                 query = f"{query} LIMIT {limit}"
         
-        with self.engine.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            
-            # Convert to list of dicts
-            columns = result.keys()
-            return [dict(zip(columns, row)) for row in rows]
+        import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+        from core.logging_utils import log_event
+        
+        def _execute_sync():
+            with self.engine.connect() as conn:
+                # Set statement timeout for PostgreSQL (60 seconds)
+                try:
+                    conn.execute(text("SET statement_timeout = '60s'"))
+                except Exception:
+                    pass  # Not all databases support this
+                
+                result = conn.execute(text(query))
+                rows = result.fetchall()
+                
+                # Convert to list of dicts
+                columns = result.keys()
+                return [dict(zip(columns, row)) for row in rows]
+        
+        # Execute with 60-second timeout
+        start = time.time()
+        try:
+            with ThreadPoolExecutor() as executor:
+                future = executor.submit(_execute_sync)
+                result = future.result(timeout=60.0)
+                
+                elapsed = time.time() - start
+                log_event(
+                    "sqlalchemy_query_success",
+                    {"rows": len(result), "elapsed_sec": round(elapsed, 2)}
+                )
+                return result
+        except (FutureTimeoutError, TimeoutError):
+            log_event("sqlalchemy_query_timeout", {"query": query[:200]})
+            raise TimeoutError(
+                "Query is taking too long. Try filtering your data or asking a simpler question."
+            )
+        except Exception as e:
+            log_event("sqlalchemy_query_error", {"error": str(e)[:200]})
+            raise
     
     def get_table_schema(self, schema_name: Optional[str], table_name: str) -> Dict[str, Any]:
         """Get table schema using SQLAlchemy inspector."""
