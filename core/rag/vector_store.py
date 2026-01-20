@@ -20,6 +20,12 @@ async def _is_pgvector_available_async(db: AsyncSession) -> bool:
         await db.execute(text("SELECT '[1,2,3]'::vector(3)"))
         return True
     except Exception:
+        # IMPORTANTE: Se falhar (pgvector não instalado), a transação do Postgres é abortada.
+        # Precisamos dar rollback para poder continuar usando a mesma sessão no fallback.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         return False
 
 
@@ -29,6 +35,10 @@ def _is_pgvector_available_sync(db: Session) -> bool:
         db.execute(text("SELECT '[1,2,3]'::vector(3)"))
         return True
     except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         return False
 
 

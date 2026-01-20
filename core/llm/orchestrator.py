@@ -460,101 +460,41 @@ def run_orchestrator(
                 pass
             retrieval_context = []
 
-    # 🎯 Verificar se há datasets selecionados manualmente pelo usuário
+    # 🔒 SECURITY FIX: IGNORE selected_datasets from frontend
+    # Only use tables provided by backend through agent_config.tables
+    # This ensures only authorized tables are used based on user permissions
     selected_datasets = state.get("selected_datasets")
-    original_tables = agent_config.tables  # Guardar tabelas originais
-    
     if selected_datasets:
-        # Lógica de Match Flexível (Physical Name, Sufixo, etc.)
-        available_logical = {t.logical_name for t in agent_config.tables}
-        available_physical = {t.physical_name for t in agent_config.tables}
+        log_event(
+            "orchestrator_ignored_frontend_selection",
+            {
+                "agent_id": agent_config.id,
+                "selected_datasets": selected_datasets,
+                "reason": "Frontend table selection ignored - using only backend-authorized tables",
+                "authorized_tables": [t.logical_name for t in agent_config.tables],
+            },
+        )
+    
+    # 🎯 Otimização: Se há apenas 1 tabela disponível (já filtrada por permissões no backend),
+    #                 escolher automaticamente sem consultar o LLM
+    if len(agent_config.tables) == 1:
+        table = agent_config.tables[0]
+        state["chosen_table"] = table.logical_name
+        state["chosen_table_physical"] = table.physical_name
+        state["chosen_tables"] = [table.logical_name]
+        state["chosen_tables_physical"] = [table.physical_name]
         
-        valid_selected = []
-        
-        for ds in selected_datasets:
-            # 1. Match Exato (Logical)
-            if ds in available_logical:
-                valid_selected.append(ds)
-                continue
-                
-            # 2. Match Exato (Physical)
-            if ds in available_physical:
-                # Encontrar o logical_name correspondente ao physical
-                t_obj = next((t for t in agent_config.tables if t.physical_name == ds), None)
-                if t_obj: 
-                    valid_selected.append(t_obj.logical_name)
-                    continue
-            
-            # 3. Match por Sufixo (ex: "billing.invoices" match com "invoices")
-            # Tenta encontrar tabelas cujo logical_name seja final do ds fornecido
-            found_suffix = False
-            for t_obj in agent_config.tables:
-                # Verifica se ds termina com .logical_name (ex: ds="proj.dataset.users", t="users")
-                # OU se logical_name é igual à última parte do ds (split)
-                logical_suffix = t_obj.logical_name
-                ds_suffix = ds.split('.')[-1]
-                
-                if ds.endswith(f".{logical_suffix}") or logical_suffix == ds_suffix:
-                    valid_selected.append(t_obj.logical_name)
-                    found_suffix = True
-                    break
-            
-            if found_suffix:
-                continue
-                
-        if valid_selected:
-            # Filtrar apenas se encontrou algo válido
-            # Remove duplicatas mantendo ordem
-            valid_selected_unique = []
-            for item in valid_selected:
-                if item not in valid_selected_unique:
-                    valid_selected_unique.append(item)
-            
-            filtered_tables = [t for t in agent_config.tables if t.logical_name in valid_selected_unique]
-            agent_config.tables = filtered_tables
-            
-            log_event(
-                "orchestrator_using_manual_selection",
-                {
-                    "agent_id": agent_config.id, 
-                    "selected_raw": selected_datasets,
-                    "resolved_logical": valid_selected_unique,
-                    "num_tables": len(filtered_tables)
-                },
-            )
-            
-            # 🎯 Otimização: Se após filtrar selected_datasets restar apenas 1 tabela,
-            #                 escolher automaticamente sem consultar o LLM
-            if len(agent_config.tables) == 1:
-                table = agent_config.tables[0]
-                state["chosen_table"] = table.logical_name
-                state["chosen_table_physical"] = table.physical_name
-                state["chosen_tables"] = [table.logical_name]
-                state["chosen_tables_physical"] = [table.physical_name]
-                
-                log_event(
-                    "orchestrator_auto_selected_single_table",
-                    {
-                        "agent_id": agent_config.id,
-                        "question": question[:200],
-                        "chosen_logical": table.logical_name,
-                        "chosen_physical": table.physical_name,
-                        "reason": "Only one table available after manual selection",
-                    },
-                )
-                return state  # ✅ Retorna imediatamente
-        else:
-            # Fallback Resiliente: Se nada foi encontrado, não falhar.
-            # Apenas logar e continuar com catálogo completo.
-            log_event(
-                "orchestrator_manual_selection_fallback", 
-                {
-                    "agent_id": agent_config.id,
-                    "selected_datasets": selected_datasets,
-                    "reason": "No matching tables found in catalog (checked logical, physical, suffix)"
-                }
-            )
-            # NÃO RETORNA ERRO, segue fluxo normal
+        log_event(
+            "orchestrator_auto_selected_single_table",
+            {
+                "agent_id": agent_config.id,
+                "question": question[:200],
+                "chosen_logical": table.logical_name,
+                "chosen_physical": table.physical_name,
+                "reason": "Only one table available (backend-authorized)",
+            },
+        )
+        return state  # ✅ Retorna imediatamente
 
     tables_summary = _build_tables_summary(agent_config.tables)
 
