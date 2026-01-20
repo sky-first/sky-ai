@@ -5,3 +5,7 @@ dns_prefix          = "sky-aks-staging"
 location            = "eastus2"
 vnet_address_space  = ["10.1.0.0/16"]
 service_cidr        = "10.0.0.0/16"
+
+authorized_ips = [
+  "169.155.237.25/32"
+]
