@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ollama-scaler-sa
+  namespace: ollama
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ollama-scaler-role
+  namespace: ollama
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  resourceNames: ["ollama"]
+  verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ollama-scaler-rb
+  namespace: ollama
+subjects:
+- kind: ServiceAccount
+  name: ollama-scaler-sa
+  namespace: ollama
+roleRef:
+  kind: Role
+  name: ollama-scaler-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# WAKE UP: 08:00 Lisbon (UTC+0) - Monday to Friday
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ollama-wake-up
+  namespace: ollama
+spec:
+  schedule: "0 8 * * 1-5"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ollama-scaler-sa
+          containers:
+          - name: kubectl
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - kubectl scale deployment ollama --replicas=1 -n ollama
+          restartPolicy: OnFailure
+---
+# SLEEP: 18:00 Lisbon (UTC+0) - Monday to Friday
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ollama-sleep
+  namespace: ollama
+spec:
+  schedule: "0 18 * * 1-5"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ollama-scaler-sa
+          containers:
+          - name: kubectl
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - kubectl scale deployment ollama --replicas=0 -n ollama
+          restartPolicy: OnFailure
