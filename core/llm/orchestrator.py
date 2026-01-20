@@ -1,7 +1,7 @@
 # core/llm/orchestrator.py
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import re
 from datetime import datetime
 
@@ -14,6 +14,107 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
+
+
+# ==================== ROLE-BASED REASONING ====================
+# Role profiles define how the AI behaves based on user role
+
+ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
+    # Platform roles (global level)
+    "admin": {
+        "label": "Executive/CFO",
+        "focus": ["revenue", "profit", "cost", "roi", "trend", "summary", "kpi"],
+        "style": "Provide executive summaries with key financial metrics and strategic insights",
+        "table_priority": ["invoices", "revenue", "sales", "payments", "customers"],
+        "detail_level": "high_level",
+    },
+    "user": {
+        "label": "Standard User",
+        "focus": [],
+        "style": "Provide balanced, clear responses",
+        "table_priority": [],
+        "detail_level": "medium",
+    },
+    "viewer": {
+        "label": "Viewer",
+        "focus": ["overview", "summary"],
+        "style": "Provide simplified overviews",
+        "table_priority": [],
+        "detail_level": "low",
+    },
+    
+    # Crew roles (team level - takes precedence over platform roles)
+    "commander": {
+        "label": "Team Leader",
+        "focus": ["performance", "team", "kpi", "comparison", "target", "growth"],
+        "style": "Focus on team metrics, performance indicators, and management insights",
+        "table_priority": [],
+        "detail_level": "managerial",
+    },
+    "navigator": {
+        "label": "Team Member",
+        "focus": ["detail", "breakdown", "analysis", "drill-down", "specific"],
+        "style": "Provide detailed analytical responses with actionable data",
+        "table_priority": [],
+        "detail_level": "detailed",
+    },
+    "explorer": {
+        "label": "Basic User",
+        "focus": ["simple", "overview", "basic"],
+        "style": "Keep responses clear and straightforward",
+        "table_priority": [],
+        "detail_level": "simple",
+    },
+    "guest": {
+        "label": "Guest",
+        "focus": [],
+        "style": "Provide minimal necessary information",
+        "table_priority": [],
+        "detail_level": "minimal",
+    },
+}
+
+
+def _build_role_context(platform_role: str, crew_role: str) -> str:
+    """
+    Build role-specific context for LLM prompt injection.
+    
+    Crew role takes precedence over platform role for behavior,
+    but platform admin always gets financial priority.
+    
+    Args:
+        platform_role: Platform-level role (admin/user/viewer)
+        crew_role: Crew-level role (commander/navigator/explorer/guest)
+    
+    Returns:
+        Role context string to inject into system prompt
+    """
+    # Get profiles (crew_role takes precedence for behavior)
+    crew_profile = ROLE_PROFILES.get(crew_role, {})
+    platform_profile = ROLE_PROFILES.get(platform_role, {})
+    
+    # Merge: crew_role behavior, but admin always gets table priority
+    label = crew_profile.get("label") or platform_profile.get("label", "User")
+    style = crew_profile.get("style") or platform_profile.get("style", "")
+    
+    # Admin always gets financial table priority
+    priority = []
+    if platform_role == "admin":
+        priority = platform_profile.get("table_priority", [])
+    
+    # Build context block
+    context_parts = [f"USER ROLE: {label}"]
+    
+    if style:
+        context_parts.append(f"RESPONSE STYLE: {style}")
+    
+    if priority:
+        context_parts.append(
+            f"TABLE PRIORITY: When multiple tables could answer the question, "
+            f"prefer tables related to: {', '.join(priority)}"
+        )
+    
+    return "\n".join(context_parts)
 
 
 def _build_tables_summary(tables: List[TableSchema]) -> str:
@@ -516,6 +617,25 @@ def run_orchestrator(
     if instructions:
         instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
     
+    # 🎭 ROLE-BASED REASONING: Build context based on user role
+    platform_role = state.get("platform_role", "user")
+    crew_role = state.get("crew_role", "guest")
+    role_context = _build_role_context(platform_role, crew_role)
+    role_context_block = ""
+    if role_context:
+        role_context_block = f"\n\n{role_context}\n"
+    
+    log_event(
+        "orchestrator_role_context",
+        {
+            "agent_id": agent_config.id,
+            "platform_role": platform_role,
+            "crew_role": crew_role,
+            "has_role_context": bool(role_context),
+        },
+    )
+    
+
     # Construir informações sobre relacionamentos disponíveis para o LLM
     relationships_info = ""
     if relationships and len(agent_config.tables) > 1:
@@ -536,6 +656,7 @@ def run_orchestrator(
         system_msg = {
             "role": "system",
             "content": (
+                f"{role_context_block}"
                 "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
                 "from the list to answer the user's question.\n\n"
                 "Rules:\n"
@@ -567,6 +688,7 @@ def run_orchestrator(
         system_msg = {
             "role": "system",
             "content": (
+                f"{role_context_block}"
                 "You are a routing assistant. Your job is to choose the logical table "
                 "from the list to answer the user's question.\n\n"
                 "Rules:\n"
