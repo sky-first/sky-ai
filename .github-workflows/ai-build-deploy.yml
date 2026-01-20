@@ -66,9 +66,29 @@ jobs:
       - name: Image digest
         run: echo ${{ steps.build.outputs.digest }}
 
-      - name: Trigger ArgoCD Sync (Optional)
-        if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+      - name: Update GitOps Manifest
+        if: github.ref == 'refs/heads/staging'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Image pushed successfully to ACR"
-          echo "ArgoCD will auto-detect and sync within 3 minutes"
-          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          echo "Cloning infrastructure repository..."
+          git clone https://x-access-token:${GH_TOKEN}@github.com/sky-first/sky-poc-infra.git infra-repo
+          cd infra-repo
+          
+          echo "Updating rollout-trigger..."
+          # Update the timestamp using sed
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          sed -i "s/rollout-trigger: \".*\"/rollout-trigger: \"$TIMESTAMP\"/" gitops/bootstrap/staging/ai.yaml
+          
+          # Check if there are changes
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            echo "Committing and pushing changes..."
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            git add gitops/bootstrap/staging/ai.yaml
+            git commit -m "GitOps: Update rollout-trigger for ai at $TIMESTAMP"
+            git push
+            echo "Successfully triggered rollout"
+          fi
