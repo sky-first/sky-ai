@@ -32,7 +32,10 @@ class AgentState(TypedDict, total=False):
     platform_role: Optional[str]  # admin | user | viewer
     crew_role: Optional[str]      # commander | navigator | explorer | guest
     locale: Optional[str]         # User locale (default: "en")
-    permissions: Optional[List[str]]  # User permissions list
+    permissions: List[str]  # User permissions list
+    
+    # State Memory
+    last_suggestions: List[str]  # Stores suggestions from the previous turn
 
     # Idioma
     detected_language: Optional[str]

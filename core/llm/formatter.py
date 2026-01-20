@@ -397,9 +397,9 @@ def run_formatter(
     
     # Append suggestions as markdown if we have any
     if followup_suggestions:
-        suggestions_md = "\n\n---\n💡 **Explore also:**\n"
-        for suggestion in followup_suggestions:
-            suggestions_md += f"- *{suggestion}*\n"
+        suggestions_md = "\n\n---\n### 💡 Suggested Follow-up:\n"
+        for i, suggestion in enumerate(followup_suggestions, 1):
+            suggestions_md += f"{i}. {suggestion}\n"
         answer = answer + suggestions_md
         
         log_event(
@@ -411,6 +411,7 @@ def run_formatter(
         )
     
     state["answer"] = answer
+    state["last_suggestions"] = followup_suggestions
 
     log_event(
         "formatter_success",
