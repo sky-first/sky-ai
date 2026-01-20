@@ -2421,6 +2421,12 @@ async def query_connection(
             "user_id": body.user_id,
             "space_id": body.space_id,
             "crew_ids": crew_ids,
+            # User context fields (from UserContext schema)
+            # NOTE: Backend should send these values; using defaults until backend integration is complete
+            "platform_role": getattr(body, "platform_role", None) or "user",  # admin | user | viewer
+            "crew_role": getattr(body, "crew_role", None) or "guest",         # commander | navigator | explorer | guest
+            "locale": getattr(body, "locale", None) or "en",
+            "permissions": getattr(body, "permissions", None) or [],
             "retrieval_context": retrieval_context,
             # Configurações dinâmicas da IA
             "instructions": body.instructions,
@@ -2466,6 +2472,8 @@ async def query_connection(
             space_id=body.space_id,
             crew_ids=crew_ids,
             thread_id=thread_id,
+            platform_role=getattr(body, "platform_role", None) or "user",
+            crew_role=getattr(body, "crew_role", None) or "guest",
             question=body.question,
             has_error=True,
             error_message=error_detail,
@@ -2656,13 +2664,6 @@ async def query_connection(
             pii_detection_result=pii_response_data_result,
         )
     
-    # Se detectar PII crítico na resposta E não for contexto agregado permitido, bloquear
-    if pii_response_text_result and pii_response_text_result.should_block and not allow_pii_in_text:
-        # Substituir resposta por mensagem genérica
-        answer = "I cannot display sensitive personal information in the results."
-        pii_blocked = True
-    
-    
     # ✅ SOLUÇÃO: Detectar queries agregadas ou com LIMIT baixo para permitir PII em contexto seguro
     # 1. Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
     #    dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
@@ -2684,6 +2685,27 @@ async def query_connection(
         if limit_match:
             limit_value = int(limit_match.group(1))
             is_sample_query = limit_value <= 150
+
+    # Se detectar PII crítico na resposta E não for contexto agregado permitido, bloquear
+    # Também permitimos se for uma query agregada (pois o texto descreve dados agregados)
+    if pii_response_text_result and pii_response_text_result.should_block:
+        # Se for query agregada ou amostra, consideramos seguro liberar a explicação
+        if is_aggregated_query or is_sample_query:
+            allow_pii_in_text = True
+            log_event(
+                "pii_text_allowed_aggregated",
+                {
+                   "connection_id": connection_id,
+                   "reason": "Aggregated/Sample query analysis is safe",
+                   "is_aggregated": is_aggregated_query,
+                   "is_sample": is_sample_query
+                }
+            )
+        
+        if not allow_pii_in_text:
+            # Substituir resposta por mensagem genérica
+            answer = "I cannot display sensitive personal information in the results."
+            pii_blocked = True
     
     if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
         # Permitir dados se for query agregada OU amostra (LIMIT baixo)
@@ -2793,6 +2815,8 @@ async def query_connection(
         space_id=body.space_id,
         crew_ids=crew_ids,
         thread_id=thread_id,
+        platform_role=getattr(body, "platform_role", None) or "user",
+        crew_role=getattr(body, "crew_role", None) or "guest",
         question=body.question,
         sql_generated=sql,
         sql_executed=sql,  # Por enquanto igual ao gerado

@@ -27,6 +27,12 @@ class AgentState(TypedDict, total=False):
     user_id: Optional[str]
     space_id: Optional[str]
     crew_ids: Optional[List[str]]
+    
+    # User context (from UserContext schema)
+    platform_role: Optional[str]  # admin | user | viewer
+    crew_role: Optional[str]      # commander | navigator | explorer | guest
+    locale: Optional[str]         # User locale (default: "en")
+    permissions: Optional[List[str]]  # User permissions list
 
     # Idioma
     detected_language: Optional[str]
@@ -403,13 +409,26 @@ def run_agent_once(
         space_id_str = str(user_ctx.space_id)
     
     crew_ids_list = getattr(user_ctx, "crew_ids", []) or []
+    # Convert UUIDs to strings if needed
+    crew_ids_str = [str(cid) for cid in crew_ids_list] if crew_ids_list else []
+    
+    # Extract new fields from UserContext
+    platform_role = getattr(user_ctx, "platform_role", "user")
+    crew_role = getattr(user_ctx, "crew_role", "guest")
+    locale = getattr(user_ctx, "locale", "en")
+    permissions = getattr(user_ctx, "permissions", []) or []
 
     # Estado inicial
     state: AgentState = {
         "question": question,
         "user_id": user_id_str,
         "space_id": space_id_str,
-        "crew_ids": crew_ids_list,
+        "crew_ids": crew_ids_str,
+        # User context fields
+        "platform_role": platform_role,
+        "crew_role": crew_role,
+        "locale": locale,
+        "permissions": permissions,
         # retrieval_context pode vir como parâmetro ou ser populado pelo orchestrator
         "retrieval_context": retrieval_context or [],
         # Configurações dinâmicas da IA
@@ -443,6 +462,11 @@ def run_agent_once(
             "user_id": state.get("user_id"),
             "space_id": state.get("space_id"),
             "crew_ids": state.get("crew_ids"),
+            # NEW: Log UserContext fields for verification
+            "platform_role": state.get("platform_role"),
+            "crew_role": state.get("crew_role"),
+            "locale": state.get("locale"),
+            "permissions_count": len(state.get("permissions") or []),
             "has_error": bool(final_state.get("error")),
             "has_answer": bool(final_state.get("answer")),
         },
