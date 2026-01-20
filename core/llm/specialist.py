@@ -824,7 +824,9 @@ def run_specialist(
     has_temporal_filter = any(term in sql.upper() for term in temporal_forbidden) and "WHERE" in sql.upper()
     
     # 🔄 AUTO-CORRECTION: Verificar filtro de categoria 'High' que retorna vazio
-    has_high_value_filter = "INVOICE_VALUE_CATEGORY = 'HIGH'" in sql.upper() or "INVOICE_VALUE_CATEGORY = \"HIGH\"" in sql.upper()
+    # Detecta várias variações: `column` = 'High', column = 'High', column = "High"
+    sql_normalized = sql.upper().replace("`", "").replace('"', "'")
+    has_high_value_filter = "INVOICE_VALUE_CATEGORY = 'HIGH'" in sql_normalized
     
     # Só faz retry se não for a segunda tentativa (evitar loop infinito)
     retry_count = state.get("specialist_retry_count", 0)
@@ -867,6 +869,39 @@ def run_specialist(
         try:
             log_event("specialist_retrying", {"attempt": 2})
             raw_retry = llm.invoke(new_messages)
+            
+            # ✅ FIX: Verificar se retry retornou IMPOSSIBLE antes de processar
+            retry_content = raw_retry.content if hasattr(raw_retry, "content") else str(raw_retry)
+            retry_content_clean = retry_content.strip()
+            
+            if re.match(r"^\s*IMPOSSIBLE", retry_content_clean, flags=re.IGNORECASE):
+                # LLM não conseguiu evitar filtro temporal - retornar mensagem amigável
+                reason = re.sub(
+                    r"^\s*IMPOSSIBLE:?\s*",
+                    "",
+                    retry_content_clean,
+                    flags=re.IGNORECASE,
+                ).strip()
+                
+                # Criar mensagem amigável para o usuário
+                friendly_message = (
+                    "I cannot filter by specific time periods with the current data constraints. "
+                    "Would you like to see the overall trend or recent data instead?"
+                )
+                
+                state["impossible_reason"] = reason or friendly_message
+                state["answer"] = friendly_message
+                
+                log_event(
+                    "specialist_impossible_after_retry",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "reason": reason,
+                        "action": "returning_friendly_message",
+                    },
+                )
+                return state
             
             # Reprocessar saída
             raw_sql_retry = _parse_specialist_output(raw_retry, primary_table)

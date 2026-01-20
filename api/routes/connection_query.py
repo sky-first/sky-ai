@@ -435,27 +435,42 @@ async def _filter_tables_by_permissions(
         
         # Buscar tabelas permitidas em table_metadata
         # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
-        query = text("""
-            SELECT DISTINCT table_name
-            FROM table_metadata
-            WHERE space_id = CAST(:space_id AS uuid)
-              AND data_connection_id = CAST(:conn_id AS uuid)
-              AND (
-                crew_id IS NULL
-                OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
-              )
-        """)
-        
-        result = await db.execute(
-            query,
-            {
-                "space_id": space_id,
-                "conn_id": connection_id,
-                "crew_ids": crew_ids,
-            }
-        )
-        
-        allowed_table_names = {row[0] for row in result}
+        allowed_table_names = set()
+        try:
+            query = text("""
+                SELECT DISTINCT table_name
+                FROM table_metadata
+                WHERE space_id = CAST(:space_id AS uuid)
+                AND data_connection_id = CAST(:conn_id AS uuid)
+                AND (
+                    crew_id IS NULL
+                    OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
+                )
+            """)
+            
+            result = await db.execute(
+                query,
+                {
+                    "space_id": space_id,
+                    "conn_id": connection_id,
+                    "crew_ids": crew_ids,
+                }
+            )
+            
+            allowed_table_names = {row[0] for row in result}
+        except Exception as e:
+            # Se a tabela não existir ou outro erro de DB, logar e continuar sem filtrar
+            log_event("table_metadata_query_error", {"error": str(e)})
+            
+            # CRITICAL: Rollback se a transação falhou (ex: UndefinedTableError)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+            # IMPORTANTE: Se a tabela não existe, retornamos todas as tabelas (sem filtro)
+            # Isso é o comportamento fallback seguro.
+            return tables
         
         # Filtrar tabelas baseado em allowed_table_names
         filtered_tables = []

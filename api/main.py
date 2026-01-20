@@ -21,10 +21,30 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# --- OBSERVABILITY: INÍCIO ---
+# Esta configuração expõe métricas de latência, contagem de requests e erros.
+# O endpoint será servido em /metrics
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+except ImportError:
+    # Caso a lib não esteja instalada no ambiente local, não quebra a execução
+    log_event("observability_init_failed", {"message": "prometheus_fastapi_instrumentator not found"})
+# --- OBSERVABILITY: FIM ---
+
 
 @app.on_event("startup")
 async def on_startup():
     log_event("app_startup", {"message": "DataAssistant API started"})
+    
+    # Inicializar banco de dados (criar tabelas se não existirem)
+    try:
+        from db.base import init_db
+        await init_db()
+        log_event("db_initialized", {"message": "Database tables ensured"})
+    except Exception as e:
+        log_event("db_init_error", {"error": str(e), "message": "Failed to initialize DB tables, will retry on demand"})
+
     # Iniciar audit flusher (thread separada, não bloqueia)
     from core.security.audit import start_audit_flusher
     start_audit_flusher()

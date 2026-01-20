@@ -511,9 +511,6 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
                 },
             }
         )
-        # Duplicate to match max_widgets if needed
-        while len(widgets) < max_widgets:
-            widgets.append({**widgets[-1], "widget_key": f"w{len(widgets)+1}"})
         return DavinciDashboardPlan(
             dashboard_name=goal.strip()[:80] or "Dashboard",
             description="Auto-generated dashboard plan (catalog not ready yet).",
@@ -743,10 +740,8 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
                 "viz": viz,
             })
 
-    # Trim / pad deterministically
+    # Trim to max_widgets
     widgets = widgets[:max_widgets]
-    while len(widgets) < max_widgets:
-        widgets.append({**widgets[-1], "widget_key": f"w{len(widgets)+1}"})
 
     return DavinciDashboardPlan(
         dashboard_name=goal.strip()[:80] or "Dashboard",
@@ -827,14 +822,18 @@ def generate_dashboard_plan(
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
             "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
             "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
+            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names/aliases in your SQL SELECT clause.\n"
+            "  * ⚠️ CRITICAL: If your SQL has 'SELECT ... AS total_revenue', use 'total_revenue' in mapping, NOT 'total_invoice_amount' or any other name.\n"
+            "  * ⚠️ CRITICAL: Check your SQL output columns before defining the mapping. Use the EXACT same names.\n"
             "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
             "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
             "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X (like 'reason', 'status', 'category'), use 'bar' or 'pie'.\n"
             "  * CRITICAL: For questions about 'distribution by X', use 'bar' or 'pie', NOT 'scatter'.\n"
             "  * CRITICAL: Match viz type to data - categorical data needs bar/pie, time series needs line/area, numeric correlation needs scatter.\n"
+            "  * 💡 TIP: Prefer 'table' for ranked lists (Top N), rankings, or multi-column data.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
-            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs.\n"
+            "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
             "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
             "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
             "  * DO NOT use restrictive time filters like 'last 30 days' or 'last week' - data might not exist in that range.\n"
@@ -934,12 +933,16 @@ def generate_dashboard_plan(
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
             "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
             "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
+            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names/aliases in your SQL SELECT clause.\n"
+            "  * ⚠️ CRITICAL: If your SQL has 'SELECT ... AS total_revenue', use 'total_revenue' in mapping, NOT 'total_invoice_amount' or any other name.\n"
+            "  * ⚠️ CRITICAL: Check your SQL output columns before defining the mapping. Use the EXACT same names.\n"
             "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
             "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
+            "  * 💡 TIP: Prefer 'table' for rankings (Top N) or many-column lists.\n"
             "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
             "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
-            "- IMPORTANT: Prefer cross-table insights. When useful, ask questions that require JOINs (e.g., fact_table + dimension_table, transaction + entity) to produce better business metrics.\n"
+            "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
             "- If keys are provided in the schema sample, use them to suggest joined questions (e.g., *_id and date fields).\n"
             f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
             "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
@@ -1052,8 +1055,6 @@ def generate_dashboard_plan(
 
         # Normalize count
         widgets = widgets[:max_widgets]
-        while len(widgets) < max_widgets:
-            widgets.append(widgets[-1])
 
         # Enforce cross-table join mix if the LLM didn't satisfy it.
         widgets = _enforce_join_mix(
@@ -1115,6 +1116,32 @@ def generate_dashboard_plan(
                 widgets = [original_widget_preserved] + widgets_validated
             else:
                 widgets = widgets_validated
+            
+            # ✅ DEDUPLICATE: Remove widgets with duplicate titles
+            seen_titles = set()
+            deduplicated_widgets = []
+            for widget in widgets:
+                title = widget.get("title", "").strip().lower()
+                if title and title not in seen_titles:
+                    seen_titles.add(title)
+                    deduplicated_widgets.append(widget)
+                elif not title:
+                    # Keep widgets without title (shouldn't happen, but be safe)
+                    deduplicated_widgets.append(widget)
+            
+            widgets_before_dedup = len(widgets)
+            widgets = deduplicated_widgets
+            
+            if widgets_before_dedup > len(widgets):
+                log_event(
+                    "davinci_widgets_deduplicated",
+                    {
+                        "goal": goal[:200],
+                        "widgets_before": widgets_before_dedup,
+                        "widgets_after": len(widgets),
+                        "removed_duplicates": widgets_before_dedup - len(widgets),
+                    },
+                )
             
             widgets_after_validation = len(widgets)
             
