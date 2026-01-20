@@ -46,7 +46,9 @@ resource "azurerm_linux_virtual_machine" "bastion" {
   }
 
   admin_ssh_key {
-    username   = var.admin_username
+    username = var.admin_username
+    # WARNING: If var.ssh_public_key is null, this resource will be destroyed.
+    # Ensure secrets.SSH_PUBLIC_KEY is set in GitHub Actions.
     public_key = var.ssh_public_key
   }
 

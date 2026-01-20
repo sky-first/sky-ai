@@ -47,7 +47,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
   # Enable private cluster if no runner_ip is provided (more secure - VNET access only)
   # Private cluster requires access via Bastion or VPN, which is available in this setup
-  private_cluster_enabled = var.runner_ip == null ? true : false
+  # FORCE FALSE to prevent accidental recreation of existing public cluster
+  # tfsec:ignore:azure-container-limit-authorized-ips tfsec:ignore:azure-aks-limit-api-access
+  private_cluster_enabled = false
 
   # Workload Identity (Required for External Secrets / Key Vault)
   workload_identity_enabled = true
@@ -76,6 +78,35 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
 
   tags = {
     Environment = var.environment
+  }
+}
+
+# GPU Spot Node Pool (Cost Optimization)
+resource "azurerm_kubernetes_cluster_node_pool" "gpu_spot" {
+  name                  = "gpuspot"
+  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
+  vm_size               = "Standard_NC4as_T4_v3"
+  enable_auto_scaling   = true
+  min_count             = 0 # Scale to zero when not in use
+  max_count             = 1
+  priority              = "Spot"
+  eviction_policy       = "Delete"
+  spot_max_price        = -1 # Use current market price
+
+  node_labels = {
+    "sky-poc-type"  = "gpu"
+    "workload_type" = "ai"
+  }
+
+  node_taints = [
+    "sku=gpu:NoSchedule"
+  ]
+
+  vnet_subnet_id = azurerm_subnet.aks.id
+
+  tags = {
+    Environment = var.environment
+    Type        = "Spot-GPU"
   }
 }
 

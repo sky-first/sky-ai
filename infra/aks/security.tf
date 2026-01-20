@@ -26,7 +26,7 @@ resource "azurerm_key_vault" "main" {
     default_action             = var.key_vault_firewall_allow ? "Allow" : "Deny"
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-    ip_rules                   = var.runner_ip != null ? [var.runner_ip] : []
+    ip_rules                   = var.runner_ip != null ? (length(regexall("/[0-9]+$", var.runner_ip)) > 0 ? [var.runner_ip] : ["${var.runner_ip}/32"]) : []
   }
 
   lifecycle {

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ollama
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # Ensure it runs on the GPU Spot Node Pool
+      nodeSelector:
+        sky-poc-type: gpu
+        workload_type: ai
+      
+      # Tolerate Spot Taints
+      tolerations:
+        - key: "sku"
+          operator: "Equal"
+          value: "gpu"
+          effect: "NoSchedule"
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: "14Gi" # T4 has 16GB VRAM, but node RAM is usually 28GB+. 14GB is safe for container.
+              cpu: "3"
+            requests:
+              nvidia.com/gpu: 1
+              memory: "8Gi"
+              cpu: "1"
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+            - name: init-scripts
+              mountPath: /scripts
+          
+          # Lifecycle hook to run setup script in background isn't ideal for main process.
+          # Better to use postStart or just run it in the main command.
+          # Using the command override pattern from the proposal:
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Start server in background
+              ollama serve &
+              pid=$!
+              
+              # Run setup script
+              sleep 5
+              /bin/bash /scripts/setup-models.sh
+              
+              # Wait for server process
+              wait $pid
+          
+          # Probes adjusted for initial heavy download
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 120 # Give 2 minutes for initial startup/download
+            periodSeconds: 20
+            failureThreshold: 5 # Total ~3-4 minutes tolerance
+            
+      volumes:
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+        - name: init-scripts
+          configMap:
+            name: ollama-init-scripts
+            defaultMode: 0755

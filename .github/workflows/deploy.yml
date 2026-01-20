@@ -7,6 +7,10 @@ permissions:
 on:
   push:
     branches: [staging, main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/deploy.yml"
+      - ".github/actions/**"
   repository_dispatch:
     types: [deploy-trigger]
   workflow_dispatch:
@@ -180,6 +184,8 @@ jobs:
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_key_vault_firewall_allow: "true"
+      # Guard for Bastion deletion
+      BASTION_KEY_PROV: ${{ secrets.SSH_PUBLIC_KEY != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -210,8 +216,9 @@ jobs:
             exit 1
           fi
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+          echo "TF_VAR_runner_ip=$RUNNER_IP/32" >> $GITHUB_ENV
           echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
-          echo "✅ Runner IP obtido: $RUNNER_IP"
+          echo "✅ Runner IP obtido: $RUNNER_IP (formatado como $RUNNER_IP/32 para o Terraform)"
 
       - name: Open Key Vault Internal Firewalls
         id: kv_override
@@ -333,9 +340,10 @@ jobs:
               echo "   📍 Adicionando IP do runner à whitelist..."
               if az keyvault network-rule add \
                 --name "$kv" \
-                --ip-address "${RUNNER_IP}/32" \
-                --only-show-errors >/dev/null 2>&1; then
+                --ip-address "${RUNNER_IP}/32"; then
                 echo "   ✅ IP ${RUNNER_IP}/32 adicionado à whitelist"
+                echo "   ⏳ Aguardando 5s para propagação da regra de IP..."
+                sleep 5
               else
                 echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
               fi
@@ -437,8 +445,7 @@ jobs:
                 if az keyvault set-policy \
                   --name "$kv" \
                   --spn "$CLIENT_ID" \
-                  --secret-permissions get list \
-                  --only-show-errors >/dev/null 2>&1; then
+                  --secret-permissions get list; then
                   echo "   ✅ Access Policy concedida/atualizada para o runner"
                 else
                   echo "   ⚠️  Falha ao definir Access Policy (pode já existir ou falta de permissão)"
@@ -448,8 +455,12 @@ jobs:
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
               # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
               echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
+              # Verificação de depuração: listar regras atuais
+              echo "   🔍 Regras atuais de IP em $kv (antes de Allow):"
+              az keyvault network-rule list --name "$kv" --query "ipRules[].ipAddress" -o tsv || echo "      (vazio)"
+              
               FIREWALL_CHANGED=false
-              if az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1; then
+              if az keyvault update --name "$kv" --default-action Allow; then
                 echo "   ✅ Firewall ajustado para Allow"
                 FIREWALL_CHANGED=true
               else
@@ -458,13 +469,13 @@ jobs:
               
               # Aguardar propagação de firewall se foi alterado (pode levar 30-60s)
               if [ "$FIREWALL_CHANGED" == "true" ]; then
-                echo "   ⏳ Aguardando propagação de firewall (30s)..."
-                sleep 30
+                echo "   ⏳ Aguardando propagação de firewall e DNS (45s)..."
+                sleep 45
               fi
               
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
               echo "   🔍 Validando conectividade real..."
-              MAX_VALIDATION_ATTEMPTS=24  # Aumentado de 12 para 24 (2 minutos)
+              MAX_VALIDATION_ATTEMPTS=60  # Aumentado para 60 (5 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
               
@@ -1247,6 +1258,7 @@ jobs:
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_key_vault_firewall_allow: "true"
+      TF_VAR_runner_ip: ${{ needs.terraform-plan.outputs.runner_ip }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1810,6 +1822,8 @@ jobs:
                 --ip-address "${RUNNER_IP}/32" \
                 --only-show-errors >/dev/null 2>&1; then
                 echo "   ✅ IP ${RUNNER_IP}/32 adicionado à whitelist"
+                echo "   ⏳ Aguardando 20s para propagação da regra de IP..."
+                sleep 20
               else
                 echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
               fi
@@ -1926,7 +1940,7 @@ jobs:
               
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
               echo "   🔍 Validando conectividade real..."
-              MAX_VALIDATION_ATTEMPTS=24  # Aumentado de 12 para 24 (2 minutos)
+              MAX_VALIDATION_ATTEMPTS=60  # Aumentado para 60 (5 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
               
