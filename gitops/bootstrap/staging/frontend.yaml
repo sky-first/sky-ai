@@ -11,6 +11,8 @@ spec:
     targetRevision: staging
     helm:
       values: |
+        podAnnotations:
+          rollout-trigger: "2026-01-20T12:20:14Z"
         imagePullSecrets:
           - name: regcred
         image:
