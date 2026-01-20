@@ -1072,14 +1072,36 @@ def run_specialist(
         if not is_valid:
             state["error"] = f"Security validation failed: {security_error}"
             state["sql"] = sql
+            
+            # Log violation evento (para logs em tempo real)
             log_event(
                 "specialist_security_validation_failed",
                 {
                     "agent_id": agent_config.id,
                     "sql": sql[:500],
                     "error": security_error,
-            },
-        )
+                },
+            )
+            
+            # Log violation persistente (para audit trail no banco)
+            from core.security.audit import log_query_audit
+            log_query_audit(
+                connection_id=agent_config.id,
+                user_id=state.get("user_id"),
+                space_id=state.get("space_id"),
+                crew_ids=state.get("crew_ids"),
+                thread_id=state.get("thread_id"),
+                question=state.get("question", ""),
+                platform_role=state.get("platform_role"),
+                crew_role=state.get("crew_role"),
+                sql_generated=sql,
+                sql_validated=False,
+                validation_error=security_error,
+                has_error=True,
+                error_message=f"RLS Security Violation: {security_error}",
+                chosen_tables=state.get("chosen_tables", []),
+            )
+            
             return state
         
         # Log: validação de security_config passou
