@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     Text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import (
     declarative_base,
     relationship,
@@ -25,8 +26,8 @@ from pgvector.sqlalchemy import Vector
 Base = declarative_base()
 
 
-def generate_uuid() -> str:
-    return str(uuid4())
+def generate_uuid():
+    return uuid4()
 
 
 # ========== ENTIDADES DE CONTEXTO ==========
@@ -34,7 +35,7 @@ def generate_uuid() -> str:
 class Space(Base):
     __tablename__ = "spaces"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
@@ -48,8 +49,8 @@ class Space(Base):
 class Crew(Base):
     __tablename__ = "crews"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
@@ -62,7 +63,7 @@ class Crew(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=True)
 
@@ -75,9 +76,9 @@ class User(Base):
 class UserPermission(Base):
     __tablename__ = "user_permissions"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    crew_id = Column(String, ForeignKey("crews.id"), nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
     permission = Column(String, nullable=False)  # "read", "write", "admin"
     
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -89,8 +90,8 @@ class UserPermission(Base):
 class Planet(Base):
     __tablename__ = "planets"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     required_scopes = Column(JSON, nullable=True)  # List[str] stored as JSON
@@ -106,8 +107,8 @@ class Planet(Base):
 class DataConnection(Base):
     __tablename__ = "data_connections"
 
-    id = Column(String, primary_key=True)
-    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
 
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)  # ex: "bigquery", "postgres", "mysql", "redshift"
@@ -115,7 +116,7 @@ class DataConnection(Base):
     config = Column(JSON, nullable=False, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    created_by_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     space = relationship("Space", back_populates="data_connections")
     created_by_user = relationship("User", foreign_keys=[created_by_user_id])
@@ -128,11 +129,11 @@ class DataConnection(Base):
 class TableMetadata(Base):
     __tablename__ = "table_metadata"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
-    data_connection_id = Column(String, ForeignKey("data_connections.id"), nullable=False)
-    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
-    crew_id = Column(String, ForeignKey("crews.id"), nullable=True)
+    data_connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=False)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
 
     table_name = Column(String, nullable=False)
     column_name = Column(String, nullable=False)
@@ -154,13 +155,13 @@ class TableMetadata(Base):
 class EmbeddingRecord(Base):
     __tablename__ = "embeddings"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
-    space_id = Column(String, ForeignKey("spaces.id"), nullable=False)
-    crew_id = Column(String, ForeignKey("crews.id"), nullable=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
-    table_metadata_id = Column(String, ForeignKey("table_metadata.id"), nullable=True)
+    table_metadata_id = Column(UUID(as_uuid=True), ForeignKey("table_metadata.id"), nullable=True)
     document_id = Column(String, nullable=True)
 
     # Vetor de embedding (dimensão depende do modelo)
