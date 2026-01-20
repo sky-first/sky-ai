@@ -1,0 +1,119 @@
+# api/main.py
+from __future__ import annotations
+
+import os
+from fastapi import FastAPI
+from sqlalchemy import text
+
+# Force local DB for local dev when a remote/stale DATABASE_URL is present.
+# This project expects the AI Engine to read the same Postgres as the backend docker-compose.
+_db_url = os.getenv("DATABASE_URL", "")
+if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
+
+from api.routes import connection_query, connection_discover  # noqa: E402
+from api.routes import data_ingestion, pipeline, widget_titles  # noqa: E402
+from core.logging_utils import log_event
+
+
+app = FastAPI(
+    title="DataAssistant API",
+    version="0.1.0",
+)
+
+# --- OBSERVABILITY: INÍCIO ---
+# Esta configuração expõe métricas de latência, contagem de requests e erros.
+# O endpoint será servido em /metrics
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+except ImportError:
+    # Caso a lib não esteja instalada no ambiente local, não quebra a execução
+    log_event("observability_init_failed", {"message": "prometheus_fastapi_instrumentator not found"})
+# --- OBSERVABILITY: FIM ---
+
+
+@app.on_event("startup")
+async def on_startup():
+    log_event("app_startup", {"message": "DataAssistant API started"})
+    
+    # Inicializar banco de dados (criar tabelas se não existirem)
+    try:
+        from db.base import init_db
+        await init_db()
+        log_event("db_initialized", {"message": "Database tables ensured"})
+    except Exception as e:
+        log_event("db_init_error", {"error": str(e), "message": "Failed to initialize DB tables, will retry on demand"})
+
+    # Iniciar audit flusher (thread separada, não bloqueia)
+    from core.security.audit import start_audit_flusher
+    start_audit_flusher()
+    log_event("audit_flusher_started", {"message": "Audit log flusher started"})
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    # Parar audit flusher e fazer flush final
+    from core.security.audit import stop_audit_flusher
+    stop_audit_flusher()
+    log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
+
+
+@app.get("/health", tags=["health"])
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/debug/db", tags=["debug"])
+async def debug_db():
+    """
+    Local-dev helper to verify which DB the AI Engine is connected to.
+    """
+    from db.base import DATABASE_URL, SessionLocal
+
+    safe_url = DATABASE_URL
+    try:
+        # redact password
+        if "://" in safe_url and "@" in safe_url:
+            prefix, rest = safe_url.split("://", 1)
+            creds, hostpart = rest.split("@", 1)
+            if ":" in creds:
+                user, _pwd = creds.split(":", 1)
+                safe_url = f"{prefix}://{user}:***@{hostpart}"
+    except Exception:
+        safe_url = "<redacted>"
+
+    async with SessionLocal() as db:
+        result = await db.execute(text("select count(*) from connection_metadata"))
+        total_meta = result.scalar_one()
+        result = await db.execute(
+            text("select count(*) from connection_metadata where connection_id = CAST(:cid AS uuid)"),
+            {"cid": "1fd6fee8-bf03-4e82-9c85-419a228ef726"},
+        )
+        sample = result.scalar_one()
+
+    return {"database_url": safe_url, "connection_metadata_count": int(total_meta), "sample_connection_row": int(sample)}
+
+
+# ===========================
+# Engine-only API surface
+# ===========================
+# Este serviço (ia-do-projeto) é o "AI Engine" chamado pelo backend do produto.
+# Para evitar duplicação com o backend principal (poc-02/backend), aqui expomos
+# apenas endpoints necessários para:
+# - queries de IA por connection_id
+# - catálogo (tabelas/colunas) e refresh de metadados
+# - pipeline/ingestion (interno)
+
+# Rotas para queries e descoberta usando conexões diretamente
+# IMPORTANTE: connection_query deve vir ANTES de connection_discover e data_ingestion
+# para evitar conflitos de roteamento (todos usam prefix="/connections")
+app.include_router(connection_query.router)
+app.include_router(connection_discover.router)
+app.include_router(data_ingestion.router)
+
+# Rotas de pipeline
+app.include_router(pipeline.router)
+
+# Rotas de widgets (sugestão de títulos)
+app.include_router(widget_titles.router)

@@ -1,0 +1,27 @@
+Generating dashboard plan for goal: Comprehensive analysis of invoices, payments, and customers for 2023...
+
+Dashboard Name: 2023 Invoices, Payments & Customer Insights
+- [kpi] Title: Total Invoices Issued
+  Question: What is the total number of invoices issued in 2023?
+  Viz: {'type': 'kpi'}
+- [kpi] Title: Total Payments Received
+  Question: What is the total amount of payments received in 2023?
+  Viz: {'type': 'kpi'}
+- [chart] Title: Monthly Invoice Trend
+  Question: How did the total invoice amount trend monthly in 2023?
+  Viz: {'type': 'line', 'index': 'invoice_year_month', 'categories': ['SUM(invoice_amount)']}
+- [chart] Title: Top Customers by Payment Amount
+  Question: Who are the top 5 customers by total payment amount in 2023?
+  Viz: {'type': 'bar', 'index': 'customer_name_clean', 'categories': ['SUM(payment_amount)']}
+- [chart] Title: Credit Memo Reasons Distribution
+  Question: What are the most common reasons for credit memos issued in 2023?
+  Viz: {'type': 'pie', 'index': 'credit_reason_clean', 'categories': ['COUNT(credit_memo_id)']}
+- [chart] Title: Monthly Payment Amount Trend
+  Question: How did the total payment amount trend monthly in 2023?
+  Viz: {'type': 'area', 'index': 'payment_year_month', 'categories': ['SUM(payment_amount)']}
+- [chart] Title: Monthly Refund Trend
+  Question: How did the total refund amount trend monthly in 2023?
+  Viz: {'type': 'line', 'index': 'refund_year_month', 'categories': ['SUM(refund_amount)']}
+- [table] Title: Customer Invoice and Payment Details
+  Question: What are the invoice and payment details for each customer in 2023?
+  Viz: {'type': 'table'}

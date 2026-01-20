@@ -1,0 +1,25 @@
+name: Build Verification
+
+on:
+    pull_request:
+        branches: [staging, main]
+
+jobs:
+    build-verification:
+        name: Verify Docker Build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build Docker Image (no push)
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  push: false
+                  tags: sky-poc-ai:test
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max

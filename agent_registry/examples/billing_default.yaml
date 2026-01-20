@@ -1,0 +1,43 @@
+id: "billing_default"
+name: "Billing SQL Agent"
+description: "Agente genérico para responder perguntas sobre faturamento usando dados de billing."
+
+data_source:
+  id: "bq_billing"
+  type: "bigquery"
+  display_name: "BigQuery - Billing"
+  # dataset default no formato: projeto.dataset
+  default_schema: "meu-projeto.billing_silver"
+  extra:
+    project_id: "meu-projeto"
+    # se estiver usando GOOGLE_APPLICATION_CREDENTIALS/Workload Identity, deixe null
+    service_account_path: null
+
+tables:
+  - logical_name: "invoices"
+    physical_name: "silver_invoices_enriquecido"
+    description: "Tabela de faturas/billing."
+    columns:
+      - name: "invoice_id"
+        data_type: "STRING"
+        description: "Identificador único da fatura."
+      - name: "customer_id"
+        data_type: "STRING"
+        description: "Identificador do cliente."
+      - name: "issue_date"
+        data_type: "DATE"
+        description: "Data de emissão da fatura."
+      - name: "total_amount"
+        data_type: "NUMERIC"
+        description: "Valor total da fatura."
+
+  - logical_name: "customers"
+    physical_name: "silver_customers_enriquecido"
+    description: "Tabela de clientes."
+    columns:
+      - name: "customer_id"
+        data_type: "STRING"
+      - name: "customer_name"
+        data_type: "STRING"
+      - name: "country"
+        data_type: "STRING"

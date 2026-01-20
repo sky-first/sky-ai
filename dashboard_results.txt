@@ -1,0 +1,9 @@
+Generating dashboard plan for goal: Overview of payments and refunds for year 2023...
+
+Dashboard Name: 2023 Payments & Refunds Overview
+- [kpi] Title: Total Payments in 2023
+  Question: What is the total amount of payments made in 2023?
+  Viz: {'type': 'kpi'}
+- [kpi] Title: Total Refunds in 2023
+  Question: What is the total amount of refunds issued in 2023?
+  Viz: {'type': 'kpi'}

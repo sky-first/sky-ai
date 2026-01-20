@@ -1,0 +1,478 @@
+# core/agents/generic_sql_agent.py
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, TypedDict, Callable
+
+from sqlalchemy.orm import Session
+from langgraph.graph import StateGraph, END
+
+from core.auth.models import UserContext  # ajuste se o caminho for outro
+from core.llm.providers import LLMProvider
+from core.data_sources.base import BaseDataSource
+from core.rag.embeddings import EmbeddingProvider
+from core.logging_utils import log_event
+
+# Importações tardias para evitar circular imports
+# Essas importações serão feitas dentro das funções onde são usadas
+
+
+# ==================== STATE DO AGENTE ====================
+
+class AgentState(TypedDict, total=False):
+    # Entrada
+    question: str
+
+    # Contexto de permissão / multitenant
+    user_id: Optional[str]
+    space_id: Optional[str]
+    crew_ids: Optional[List[str]]
+    
+    # User context (from UserContext schema)
+    platform_role: Optional[str]  # admin | user | viewer
+    crew_role: Optional[str]      # commander | navigator | explorer | guest
+    locale: Optional[str]         # User locale (default: "en")
+    permissions: List[str]  # User permissions list
+    
+    # State Memory
+    last_suggestions: List[str]  # Stores suggestions from the previous turn
+
+    # Idioma
+    detected_language: Optional[str]
+
+    # RAG
+    retrieval_context: List[str]
+
+    # Configurações de comportamento da IA
+    instructions: Optional[str]  # Instruções gerais sobre como a IA deve se comportar
+    creativity: Optional[int]  # Nível de criatividade (0-100) -> temperatura
+    length: Optional[int]  # Nível de comprimento (0-100) -> max_tokens
+    response_format: Optional[str]  # Formato desejado da resposta
+    sql_instructions: Optional[str]  # Instruções específicas para SQL
+    selected_datasets: Optional[List[str]]  # Datasets/tabelas selecionados manualmente pelo usuário
+
+    # Decisão do orchestrator
+    chosen_table: Optional[str]            # logical_name (mantido para compatibilidade)
+    chosen_table_physical: Optional[str]   # physical_name (mantido para compatibilidade)
+    chosen_tables: Optional[List[str]]     # logical_names de múltiplas tabelas (novo)
+    chosen_tables_physical: Optional[List[str]]  # physical_names correspondentes (novo)
+    join_relationships: Optional[List[Dict[str, str]]]  # relacionamentos para JOINs (novo)
+
+    # Saída do specialist
+    # Multi-source fields
+    is_multi_source: bool
+    plan: Optional[str]  # Natural language plan from orchestrator
+    partial_results: List[Dict[str, Any]]  # Results from parallel executions
+    
+    # Common fields
+    sql: Optional[str]
+    generated_title: Optional[str]  # Novo: título gerado pelo specialist
+    data: Optional[List[Dict[str, Any]]]
+    impossible_reason: Optional[str]
+    error: Optional[str]
+
+    # Saída final
+    answer: Optional[str]
+
+
+# ==================== CONFIG DO AGENTE ====================
+
+class TableColumn(TypedDict, total=False):
+    name: str
+    type: str
+    is_nullable: bool
+    description: Optional[str]
+    is_primary_key: bool
+    is_foreign_key: bool
+
+
+@dataclass
+class TableSchema:
+    """
+    Representa uma tabela que o agente pode usar.
+    logical_name: nome amigável (ex: "transactions")
+    physical_name: nome físico no banco (ex: "project.dataset.table_name")
+    """
+    logical_name: str
+    physical_name: str
+    description: Optional[str] = None
+    columns: List[TableColumn] = field(default_factory=list)
+    # opcional: ID da conexão externa (BigQuery, Postgres do cliente, etc.)
+    data_connection_id: Optional[str] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AgentConfig:
+    """
+    Configuração de um agente genérico:
+    - id: identificador lógico (ex: "default_agent", "main_agent")
+    - name: nome amigável
+    - tables: lista de TableSchema que esse agente conhece
+    """
+    id: str
+    name: str
+    tables: List[TableSchema] = field(default_factory=list)
+    # lugar para configs extras (limites, instruções, etc.)
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+
+# ==================== SESSION FACTORY TYPE ====================
+
+# Uma factory simples que retorna uma Session do SQLAlchemy
+SessionFactory = Callable[[], Session]
+
+
+# ==================== GRAFO GENÉRICO (LangGraph) ====================
+
+def build_generic_sql_graph(
+    agent_config: AgentConfig,
+    data_source: BaseDataSource,
+    db_session_factory: SessionFactory,
+    embedding_provider: EmbeddingProvider,
+    llm_orchestrator: LLMProvider,
+    llm_specialist: LLMProvider,
+    llm_formatter: LLMProvider,
+):
+    """
+    Sistema de Query - Executor de Perguntas
+    
+    Monta o grafo LangGraph com 3 nós que executam perguntas do usuário
+    (seja clicando em sugestão do Sherlock ou digitando manualmente):
+    
+    - orchestrator → escolhe logical table
+    - specialist  → gera SQL + executa
+    - formatter   → gera resposta natural language
+
+    Cada nó fecha sobre suas dependências (agent_config, data_source, LLMs, etc.).
+    """
+
+    def orchestrator_node(state: AgentState) -> AgentState:
+        """
+        Node de orquestração:
+        - abre uma Session
+        - chama run_orchestrator com RAG ligado (db + embedding_provider)
+        - Cria LLM dinamicamente se houver configurações no estado
+        """
+        # Importação tardia para evitar circular import
+        from core.llm.orchestrator import run_orchestrator
+        from core.llm.factory import create_llm_orchestrator
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_orchestrator(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_orchestrator
+        
+        db: Session = db_session_factory()
+        try:
+            new_state = run_orchestrator(
+                state=state,
+                agent_config=agent_config,
+                llm=dynamic_llm,
+                db=db,
+                embedding_provider=embedding_provider,
+            )
+        finally:
+            db.close()
+        return new_state
+
+    def specialist_node(state: AgentState) -> AgentState:
+        """
+        Node especialista:
+        - usa a tabela escolhida
+        - gera SQL
+        - executa via data_source
+        - Cria LLM dinamicamente se houver configurações no estado
+        """
+        # Importação tardia para evitar circular import
+        from core.llm.specialist import run_specialist
+        from core.llm.factory import create_llm_specialist
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_specialist(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_specialist
+        
+        new_state = run_specialist(
+            state=state,
+            agent_config=agent_config,
+            data_source=data_source,
+            llm=dynamic_llm,
+        )
+        return new_state
+
+    def parallel_specialist_node(state: AgentState) -> AgentState:
+        """
+        [PHASE 2] Parallel Specialist Node:
+        - Detects multi-source requirement
+        - Spawns threads to run_specialist for each chosen table/connection
+        - Aggregates results into state["partial_results"]
+        """
+        # Importação tardia
+        from core.llm.specialist import run_specialist
+        from core.llm.factory import create_llm_specialist
+        import concurrent.futures
+
+        chosen_tables = state.get("chosen_tables", [])
+        if not chosen_tables:
+            return state
+
+        # Criar LLM dinamicamente
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_specialist(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_specialist
+
+        # Prepare tasks
+        tasks = []
+        for tbl_name in chosen_tables:
+            # Find the table object to get connection info if needed
+            tbl_obj = next((t for t in agent_config.tables if t.logical_name == tbl_name), None)
+            
+            # Create a localized state for this thread
+            thread_state = state.copy()
+            thread_state["chosen_table"] = tbl_name
+            thread_state["chosen_table_physical"] = tbl_obj.physical_name if tbl_obj else None
+            # Nuke the multi-table fields to force single-table mode inside the specialist
+            thread_state["chosen_tables"] = None 
+            thread_state["join_relationships"] = None
+            
+            tasks.append({
+                "state": thread_state,
+                "table": tbl_obj
+            })
+        
+        results = []
+        
+        # Parallel Execution
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_task = {}
+            for task in tasks:
+                future = executor.submit(
+                    run_specialist, 
+                    task["state"], 
+                    agent_config, 
+                    data_source, 
+                    dynamic_llm
+                )
+                future_to_task[future] = task
+
+            for future in concurrent.futures.as_completed(future_to_task):
+                try:
+                    res_state = future.result()
+                    # Collect data
+                    if res_state.get("data"):
+                        results.append({
+                            "table": res_state.get("chosen_table"),
+                            "data": res_state.get("data"),
+                            "sql": res_state.get("sql"),
+                            "metadata": {
+                                "source": "unknown", # placeholder
+                                "title": res_state.get("generated_title"),
+                                "dialect": "unknown"
+                            }
+                        })
+                except Exception as e:
+                    log_event("parallel_specialist_error", {"error": str(e)})
+
+        # Update main state
+        state["partial_results"] = results
+        return state
+
+    def merger_node(state: AgentState) -> AgentState:
+        """
+        [PHASE 2] Merger Node:
+        - Consolidates partial_results using Python/Pandas
+        """
+        from core.llm.merger import run_merger
+        
+        # Use the orchestrator LLM (smart model) for merger
+        # If dynamic config exists, we might want to create one, but for now reuse orchestrator
+        return run_merger(state, agent_config, llm_orchestrator)
+
+    def formatter_node(state: AgentState) -> AgentState:
+        """
+        Node formatter:
+        - explica os dados ou o motivo de IMPOSSIBLE em linguagem natural
+        - Cria LLM dinamicamente se houver configurações no estado
+        """
+        # Importação tardia para evitar circular import
+        from core.llm.formatter import run_formatter
+        from core.llm.factory import create_llm_formatter
+        
+        # Criar LLM dinamicamente se houver configurações no estado
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_formatter(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_formatter
+        
+        new_state = run_formatter(
+            state=state,
+            agent_config=agent_config,
+            llm=dynamic_llm,
+        )
+        return new_state
+
+    graph = StateGraph(AgentState)
+
+    graph.add_node("orchestrator", orchestrator_node)
+    graph.add_node("specialist", specialist_node)
+    graph.add_node("parallel_specialist", parallel_specialist_node)
+    graph.add_node("merger", merger_node)
+    graph.add_node("formatter", formatter_node)
+
+    def route_orchestrator(state: AgentState):
+        if state.get("is_multi_source", False):
+            return "parallel_specialist"
+        return "specialist"
+
+    graph.set_entry_point("orchestrator")
+    
+    graph.add_conditional_edges(
+        "orchestrator",
+        route_orchestrator,
+        {
+            "specialist": "specialist",
+            "parallel_specialist": "parallel_specialist"
+        }
+    )
+    
+    graph.add_edge("specialist", "formatter")
+    graph.add_edge("parallel_specialist", "merger")
+    graph.add_edge("merger", "formatter")
+    graph.add_edge("formatter", END)
+
+    app = graph.compile()
+
+    log_event(
+        "generic_sql_graph_built",
+        {
+            "agent_id": agent_config.id,
+            "num_tables": len(agent_config.tables),
+        },
+    )
+
+    return app
+
+
+# ==================== FUNÇÃO DE ALTO NÍVEL ====================
+
+def run_agent_once(
+    question: str,
+    user_ctx: UserContext,
+    agent_config: AgentConfig,
+    data_source: BaseDataSource,
+    db_session_factory: SessionFactory,
+    embedding_provider: EmbeddingProvider,
+    llm_orchestrator: LLMProvider,
+    llm_specialist: LLMProvider,
+    llm_formatter: LLMProvider,
+    thread_id: Optional[str] = None,
+    retrieval_context: Optional[List[str]] = None,
+    instructions: Optional[str] = None,
+    creativity: Optional[int] = None,
+    length: Optional[int] = None,
+    response_format: Optional[str] = None,
+    sql_instructions: Optional[str] = None,
+    selected_datasets: Optional[List[str]] = None,
+) -> AgentState:
+    """
+    Função de alto nível:
+    - Monta o estado inicial (question + contexto de usuário)
+    - Constrói o grafo
+    - Executa uma vez
+    - Retorna o AgentState final (answer, sql, data, etc.)
+
+    Isso é o que sua API vai chamar dentro de uma rota.
+    """
+    if thread_id is None:
+        # você pode usar algo do user_ctx, ou gerar uuid, etc.
+        user_id = getattr(user_ctx, "user_id", None)
+        if not user_id and hasattr(user_ctx, "user") and user_ctx.user:
+            user_id = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
+        thread_id = f"{user_id or 'anon'}-{agent_config.id}"
+
+    # Extrair informações do user_ctx
+    user_id_str = getattr(user_ctx, "user_id", None)
+    if not user_id_str and hasattr(user_ctx, "user") and user_ctx.user:
+        user_id_str = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
+    
+    space_id_str = None
+    if hasattr(user_ctx, "space_id") and user_ctx.space_id:
+        space_id_str = str(user_ctx.space_id)
+    
+    crew_ids_list = getattr(user_ctx, "crew_ids", []) or []
+    # Convert UUIDs to strings if needed
+    crew_ids_str = [str(cid) for cid in crew_ids_list] if crew_ids_list else []
+    
+    # Extract new fields from UserContext
+    platform_role = getattr(user_ctx, "platform_role", "user")
+    crew_role = getattr(user_ctx, "crew_role", "guest")
+    locale = getattr(user_ctx, "locale", "en")
+    permissions = getattr(user_ctx, "permissions", []) or []
+
+    # Estado inicial
+    state: AgentState = {
+        "question": question,
+        "user_id": user_id_str,
+        "space_id": space_id_str,
+        "crew_ids": crew_ids_str,
+        # User context fields
+        "platform_role": platform_role,
+        "crew_role": crew_role,
+        "locale": locale,
+        "permissions": permissions,
+        # retrieval_context pode vir como parâmetro ou ser populado pelo orchestrator
+        "retrieval_context": retrieval_context or [],
+        # Configurações dinâmicas da IA
+        "instructions": instructions,
+        "creativity": creativity,
+        "length": length,
+        "response_format": response_format,
+        "sql_instructions": sql_instructions,
+        "selected_datasets": selected_datasets,
+    }
+
+    app = build_generic_sql_graph(
+        agent_config=agent_config,
+        data_source=data_source,
+        db_session_factory=db_session_factory,
+        embedding_provider=embedding_provider,
+        llm_orchestrator=llm_orchestrator,
+        llm_specialist=llm_specialist,
+        llm_formatter=llm_formatter,
+    )
+
+    final_state: AgentState = app.invoke(
+        state,
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+    log_event(
+        "run_agent_once_done",
+        {
+            "agent_id": agent_config.id,
+            "user_id": state.get("user_id"),
+            "space_id": state.get("space_id"),
+            "crew_ids": state.get("crew_ids"),
+            # NEW: Log UserContext fields for verification
+            "platform_role": state.get("platform_role"),
+            "crew_role": state.get("crew_role"),
+            "locale": state.get("locale"),
+            "permissions_count": len(state.get("permissions") or []),
+            "has_error": bool(final_state.get("error")),
+            "has_answer": bool(final_state.get("answer")),
+        },
+    )
+
+    return final_state
