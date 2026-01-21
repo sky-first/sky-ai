@@ -41,10 +41,6 @@ spec:
               paths:
                 - path: /api
                   pathType: Prefix
-            - host: "135.18.146.170"
-              paths:
-                - path: /api
-                  pathType: Prefix
           tls:
             - secretName: sky-backend-tls
               hosts:
