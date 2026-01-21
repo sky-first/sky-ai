@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+__pycache__
+tests
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.tmp
+
