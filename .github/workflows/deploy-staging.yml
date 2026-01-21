@@ -56,3 +56,47 @@ jobs:
             -t $ACR_NAME.azurecr.io/$IMAGE_NAME:staging .
           docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:staging
 
+      - name: Update Infra Repository (GitOps Write-Back)
+        if: github.ref == 'refs/heads/staging'
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+          INFRA_REPO: sky-first/sky-poc-infra
+          BRANCH: staging
+        run: |
+          echo "🔄 Checking out Infra Repository..."
+          git clone https://$GITOPS_PAT@github.com/$INFRA_REPO.git infra-repo
+          cd infra-repo
+          git checkout $BRANCH
+          
+          # Define target file based on environment
+          TARGET_FILE="gitops/bootstrap/staging/ai.yaml"
+          echo "📂 Updating $TARGET_FILE..."
+          
+          # Update rollout-trigger annotation with current timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          # Use sed to replace the existing timestamp or add it if missing.
+          if grep -q "rollout-trigger:" $TARGET_FILE; then
+             # Robust replacement: matches rollout-trigger followed by any whitespace and any content
+             sed -i "s/rollout-trigger: .*/rollout-trigger: \"$TIMESTAMP\"/" $TARGET_FILE
+          else
+             echo "⚠️ 'rollout-trigger' not found in $TARGET_FILE. Creating it..."
+             sed -i '/values: |/a \        podAnnotations:\n          rollout-trigger: "'$TIMESTAMP'"' $TARGET_FILE
+          fi
+          
+          # Verify change
+          git diff $TARGET_FILE
+          
+          # Commit and Push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add $TARGET_FILE
+          
+          if git diff --staged --quiet; then
+            echo "⚠️ No changes to commit."
+          else
+            git commit -m "GitOps: Update rollout-trigger for ai service at $TIMESTAMP"
+            git push origin $BRANCH
+            echo "✅ GitOps Write-Back Complete."
+          fi
+
