@@ -15,21 +15,12 @@ spec:
       labels:
         app: ollama
     spec:
-      # Ensure it runs on the GPU Spot Node Pool
+      # Ensure it runs on the AI CPU Node Pool
       nodeSelector:
-        sky-poc-type: gpu
+        sky-poc-type: ai
         workload_type: ai
       
-      # Tolerate Spot Taints
-      tolerations:
-        - key: "sku"
-          operator: "Equal"
-          value: "gpu"
-          effect: "NoSchedule"
-        - key: "kubernetes.azure.com/scalesetpriority"
-          operator: "Equal"
-          value: "spot"
-          effect: "NoSchedule"
+      tolerations: []
 
       containers:
         - name: ollama
@@ -39,13 +30,11 @@ spec:
               name: http
           resources:
             limits:
-              nvidia.com/gpu: 1
-              memory: "14Gi" # T4 has 16GB VRAM, but node RAM is usually 28GB+. 14GB is safe for container.
-              cpu: "3"
+              memory: "16Gi"
+              cpu: "7"
             requests:
-              nvidia.com/gpu: 1
               memory: "8Gi"
-              cpu: "1"
+              cpu: "4"
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama

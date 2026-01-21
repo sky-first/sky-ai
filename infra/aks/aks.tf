@@ -84,24 +84,22 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   }
 }
 
-# GPU Spot Node Pool (Cost Optimization)
+# AI CPU Node Pool (Fallback from GPU due to quota)
 resource "azurerm_kubernetes_cluster_node_pool" "gpu_spot" {
-  name                  = "gpuspot"
+  name                  = "aicpu"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_NC4as_T4_v3"
+  vm_size               = "Standard_D8s_v3" # 8 vCPUs, 32GB RAM
   enable_auto_scaling   = true
   min_count             = 0 # Scale to zero when not in use
   max_count             = 1
   priority              = "Regular"
 
   node_labels = {
-    "sky-poc-type"  = "gpu"
+    "sky-poc-type"  = "ai"
     "workload_type" = "ai"
   }
 
-  node_taints = [
-    "sku=gpu:NoSchedule"
-  ]
+  node_taints = []
 
   vnet_subnet_id = azurerm_subnet.aks.id
 
