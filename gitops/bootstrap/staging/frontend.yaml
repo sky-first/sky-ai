@@ -31,10 +31,15 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
+            - host: www.skyfirstlabs.com
+              paths:
+                - path: /
+                  pathType: Prefix
           tls:
             - secretName: sky-frontend-tls
               hosts:
                 - skyfirstlabs.com
+                - www.skyfirstlabs.com
         probes:
           liveness:
             path: /
