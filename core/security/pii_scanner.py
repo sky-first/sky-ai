@@ -306,17 +306,15 @@ def _has_explicit_pii_request_pattern(question: str) -> bool:
     
     question_lower = question.lower()
     
-    # Padrões explícitos de solicitação de dados pessoais (sempre bloquear)
-    explicit_patterns = [
-        r'\b(mostre|show|list|liste|exiba|display)\s+(?:todos\s+|all\s+|tous\s+)?(?:os\s+|as\s+|o\s+|a\s+)?(nomes|names|telefones|phones|emails|endereços|addresses)',  # mostre todos os nomes
-        r'\b(lista|list)\s+(?:de|of)\s+(nomes|names|telefones|phones|emails|endereços|addresses)',  # lista de telefones
-        r'\b(quero|want|need)\s+(?:ver|see)\s+(?:os\s+|as\s+)?(dados\s+pessoais|personal\s+data)',  # quero ver dados pessoais
-        r'\b(mostre|show)\s+(?:todos\s+|all\s+)?\w+\s+(?:com|with)\s+(?:seus|their)?\s*(nomes|names|telefones|phones|emails)',  # mostre clientes com nomes
-    ]
+    # Importar padrões centrais para garantir consistência
+    from core.security.pii_patterns import PII_REQUEST_PATTERNS
     
-    for pattern in explicit_patterns:
-        if re.search(pattern, question_lower, re.IGNORECASE):
+    # Usar os padrões definidos centralmente
+    for pattern, severity, pii_type in PII_REQUEST_PATTERNS:
+        if pattern.search(question_lower):
             return True
+            
+    return False
     
     return False
 

@@ -554,6 +554,11 @@ CONTEXTUAL_PII_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Nome + Endereço
     (re.compile(r'[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+\d+\s+(street|st|road|rd|avenue|rua|calle|rue|strasse)', 
                 re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+
+    # Nome + Valor Monetário (Salário/Crédito vazado)
+    # Ex: "John Doe - $50,000", "Maria Silva: R$ 5.000,00"
+    (re.compile(r'[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+.*[\$€£]|[\$€£].*[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.FINANCIAL),
 ]
 
 
@@ -586,6 +591,20 @@ PII_REQUEST_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     
     (re.compile(r'\b(list\s+of\s+phones|lista\s+de\s+telefones|liste\s+de\s+téléphones|lista\s+de\s+teléfonos|telefonliste|電話リスト|전화번호목록)\b', 
                 re.IGNORECASE), PIISeverity.BLOCK, PIIType.PHONE),
+
+    # Data Dumping / CSV Export Attempts (NEW)
+    (re.compile(r'\b(format\s+as\s+csv|csv\s+format|dump\s+rows|export\s+data|formato\s+csv|exportar\s+dados)\b', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.FINANCIAL),
+
+    # Comparative Leakage / "Who is highest" Attempts (NEW)
+    (re.compile(r'\b(confirm\s+if|verify\s+if)\s+.*(highest|lowest|top|best|worst|maior|menor|melhor|pior)', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+    (re.compile(r'\b(list|liste|listar)\s+(names|nomes|customers|clientes)\s+(of|de)\s+(top|highest|best|worst)', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+
+    # "List All" / "Full Database" Attempts (NEW)
+    (re.compile(r'\b(list|display|show)\s+(all\s+entries|everything|full\s+database|full\s+table|toda\s+a\s+tabela|todos\s+os\s+registros)', 
+                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
 ]
 
 
