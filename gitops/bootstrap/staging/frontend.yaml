@@ -25,14 +25,14 @@ spec:
           enabled: true
           className: "nginx"
           hosts:
-            - host: sky.example.com
+            - host: skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
-            - host: "135.18.146.170"
-              paths:
-                - path: /
-                  pathType: Prefix
+          tls:
+            - secretName: sky-frontend-tls
+              hosts:
+                - skyfirstlabs.com
         probes:
           liveness:
             path: /
