@@ -27,15 +27,29 @@ spec:
           className: "nginx"
           annotations:
             nginx.ingress.kubernetes.io/configuration-snippet: 'rewrite ^/api/(?!v1/)(.*)$ /api/v1/$1 break;'
+            cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
             - host: api.sky.example.com
               paths:
                 - path: /
                   pathType: Prefix
+            - host: skyfirstlabs.com
+              paths:
+                - path: /api
+                  pathType: Prefix
+            - host: www.skyfirstlabs.com
+              paths:
+                - path: /api
+                  pathType: Prefix
             - host: "135.18.146.170"
               paths:
                 - path: /api
                   pathType: Prefix
+          tls:
+            - secretName: sky-backend-tls
+              hosts:
+                - skyfirstlabs.com
+                - www.skyfirstlabs.com
         probes:
           liveness:
             path: /
