@@ -177,7 +177,35 @@ class EmbeddingRecord(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    space = relationship("Space")
-    crew = relationship("Crew")
-    user = relationship("User")
     table_metadata = relationship("TableMetadata")
+
+
+# ========== LANGGRAPH CHECKPOINTS ==========
+
+class Checkpoint(Base):
+    __tablename__ = "checkpoints"
+
+    thread_id = Column(String, primary_key=True)
+    checkpoint_id = Column(String, primary_key=True)
+    parent_id = Column(String, nullable=True)
+    checkpoint = Column(JSON, nullable=False)  # Binary serialized state
+    metadata_ = Column("metadata", JSON, nullable=True)  # Renamed to avoid reserved word conflict if needed, or mapped
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatHistory(Base):
+    __tablename__ = "chat_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    thread_id = Column(String, nullable=False, index=True)
+    
+    # role: user / assistant
+    role = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    
+    # Metadata extra (ex: sql gerado, steps, tokens)
+    extra = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
