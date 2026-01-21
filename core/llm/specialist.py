@@ -1070,16 +1070,32 @@ def run_specialist(
             allowed_tables=allowed_tables_for_validation
         )
         if not is_valid:
-            state["error"] = f"Security validation failed: {security_error}"
+            # ✅ SECURITY FIX: Don't expose table/column names to client
+            # User-friendly message (NO schema details)
+            state["error"] = "You don't have permission to access this information."
             state["sql"] = sql
             
-            # Log violation evento (para logs em tempo real)
+            # Log violation evento (para logs em tempo real) - COM detalhes técnicos
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            logger.warning(
+                "Security validation failed - RLS violation",
+                extra={
+                    "agent_id": agent_config.id,
+                    "user_id": state.get("user_id"),
+                    "sql": sql[:500],
+                    "security_error": security_error,  # Detalhes aqui (tabelas/colunas)
+                    "blocked_tables": "extracted from error if needed",
+                }
+            )
+            
             log_event(
                 "specialist_security_validation_failed",
                 {
                     "agent_id": agent_config.id,
                     "sql": sql[:500],
-                    "error": security_error,
+                    "error": security_error,  # Mantém detalhes nos logs
                 },
             )
             
@@ -1096,7 +1112,7 @@ def run_specialist(
                 crew_role=state.get("crew_role"),
                 sql_generated=sql,
                 sql_validated=False,
-                validation_error=security_error,
+                validation_error=security_error,  # Detalhes completos no audit log
                 has_error=True,
                 error_message=f"RLS Security Violation: {security_error}",
                 chosen_tables=state.get("chosen_tables", []),

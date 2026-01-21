@@ -323,8 +323,8 @@ def run_formatter(
                 f"{stats_text}\\n\\n"
                 "Sample of the data (up to 15 rows, JSON):\\n"
                 f"{sample_json}\\n\\n"
-                "Explain the main insight(s) from this data in a concise way, "
-                "in the same language as the user's question."
+                "Explain the main insight(s) from this data in a concise way. "
+                "Remember: answer ONLY in English."
             ),
         }
 

@@ -235,7 +235,25 @@ async def discover_tables(
         
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao descobrir tabelas: {str(e)}")
+        # Log technical details internally
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.error(
+            "Table discovery failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "connection_id": connection_id,
+                "space_id": space_id,
+            }
+        )
+        
+        # User-friendly message (NO database/connection details)
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to load data source information. Please try again or contact support."
+        )
 
 
 @router.get("/{connection_id}/metadata-status")
