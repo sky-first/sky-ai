@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-external-dns-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/kubernetes-sigs/external-dns.git"
+    targetRevision: "master"
+    path: "charts/external-dns"
+    helm:
+      values: |
+        image:
+          tag: "v0.14.0"
+        provider: azure-msi
+        extraArgs:
+          - --azure-resource-group=rg-core-infra-prd
+          - --azure-subscription-id=e1070cf9-7790-4f2d-b449-d4bf4bc21906
+        domainFilters:
+          - skyfirstlabs.com
+        txtOwnerId: "staging-aks"
+        serviceAccount:
+          create: true
+          name: external-dns
+          annotations:
+            azure.workload.identity/client-id: "1be58ac7-293a-472f-bbdb-a69247f0e2c6"
+        podLabels:
+          azure.workload.identity/use: "true"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -21,7 +21,7 @@ spec:
           enabled: true
           className: "nginx"
           hosts:
-            - host: sky-prod.example.com
+            - host: workspace-prd.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
@@ -31,7 +31,7 @@ spec:
           maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://api.sky-prod.example.com"
+            value: "https://workspace-prd-api.skyfirstlabs.com"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod

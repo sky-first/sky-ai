@@ -21,7 +21,7 @@ spec:
           enabled: true
           className: "nginx"
           hosts:
-            - host: api.sky-prod.example.com
+            - host: workspace-prd-api.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
@@ -68,7 +68,7 @@ spec:
             
         extraEnv:
           - name: CORS_ORIGINS
-            value: "https://sky.example.com,http://localhost:3000"
+            value: "https://workspace-prd.skyfirstlabs.com,https://workspace-prd-ollama.skyfirstlabs.com"
           - name: DEBUG
             value: "false"
         migration:

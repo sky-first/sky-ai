@@ -27,19 +27,14 @@ spec:
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
-            - host: skyfirstlabs.com
-              paths:
-                - path: /
-                  pathType: Prefix
-            - host: www.skyfirstlabs.com
+            - host: workspace-stg.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
           tls:
             - secretName: sky-frontend-tls
               hosts:
-                - skyfirstlabs.com
-                - www.skyfirstlabs.com
+                - workspace-stg.skyfirstlabs.com
         probes:
           liveness:
             path: /
@@ -53,7 +48,7 @@ spec:
           maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "/api/v1"
+            value: "https://workspace-stg-api.skyfirstlabs.com"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging

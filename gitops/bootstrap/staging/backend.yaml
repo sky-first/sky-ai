@@ -26,26 +26,16 @@ spec:
           enabled: true
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/configuration-snippet: 'rewrite ^/api/(?!v1/)(.*)$ /api/v1/$1 break;'
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
-            - host: api.sky.example.com
+            - host: workspace-stg-api.skyfirstlabs.com
               paths:
                 - path: /
-                  pathType: Prefix
-            - host: skyfirstlabs.com
-              paths:
-                - path: /api
-                  pathType: Prefix
-            - host: www.skyfirstlabs.com
-              paths:
-                - path: /api
                   pathType: Prefix
           tls:
             - secretName: sky-backend-tls
               hosts:
-                - skyfirstlabs.com
-                - www.skyfirstlabs.com
+                - workspace-stg-api.skyfirstlabs.com
         probes:
           liveness:
             path: /
@@ -118,7 +108,7 @@ spec:
             
         extraEnv:
           - name: CORS_ORIGINS
-            value: "https://sky.example.com,http://localhost:3000"
+            value: "https://workspace-stg.skyfirstlabs.com,https://workspace-stg-ollama.skyfirstlabs.com"
           - name: REDIS_PORT
             value: "6379"
           - name: DEBUG

@@ -21,7 +21,7 @@ spec:
           enabled: true
           className: "nginx"
           hosts:
-            - host: ai.sky-prod.example.com
+            - host: workspace-prd-ollama.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix

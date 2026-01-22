@@ -27,14 +27,14 @@ spec:
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
-            - host: ai.skyfirstlabs.com
+            - host: workspace-stg-ollama.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
           tls:
             - secretName: sky-ai-tls
               hosts:
-                - ai.skyfirstlabs.com
+                - workspace-stg-ollama.skyfirstlabs.com
         probes:
           liveness:
             path: /docs
