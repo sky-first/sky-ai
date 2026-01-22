@@ -8,31 +8,93 @@ data:
     #!/bin/bash
     set -e
     echo "🚀 Starting Ollama model setup..."
+    echo "📅 $(date)"
     
-    # Wait for Ollama to be ready
-    until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
-      echo "Waiting for Ollama API..."
+    # Wait for Ollama server to be ready using native command
+    echo "⏳ Waiting for Ollama server to start..."
+    MAX_WAIT=60
+    COUNTER=0
+    
+    while [ $COUNTER -lt $MAX_WAIT ]; do
+      # Use ollama list command to check if server is ready
+      if ollama list >/dev/null 2>&1; then
+        echo "✅ Ollama server is ready!"
+        break
+      fi
+      
+      echo "⏳ Waiting for Ollama API... ($COUNTER/$MAX_WAIT seconds)"
       sleep 2
+      COUNTER=$((COUNTER + 2))
     done
     
-    echo "📥 Checking base models..."
-    # Always attempt pull, Ollama skips if already exists and matches digest
-    ollama pull phi3:mini
-    ollama pull sqlcoder:7b
-    ollama pull nomic-embed-text
-
-    echo "⚙️ Creating customized context models..."
-    # Create custom models if they don't exist or need update
+    if [ $COUNTER -ge $MAX_WAIT ]; then
+      echo "❌ Timeout waiting for Ollama API after ${MAX_WAIT}s"
+      exit 1
+    fi
+    
+    echo ""
+    echo "📥 Downloading base models (this may take 10-20 minutes)..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Download phi3:mini (~2.3GB)
+    echo ""
+    echo "📦 [1/3] Pulling phi3:mini (~2.3GB)..."
+    if ollama pull phi3:mini; then
+      echo "✅ phi3:mini downloaded successfully"
+    else
+      echo "❌ Failed to pull phi3:mini"
+      exit 1
+    fi
+    
+    # Download sqlcoder:7b (~4GB)
+    echo ""
+    echo "📦 [2/3] Pulling sqlcoder:7b (~4GB)..."
+    if ollama pull sqlcoder:7b; then
+      echo "✅ sqlcoder:7b downloaded successfully"
+    else
+      echo "❌ Failed to pull sqlcoder:7b"
+      exit 1
+    fi
+    
+    # Download nomic-embed-text (~274MB)
+    echo ""
+    echo "📦 [3/3] Pulling nomic-embed-text (~274MB)..."
+    if ollama pull nomic-embed-text; then
+      echo "✅ nomic-embed-text downloaded successfully"
+    else
+      echo "❌ Failed to pull nomic-embed-text"
+      exit 1
+    fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚙️  Creating customized models with optimized parameters..."
+    echo ""
+    
+    # Create sqlcoder-sky (optimized for SQL generation)
+    echo "🔧 Creating sqlcoder-sky (zero temperature for deterministic SQL)..."
     ollama create sqlcoder-sky -f - <<EOF
     FROM sqlcoder:7b
     PARAMETER num_ctx 4096
     PARAMETER temperature 0
     EOF
-
+    echo "✅ sqlcoder-sky created"
+    
+    # Create phi3-sky (optimized for general tasks)
+    echo ""
+    echo "🔧 Creating phi3-sky (balanced temperature for reasoning)..."
     ollama create phi3-sky -f - <<EOF
     FROM phi3:mini
     PARAMETER num_ctx 4096
     PARAMETER temperature 0.3
     EOF
+    echo "✅ phi3-sky created"
     
-    echo "✅ Setup complete. Ready."
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📋 Final model inventory:"
+    ollama list
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "✅ Setup complete! All models ready for inference."
+    echo "📅 Completed at: $(date)"
