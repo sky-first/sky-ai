@@ -73,6 +73,7 @@ from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
 from core.agents.generic_sql_agent import UserContext # Import UserContext
+from datetime import datetime, timedelta  # ✅ FIX: Add missing import for datetime
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
@@ -2525,7 +2526,8 @@ async def query_connection(
             response_format=body.response_format,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
-            chat_history=chat_history_list, # INJECTED MEMORY
+            # ✅ FIX: chat_history removed - run_agent_once() doesn't accept this parameter
+            # TODO: Implement memory/history support in the agent itself if needed
         )
     except Exception as e:
         import traceback
