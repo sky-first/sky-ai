@@ -624,9 +624,21 @@ def run_orchestrator(
 
     # 🔗 Monta bloco de contexto (limitando pra não explodir o prompt)
     context_block = ""
+    
+    # NEW: Chat History Context
+    chat_history = state.get("chat_history") or []
+    if chat_history:
+        # Limit to last 6 messages to save tokens
+        recent_history = chat_history[-6:]
+        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
+        context_block += (
+            f"\n\nPREVIOUS CONVERSATION HISTORY:\n{history_str}\n"
+            "Use this history to understand references like 'it', 'previous', 'add filter', etc.\n"
+        )
+
     if retrieval_context:
         joined = "\n\n".join(retrieval_context[:5])
-        context_block = (
+        context_block += (
             "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
             f"{joined}\n"
         )
