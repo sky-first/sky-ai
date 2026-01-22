@@ -13,10 +13,18 @@ spec:
       values: |
         image:
           tag: "v0.14.0"
-        provider: azure-dns
+        provider: azure
         extraArgs:
           - --azure-resource-group=rg-core-infra-prd
           - --azure-subscription-id=e1070cf9-7790-4f2d-b449-d4bf4bc21906
+        extraVolumes:
+          - name: azure-config
+            configMap:
+              name: external-dns-config
+        extraVolumeMounts:
+          - name: azure-config
+            mountPath: /etc/kubernetes
+            readOnly: true
         domainFilters:
           - skyfirstlabs.com
         txtOwnerId: "staging-aks"

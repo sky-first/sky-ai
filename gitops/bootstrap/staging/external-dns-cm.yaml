@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external-dns-config
+  namespace: external-dns
+data:
+  azure.json: |
+    {
+      "resourceGroup": "rg-core-infra-prd",
+      "subscriptionId": "e1070cf9-7790-4f2d-b449-d4bf4bc21906",
+      "useWorkloadIdentityExtension": true
+    }
