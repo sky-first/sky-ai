@@ -13,8 +13,9 @@ spec:
       values: |
         image:
           tag: "v0.14.0"
-        provider: azure-msi
+        provider: azure
         extraArgs:
+          - --azure-config-file=
           - --azure-resource-group=rg-core-infra-prd
           - --azure-subscription-id=e1070cf9-7790-4f2d-b449-d4bf4bc21906
         domainFilters:
