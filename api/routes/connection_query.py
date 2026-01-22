@@ -20,12 +20,14 @@ from __future__ import annotations
 
 from typing import Optional, List, Dict, Tuple
 from uuid import UUID
-from datetime import datetime, timedelta
-
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
+from core.auth.models import User, UserContext # Import User specifically
+from db.models import Space, Crew, UserPermission, DataConnection, ChatHistory
+from db.session import engine
+from sqlalchemy import text, select, desc
+from sqlalchemy.exc import NoResultFound
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
 import os
 import json
 import asyncio
@@ -70,6 +72,7 @@ from core.security.progressive_escalation import detect_progressive_escalation
 from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
+from core.agents.generic_sql_agent import UserContext # Import UserContext
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
@@ -2448,55 +2451,82 @@ async def query_connection(
     except Exception:
         # Se RAG falhar, continua sem contexto
         retrieval_context = []
+
+    # ==================== MEMORY: LOADING CHAT HISTORY ====================
+    # Initialize thread_id if missing (e.g. for anonymous/new interactions)
+    # The 'thread_id' connects this query to previous ones.
+    query_thread_id = body.thread_id
+    if not query_thread_id and body.user_id:
+        query_thread_id = f"{body.user_id}-{body.connection_id}"
     
-    # Executar agente
+    chat_history_list = []
+    if query_thread_id:
+        try:
+            # Load last 10 messages for this thread
+            hist_stmt = (
+                select(ChatHistory)
+                .where(ChatHistory.thread_id == query_thread_id)
+                .order_by(desc(ChatHistory.created_at))
+                .limit(10)
+            )
+            hist_result = await db.execute(hist_stmt)
+            # Reverse to chronological order (oldest first)
+            recent_msgs = hist_result.scalars().all()[::-1]
+            
+            chat_history_list = [
+                {"role": msg.role, "content": msg.content}
+                for msg in recent_msgs
+            ]
+        except Exception as e:
+            logger.error(f"Error loading chat history: {e}")
+            chat_history_list = []
+
+    # Create User object (required by UserContext)
+    # Use body user_id or random UUID if missing
+    import uuid
+    u_id = body.user_id or uuid.uuid4()
+    mock_user = User(
+        id=u_id,
+        email="mock@example.com", # Placeholder
+        name="Mock User",        # Placeholder
+        is_active=True
+    )
+
+    # Create UserContext object
+    mock_user_ctx = UserContext(
+        user=mock_user,
+        space_id=body.space_id,
+        crew_ids=crew_ids,
+        platform_role=getattr(body, "platform_role", None) or "user",
+        crew_role=getattr(body, "crew_role", None) or "guest",
+        locale=getattr(body, "locale", None) or "en",
+        permissions=getattr(body, "permissions", None) or [],
+        # security_config removed (not in UserContext schema)
+    )
+    
+    # 🏃 EXECUÇÃO: Roda o agente (graph) DE FORMA SÍNCRONA
+    # O grafo monta o plano, gera SQL e formata a resposta.
     try:
-        from core.agents.generic_sql_agent import build_generic_sql_graph
-        
-        state = {
-            "question": body.question,
-            "user_id": body.user_id,
-            "space_id": body.space_id,
-            "crew_ids": crew_ids,
-            # User context fields (from UserContext schema)
-            # NOTE: Backend should send these values; using defaults until backend integration is complete
-            "platform_role": getattr(body, "platform_role", None) or "user",  # admin | user | viewer
-            "crew_role": getattr(body, "crew_role", None) or "guest",         # commander | navigator | explorer | guest
-            "locale": getattr(body, "locale", None) or "en",
-            "permissions": getattr(body, "permissions", None) or [],
-            "retrieval_context": retrieval_context,
-            # Configurações dinâmicas da IA
-            "instructions": body.instructions,
-            "creativity": body.creativity,
-            "length": body.length,
-            "response_format": body.response_format,
-            "sql_instructions": body.sql_instructions,
-            "selected_datasets": body.selected_datasets,
-            # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
-            # Enviada pelo backend para cada usuário/space/crew
-            "security_config": body.security_config,
-        }
-        
-        # Criar factory que retorna uma nova sessão (não reutilizar a sessão do FastAPI)
-        def db_session_factory():
-            return SyncSessionLocal()
-        
-        app = build_generic_sql_graph(
+        final_state = run_agent_once(
+            question=body.question,
+            user_ctx=mock_user_ctx, # Contexto montado acima
             agent_config=agent_config,
             data_source=data_source,
-            db_session_factory=db_session_factory,
+            db_session_factory=lambda: SyncSessionLocal(), # SÍNCRONO PARA O AGENTE
             embedding_provider=embedding_provider,
             llm_orchestrator=llm_orchestrator,
             llm_specialist=llm_specialist,
             llm_formatter=llm_formatter,
+            thread_id=query_thread_id,
+            retrieval_context=retrieval_context,
+            instructions=body.instructions,
+            creativity=body.creativity,
+            length=body.length,
+            response_format=body.response_format,
+            sql_instructions=body.sql_instructions,
+            selected_datasets=body.selected_datasets,
+            chat_history=chat_history_list, # INJECTED MEMORY
         )
-        
-        # thread_id já definido acima (progressive escalation)
-        final_state = app.invoke(
-            state,
-            config={"configurable": {"thread_id": thread_id}},
-        )
-        
     except Exception as e:
         import traceback
         error_detail = str(e)
@@ -2525,6 +2555,38 @@ async def query_connection(
                 num_rows=0
             )
         )
+    
+    # ==================== MEMORY: SAVING CHAT HISTORY ====================
+    # Persist the interaction (User Q + AI A) asynchronously
+    if query_thread_id:
+        try:
+            # Save User Message
+            user_msg = ChatHistory(
+                thread_id=query_thread_id,
+                role="user",
+                content=body.question
+            )
+            db.add(user_msg)
+            
+            # Save AI Response
+            # Only save if there's a meaningful answer
+            ai_text = final_state.get("answer")
+            if ai_text:
+                ai_msg = ChatHistory(
+                    thread_id=query_thread_id,
+                    role="assistant",
+                    content=ai_text,
+                    extra={
+                        "sql": final_state.get("sql"),
+                        "generated_title": final_state.get("generated_title")
+                    }
+                )
+                db.add(ai_msg)
+            
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error saving chat history: {e}")
+            # Non-blocking error
     
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
