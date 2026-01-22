@@ -1,19 +1,21 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-infra-secrets-prod
+  name: cert-manager
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
-    path: gitops/manifests/security
-    targetRevision: staging
+    repoURL: "https://charts.jetstack.io"
+    chart: cert-manager
+    targetRevision: v1.13.3
+    helm:
+      parameters:
+        - name: installCRDs
+          value: "true"
   destination:
     server: "https://kubernetes.default.svc"
-    namespace: prod
+    namespace: cert-manager
   syncPolicy:
     automated:
       prune: true

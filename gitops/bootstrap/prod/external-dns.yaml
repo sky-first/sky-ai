@@ -12,11 +12,13 @@ spec:
     helm:
       values: |
         image:
-          tag: "v0.14.0"
+          tag: "v0.13.5"
         provider: azure
         extraArgs:
+          - --log-level=debug
           - --azure-resource-group=rg-core-infra-prd
           - --azure-subscription-id=e1070cf9-7790-4f2d-b449-d4bf4bc21906
+          - --azure-user-assigned-identity-client-id=1be58ac7-293a-472f-bbdb-a69247f0e2c6
         extraVolumes:
           - name: azure-config
             configMap:

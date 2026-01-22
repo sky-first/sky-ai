@@ -6,7 +6,8 @@ metadata:
 data:
   azure.json: |
     {
-      "resourceGroup": "rg-core-infra-prd",
+      "tenantId": "a1b3ce06-b7ba-4d99-8a26-3347ab865f36",
       "subscriptionId": "e1070cf9-7790-4f2d-b449-d4bf4bc21906",
+      "resourceGroup": "rg-core-infra-prd",
       "useWorkloadIdentityExtension": true
     }

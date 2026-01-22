@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
-    targetRevision: fix-infra-multi-env
+    targetRevision: staging
     path: gitops/manifests/databases
   destination:
     server: https://kubernetes.default.svc
