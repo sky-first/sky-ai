@@ -124,7 +124,7 @@ spec:
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
-          enabled: true
+          enabled: false
           command: ["alembic"]
           args: ["upgrade", "head"]
   destination:
