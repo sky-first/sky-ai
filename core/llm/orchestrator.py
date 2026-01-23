@@ -14,6 +14,7 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
+from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
 
 
 # ==================== ROLE-BASED REASONING ====================
@@ -670,6 +671,33 @@ def run_orchestrator(
         },
     )
     
+    # 📊 USER PREFERENCE PROFILE: Load user's table usage history
+    user_profile_block = ""
+    if db is not None and state.get("user_id"):
+        try:
+            user_profile = get_user_table_profile(
+                db=db,
+                user_id=state.get("user_id"),
+                space_id=state.get("space_id"),
+                days=30,
+                limit=5,
+            )
+            if user_profile:
+                user_profile_block = format_profile_for_prompt(user_profile)
+                log_event(
+                    "orchestrator_user_profile_loaded",
+                    {
+                        "agent_id": agent_config.id,
+                        "user_id": state.get("user_id"),
+                        "profile": user_profile,
+                    }
+                )
+        except Exception as e:
+            log_event(
+                "orchestrator_user_profile_error",
+                {"agent_id": agent_config.id, "error": str(e)[:200]}
+            )
+
 
     # Construir informações sobre relacionamentos disponíveis para o LLM
     relationships_info = ""
@@ -692,6 +720,7 @@ def run_orchestrator(
             "role": "system",
             "content": (
                 f"{role_context_block}"
+                f"{user_profile_block}"
                 "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
                 "from the list to answer the user's question.\n\n"
                 "Rules:\n"
@@ -724,6 +753,7 @@ def run_orchestrator(
             "role": "system",
             "content": (
                 f"{role_context_block}"
+                f"{user_profile_block}"
                 "You are a routing assistant. Your job is to choose the logical table "
                 "from the list to answer the user's question.\n\n"
                 "Rules:\n"
