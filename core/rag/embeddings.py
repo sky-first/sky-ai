@@ -62,23 +62,33 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         return vectors
 
 
-# Legacy OpenAI provider (DEPRECATED - DO NOT USE)
+# OpenAI provider (Cloud)
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """
-    DEPRECATED: Legacy OpenAI provider.
-    Kept for backwards compatibility only.
-    DO NOT USE - Will raise error if OpenAI key not set.
-    Use OllamaEmbeddingProvider instead.
+    Provider baseado em OpenAI (Cloud).
+    Usa text-embedding-3-large por padrão.
+    Força dimensions=768 para compatibilidade com o esquema de banco legado (Ollama).
     """
-    def __init__(self, model: str = "text-embedding-3-large"):
-        raise RuntimeError(
-            "OpenAI embeddings are DISABLED. "
-            "Use OllamaEmbeddingProvider with nomic-embed-text instead. "
-            "Example: OllamaEmbeddingProvider()"
+    def __init__(self, model: str = None, api_key: str = None):
+        from config.settings import settings
+        from langchain_openai import OpenAIEmbeddings
+        
+        self.model = model or settings.embedding_model
+        api_key = api_key or settings.openai_api_key
+        
+        # IMPORTANTE: O banco define Vector(768). O text-embedding-3-large gera 3072.
+        # Precisamos truncar para 768 via parâmetro da API.
+        self._client = OpenAIEmbeddings(
+            model=self.model,
+            openai_api_key=api_key,
+            dimensions=768
         )
     
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        raise RuntimeError("OpenAI is disabled")
+        if not texts:
+            return []
+        # LangChain usa embed_documents para listas
+        return self._client.embed_documents(list(texts))
 
 
 # ========= HELPERS PARA TEXTO DE METADADOS =========

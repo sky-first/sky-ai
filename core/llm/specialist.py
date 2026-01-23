@@ -42,33 +42,53 @@ def _build_secure_system_prompt(
     Constrói system prompt com regras de segurança explícitas.
     """
 
+    # Get dialect specifics first
+    dialect_info = get_dialect_specifics(dialect)
+    details = dialect_info.get("details", {})
+    type_ = dialect_info.get("type", "sql")
+
     # Se estivermos usando modelos locais (SQLCoder), usamos um prompt específico
     # sem regras de título e sem comentários forçados.
     if use_local_models:
+        if type_ == "nosql":
+            query_lang = details.get("query_language", "NoSQL")
+            output_fmt = details.get("output_format", "JSON")
+            content = (
+                "### Task\n"
+                f"Generate a {query_lang} query for {dialect.value.upper()} to answer the user's question.\n\n"
+                "### Instructions\n"
+                f"- Use ONLY this collection: {physical_names[0]}\n"
+                f"- Output format: {output_fmt}\n"
+                "- Output ONLY the code/JSON, no explanations\n\n"
+                f"### {query_lang}\n"
+            )
+            return {"role": "system", "content": content}
+
+        # SQL Strategy (Local)
         if use_multiple_tables:
             content = (
-                "### Task\\n"
-                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\\n\\n"
-                "### Instructions\\n"
-                f"- Use ONLY these tables: {', '.join(physical_names)}\\n"
-                f"- Main table (FROM): {physical_names[0]}\\n"
-                "- Use ONLY existing columns from the schemas provided\\n"
-                f"- ALWAYS end with LIMIT {max_limit}\\n"
-                "- NEVER use SELECT *\\n"
-                "- Output ONLY the SQL code, no explanations\\n\\n"
-                "### SQL Query\\n"
+                "### Task\n"
+                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\n\n"
+                "### Instructions\n"
+                f"- Use ONLY these tables: {', '.join(physical_names)}\n"
+                f"- Main table (FROM): {physical_names[0]}\n"
+                "- Use ONLY existing columns from the schemas provided\n"
+                f"- ALWAYS end with LIMIT {max_limit}\n"
+                "- NEVER use SELECT *\n"
+                "- Output ONLY the SQL code, no explanations\n\n"
+                "### SQL Query\n"
             )
         else:
             content = (
-                "### Task\\n"
-                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\\n\\n"
-                "### Instructions\\n"
-                f"- Use ONLY this table: {physical_names[0]}\\n"
-                "- Use ONLY existing columns from the schema\\n"
-                f"- ALWAYS end with LIMIT {max_limit}\\n"
-                "- NEVER use SELECT *\\n"
-                "- Output ONLY the SQL code, no explanations\\n\\n"
-                "### SQL Query\\n"
+                "### Task\n"
+                f"Generate a SQL query for {dialect.value.upper()} to answer the user's question.\n\n"
+                "### Instructions\n"
+                f"- Use ONLY this table: {physical_names[0]}\n"
+                "- Use ONLY existing columns from the schema\n"
+                f"- ALWAYS end with LIMIT {max_limit}\n"
+                "- NEVER use SELECT *\n"
+                "- Output ONLY the SQL code, no explanations\n\n"
+                "### SQL Query\n"
             )
         
         return {"role": "system", "content": content}
@@ -327,6 +347,17 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
         return ""
 
     text = _strip_sql_fences(text)
+    
+    # 🔍 JSON/NoSQL Support: Se parecer um JSON object/array, retornar como está
+    # (ou extrair de bloco ```json)
+    if text.strip().startswith("{") or text.strip().startswith("["):
+        # É provável que seja um JSON puro
+        return text.strip()
+        
+    # Tentar extrair de ```json ... ``` se existir
+    json_match = re.search(r"```json(.*?)```", raw.content if hasattr(raw, "content") else str(raw or ""), re.DOTALL)
+    if json_match:
+         return json_match.group(1).strip()
 
     # Remover linhas vazias do início
     lines = [line for line in text.splitlines() if line.strip()]
@@ -986,41 +1017,57 @@ def run_specialist(
             if getattr(t, "logical_name", None):
                 allowed_tables.append(t.logical_name)
 
-        # Heurística simples para tipo de conexão (BigQuery tende a ter project.dataset.table)
-        connection_type = "bigquery"
-        if allowed_tables and all(str(x).count(".") <= 1 for x in allowed_tables):
-            # schema.table (ou table) é mais típico de SQLAlchemy/Postgres
-            connection_type = "postgres"
+        # Determinar tipo de conexão/dialeto para validação
+        # Se agent_config tiver dialect definido, use-o
+        current_dialect = getattr(agent_config, "dialect", Dialect.POSTGRES) 
+        # Se for string, converter para enum se possível, ou manter default
+        if isinstance(current_dialect, str):
+            try:
+                current_dialect = Dialect(current_dialect.lower())
+            except ValueError:
+                pass
+        
+        dialect_info = get_dialect_specifics(current_dialect)
+        is_nosql = dialect_info.get("type") == "nosql"
+        
+        if is_nosql:
+            # bypass SQL validation for NoSQL
+            log_event("specialist_skipping_sql_validation_nosql", {"dialect": current_dialect})
+        else:
+            # Heurística simples para tipo de conexão SQL (BigQuery vs Postgres)
+            connection_type_str = "bigquery"
+            if allowed_tables and all(str(x).count(".") <= 1 for x in allowed_tables):
+                connection_type_str = "postgres"
 
-        validator = AdvancedSQLValidator(
-            allowed_tables=allowed_tables,
-            allowed_columns=None,
-            max_limit=5000,
-            max_columns=10,
-            max_group_by=3,
-        )
-        ok, validation_error = validator.validate(sql, connection_type)
-        if not ok:
-            state["error"] = validation_error or "SQL validation failed."
-            state["sql"] = sql
-            log_event(
-                "specialist_advanced_sql_rejected",
-                {
-                    "agent_id": agent_config.id,
-                    "chosen_logical": chosen_logical,
-                    "sql": sql[:500],
-                    "error": (validation_error or "")[:300],
-                    "connection_type": connection_type,
-                },
+            validator = AdvancedSQLValidator(
+                allowed_tables=allowed_tables,
+                allowed_columns=None,
+                max_limit=5000,
+                max_columns=10,
+                max_group_by=3,
             )
-            return state
+            ok, validation_error = validator.validate(sql, connection_type_str)
+            if not ok:
+                state["error"] = validation_error or "SQL validation failed."
+                state["sql"] = sql
+                log_event(
+                    "specialist_advanced_sql_rejected",
+                    {
+                        "agent_id": agent_config.id,
+                        "chosen_logical": chosen_logical,
+                        "sql": sql[:500],
+                        "error": (validation_error or "")[:300],
+                        "connection_type": connection_type_str,
+                    },
+                )
+                return state
         
         # Log: validação avançada passou
         log_event(
             "specialist_advanced_validation_passed",
             {
                 "agent_id": agent_config.id,
-                "connection_type": connection_type,
+                "connection_type": str(current_dialect),
                 "sql_preview": sql[:200],
             },
         )

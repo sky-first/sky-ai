@@ -102,18 +102,50 @@ class DataSourceFactory:
             )
 
             # Determine dialect
-            # For now only Postgres is fully wired in the factory logic
-            # but we prepare for others
             dialect = Dialect.POSTGRES
-            # If type was mysql, etc we would map here
+            
             if ds_type == "mysql":
                 dialect = Dialect.MYSQL
             elif ds_type == "sqlserver":
                 dialect = Dialect.SQLSERVER
             elif ds_type == "sqlite":
                 dialect = Dialect.SQLITE
+            elif ds_type == "oracle":
+                dialect = Dialect.ORACLE
+            elif ds_type == "snowflake":
+                dialect = Dialect.SNOWFLAKE
+            elif ds_type == "databricks":
+                dialect = Dialect.DATABRICKS
+            elif ds_type == "redshift":
+                dialect = Dialect.REDSHIFT
             
             return SQLAlchemyDataSource(engine=engine, dialect=dialect, label=label)
+
+        elif ds_type in ["mysql", "sqlserver", "sqlite", "oracle", "snowflake", "databricks", "redshift"]:
+            # Generic handler for other SQL dialects that use SQLAlchemy
+            # Similar to postgres block but handles them if they fall through or are explicit
+            dsn = cfg_dict.get("dsn")
+            if not dsn:
+                 raise ValueError(f"DataConnection {conn.id} of type {ds_type} requires config.dsn")
+            
+            engine = create_engine(dsn, future=True)
+            label = f"{ds_type}:{conn.id}"
+            
+            dialect_map = {
+                "mysql": Dialect.MYSQL,
+                "sqlserver": Dialect.SQLSERVER,
+                "sqlite": Dialect.SQLITE,
+                "oracle": Dialect.ORACLE,
+                "snowflake": Dialect.SNOWFLAKE,
+                "databricks": Dialect.DATABRICKS,
+                "redshift": Dialect.REDSHIFT,
+            }
+            
+            return SQLAlchemyDataSource(
+                engine=engine, 
+                dialect=dialect_map.get(ds_type, Dialect.POSTGRES),
+                label=label
+            )
 
         else:
             # Tipo não suportado ainda

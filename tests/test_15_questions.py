@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script para testar as 15 perguntas de negócio e medir tempo de resposta.
+Script to test 15 business questions and measure response time.
 """
 import asyncio
 import time
@@ -8,40 +8,40 @@ import httpx
 import json
 from typing import List, Dict, Any
 
-# Configuração
-API_BASE_URL = "http://localhost:8001"  # AI Service roda na porta 8001
-CONNECTION_ID = "afdf5872-e58e-4015-925b-a2f940df701c"
-SPACE_ID = "ff9fc8ae-15c1-48f2-a12b-191a2c904a3d"
-USER_ID = "test-user-15-questions"
-CREW_IDS = ["5354e712-1096-4846-ab7f-62bf3d2a7aa9"]
+# Configuration
+API_BASE_URL = "http://localhost:8001"  # AI Service runs on port 8001
+CONNECTION_ID = "4e96c724-b1a1-47a8-9f8c-60af9deaeb89"
+SPACE_ID = "bbd2cef9-8d77-427f-a351-0b32a5c20abe"
+USER_ID = "ae1a8640-f868-4d2a-9dea-9aa4e21b5dfc"
+CREW_IDS = ["c8855919-3138-4780-b60e-d960b29eae5f"]
 
 # Headers
 HEADERS = {
     "Content-Type": "application/json",
 }
 
-# 15 perguntas de negócio
+# 15 business questions
 QUESTIONS = [
-    "Qual foi o total de vendas no último mês?",
-    "Quais são os 10 produtos mais vendidos?",
-    "Qual é a receita média por cliente?",
-    "Quantos clientes novos tivemos este ano?",
-    "Qual é o ticket médio de compra?",
-    "Quais são as vendas por região?",
-    "Qual é a taxa de crescimento mensal?",
-    "Quais produtos têm estoque baixo?",
-    "Qual é o faturamento por categoria?",
-    "Quais são os clientes mais rentáveis?",
-    "Qual é a margem de lucro por produto?",
-    "Quantos pedidos foram cancelados?",
-    "Qual é a média de itens por pedido?",
-    "Quais vendedores têm melhor desempenho?",
-    "Qual é a previsão de vendas para o próximo mês?",
+    "What was the total sales last month?",
+    "What are the top 10 best-selling products?",
+    "What is the average revenue per customer?",
+    "How many new customers did we allow this year?",
+    "What is the average ticket size?",
+    "What are the sales by region?",
+    "What is the monthly growth rate?",
+    "Which products have low stock?",
+    "What is the revenue by category?",
+    "Who are the most profitable customers?",
+    "What is the profit margin per product?",
+    "How many orders were canceled?",
+    "What is the average items per order?",
+    "Which sales representatives have the best performance?",
+    "What is the sales forecast for next month?",
 ]
 
 
 async def test_question(client: httpx.AsyncClient, question: str, index: int) -> Dict[str, Any]:
-    """Testa uma pergunta e retorna o resultado."""
+    """Tests a question and returns the result."""
     start_time = time.time()
     
     try:
@@ -88,27 +88,27 @@ async def test_question(client: httpx.AsyncClient, question: str, index: int) ->
 
 
 async def run_tests():
-    """Executa todos os testes."""
+    """Executes all tests."""
     print("=" * 80)
-    print("TESTE DAS 15 PERGUNTAS DE NEGÓCIO")
+    print("TESTING 15 BUSINESS QUESTIONS")
     print("=" * 80)
     print()
     
-    # Verificar se o servidor está rodando
+    # Check if server is running
     async with httpx.AsyncClient() as client:
         try:
             health = await client.get(f"{API_BASE_URL}/health", timeout=5.0)
             if health.status_code != 200:
-                print(f"❌ Servidor não está saudável: {health.status_code}")
+                print(f"❌ Server is not healthy: {health.status_code}")
                 return
-            print("✅ Servidor está rodando")
+            print("✅ Server is running")
         except Exception as e:
-            print(f"❌ Não foi possível conectar ao servidor: {e}")
-            print(f"   Verifique se o servidor está rodando em {API_BASE_URL}")
+            print(f"❌ Could not connect to server: {e}")
+            print(f"   Check if server is running at {API_BASE_URL}")
             return
     
     print()
-    print("Executando perguntas...")
+    print("Running questions...")
     print("-" * 80)
     
     results: List[Dict[str, Any]] = []
@@ -124,10 +124,10 @@ async def run_tests():
     
     total_time = time.time() - total_start
     
-    # Resumo
+    # Summary
     print()
     print("=" * 80)
-    print("RESUMO")
+    print("SUMMARY")
     print("=" * 80)
     
     successful = [r for r in results if r["status"] == "SUCCESS"]
@@ -136,24 +136,24 @@ async def run_tests():
     times = [r["time_seconds"] for r in successful]
     avg_time = sum(times) / len(times) if times else 0
     
-    print(f"Total de perguntas: {len(QUESTIONS)}")
-    print(f"Sucesso: {len(successful)}")
-    print(f"Falhas: {len(failed)}")
-    print(f"Tempo total: {total_time:.1f}s")
-    print(f"Tempo médio por pergunta: {avg_time:.1f}s")
+    print(f"Total questions: {len(QUESTIONS)}")
+    print(f"Success: {len(successful)}")
+    print(f"Failed: {len(failed)}")
+    print(f"Total time: {total_time:.1f}s")
+    print(f"Average time per question: {avg_time:.1f}s")
     
     if times:
-        print(f"Tempo mínimo: {min(times):.1f}s")
-        print(f"Tempo máximo: {max(times):.1f}s")
+        print(f"Min time: {min(times):.1f}s")
+        print(f"Max time: {max(times):.1f}s")
     
     if failed:
         print()
-        print("Perguntas com falha:")
+        print("Failed questions:")
         for r in failed:
             print(f"  - [{r['index']:02d}] {r['question'][:40]}...")
             print(f"    Status: {r['status']}")
             if "error" in r:
-                print(f"    Erro: {r['error'][:100]}")
+                print(f"    Error: {r['error'][:100]}")
     
     print()
     print("=" * 80)
