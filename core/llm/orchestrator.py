@@ -14,6 +14,7 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
+from config.settings import settings
 
 
 # ==================== ROLE-BASED REASONING ====================
@@ -619,6 +620,34 @@ def run_orchestrator(
             },
         )
         return state  # ✅ Retorna imediatamente
+
+    # 🎯 NEW: Build Context Bundle (if enabled)
+    use_context_bundle = getattr(settings, "use_context_bundle", False)
+    
+    if use_context_bundle:
+        try:
+            from core.llm.context.builder import build_context_bundle
+            
+            context_bundle = build_context_bundle(
+                state=state,
+                agent_config=agent_config,
+                db=db
+            )
+            state["_context_bundle"] = context_bundle  # Store for reuse by specialist
+            
+            log_event(
+                "orchestrator_context_bundle_built",
+                {
+                    "agent_id": agent_config.id,
+                    "bundle_summary": context_bundle.summary(),
+                }
+            )
+        except Exception as e:
+            log_event(
+                "orchestrator_context_bundle_error",
+                {"agent_id": agent_config.id, "error": str(e)[:300]}
+            )
+            use_context_bundle = False  # Fallback to legacy
 
     tables_summary = _build_tables_summary(agent_config.tables)
 

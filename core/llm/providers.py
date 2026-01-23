@@ -134,12 +134,15 @@ class OllamaProvider:
             base_url=base_url,
             model=model,
             temperature=temperature,
-            num_ctx=num_ctx
+            num_ctx=num_ctx,
+            timeout=300  # 5 minutes for cold start model loading
         )
     
     def invoke(self, messages: List[Dict[str, str]]) -> Any:
         """
         Converte lista de mensagens em prompt único.
+        
+        CPU Optimization: Check cache first to avoid 8-12s re-inference.
         
         Formato esperado pelo Ollama:
         ### SYSTEM
@@ -148,6 +151,25 @@ class OllamaProvider:
         ### USER
         <user content>
         """
+        # Import cache here to avoid circular dependency
+        from core.llm.cache import get_inference_cache, hash_prompt
+        
+        # Check cache first
+        cache = get_inference_cache()
+        prompt_hash = hash_prompt(messages, self.model_name, 0.0)
+        cached_response = cache.get(prompt_hash)
+        
+        if cached_response is not None:
+            log_event(
+                "ollama_cache_hit",
+                {
+                    "model": self.model_name,
+                    "saved_latency": "8-12s" if "sqlcoder" in self.model_name else "1-2s"
+                }
+            )
+            return cached_response
+        
+        # Build prompt
         prompt_parts = []
         
         for msg in messages:
@@ -156,6 +178,19 @@ class OllamaProvider:
             prompt_parts.append(f"### {role}\\n{content}\\n")
         
         full_prompt = "\\n".join(prompt_parts)
+        
+        # Log start (with latency warning for specialist)
+        is_sql_query = "sqlcoder" in self.model_name or "SQL" in full_prompt[:500]
+        if is_sql_query:
+            log_event(
+                "ollama_sql_generation_start",
+                {
+                    "model": self.model_name,
+                    "expected_latency_seconds": "8-12",
+                    "prompt_length": len(full_prompt)
+                }
+            )
+        
         try:
             response_text = self.llm.invoke(full_prompt)
             
@@ -164,14 +199,21 @@ class OllamaProvider:
                 def __init__(self, content):
                     self.content = content
             
+            result = ResponseWrapper(content=response_text)
+            
+            # Cache result (critical for CPU performance)
+            cache.set(prompt_hash, result)
+            
             log_event(
                 "ollama_invoke_success",
                 {
                     "model": self.model_name,
                     "prompt_length": len(full_prompt),
+                    "response_length": len(response_text),
+                    "cached": True
                 },
             )
-            return ResponseWrapper(content=response_text)
+            return result
         except Exception as e:
             log_event(
                 "ollama_invoke_error",

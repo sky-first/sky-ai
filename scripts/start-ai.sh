@@ -1,34 +1,34 @@
 #!/bin/bash
 
-# Script para rodar o AI Service com uvicorn
-# Uso: ./scripts/start-ai.sh
+# Script to run AI Service with uvicorn
+# Usage: ./scripts/start-ai.sh
 
 set -e
 
 AI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "🤖 Iniciando AI Service na porta 8001..."
+echo "🤖 Starting AI Service on port 8001..."
 
 cd "$AI_DIR"
 
-# Verifica se o ambiente virtual existe
+# Check if regular virtual environment exists
 if [ ! -d "venv" ] && [ ! -d ".venv" ]; then
-    echo "⚠️  Ambiente virtual não encontrado. Criando..."
+    echo "⚠️  Virtual environment not found. Creating..."
     python3 -m venv venv
-    # Limpa marcador de dependências para forçar nova instalação no novo venv
+    # Clear dependencies marker to force re-install
     rm -f .deps_installed
 fi
 
-# Ativa o ambiente virtual
+# Activate virtual environment
 if [ -d "venv" ]; then
     source venv/bin/activate
 elif [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# Instala dependências se necessário
+# Install dependencies if needed
 if [ ! -f ".deps_installed" ]; then
-    echo "📦 Instalando dependências..."
+    echo "📦 Installing dependencies..."
     if [ -d "venv" ]; then
         venv/bin/pip install -q --upgrade pip
         venv/bin/pip install -q psycopg2-binary || venv/bin/pip install -q "psycopg2-binary>=2.9.0" || true
@@ -51,26 +51,26 @@ if [ ! -f ".deps_installed" ]; then
     touch .deps_installed
 fi
 
-# Configura variáveis de ambiente
+# Configure environment variables
 export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/0}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/0}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 
-echo "✅ Variáveis de ambiente configuradas"
+echo "✅ Environment variables configured"
 echo "   DATABASE_URL: $DATABASE_URL"
 echo "   CELERY_BROKER_URL: $CELERY_BROKER_URL"
 echo ""
 
-# Verifica se infraestrutura está rodando
+# Check if infrastructure is running
 if ! docker ps | grep -q sky_poc_postgres; then
-    echo "⚠️  Infraestrutura não está rodando."
-    echo "   Execute: cd ../../deploy && ./start.sh"
-    echo "   Continuando..."
+    echo "⚠️  Infrastructure is not running."
+    echo "   Run: cd ../../deploy && ./start.sh"
+    echo "   Continuing..."
 fi
 
-# Roda o uvicorn
-echo "🌐 Iniciando servidor na porta 8001..."
+# Run uvicorn
+echo "🌐 Starting server on port 8001..."
 if [ -d "venv" ]; then
     venv/bin/python run_api.py
 elif [ -d ".venv" ]; then

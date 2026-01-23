@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import Optional
 from config.settings import settings
-from core.llm.providers import LangChainChatOpenAIProvider, OllamaProvider, LLMProvider
-from core.rag.embeddings import OpenAIEmbeddingProvider
+from core.llm.providers import OllamaProvider, LLMProvider  # Only Ollama
+from core.rag.embeddings import OllamaEmbeddingProvider  # ✅ OLLAMA EMBEDDINGS
+from core.logging_utils import log_event
 
 
 def _convert_creativity_to_temperature(creativity: Optional[int]) -> float:
@@ -53,62 +54,48 @@ def _convert_length_to_max_tokens(length: Optional[int]) -> Optional[int]:
 
 
 def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
-    """Cria o LLM orchestrator usando configurações centralizadas e opcionalmente dinâmicas."""
-    if settings.use_local_models:
-        return OllamaProvider(
-            model=settings.llm_model_orchestrator_local,
-            base_url=settings.ollama_base_url,
-            temperature=0.0,  # Orchestrator sempre determinístico
-            num_ctx=4096
-        )
-
-    temperature = _convert_creativity_to_temperature(creativity)
-    max_tokens = _convert_length_to_max_tokens(length)
-    return LangChainChatOpenAIProvider(
-        model=settings.llm_model_orchestrator,
-        temperature=temperature,
-        max_tokens=max_tokens,
+    """
+    Creates LLM orchestrator using Ollama.
+    Always uses phi3-sky for fast routing.
+    """
+    return OllamaProvider(
+        model=settings.llm_model_orchestrator_local,
+        base_url=settings.ollama_base_url,
+        temperature=0.0,  # Always deterministic for routing
+        num_ctx=settings.ollama_num_ctx_orchestrator
     )
 
 
 def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
-    """Cria o LLM specialist usando configurações centralizadas e opcionalmente dinâmicas."""
-    if settings.use_local_models:
-        return OllamaProvider(
-            model=settings.llm_model_specialist_local,
-            base_url=settings.ollama_base_url,
-            temperature=0.0,  # SQL deve ser determinístico
-            num_ctx=4096
-        )
-
-    temperature = _convert_creativity_to_temperature(creativity)
-    max_tokens = _convert_length_to_max_tokens(length)
-    return LangChainChatOpenAIProvider(
-        model=settings.llm_model_specialist,
-        temperature=temperature,
-        max_tokens=max_tokens,
+    """
+    Creates LLM specialist using Ollama.
+    Always uses sqlcoder-sky for SQL generation.
+    """
+    return OllamaProvider(
+        model=settings.llm_model_specialist_local,
+        base_url=settings.ollama_base_url,
+        temperature=0.0,  # SQL must be deterministic
+        num_ctx=settings.ollama_num_ctx_specialist
     )
 
 
 def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
-    """Cria o LLM formatter usando configurações centralizadas e opcionalmente dinâmicas."""
-    if settings.use_local_models:
-        return OllamaProvider(
-            model=settings.llm_model_formatter_local,
-            base_url=settings.ollama_base_url,
-            temperature=0.3,
-            num_ctx=4096
-        )
-
-    temperature = _convert_creativity_to_temperature(creativity)
-    max_tokens = _convert_length_to_max_tokens(length)
-    return LangChainChatOpenAIProvider(
-        model=settings.llm_model_formatter,
-        temperature=temperature,
-        max_tokens=max_tokens,
+    """
+    Creates LLM formatter using Ollama.
+    Always uses phi3-sky for text formatting.
+    """
+    return OllamaProvider(
+        model=settings.llm_model_formatter_local,
+        base_url=settings.ollama_base_url,
+        temperature=0.3,  # Slight creativity for natural text
+        num_ctx=settings.ollama_num_ctx_formatter
     )
 
 
-def create_embedding_provider() -> OpenAIEmbeddingProvider:
-    """Cria o provider de embeddings usando configurações centralizadas."""
-    return OpenAIEmbeddingProvider(model=settings.embedding_model)
+def create_embedding_provider() -> OllamaEmbeddingProvider:
+    """
+    Creates embedding provider using Ollama local model.
+    Uses nomic-embed-text (274MB, 768 dimensions).
+    """
+    return OllamaEmbeddingProvider()
+

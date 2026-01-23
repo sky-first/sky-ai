@@ -93,7 +93,7 @@ async def discover_tables(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
-    auto_generate_embeddings: bool = False,  # ✅ PATCH 1: Desabilitar por padrão para evitar transaction poisoning
+    auto_generate_embeddings: bool = True,  # ✅ ENABLED: Auto-generate embeddings on discover
 ) -> dict:
     """
     Descobre automaticamente todas as tabelas de uma DataConnection.

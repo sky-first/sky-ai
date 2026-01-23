@@ -402,7 +402,8 @@ def run_formatter(
     
     # Append suggestions as markdown if we have any
     if followup_suggestions:
-        suggestions_md = "\n\n---\n### 💡 Suggested Follow-up:\n"
+        # Clean formatting without markdown separators
+        suggestions_md = "\n\n💡 Suggested Follow-up:\n"
         for i, suggestion in enumerate(followup_suggestions, 1):
             suggestions_md += f"{i}. {suggestion}\n"
         answer = answer + suggestions_md

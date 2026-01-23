@@ -52,7 +52,7 @@ if _raw_url:
 else:
     DATABASE_URL = _default_database_url_async()
 
-# Sync URL (para LangGraph e operações síncronas)
+# Sync URL (for LangGraph and sync operations)
 if _raw_url:
     DATABASE_URL_SYNC = _raw_url
     if DATABASE_URL_SYNC.startswith("postgresql+asyncpg://"):
@@ -77,7 +77,7 @@ SessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-# Sync engine e session (para LangGraph e operações síncronas)
+# Sync engine and session (for LangGraph and sync operations)
 sync_engine = create_engine(
     DATABASE_URL_SYNC,
     pool_pre_ping=True,

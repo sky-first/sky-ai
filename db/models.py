@@ -38,12 +38,14 @@ class Space(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True)
+    description = Column(Text, nullable=True)
+    # is_active removed
     # Pode ter mais colunas: owner_id, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
 
     crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
-    data_connections = relationship("DataConnection", back_populates="space", cascade="all, delete-orphan")
+    crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
+    data_connections = relationship("DataConnection", secondary="space_connections", back_populates="space")
 
 
 class Crew(Base):
@@ -102,24 +104,35 @@ class Planet(Base):
     space = relationship("Space")
 
 
+class SpaceConnection(Base):
+    """Bridge table between Spaces and DataConnections"""
+    __tablename__ = "space_connections"
+    
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), primary_key=True)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), primary_key=True)
+
+
 # ========== DATA CONNECTIONS ==========
 
 class DataConnection(Base):
     __tablename__ = "data_connections"
 
     id = Column(UUID(as_uuid=True), primary_key=True)
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    # space_id removido (agora usa tabela de associação space_connections)
 
     name = Column(String, nullable=False)
-    type = Column(String, nullable=False)  # ex: "bigquery", "postgres", "mysql", "redshift"
+    name = Column(String, nullable=False)
+    # type removed (connector_id is used instead in real schema)
 
     config = Column(JSON, nullable=False, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    # created_by_user_id removed
 
-    space = relationship("Space", back_populates="data_connections")
-    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+    space = relationship("Space", secondary="space_connections", back_populates="data_connections")
+    # created_by_user removed
 
     table_metadata = relationship("TableMetadata", back_populates="data_connection", cascade="all, delete-orphan")
 
@@ -165,7 +178,7 @@ class EmbeddingRecord(Base):
     document_id = Column(String, nullable=True)
 
     # Vetor de embedding (dimensão depende do modelo)
-    embedding = Column(Vector(3072), nullable=False)
+    embedding = Column(Vector(768), nullable=False)  # Ollama nomic-embed-text: 768 dims
 
     # Texto original embedado (metadado, chunk de doc, query, etc)
     text = Column(Text, nullable=False)

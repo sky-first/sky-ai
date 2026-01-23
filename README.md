@@ -46,7 +46,7 @@ python run_api.py
 
 ### Worker (Celery)
 ```bash
-python run_worker.py
+./scripts/start-ai-worker.sh
 ```
 
 ## Estrutura de Dados

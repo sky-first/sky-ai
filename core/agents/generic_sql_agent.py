@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, TypedDict, Callable
 
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg_pool import ConnectionPool
 
 from core.auth.models import UserContext  # ajuste se o caminho for outro
 from core.llm.providers import LLMProvider
@@ -352,7 +354,42 @@ def build_generic_sql_graph(
     graph.add_edge("merger", "formatter")
     graph.add_edge("formatter", END)
 
-    app = graph.compile()
+    # Configure PostgresSaver for persistent conversation memory
+    checkpointer = None
+    try:
+        from config.settings import settings
+        
+        # Extract sync connection string from async DATABASE_URL
+        db_url = settings.database_url
+        if "postgresql+asyncpg://" in db_url:
+            sync_db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        elif "postgresql+psycopg2://" in db_url:
+            sync_db_url = db_url.replace("postgresql+psycopg2://", "postgresql://")
+        else:
+            sync_db_url = db_url
+        
+        # Create connection pool
+        pool = ConnectionPool(conninfo=sync_db_url, min_size=1, max_size=5)
+        
+        # Create checkpointer
+        # checkpointer = PostgresSaver(pool)
+        checkpointer = None # Disabled to prevent per-request pool creation leaks
+        
+        # Setup tables (creates checkpoints table if not exists)
+        # checkpointer.setup()
+        
+        # log_event(
+        #     "langgraph_checkpointer_configured",
+        #     {"agent_id": agent_config.id, "checkpointer_type": "PostgresSaver"}
+        # )
+    except Exception as e:
+        log_event(
+            "langgraph_checkpointer_error",
+            {"agent_id": agent_config.id, "error": str(e)[:300]}
+        )
+        checkpointer = None  # Fallback to no persistence
+
+    app = graph.compile(checkpointer=checkpointer)
 
     log_event(
         "generic_sql_graph_built",

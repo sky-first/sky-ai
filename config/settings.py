@@ -30,29 +30,24 @@ class Settings(BaseSettings):
     postgres_port: int = Field(default=5432, validation_alias=AliasChoices("POSTGRES_PORT", "postgres_port"))
     postgres_db: str = Field(default="ai_saas_db", validation_alias=AliasChoices("POSTGRES_DB", "postgres_db"))
     
-    # OpenAI
-    # DEVOPS: variável padrão é OPENAI_API_KEY no .env do sky-poc-infra.
-    openai_api_key: str = Field(default="", validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key"))
     
-    # OpenAI Model Configurations
-    # LLM Models
-    llm_model_orchestrator: str = "gpt-4o-mini"
-    llm_model_specialist: str = "gpt-4o"
-    llm_model_formatter: str = "gpt-4o-mini"
-    llm_model_default: str = "gpt-4o"
-    llm_temperature: float = 0.0
+    # ===== OLLAMA CONFIGURATION (ACTIVE) =====
+    # All AI models use local Ollama inference
+    # Endpoint: https://ollama.skyfirstlabs.com
+    use_local_models: bool = True  # ✅ OLLAMA ENABLED - DO NOT CHANGE
+    ollama_base_url: str = "https://ollama.skyfirstlabs.com"
     
-    # Embedding Models
-    embedding_model: str = "text-embedding-3-large"
-
-    # Ollama Configuration
-    use_local_models: bool = False
-    ollama_base_url: str = "http://localhost:11434"
+    # Ollama Models (Production Ready)
+    llm_model_orchestrator_local: str = "phi3-sky"     # Fast routing: 4096 ctx, temp 0.0
+    llm_model_specialist_local: str = "sqlcoder-sky"   # SQL expert: 4096 ctx, temp 0.0
+    llm_model_formatter_local: str = "phi3-sky"        # Text formatting (reuses orchestrator)
+    llm_model_embedding_local: str = "nomic-embed-text"  # Local embeddings: 768 dims
     
-    # Modelos locais (sobrescrevem os da OpenAI quando use_local_models=True)
-    llm_model_orchestrator_local: str = "phi3-sky"
-    llm_model_specialist_local: str = "sqlcoder-sky"
-    llm_model_formatter_local: str = "phi3-sky"
+    # Ollama Context Windows (num_ctx)
+    ollama_num_ctx_orchestrator: int = 4096  # Configured in Modelfile
+    ollama_num_ctx_specialist: int = 8192    # Configured in Modelfile
+    ollama_num_ctx_formatter: int = 4096     # Configured in Modelfile
+    
     
     # Celery
     # DEVOPS: Em produção, estas URLs são construídas automaticamente a partir de REDIS_PASSWORD
@@ -90,6 +85,14 @@ class Settings(BaseSettings):
     
     # Bootstrap suggestions
     bootstrap_variation_window_seconds: int = 300  # Frequência de variação das sugestões (5 minutos)
+    
+    # Inference Cache (CPU optimization)
+    enable_inference_cache: bool = True  # Enable LLM response caching
+    inference_cache_max_size: int = 1000  # Maximum cached responses
+    inference_cache_ttl_seconds: int = 1800  # 30 minutes TTL
+    
+    # Context Bundle
+    use_context_bundle: bool = True  # Enable new context architecture
     
     class Config:
         # Allow running from both repo root and ia-do-projeto/ without duplicating secrets.
