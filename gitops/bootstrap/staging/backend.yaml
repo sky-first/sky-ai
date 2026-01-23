@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-23T15:38:22Z"
+          rollout-trigger: "2026-01-23T15:40:00Z"
         replicaCount: 2
         imagePullSecrets:
           - name: regcred
@@ -124,7 +124,7 @@ spec:
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
-          enabled: false
+          enabled: true
           command: ["alembic"]
           args: ["upgrade", "head"]
   destination:
