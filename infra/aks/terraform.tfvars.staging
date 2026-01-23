@@ -12,3 +12,5 @@ authorized_ips = [
   "169.155.237.203/32",
   "169.155.237.66/32"
 ]
+
+external_dns_identity_resource_group = "rg-core-infra-prd"

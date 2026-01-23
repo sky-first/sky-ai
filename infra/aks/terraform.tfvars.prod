@@ -15,3 +15,5 @@ authorized_ips = []
 # Frontend: workspace-prd.skyfirstlabs.com
 # AI: workspace-prd-ai.skyfirstlabs.com
 # Backend API: api-workspace-prd.skyfirstlabs.com
+
+external_dns_identity_resource_group = "rg-core-infra-prd"

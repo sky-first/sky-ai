@@ -1,7 +1,6 @@
 variable "external_dns_identity_resource_group" {
   description = "Resource Group where the ExternalDNS User Assigned Identity resides"
   type        = string
-  default     = "rg-core-infra-prd"
 }
 
 variable "external_dns_identity_name" {
