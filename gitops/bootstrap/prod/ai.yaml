@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-ai-prod
+  name: sky-ai-prd
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: staging
+    targetRevision: main
     helm:
       values: |
         image:
@@ -30,22 +30,30 @@ spec:
           enabled: true
           secretStoreRef:
             name: azure-keyvault
+            kind: ClusterSecretStore
+          target:
+            creationPolicy: Owner
+            template:
+              engineVersion: v2
+              data:
+                openai_api_key: "{{ .openai_api_key }}"
+                qdrant_url: "{{ .qdrant_url }}"
           data:
-            - secretKey: openai-api-key
+            - secretKey: openai_api_key
               remoteRef:
                 key: openai-api-key
-            - secretKey: qdrant-url
+            - secretKey: qdrant_url
               remoteRef:
                 key: qdrant-url
                 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
           openai-api-key:
-            name: sky-ai-prod-secrets 
-            key: openai-api-key
+            name: sky-ai-prd-common-app-secrets
+            key: openai_api_key
           qdrant-url:
-            name: sky-ai-prod-secrets
-            key: qdrant-url
+            name: sky-ai-prd-common-app-secrets
+            key: qdrant_url
             
         extraEnv:
           - name: DEBUG

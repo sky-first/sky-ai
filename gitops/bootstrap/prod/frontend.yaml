@@ -1,14 +1,14 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-frontend-prod
+  name: sky-fe-prd
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: staging
+    targetRevision: main
     helm:
       values: |
         image:

@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/manifests/networking
-    targetRevision: staging
+    targetRevision: main
   destination:
     server: "https://kubernetes.default.svc"
     namespace: cert-manager

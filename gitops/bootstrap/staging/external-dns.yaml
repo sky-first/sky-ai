@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-external-dns-staging
+  name: sky-dns-stg
   namespace: argocd
 spec:
   project: default
@@ -12,6 +12,13 @@ spec:
     helm:
       values: |
         logLevel: debug
+        sources:
+          - ingress
+        rbac:
+          extraRules:
+            - apiGroups: [""]
+              resources: ["endpoints"]
+              verbs: ["get", "watch", "list"]
         image:
           tag: "v0.14.0"
         provider: azure

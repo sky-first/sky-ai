@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-backend-staging
+  name: sky-be-stg
   namespace: argocd
 spec:
   project: default
@@ -85,25 +85,25 @@ spec:
         envSecrets:
           # These keys will be present in the secret created by ExternalSecret
           jwt-secret-key:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: jwt_secret_key
           encryption-key:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: encryption_key
           openai-api-key:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: openai_api_key
           DATABASE_URL:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: database_url
           REDIS_URL:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: redis_url
           CELERY_BROKER_URL:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: celery_broker_url
           CELERY_RESULT_BACKEND:
-            name: sky-backend-staging-common-app-secrets
+            name: sky-be-stg-common-app-secrets
             key: celery_result_backend
             
         extraEnv:
