@@ -35,14 +35,19 @@ spec:
           enabled: true
           className: "nginx"
           hosts:
-            - host: api-workspace-prd.skyfirstlabs.com
+            - host: workspace-prd-api.skyfirstlabs.com
               paths:
                 - path: /
+                  pathType: Prefix
+            - host: workspace-prd.skyfirstlabs.com
+              paths:
+                - path: /api
                   pathType: Prefix
           tls:
             - secretName: backend-tls-prod
               hosts:
-                - api-workspace-prd.skyfirstlabs.com
+                - workspace-prd-api.skyfirstlabs.com
+                - workspace-prd.skyfirstlabs.com
         # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
           enabled: true
