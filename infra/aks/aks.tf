@@ -84,28 +84,30 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   }
 }
 
-# AI CPU Node Pool (Fallback from GPU due to quota)
-resource "azurerm_kubernetes_cluster_node_pool" "gpu_spot" {
-  name                  = "aicpu"
+# AI CPU Turbo Node Pool (Immediate Relief: 16 vCPUs)
+resource "azurerm_kubernetes_cluster_node_pool" "ai_turbo" {
+  name                  = "aicpu16"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D8s_v3" # 8 vCPUs, 32GB RAM
+  vm_size               = "Standard_F16s_v2" # 16 vCPUs, 32GB RAM (Compute Optimized)
   enable_auto_scaling   = true
-  min_count             = 0 # Scale to zero when not in use
+  min_count             = 0 # Scale to zero when not in use to save cost
   max_count             = 1
-  priority              = "Regular"
+  priority              = "Regular" # Using Regular to guarantee availability for critical workload
 
   node_labels = {
-    "sky-poc-type"  = "ai"
-    "workload_type" = "ai"
+    "sky-poc-type"  = "ai-turbo"
+    "workload_type" = "ai-turbo"
   }
 
-  node_taints = []
+  node_taints = [
+    "sku=cpu-turbo:NoSchedule" # Dedicated to Ollama
+  ]
 
   vnet_subnet_id = azurerm_subnet.aks.id
 
   tags = {
     Environment = var.environment
-    Type        = "Spot-GPU"
+    Type        = "AI-Turbo-CPU"
   }
 }
 

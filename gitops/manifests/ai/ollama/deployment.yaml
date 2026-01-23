@@ -16,11 +16,16 @@ spec:
         app: ollama
     spec:
       # Ensure it runs on the AI CPU Node Pool
+      # Ensure it runs on the AI CPU Node Pool (Turbo)
       nodeSelector:
-        sky-poc-type: ai
-        workload_type: ai
+        sky-poc-type: ai-turbo
+        workload_type: ai-turbo
       
-      tolerations: []
+      tolerations:
+        - key: "sku"
+          operator: "Equal"
+          value: "cpu-turbo"
+          effect: "NoSchedule"
 
       containers:
         - name: ollama
@@ -30,8 +35,8 @@ spec:
               name: http
           resources:
             limits:
-              memory: "16Gi"
-              cpu: "8"
+              memory: "28Gi"
+              cpu: "15"
             requests:
               memory: "8Gi"
               cpu: "4"
