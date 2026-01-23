@@ -73,19 +73,21 @@ data:
     
     # Create sqlcoder-sky (optimized for SQL generation)
     echo "🔧 Creating sqlcoder-sky (zero temperature for deterministic SQL)..."
-    echo "FROM sqlcoder:7b" > /tmp/Modelfile.sql
-    echo "PARAMETER num_ctx 4096" >> /tmp/Modelfile.sql
-    echo "PARAMETER temperature 0" >> /tmp/Modelfile.sql
-    ollama create sqlcoder-sky -f /tmp/Modelfile.sql
+    ollama create sqlcoder-sky -f - <<EOF
+    FROM sqlcoder:7b
+    PARAMETER num_ctx 4096
+    PARAMETER temperature 0
+    EOF
     echo "✅ sqlcoder-sky created"
     
     # Create phi3-sky (optimized for general tasks)
     echo ""
     echo "🔧 Creating phi3-sky (balanced temperature for reasoning)..."
-    echo "FROM phi3:mini" > /tmp/Modelfile.phi3
-    echo "PARAMETER num_ctx 4096" >> /tmp/Modelfile.phi3
-    echo "PARAMETER temperature 0.3" >> /tmp/Modelfile.phi3
-    ollama create phi3-sky -f /tmp/Modelfile.phi3
+    ollama create phi3-sky -f - <<EOF
+    FROM phi3:mini
+    PARAMETER num_ctx 4096
+    PARAMETER temperature 0.3
+    EOF
     echo "✅ phi3-sky created"
     
     echo ""

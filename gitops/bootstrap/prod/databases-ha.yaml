@@ -1,0 +1,160 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-postgresql-ha-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: postgresql
+    targetRevision: 12.1.8
+    helm:
+      releaseName: postgresql
+      values: |
+        global:
+          postgresql:
+            auth:
+              postgresPassword: "${POSTGRES_PASSWORD}"
+              username: sky
+              password: "${POSTGRES_USER_PASSWORD}"
+              database: sky_prod
+        
+        # High Availability configuration
+        postgresql:
+          replication:
+            enabled: true
+            user: replicator
+            password: "${POSTGRES_REPLICA_PASSWORD}"
+            readOnlyUser:
+              name: sky_readonly
+              password: "${POSTGRES_READONLY_PASSWORD}"
+          
+          # Streaming replication setup
+          maxConnections: 200
+          sharedBuffers: 256MB
+        
+        primary:
+          persistence:
+            enabled: true
+            size: 100Gi
+            storageClassName: premium-rwo
+        
+        readReplicas:
+          enabled: true
+          replicaCount: 2
+          persistence:
+            enabled: true
+            size: 100Gi
+            storageClassName: premium-rwo
+        
+        # Backup configuration
+        backup:
+          enabled: true
+          cronjob:
+            schedule: "0 2 * * *"  # Daily at 2 AM
+            storage:
+              existingClaim: postgresql-backup-pvc
+        
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+            labels:
+              prometheus: prod
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  
+  syncPolicy:
+    automated:
+      prune: false  # Never auto-delete DB pods
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-redis-ha-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: redis
+    targetRevision: 17.10.3
+    helm:
+      releaseName: redis
+      values: |
+        auth:
+          enabled: true
+          password: "${REDIS_PASSWORD}"
+        
+        # High Availability with Sentinel
+        sentinel:
+          enabled: true
+          quorum: 2
+          downAfterMilliseconds: 5000
+          failoverTimeout: 10000
+        
+        replica:
+          replicaCount: 2
+          persistence:
+            enabled: true
+            size: 10Gi
+            storageClassName: premium-rwo
+        
+        master:
+          persistence:
+            enabled: true
+            size: 10Gi
+            storageClassName: premium-rwo
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+            labels:
+              prometheus: prod
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  
+  syncPolicy:
+    automated:
+      prune: false  # Never auto-delete cache pods
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+
+---
+# PVC for PostgreSQL backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-backup-pvc
+  namespace: prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-rwo
+  resources:
+    requests:
+      storage: 100Gi

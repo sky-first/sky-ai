@@ -32,7 +32,7 @@ spec:
                 - path: /
                   pathType: Prefix
           tls:
-            - secretName: sky-frontend-tls
+            - secretName: sky-fe-stg-tls
               hosts:
                 - workspace-stg.skyfirstlabs.com
         probes:

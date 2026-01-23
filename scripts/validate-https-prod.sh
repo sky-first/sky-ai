@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Script: Validar HTTPS e TLS em Produção
+# Purpose: Verificar se certificados foram emitidos e HTTPS está funcionando
+# Usage: ./scripts/validate-https-prod.sh
+
+set -e
+
+NAMESPACE="prod"
+
+echo "🔐 Validando HTTPS e TLS para ambiente de produção"
+echo ""
+
+# 1. Verificar Cert-Manager
+echo "1️⃣  Verificando Cert-Manager deployment..."
+kubectl get deployment -n cert-manager cert-manager --no-headers || {
+    echo "❌ Cert-Manager não encontrado"
+    echo "Execute: argocd app sync sky-cert-manager-prod"
+    exit 1
+}
+
+# 2. Listar Certificates criados
+echo ""
+echo "2️⃣  Verificando Certificates emitidos..."
+kubectl get certificate -n $NAMESPACE || {
+    echo "⚠️  Nenhum Certificate encontrado em $NAMESPACE"
+}
+
+# 3. Verificar secrets TLS
+echo ""
+echo "3️⃣  Verificando TLS Secrets..."
+echo "Frontend TLS:"
+kubectl get secret workspace-prd-tls -n $NAMESPACE -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout | grep -E "Subject:|Issuer:|Not Before|Not After" || echo "❌ workspace-prd-tls não encontrado"
+
+echo ""
+echo "Backend TLS:"
+kubectl get secret backend-prd-tls -n $NAMESPACE -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout | grep -E "Subject:|Issuer:|Not Before|Not After" || echo "❌ backend-prd-tls não encontrado"
+
+echo ""
+echo "AI TLS:"
+kubectl get secret ai-prd-tls -n $NAMESPACE -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout | grep -E "Subject:|Issuer:|Not Before|Not After" || echo "❌ ai-prd-tls não encontrado"
+
+# 4. Verificar Ingress
+echo ""
+echo "4️⃣  Verificando Ingress resources..."
+kubectl get ingress -n $NAMESPACE || echo "❌ Nenhum Ingress encontrado"
+
+# 5. Obter IP do Load Balancer
+echo ""
+echo "5️⃣  Obtendo IP do Load Balancer (Nginx Ingress)..."
+LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "PENDING")
+
+if [ "$LB_IP" != "PENDING" ] && [ -n "$LB_IP" ]; then
+    echo "✅ Load Balancer IP: $LB_IP"
+    echo ""
+    echo "6️⃣  Para usar em produção, configure DNS:"
+    echo "  workspace-prd.skyfirstlabs.com          -> $LB_IP"
+    echo "  api-workspace-prd.skyfirstlabs.com      -> $LB_IP"
+    echo "  workspace-prd-ai.skyfirstlabs.com       -> $LB_IP"
+else
+    echo "⏳ Load Balancer IP ainda não atribuído (aguardando Azure)"
+    echo "   Este é normal - pode levar alguns minutos"
+    echo "   Verifique novamente em 2-3 minutos"
+fi
+
+# 7. Testar HTTPS (se LB IP estiver disponível)
+if [ "$LB_IP" != "PENDING" ] && [ -n "$LB_IP" ]; then
+    echo ""
+    echo "7️⃣  Testando conectividade HTTPS..."
+    echo ""
+    echo "Testing frontend:"
+    curl -kI https://$LB_IP/ -H "Host: workspace-prd.skyfirstlabs.com" 2>/dev/null | head -5 || echo "⚠️  Frontend não respondeu"
+    
+    echo ""
+    echo "Testing backend:"
+    curl -kI https://$LB_IP/api/v1/health -H "Host: api-workspace-prd.skyfirstlabs.com" 2>/dev/null | head -5 || echo "⚠️  Backend não respondeu"
+    
+    echo ""
+    echo "Testing AI:"
+    curl -kI https://$LB_IP/ -H "Host: workspace-prd-ai.skyfirstlabs.com" 2>/dev/null | head -5 || echo "⚠️  AI não respondeu"
+fi
+
+echo ""
+echo "✅ Validação de HTTPS completa!"
+echo ""
+echo "Próximo passo: Configurar DNS para apontar subdomínios ao LB IP"

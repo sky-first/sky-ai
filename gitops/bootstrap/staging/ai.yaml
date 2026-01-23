@@ -32,7 +32,7 @@ spec:
                 - path: /
                   pathType: Prefix
           tls:
-            - secretName: sky-ai-tls
+            - secretName: sky-ai-stg-tls
               hosts:
                 - workspace-stg-ollama.skyfirstlabs.com
         probes:

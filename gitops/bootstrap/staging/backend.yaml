@@ -33,7 +33,7 @@ spec:
                 - path: /
                   pathType: Prefix
           tls:
-            - secretName: sky-backend-tls
+            - secretName: sky-be-stg-tls
               hosts:
                 - workspace-stg-api.skyfirstlabs.com
         probes:
@@ -117,7 +117,7 @@ spec:
           - name: AI_SERVICE_TYPE
             value: "real"
           - name: AI_SERVICE_URL
-            value: "http://sky-ai-staging-common-app.staging.svc.cluster.local"
+            value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
           enabled: true
           command: ["alembic"]

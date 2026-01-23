@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nginx-ingress-monitor
+  namespace: ingress-nginx
+  labels:
+    prometheus: prod
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/part-of: ingress-nginx
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# Ensure ingress-nginx namespace has correct labels
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+  labels:
+    monitoring: "enabled"
