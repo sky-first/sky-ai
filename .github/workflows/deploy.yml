@@ -885,6 +885,39 @@ jobs:
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
             "Federated Credential: sky-poc-infra"
 
+          # Import Key Vault Access Policy (Fix for already exists error)
+          echo ""
+          echo "🔍 Detecting Key Vault for policy import..."
+          # Find Key Vault in the resource group (assume the one matching 'akv-sky-*')
+          KV_NAME=$(az keyvault list --resource-group "$RG" --query "[?starts_with(name, 'akv-sky-')].name | [0]" -o tsv 2>/dev/null || echo "")
+          
+          if [ -n "$KV_NAME" ]; then
+             echo "   Found Key Vault: $KV_NAME"
+             
+             # Resolve Current Object ID from the Authenticated Client
+             # ARM_CLIENT_ID is usually set in env from azure-auth or secrets
+             CURRENT_CLIENT_ID="${ARM_CLIENT_ID:-}"
+             
+             if [ -n "$CURRENT_CLIENT_ID" ]; then
+                 echo "   Resolving Object ID for Client ID: $CURRENT_CLIENT_ID"
+                 OBJECT_ID=$(az ad sp show --id "$CURRENT_CLIENT_ID" --query id -o tsv 2>/dev/null || echo "")
+                 
+                 if [ -n "$OBJECT_ID" ]; then
+                     echo "   Resolved Object ID: $OBJECT_ID"
+                     import_resource \
+                       "azurerm_key_vault_access_policy.current" \
+                       "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.KeyVault/vaults/${KV_NAME}/objectId/${OBJECT_ID}" \
+                       "Key Vault Access Policy (Current Runner)"
+                 else
+                     echo "⚠️  Could not resolve Object ID for Client ID: $CURRENT_CLIENT_ID. Skipping policy import."
+                 fi
+             else
+                 echo "⚠️  ARM_CLIENT_ID not set. Skipping policy import."
+             fi
+          else
+             echo "⚠️  No 'akv-sky-*' Key Vault found in RG $RG. Skipping policy import."
+          fi
+
           echo ""
           echo "✅ Import process complete"
           echo "=========================================="
