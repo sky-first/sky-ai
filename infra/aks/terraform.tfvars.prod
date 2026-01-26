@@ -5,11 +5,13 @@ dns_prefix          = "sky-aks-prod"
 location            = "eastus2"
 vnet_address_space  = ["10.2.0.0/16"]
 service_cidr        = "10.3.0.0/16"
-kubernetes_version  = "1.31.2"
+kubernetes_version  = "1.33.5"
 
 # Production networking - Isolated VNet, no public IP restrictions
 # Access via Bastion VM only for admin access
-authorized_ips = []
+authorized_ips = [
+  "169.155.237.226" # Current Terraform Runner IP
+]
 
 # Domínios de produção (configurados em Ingress later)
 # Frontend: workspace-prd.skyfirstlabs.com

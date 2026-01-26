@@ -205,6 +205,13 @@ jobs:
               "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" \
               "AKS User Node Pool"
 
+            # Import AI Node Pool
+            AI_NODE_POOL_NAME="aicpu16"
+            import_if_needed \
+              "azurerm_kubernetes_cluster_node_pool.ai_turbo" \
+              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$AI_NODE_POOL_NAME" \
+              "AKS AI Node Pool"
+
             # Import Public IP (Bastion)
             PIP_NAME="bastion-pip-${ENV}"
             if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
@@ -285,13 +292,36 @@ jobs:
             # It is easier to delete them and let Terraform recreate than to import dynamic for_each resources
             echo ""
             echo "Cleaning up conflicting Federated Credentials..."
+            
+            # 1. GitHub Actions Identity
             ID_GH_NAME="id-gh-actions-${ENV}"
-            # List all federated credentials and delete if name starts with gh-actions-
             if az identity show -g "$RG_NAME" -n "$ID_GH_NAME" >/dev/null 2>&1; then
-               CREDS=$(az identity federated-credential list -g "$RG_NAME" --identity-name "$ID_GH_NAME" --query "[?starts_with(name, 'gh-actions-')].name" -o tsv)
+               # Delete all starting with gh-actions- OR gh-env-
+               CREDS=$(az identity federated-credential list -g "$RG_NAME" --identity-name "$ID_GH_NAME" --query "[?starts_with(name, 'gh-actions-') || starts_with(name, 'gh-env-')].name" -o tsv)
                for CRED in $CREDS; do
-                 echo "  🗑️ Deleting Federated Credential: $CRED (will be recreated by Terraform)"
+                 echo "  🗑️ Deleting Federated Credential from GH Identity: $CRED"
                  az identity federated-credential delete -g "$RG_NAME" --identity-name "$ID_GH_NAME" -n "$CRED" -y
+               done
+            fi
+
+            # 2. ESO Identity
+            ID_ESO_NAME="id-eso-${ENV}"
+            if az identity show -g "$RG_NAME" -n "$ID_ESO_NAME" >/dev/null 2>&1; then
+               CREDS=$(az identity federated-credential list -g "$RG_NAME" --identity-name "$ID_ESO_NAME" --query "[].name" -o tsv)
+               for CRED in $CREDS; do
+                 echo "  🗑️ Deleting Federated Credential from ESO Identity: $CRED"
+                 az identity federated-credential delete -g "$RG_NAME" --identity-name "$ID_ESO_NAME" -n "$CRED" -y
+               done
+            fi
+
+            # 3. External DNS Identity (in core-infra RG)
+            RG_CORE="rg-core-infra-prd"
+            ID_DNS_NAME="id-dns-manager"
+            if az identity show -g "$RG_CORE" -n "$ID_DNS_NAME" >/dev/null 2>&1; then
+               CREDS=$(az identity federated-credential list -g "$RG_CORE" --identity-name "$ID_DNS_NAME" --query "[?starts_with(name, 'fed-external-dns-')].name" -o tsv)
+               for CRED in $CREDS; do
+                 echo "  🗑️ Deleting Federated Credential from DNS Identity ($RG_CORE): $CRED"
+                 az identity federated-credential delete -g "$RG_CORE" --identity-name "$ID_DNS_NAME" -n "$CRED" -y
                done
             fi
             echo "✅ Cleanup completed"

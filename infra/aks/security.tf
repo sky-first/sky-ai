@@ -19,7 +19,8 @@ resource "azurerm_key_vault" "main" {
   # access_policy {}
 
   # RBAC Authorization is recommended over Access Policies
-  enable_rbac_authorization = true
+  # DISABLED temporarily because the current user lacks 'Microsoft.Authorization/roleAssignments/write'
+  enable_rbac_authorization = false
 
   network_acls {
     # Restricted access to AKS Subnet and Azure Services only
@@ -40,13 +41,15 @@ resource "azurerm_key_vault" "main" {
   }
 }
 
-# --- RBAC Role Assignments (DevOps Best Practice) ---
+# 1. Grant Access to the Current User (Terraform Runner)
+resource "azurerm_key_vault_access_policy" "current" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
 
-# 1. Grant Access to the Current User (Terraform Runner) - Secrets Officer
-resource "azurerm_role_assignment" "vault_admin" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets Officer" # Grant full secret management
-  principal_id         = data.azurerm_client_config.current.object_id
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
 }
 
 # 2. Managed Identity for External Secrets Operator (User Assigned Identity)
@@ -56,12 +59,23 @@ resource "azurerm_user_assigned_identity" "eso" {
   location            = azurerm_resource_group.aks.location
 }
 
-# Grant Identity access to Key Vault (Secrets User)
-resource "azurerm_role_assignment" "eso_secrets" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.eso.principal_id
+# Grant Identity access to Key Vault via Access Policy
+resource "azurerm_key_vault_access_policy" "eso" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_user_assigned_identity.eso.principal_id
+
+  secret_permissions = [
+    "Get", "List"
+  ]
 }
+
+# Grant Access via RBAC (Optional/Future, but keep to avoid recreation if permission exists)
+# resource "azurerm_role_assignment" "vault_admin" {
+#   scope                = azurerm_key_vault.main.id
+#   role_definition_name = "Key Vault Secrets Officer"
+#   principal_id         = data.azurerm_client_config.current.object_id
+# }
 
 # 3. Federated Credential (Trust Relationship)
 resource "azurerm_federated_identity_credential" "eso" {
@@ -76,8 +90,8 @@ resource "azurerm_federated_identity_credential" "eso" {
 # 4. Propagation Delay (Best Practice to avoid 403 on first try)
 resource "time_sleep" "wait_for_rbac" {
   depends_on = [
-    azurerm_role_assignment.vault_admin,
-    azurerm_role_assignment.eso_secrets
+    azurerm_key_vault_access_policy.current,
+    azurerm_key_vault_access_policy.eso
   ]
   create_duration = "30s"
 }

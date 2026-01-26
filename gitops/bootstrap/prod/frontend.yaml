@@ -11,8 +11,10 @@ spec:
     targetRevision: main
     helm:
       values: |
+        imagePullSecrets:
+          - name: regcred
         image:
-          repository: skyacrstaging.azurecr.io/sky-poc-frontend
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
           tag: "a2dc11f"
         
         securityContext:
@@ -61,6 +63,8 @@ spec:
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
             value: "https://workspace-prd-api.skyfirstlabs.com"
+          - name: ROLLOUT_TRIGGER
+            value: "2026-01-26T11:05:00Z"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod

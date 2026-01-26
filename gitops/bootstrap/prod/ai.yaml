@@ -11,8 +11,10 @@ spec:
     targetRevision: main
     helm:
       values: |
+        imagePullSecrets:
+          - name: regcred
         image:
-          repository: skyacrstaging.azurecr.io/sky-poc-ai
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-ai
           tag: "latest"
         
         securityContext:
@@ -104,6 +106,8 @@ spec:
         extraEnv:
           - name: DEBUG
             value: "false"
+          - name: ROLLOUT_TRIGGER
+            value: "2026-01-26T11:05:00Z"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod

@@ -32,13 +32,6 @@ spec:
             name: sky-be-prd-common-app
             port:
               number: 80
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: sky-backend-prod-common-app
-            port:
-              number: 80
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

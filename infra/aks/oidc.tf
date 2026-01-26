@@ -72,6 +72,35 @@ resource "azurerm_federated_identity_credential" "gh_actions_staging" {
   subject             = "repo:${var.github_org}/${each.key}:ref:refs/heads/staging"
 }
 
+# Allow GitHub Environments (DISABLED to stay under 20 limit)
+# Branch-based credentials (main, staging, pr) are sufficient for the workflow
+# If needed, enable specific environments only
+# resource "azurerm_federated_identity_credential" "gh_actions_env" {
+#   for_each = {
+#     for pair in setproduct(var.github_repos, ["production", "staging"]) : "${pair[0]}-${pair[1]}" => {
+#       repo = pair[0]
+#       env  = pair[1]
+#     }
+#   }
+#   name                = "gh-env-${each.value.repo}-${each.value.env}"
+#   resource_group_name = azurerm_resource_group.aks.name
+#   parent_id           = azurerm_user_assigned_identity.gh_actions.id
+#   audience            = ["api://AzureADTokenExchange"]
+#   issuer              = "https://token.actions.githubusercontent.com"
+#   subject             = "repo:${var.github_org}/${each.value.repo}:environment:${each.value.env}"
+# }
+
+# CRITICAL: Allow 'sky-poc-infra' in 'production' environment specifically
+# This is required for the "Terraform Apply" job in GitHub Actions
+resource "azurerm_federated_identity_credential" "gh_actions_env_infra_prod" {
+  name                = "gh-env-sky-poc-infra-production"
+  resource_group_name = azurerm_resource_group.aks.name
+  parent_id           = azurerm_user_assigned_identity.gh_actions.id
+  audience            = ["api://AzureADTokenExchange"]
+  issuer              = "https://token.actions.githubusercontent.com"
+  subject             = "repo:${var.github_org}/sky-poc-infra:environment:production"
+}
+
 output "gh_actions_client_id" {
   value = azurerm_user_assigned_identity.gh_actions.client_id
 }
