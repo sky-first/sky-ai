@@ -22,7 +22,14 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-frontend-prod-common-app
+            name: sky-fe-prd-common-app
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: sky-be-prd-common-app
             port:
               number: 80
       - path: /api
@@ -59,7 +66,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-backend-prod-common-app
+            name: sky-be-prd-common-app
             port:
               number: 80
 ---
@@ -87,7 +94,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-ai-prod-common-app
+            name: sky-ai-prd-common-app
             port:
               number: 80
 ---
@@ -109,7 +116,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-frontend-prod-common-app
+            name: sky-fe-prd-common-app
             port:
               number: 80
   - host: workspace-prd-api.skyfirstlabs.com
@@ -119,7 +126,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-backend-prod-common-app
+            name: sky-be-prd-common-app
             port:
               number: 80
   - host: workspace-prd-ai.skyfirstlabs.com
@@ -129,6 +136,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: sky-ai-prod-common-app
+            name: sky-ai-prd-common-app
             port:
               number: 80
