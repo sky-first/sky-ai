@@ -11,10 +11,9 @@ spec:
     targetRevision: main
     helm:
       values: |
-        imagePullSecrets:
-          - name: regcred
+        imagePullSecrets: []
         image:
-          repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
+          repository: skyacrprodel5zpw.azurecr.io/sky-poc-backend
           tag: "latest"
         
         securityContext:

@@ -11,11 +11,10 @@ spec:
     targetRevision: main
     helm:
       values: |
-        imagePullSecrets:
-          - name: regcred
+        imagePullSecrets: []
         image:
-          repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
-          tag: "a2dc11f"
+          repository: skyacrprodel5zpw.azurecr.io/sky-poc-frontend
+          tag: "latest"
         
         securityContext:
           runAsNonRoot: true
