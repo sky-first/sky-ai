@@ -55,6 +55,17 @@ resource "azurerm_key_vault_access_policy" "current" {
   ]
 }
 
+# 1.1 Grant Access to Gustavo (Current Session User)
+resource "azurerm_key_vault_access_policy" "gustavo" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = "024a8186-0e14-4daf-889e-c956c8dff2ae"
+
+  secret_permissions = [
+    "Get", "List", "Set", "Delete", "Purge", "Recover"
+  ]
+}
+
 # 2. Managed Identity for External Secrets Operator (User Assigned Identity)
 resource "azurerm_user_assigned_identity" "eso" {
   name                = "id-eso-${var.environment}"
@@ -94,6 +105,7 @@ resource "azurerm_federated_identity_credential" "eso" {
 resource "time_sleep" "wait_for_rbac" {
   depends_on = [
     azurerm_key_vault_access_policy.current,
+    azurerm_key_vault_access_policy.gustavo,
     azurerm_key_vault_access_policy.eso
   ]
   create_duration = "30s"
