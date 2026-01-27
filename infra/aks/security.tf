@@ -38,6 +38,9 @@ resource "azurerm_key_vault" "main" {
 
   tags = {
     Environment = var.environment
+    Project     = "Sky-POC"
+    ManagedBy   = "Terraform"
+    Owner       = "DevOps-Team"
   }
 }
 
