@@ -18,25 +18,32 @@ resource "azurerm_user_assigned_identity" "gh_actions" {
 
   tags = {
     Environment = var.environment
+    Project     = "Sky-POC"
+    ManagedBy   = "Terraform"
+    Owner       = "DevOps-Team"
   }
 }
 
-# Grant AcrPush to the GitHub Actions Identity
-# NOTE: The GitHub Actions Service Principal REQUIRES "User Access Administrator" or "Owner" 
-# at the scope level to manage these role assignments via Terraform.
-# DISABLED TEMPORARILY due to insufficient permissions of the runner.
-# resource "azurerm_role_assignment" "gh_actions_acr_push" {
-#   scope                = azurerm_container_registry.acr.id
-#   role_definition_name = "AcrPush"
-#   principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
-# }
+# Grant Contributor to the GitHub Actions Identity (at RG scope)
+resource "azurerm_role_assignment" "gh_actions_contributor" {
+  scope                = azurerm_resource_group.aks.id
+  role_definition_name = "Contributor"
+  principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
+}
 
-# Grant AcrPull (for verification/signing if needed)
-# resource "azurerm_role_assignment" "gh_actions_acr_pull" {
-#   scope                = azurerm_container_registry.acr.id
-#   role_definition_name = "AcrPull"
-#   principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
-# }
+# Grant AcrPush to the GitHub Actions Identity
+resource "azurerm_role_assignment" "gh_actions_acr_push" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
+}
+
+# Grant Key Vault Secrets Officer (required to manage secrets in KV via Terraform)
+resource "azurerm_role_assignment" "gh_actions_kv_officer" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = azurerm_user_assigned_identity.gh_actions.principal_id
+}
 
 # Establish Trust (Federated Credentials)
 # Loop through each repo and allow 'main' branch
