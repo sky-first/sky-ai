@@ -103,21 +103,53 @@ spec:
           args: 
             - |
               import os, asyncio, asyncpg, glob
+              from sqlalchemy import text
+              from db.session import engine
+              from db.models import Base
+
               async def run():
                   url = os.getenv('DATABASE_URL')
                   if not url:
                       print('DATABASE_URL not set')
                       return
+                  
+                  # 1. Enable pgvector extension
                   pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
-                  conn = await asyncpg.connect(pure_url)
-                  for f in sorted(glob.glob('/app/db/migrations/*.sql')):
-                      with open(f) as sq:
-                          print(f'Applying {f}...')
-                          try:
-                              await conn.execute(sq.read())
-                          except Exception as e:
-                              print(f'Notice: {e}')
-                  await conn.close()
+                  pure_url = pure_url.replace('postgresql+psycopg2://', 'postgresql://')
+                  if 'psycopg2' in pure_url: pure_url = pure_url.replace('psycopg2', '')
+                  
+                  try:
+                      print('Enabling pgvector extension...')
+                      conn_pg = await asyncpg.connect(pure_url)
+                      await conn_pg.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+                      await conn_pg.close()
+                      print('✅ extension vector enabled')
+                  except Exception as e:
+                      print(f'Warning enabling vector extension: {e}')
+
+                  # 2. Sync SQLAlchemy Models (chat_history, embeddings, etc)
+                  try:
+                      print('Syncing SQLAlchemy models...')
+                      async with engine.begin() as conn:
+                          await conn.run_sync(Base.metadata.create_all)
+                      print('✅ models synced')
+                  except Exception as e:
+                      print(f'Warning syncing models: {e}')
+
+                  # 3. Apply raw SQL migrations
+                  try:
+                      conn_pg = await asyncpg.connect(pure_url)
+                      for f in sorted(glob.glob('/app/db/migrations/*.sql')):
+                          with open(f) as sq:
+                              print(f'Applying {f}...')
+                              try:
+                                  await conn_pg.execute(sq.read())
+                              except Exception as e:
+                                  print(f'Notice: {e}')
+                      await conn_pg.close()
+                  except Exception as e:
+                      print(f'Warning applying SQL migrations: {e}')
+                  
               asyncio.run(run())
 
         autoscaling:
