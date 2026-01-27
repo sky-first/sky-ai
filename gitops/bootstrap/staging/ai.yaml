@@ -95,6 +95,36 @@ spec:
             name: sky-ai-stg-common-app-secrets
             key: celery_result_backend
             
+        migration:
+          enabled: true
+          command: ["python3", "-c"]
+          args: 
+            - |
+              import os, asyncio, asyncpg, glob
+              async def run():
+                  url = os.getenv('DATABASE_URL')
+                  if not url:
+                      print('DATABASE_URL not set')
+                      return
+                  # Ensure using asyncpg compatible URL
+                  url = url.replace('postgresql://', 'postgresql+asyncpg://')
+                  if 'asyncpg://' not in url:
+                      url = url.replace('psycopg2://', 'asyncpg://')
+                  
+                  # asyncpg needs postgresql:// or similar, it doesnt like +asyncpg in the connection string directly if using connect()
+                  pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
+                  
+                  conn = await asyncpg.connect(pure_url)
+                  for f in sorted(glob.glob('/app/db/migrations/*.sql')):
+                      with open(f) as sq:
+                          print(f'Applying {f}...')
+                          try:
+                              await conn.execute(sq.read())
+                          except Exception as e:
+                              print(f'Notice: {e}')
+                  await conn.close()
+              asyncio.run(run())
+              
         extraEnv:
           - name: REDIS_PORT
             value: "6379"

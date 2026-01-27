@@ -58,6 +58,10 @@ spec:
               data:
                 openai_api_key: "{{ .openai_api_key }}"
                 qdrant_url: "{{ .qdrant_url }}"
+                redis_url: "{{ .redis_url }}"
+                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
           data:
             - secretKey: openai_api_key
               remoteRef:
@@ -65,6 +69,12 @@ spec:
             - secretKey: qdrant_url
               remoteRef:
                 key: qdrant-url
+            - secretKey: database_url
+              remoteRef:
+                key: database-url
+            - secretKey: redis_url
+              remoteRef:
+                key: redis-url
                 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
@@ -74,7 +84,42 @@ spec:
           qdrant-url:
             name: sky-ai-prd-common-app-secrets
             key: qdrant_url
+          DATABASE_URL:
+            name: sky-ai-prd-common-app-secrets
+            key: database_url
+          REDIS_URL:
+            name: sky-ai-prd-common-app-secrets
+            key: redis_url
+          CELERY_BROKER_URL:
+            name: sky-ai-prd-common-app-secrets
+            key: celery_broker_url
+          CELERY_RESULT_BACKEND:
+            name: sky-ai-prd-common-app-secrets
+            key: celery_result_backend
         
+        migration:
+          enabled: true
+          command: ["python3", "-c"]
+          args: 
+            - |
+              import os, asyncio, asyncpg, glob
+              async def run():
+                  url = os.getenv('DATABASE_URL')
+                  if not url:
+                      print('DATABASE_URL not set')
+                      return
+                  pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
+                  conn = await asyncpg.connect(pure_url)
+                  for f in sorted(glob.glob('/app/db/migrations/*.sql')):
+                      with open(f) as sq:
+                          print(f'Applying {f}...')
+                          try:
+                              await conn.execute(sq.read())
+                          except Exception as e:
+                              print(f'Notice: {e}')
+                  await conn.close()
+              asyncio.run(run())
+
         autoscaling:
           enabled: true
           minReplicas: 2
@@ -104,10 +149,12 @@ spec:
             memory: 2Gi
             
         extraEnv:
+          - name: REDIS_PORT
+            value: "6379"
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-01-26T11:05:00Z"
+            value: "2026-01-27T09:30:00Z"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod
