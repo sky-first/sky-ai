@@ -26,6 +26,7 @@ async def main():
     print("\n1. Table Counts:")
     db_url = settings.database_url
     if not db_url.startswith('postgresql+asyncpg://'):
+        db_url = db_url.replace('postgresql+psycopg2://', 'postgresql+asyncpg://')
         db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
         
     engine = create_async_engine(db_url)
