@@ -803,7 +803,7 @@ jobs:
 
       - name: Import Existing Resources (Pre-Plan)
         run: |
-          set +e  # Don't fail on import errors
+          set -uo pipefail # Don't use -e yet, we handle errors in the function
           echo "=========================================="
           echo "📥 Importing Existing Resources (Before Plan)"
           echo "=========================================="
@@ -848,7 +848,14 @@ jobs:
             
             # Import
             echo "  📥 Importing..."
-            if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
+            # Pass var-file and required TF_VARs to ensure all required variables are set
+            if terraform import \
+              -var-file="$TFVARS_FILE" \
+              -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+              -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+              -var="key_vault_firewall_allow=true" \
+              -input=false \
+              "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
               echo "  ✅ Import successful"
             else
               if grep -q "already managed\|Cannot import" /tmp/import.log; then
