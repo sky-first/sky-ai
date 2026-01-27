@@ -836,9 +836,14 @@ jobs:
             fi
             
             # Check if exists in Azure
-            if ! az resource show --ids "$azure_id" &>/dev/null; then
-              echo "  ℹ️  Doesn't exist in Azure (will be created)"
-              return 0
+            # SKIP check for Key Vault Access Policy as it is not a standard ARM resource ID (it's a property)
+            if [[ "$name" != *"Access Policy"* ]]; then
+              if ! az resource show --ids "$azure_id" &>/dev/null; then
+                echo "  ℹ️  Doesn't exist in Azure (will be created)"
+                return 0
+              fi
+            else
+               echo "  ℹ️  Skipping Azure existence check for Access Policy (pseudo-resource)"
             fi
             
             # Import
