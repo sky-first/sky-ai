@@ -46,6 +46,7 @@ spec:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
+          {{- if ne .Values.probes.liveness.enabled false }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.liveness.path }}
@@ -54,6 +55,8 @@ spec:
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if ne .Values.probes.readiness.enabled false }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readiness.path }}
@@ -62,6 +65,7 @@ spec:
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
