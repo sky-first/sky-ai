@@ -1,49 +1,102 @@
-name: Deploy - Staging (LangGraph)
+name: Deploy AI Service to AKS (Staging)
 
 on:
   push:
-    branches: [ develop, staging ]
+    branches:
+      - staging
   workflow_dispatch:
+    inputs:
+      reason:
+        description: "Motivo do deploy manual"
+        required: false
+        default: "Manutenção/Correção"
 
-permissions:
-  contents: read
-
+# Evita conflitos de deploys simultâneos
 concurrency:
-  group: deploy-staging-${{ github.ref }}
+  group: deploy-ai-staging
   cancel-in-progress: true
 
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: skyacrstagingj3minh
+  IMAGE_NAME: sky-poc-ai
+  CLUSTER_NAME: sky-aks-staging
+  RESOURCE_GROUP: sky-aks-staging-rg
+
 jobs:
-  build-and-verify:
+  validate-and-deploy:
     runs-on: ubuntu-latest
-    env:
-      OPENAI_API_KEY: dummy-key
-      ENV: ci
-      PYTHONPATH: src
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONUNBUFFERED: "1"
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
+      - name: Validate Secrets
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          echo "🔐 Verificando credenciais OIDC..."
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ] || [ -z "${{ secrets.AZURE_TENANT_ID }}" ] || [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            echo "❌ ERRO: Secrets de autenticação Azure (OIDC) não encontrados no repositório de AI!"
+            exit 1
+          fi
 
-      - name: Lint
-        run: flake8 src tests
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Unit tests (mocked LLM)
-        run: pytest tests
+      - name: Build and Push to ACR
+        run: |
+          az acr login --name $ACR_NAME
+          docker build \
+            --cache-from $ACR_NAME.azurecr.io/$IMAGE_NAME:staging \
+            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:staging .
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:staging
 
-      - name: Build Docker image (no push)
-        run: docker build -t langgraph-app:${{ github.sha }} .
+      - name: Update Infra Repository (GitOps Write-Back)
+        if: github.ref == 'refs/heads/staging'
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+          INFRA_REPO: sky-first/sky-poc-infra
+          BRANCH: staging
+        run: |
+          echo "🔄 Checking out Infra Repository..."
+          git clone https://$GITOPS_PAT@github.com/$INFRA_REPO.git infra-repo
+          cd infra-repo
+          git checkout $BRANCH
+          
+          # Define target file based on environment
+          TARGET_FILE="gitops/bootstrap/staging/ai.yaml"
+          echo "📂 Updating $TARGET_FILE..."
+          
+          # Update rollout-trigger annotation with current timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          # Use sed to replace the existing timestamp or add it if missing.
+          if grep -q "rollout-trigger:" $TARGET_FILE; then
+             # Robust replacement: matches rollout-trigger followed by any whitespace and any content
+             sed -i "s/rollout-trigger: .*/rollout-trigger: \"$TIMESTAMP\"/" $TARGET_FILE
+          else
+             echo "⚠️ 'rollout-trigger' not found in $TARGET_FILE. Creating it..."
+             sed -i '/values: |/a \        podAnnotations:\n          rollout-trigger: "'$TIMESTAMP'"' $TARGET_FILE
+          fi
+          
+          # Verify change
+          git diff $TARGET_FILE
+          
+          # Commit and Push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add $TARGET_FILE
+          
+          if git diff --staged --quiet; then
+            echo "⚠️ No changes to commit."
+          else
+            git commit -m "GitOps: Update rollout-trigger for ai service at $TIMESTAMP"
+            git push origin $BRANCH
+            echo "✅ GitOps Write-Back Complete."
+          fi
 
