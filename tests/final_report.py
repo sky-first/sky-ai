@@ -1,7 +1,7 @@
 
 import asyncio
+
 import httpx
-import json
 
 API_BASE_URL = "http://localhost:8001"
 CONNECTION_ID = "4e96c724-b1a1-47a8-9f8c-60af9deaeb89"
@@ -27,6 +27,7 @@ QUESTIONS = [
     "What is the sales forecast for next month?",
 ]
 
+
 async def fetch_answer(client, question):
     try:
         response = await client.post(
@@ -42,16 +43,18 @@ async def fetch_answer(client, question):
         if response.status_code == 200:
             return response.json()
         else:
-            return {"answer": f"ERROR ({response.status_code}): {response.text[:200]}"}
+            return {
+                "answer": f"ERROR ({response.status_code}): {response.text[:200]}"}
     except Exception as e:
         return {"answer": f"EXCEPTION: {str(e)}"}
+
 
 async def main():
     async with httpx.AsyncClient() as client:
         print("# AI Business Intelligence - Final Report\n")
         for i, question in enumerate(QUESTIONS):
             result = await fetch_answer(client, question)
-            print(f"### Q{i+1:02d}: {question}")
+            print(f"### Q{i + 1:02d}: {question}")
             print(f"**Answer:** {result.get('answer', 'No answer received.')}")
             if result.get('sql'):
                 print(f"**SQL:**\n```sql\n{result.get('sql')}\n```")

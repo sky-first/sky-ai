@@ -4,9 +4,9 @@ Script to test 15 business questions and measure response time.
 """
 import asyncio
 import time
+from typing import Any, Dict, List
+
 import httpx
-import json
-from typing import List, Dict, Any
 
 # Configuration
 API_BASE_URL = "http://localhost:8001"  # AI Service runs on port 8001
@@ -40,10 +40,11 @@ QUESTIONS = [
 ]
 
 
-async def test_question(client: httpx.AsyncClient, question: str, index: int) -> Dict[str, Any]:
+async def test_question(client: httpx.AsyncClient,
+                        question: str, index: int) -> Dict[str, Any]:
     """Tests a question and returns the result."""
     start_time = time.time()
-    
+
     try:
         response = await client.post(
             f"{API_BASE_URL}/connections/{CONNECTION_ID}/query",
@@ -57,7 +58,7 @@ async def test_question(client: httpx.AsyncClient, question: str, index: int) ->
             timeout=120.0,
         )
         elapsed = time.time() - start_time
-        
+
         if response.status_code == 200:
             data = response.json()
             return {
@@ -93,7 +94,7 @@ async def run_tests():
     print("TESTING 15 BUSINESS QUESTIONS")
     print("=" * 80)
     print()
-    
+
     # Check if server is running
     async with httpx.AsyncClient() as client:
         try:
@@ -106,46 +107,47 @@ async def run_tests():
             print(f"❌ Could not connect to server: {e}")
             print(f"   Check if server is running at {API_BASE_URL}")
             return
-    
+
     print()
     print("Running questions...")
     print("-" * 80)
-    
+
     results: List[Dict[str, Any]] = []
     total_start = time.time()
-    
+
     async with httpx.AsyncClient() as client:
         for i, question in enumerate(QUESTIONS):
             result = await test_question(client, question, i)
             results.append(result)
-            
+
             status_icon = "✅" if result["status"] == "SUCCESS" else "❌"
-            print(f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}...")
-    
+            print(
+                f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}...")
+
     total_time = time.time() - total_start
-    
+
     # Summary
     print()
     print("=" * 80)
     print("SUMMARY")
     print("=" * 80)
-    
+
     successful = [r for r in results if r["status"] == "SUCCESS"]
     failed = [r for r in results if r["status"] != "SUCCESS"]
-    
+
     times = [r["time_seconds"] for r in successful]
     avg_time = sum(times) / len(times) if times else 0
-    
+
     print(f"Total questions: {len(QUESTIONS)}")
     print(f"Success: {len(successful)}")
     print(f"Failed: {len(failed)}")
     print(f"Total time: {total_time:.1f}s")
     print(f"Average time per question: {avg_time:.1f}s")
-    
+
     if times:
         print(f"Min time: {min(times):.1f}s")
         print(f"Max time: {max(times):.1f}s")
-    
+
     if failed:
         print()
         print("Failed questions:")
@@ -154,11 +156,10 @@ async def run_tests():
             print(f"    Status: {r['status']}")
             if "error" in r:
                 print(f"    Error: {r['error'][:100]}")
-    
+
     print()
     print("=" * 80)
 
 
 if __name__ == "__main__":
     asyncio.run(run_tests())
-

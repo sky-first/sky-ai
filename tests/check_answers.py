@@ -1,8 +1,9 @@
 
 import httpx
-import json
 
 url = "http://localhost:8001/connections/4e96c724-b1a1-47a8-9f8c-60af9deaeb89/query"
+
+
 def test(question):
     payload = {
         "question": question,
@@ -15,6 +16,7 @@ def test(question):
     print(f"A: {response.json().get('answer')}")
     print(f"SQL: {response.json().get('sql')}")
     print("-" * 20)
+
 
 test("Which products have low stock?")
 test("Which sales representatives have the best performance?")
