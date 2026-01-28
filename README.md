@@ -1,28 +1,65 @@
-# sky-poc-ai
+# IA POC - Intelligent Data Assistant
 
-Pipeline e mocks para LangGraph + OpenAI.
+Sistema de assistente de dados inteligente com suporte a múltiplas fontes de dados, RAG e geração de SQL.
 
-## LLM
-- `get_llm()` em `src/llm/provider.py` devolve `MockLLM` quando `ENV=ci`, garantindo zero chamadas externas no CI.
-- Produção usa `OpenAI` com timeout conservador; defina `OPENAI_API_KEY`, `OPENAI_MODEL` e `TEMPERATURE` no runtime.
-- Nunca logue prompts, respostas ou API keys; sanitize entradas antes de enviar ao modelo; aplique rate limiting no runtime.
+## Arquitetura
 
-## CI
-- Workflow `/.github/workflows/ci.yml` roda em PRs e pushes para `main`/`develop` (mock LLM, zero chamadas externas).
-- Passos: upgrade de `pip`, instalar deps, `flake8 src tests`, `pytest tests`.
+O projeto segue uma arquitetura modular com separação clara de responsabilidades:
 
-## CD / Staging
-- Workflow `/.github/workflows/deploy-staging.yml` roda em push para `develop`/`staging` ou manual (`workflow_dispatch`): lint, testes (mock), build da imagem Docker (sem push).
-- Branch flow sugerido: feature → PR para `develop`/`staging` → merge dispara build de staging → depois PR/tag para `main` para produção.
-- Proteções recomendadas: proibir push direto em `develop`/`main`, exigir checks do CI e 1+ review.
+- **api/**: FastAPI application com rotas e dependências
+- **core/**: Lógica de negócio (auth, domain, data sources, RAG, SQL, agents, LLM)
+- **db/**: Modelos SQLAlchemy e configuração de banco
+- **config/**: Configurações e settings
+- **agent_registry/**: Definições de agentes em YAML/JSON
+- **worker/**: Celery workers para tarefas assíncronas
+- **scripts/**: Scripts utilitários
 
-## Docker
-- `Dockerfile` define `ENV=prod` e `OPENAI_API_KEY` vazio por padrão; deploy real injeta `OPENAI_API_KEY`, `OPENAI_MODEL`, `TEMPERATURE`.
-- `CMD` é placeholder; ajuste para o entrypoint da aplicação quando disponível.
+## Instalação
 
-## Testes locais
+1. Clone o repositório
+2. Crie um ambiente virtual:
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# ou
+venv\Scripts\activate  # Windows
 ```
-pip install -r requirements.txt -r requirements-dev.txt
-pytest
-flake8 src tests
+
+3. Instale as dependências:
+```bash
+pip install -r requirements.txt
 ```
+
+4. Configure o arquivo `.env` baseado em `.env.example`
+
+5. Execute as migrações:
+```bash
+alembic upgrade head
+```
+
+## Execução
+
+### API
+```bash
+python run_api.py
+```
+
+### Worker (Celery)
+```bash
+./scripts/start-ai-worker.sh
+```
+
+## Estrutura de Dados
+
+- **Spaces**: Espaços de trabalho isolados
+- **Crews**: Grupos de usuários dentro de um Space
+- **Planets**: Conjuntos de tabelas/fontes de dados
+- **Agents**: Agentes configuráveis para consultas
+- **Connections**: Conexões com fontes de dados (BigQuery, Postgres, etc.)
+
+## Desenvolvimento
+
+Para adicionar novas fontes de dados, implemente a interface `BaseDataSource` em `core/data_sources/`.
+
+Para criar novos agentes, adicione definições YAML em `agent_registry/examples/`.
+
