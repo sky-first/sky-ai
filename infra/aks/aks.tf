@@ -45,7 +45,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # When runner_ip is provided, it is included in authorized_ip_ranges (restricted public access)
     authorized_ip_ranges = distinct(compact(concat(
       var.runner_ip != null ? [var.runner_ip] : [],
-      var.authorized_ips
+      var.authorized_ips,
+      var.ssh_public_key != null ? [azurerm_public_ip.bastion[0].ip_address] : []
     )))
   }
   # Enable private cluster if no runner_ip is provided (more secure - VNET access only)

@@ -63,3 +63,4 @@ keys/**/*.pem
 # Permitir chaves públicas
 !keys/**/*.pub
 sky-poc-frontend/
+bastion_key*

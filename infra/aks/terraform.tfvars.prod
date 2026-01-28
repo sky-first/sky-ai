@@ -10,7 +10,7 @@ kubernetes_version  = "1.33.5"
 # Production networking - Isolated VNet, no public IP restrictions
 # Access via Bastion VM only for admin access
 authorized_ips = [
-  "169.155.237.226" # Current Terraform Runner IP
+  "81.84.211.111/32"
 ]
 
 # Domínios de produção (configurados em Ingress later)
@@ -19,3 +19,7 @@ authorized_ips = [
 # Backend API: api-workspace-prd.skyfirstlabs.com
 
 external_dns_identity_resource_group = "rg-core-infra-prd"
+
+allowed_ssh_ips = [
+  "81.84.211.111/32"
+]
