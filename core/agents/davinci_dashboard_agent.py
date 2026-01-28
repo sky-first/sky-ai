@@ -383,11 +383,25 @@ def _enforce_distribution_and_fact_dim(
         _rewrite_as_table(idx, pair)
 
     # Ensure KPI count.
+    # FIX: Prevent infinite loop by selecting candidates that are NOT already KPIs.
     kpi_idxs = [i for i, w in enumerate(widgets) if wtype(w) == "kpi"]
-    while len(kpi_idxs) < target_kpi:
+    loop_safety = 0
+    while len(kpi_idxs) < target_kpi and loop_safety < 20:
+        loop_safety += 1
+        # Prefer charts first
         candidates = [i for i, w in enumerate(widgets) if wtype(w) == "chart"]
+        # If no charts, look for anything that is NOT a table and NOT already a KPI
         if not candidates:
-            candidates = [i for i, w in enumerate(widgets) if wtype(w) != "table"] or [0]
+            candidates = [i for i, w in enumerate(widgets) if wtype(w) != "table" and wtype(w) != "kpi"]
+        
+        # If still no candidates (e.g. everything is table or we have exhausted non-tables), force pick any non-KPI
+        if not candidates:
+             candidates = [i for i, w in enumerate(widgets) if wtype(w) != "kpi"]
+        
+        if not candidates:
+             # Last resort: just break to avoid infinite loop (we might have fewer KPIs than requested)
+             break
+             
         idx = candidates[0]
         pair = fact_dim_pairs[len(kpi_idxs) % len(fact_dim_pairs)] if fact_dim_pairs else (join_pairs[0] if join_pairs else None)
         _rewrite_as_kpi(idx, pair)
@@ -992,6 +1006,7 @@ def generate_dashboard_plan(
     try:
         resp = llm.invoke([{"role": "system", "content": system}, {"role": "user", "content": user}])
         parsed = _safe_json_loads(getattr(resp, "content", "") or "")
+        
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 
@@ -1064,6 +1079,7 @@ def generate_dashboard_plan(
             table_keys=table_keys,
             max_widgets=max_widgets,
         )
+
 
         widgets = _enforce_distribution_and_fact_dim(
             widgets,
