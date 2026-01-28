@@ -22,6 +22,7 @@ class Dialect(str, Enum):
     ELASTICSEARCH = "elasticsearch"
     REDIS = "redis"
     CASSANDRA = "cassandra"
+    NOSQL = "nosql" # Generic / API
 
 
 def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
@@ -138,6 +139,14 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
             "details": {
                 "query_language": "CQL (Cassandra Query Language)",
                 "example": "SELECT * FROM users WHERE id = 123",
+            }
+        },
+        Dialect.NOSQL: {
+            "type": "nosql",
+            "details": {
+                "query_language": "JSON / API Payload",
+                "output_format": "JSON",
+                "example": '{"endpoint": "/users", "params": {"active": true}}',
             }
         },
     }

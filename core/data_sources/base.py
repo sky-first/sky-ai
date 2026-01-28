@@ -108,6 +108,14 @@ class SQLAlchemyDataSource:
         
         # 1. Obter dados como lista de dicts
         data = self.run_query(sql)
+
+        # 1.5 Convert UUIDs to strings to avoid Arrow errors
+        import uuid
+        if data:
+            for row in data:
+                for k, v in row.items():
+                    if isinstance(v, uuid.UUID):
+                        row[k] = str(v)
         
         # 2. Converter para Arrow Table
         # Se data estiver vazio, precisamos cuidar do schema, mas pyarrow lida bem com lista vazia se inferir
@@ -115,3 +123,12 @@ class SQLAlchemyDataSource:
              return pa.Table.from_pylist([])
              
         return pa.Table.from_pylist(data)
+
+    def sample_table_rows(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """
+        Retorna amostra de dados para preview no prompt.
+        """
+        try:
+            return self.run_query(f"SELECT * FROM {table_name} LIMIT {limit}")
+        except Exception:
+            return []

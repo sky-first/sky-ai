@@ -14,7 +14,7 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
-from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
+from config.settings import settings
 
 
 # ==================== ROLE-BASED REASONING ====================
@@ -152,18 +152,19 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
 
     logical_names = [t.logical_name for t in tables]
 
-    # match exato
+    # fuzzy match: se o que o modelo respondeu (text) é parte de algum nome lógico
+    # OU se algum nome lógico é parte do que o modelo respondeu
     for name in logical_names:
-        if text == name.lower():
+        lname = name.lower()
+        if text and (text in lname or lname in text):
             return name
+            
+    # Check for IMPOSSIBLE
+    if "impossible" in text:
+        return "IMPOSSIBLE"
 
-    # match se o modelo colocou mais texto tipo "I choose invoices"
-    for name in logical_names:
-        if name.lower() in text:
-            return name
-
-    # fallback: primeira tabela
-    return logical_names[0]
+    # Fallback: do not return a random table. Return empty string to signal no match.
+    return ""
 
 
 def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema]) -> List[str]:
@@ -207,10 +208,6 @@ def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema])
                     found_tables.append(table_name)
                 break
 
-    # Se não encontrou múltiplas, retorna lista com uma (compatibilidade)
-    if not found_tables:
-        return [logical_names[0].title()] if logical_names else []
-    
     return found_tables
 
 
@@ -621,6 +618,34 @@ def run_orchestrator(
         )
         return state  # ✅ Retorna imediatamente
 
+    # 🎯 NEW: Build Context Bundle (if enabled)
+    use_context_bundle = getattr(settings, "use_context_bundle", False)
+    
+    if use_context_bundle:
+        try:
+            from core.llm.context.builder import build_context_bundle
+            
+            context_bundle = build_context_bundle(
+                state=state,
+                agent_config=agent_config,
+                db=db
+            )
+            state["_context_bundle"] = context_bundle  # Store for reuse by specialist
+            
+            log_event(
+                "orchestrator_context_bundle_built",
+                {
+                    "agent_id": agent_config.id,
+                    "bundle_summary": context_bundle.summary(),
+                }
+            )
+        except Exception as e:
+            log_event(
+                "orchestrator_context_bundle_error",
+                {"agent_id": agent_config.id, "error": str(e)[:300]}
+            )
+            use_context_bundle = False  # Fallback to legacy
+
     tables_summary = _build_tables_summary(agent_config.tables)
 
     # 🔗 Monta bloco de contexto (limitando pra não explodir o prompt)
@@ -776,6 +801,7 @@ def run_orchestrator(
 
     try:
         raw = llm.invoke([system_msg, user_msg])
+        print(f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}")
     except Exception as e:
         state["answer"] = "Error consulting the AI orchestrator. Please try again later."
         state["error"] = str(e)
@@ -889,6 +915,7 @@ def run_orchestrator(
             )
         else:
             # No tables found by extraction
+            state["impossible_reason"] = "I couldn't find any relevant tables to answer your question."
             log_event(
                 "orchestrator_no_tables_found",
                 {
@@ -897,6 +924,7 @@ def run_orchestrator(
                     "llm_response": str(raw)[:500],
                 },
             )
+            return state
 
         # Multi-connection check on chosen logicals
         # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
@@ -933,10 +961,26 @@ def run_orchestrator(
     else:
         # Modo tabela única (quando há apenas uma tabela disponível)
         chosen_logical = _extract_table_choice(raw, agent_config.tables)
+        
+        if not chosen_logical:
+            state["impossible_reason"] = "I couldn't find any relevant tables to answer your question."
+            log_event("orchestrator_choice_impossible", {"question": question})
+            return state
+
+        if chosen_logical == "IMPOSSIBLE":
+            content_clean = raw.content if hasattr(raw, "content") else str(raw)
+            reason = re.sub(r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE).strip()
+            state["impossible_reason"] = reason or "I don't have enough data to answer this question."
+            return state
+
         chosen_table_obj = next(
             (t for t in agent_config.tables if t.logical_name == chosen_logical),
-            agent_config.tables[0],
+            None
         )
+        
+        if not chosen_table_obj:
+            state["impossible_reason"] = "The selected table is not available."
+            return state
 
         state["chosen_table"] = chosen_table_obj.logical_name
         state["chosen_table_physical"] = chosen_table_obj.physical_name

@@ -10,7 +10,7 @@ from db.models import DataConnection, Space
 from core.ingestion.db_metadata import ingest_metadata_for_connection
 from core.rag.embeddings import (
     EmbeddingProvider,
-    OpenAIEmbeddingProvider,
+    OllamaEmbeddingProvider,
     create_embeddings_for_table_metadata,
 )
 from core.logging_utils import log_event
@@ -27,22 +27,26 @@ class SpaceNotFoundError(Exception):
 async def _get_connection_and_space(
     db: AsyncSession, connection_id: str, space_id: str
 ) -> tuple[DataConnection, Space]:
-    result = await db.execute(
-        select(DataConnection).filter(
+    from db.models import SpaceConnection
+    
+    # Updated to support many-to-many through space_connections
+    stmt = (
+        select(DataConnection, Space)
+        .join(SpaceConnection, SpaceConnection.connection_id == DataConnection.id)
+        .join(Space, Space.id == SpaceConnection.space_id)
+        .where(
             DataConnection.id == connection_id,
-            DataConnection.space_id == space_id,
+            Space.id == space_id
         )
     )
-    dc = result.scalar_one_or_none()
-    if not dc:
-        raise ConnectionNotFoundError(f"DataConnection {connection_id} not found in space {space_id}")
-
-    result = await db.execute(select(Space).filter(Space.id == space_id))
-    space = result.scalar_one_or_none()
-    if not space:
-        raise SpaceNotFoundError(f"Space {space_id} not found")
-
-    return dc, space
+    
+    result = await db.execute(stmt)
+    row = result.first()
+    
+    if not row:
+         raise ConnectionNotFoundError(f"DataConnection {connection_id} not found linked to space {space_id}")
+         
+    return row[0], row[1]
 
 
 async def run_metadata_ingestion(
@@ -57,7 +61,11 @@ async def run_metadata_ingestion(
     """
     dc, space = await _get_connection_and_space(db, connection_id, space_id)
 
-    inserted = await ingest_metadata_for_connection(
+    from core.ingestion.db_metadata import ingest_from_connection_metadata_cache
+    
+    # ALWAYS use cached metadata from backend (connection_metadata)
+    # This ensures backend and AI share the same schema source of truth.
+    inserted = await ingest_from_connection_metadata_cache(
         db=db,
         data_connection=dc,
         space=space,
@@ -89,7 +97,7 @@ async def run_metadata_embeddings(
     dc, space = await _get_connection_and_space(db, connection_id, space_id)
 
     if embedding_provider is None:
-        embedding_provider = OpenAIEmbeddingProvider()
+        embedding_provider = OllamaEmbeddingProvider()
 
     created = await create_embeddings_for_table_metadata(
         db=db,
@@ -126,7 +134,7 @@ async def run_full_refresh_for_connection(
     Retorna um resumo com contagens.
     """
     if embedding_provider is None:
-        embedding_provider = OpenAIEmbeddingProvider()
+        embedding_provider = OllamaEmbeddingProvider()
 
     inserted = await run_metadata_ingestion(
         db=db,

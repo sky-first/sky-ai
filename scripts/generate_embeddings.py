@@ -14,7 +14,8 @@ if project_root not in sys.path:
 from db.base import SessionLocal
 from sqlalchemy import select, func
 from core.rag.embeddings import create_embeddings_for_table_metadata
-from core.rag.embeddings import OpenAIEmbeddingProvider
+from core.rag.embeddings import create_embeddings_for_table_metadata, OllamaEmbeddingProvider, OpenAIEmbeddingProvider
+from config.settings import settings
 
 # Configurações
 TEST_SPACE_ID = os.getenv("TEST_SPACE_ID") or "e409079b-5bbf-4249-a769-2010609c30f2"
@@ -57,7 +58,13 @@ async def generate_embeddings(space_id: str = None, connection_id: str = None, c
                 return
             
             # Criar provider de embeddings
-            embedding_provider = OpenAIEmbeddingProvider(model="text-embedding-3-large")
+            if settings.use_local_models:
+                print(f"🤖 Usando Ollama Embedding Provider (Model: {settings.llm_model_embedding_local})")
+                embedding_provider = OllamaEmbeddingProvider(model=settings.llm_model_embedding_local)
+            else:
+                print(f"☁️  Usando OpenAI Embedding Provider (Model: {settings.embedding_model or 'text-embedding-3-large'})")
+                embedding_provider = OpenAIEmbeddingProvider(model=settings.embedding_model or "text-embedding-3-large")
+
             print("\n🔄 Gerando embeddings...")
             
             # Gerar embeddings

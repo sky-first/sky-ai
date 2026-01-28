@@ -262,15 +262,17 @@ def run_formatter(
         system_msg = {
             "role": "system",
             "content": (
-                "You are a data analyst. Analyze the SQL query results.\\n\\n"
+                "You are an expert Business Analyst. Provide a detailed, professional, and narrative insight based strictly on the provided data text stats and samples.\\n\\n"
                 "Output format (EXACTLY):\\n"
                 "-- TITLE: <Concise English title, max 60 chars>\\n"
                 "<Natural language explanation in user's language>\\n\\n"
                 "Rules:\\n"
-                "- Title MUST be in English\\n"
-                "- Title MUST start with '-- TITLE:'\\n"
+                "- Title MUST be in English and start with '-- TITLE:'\\n"
                 "- Explanation should be in the detected language\\n"
-                "- Be concise and clear\\n"
+                "- DO NOT describe the SQL query or how you got the data\\n"
+                "- DO NOT mention 'dataset', 'table', 'database', or 'query'\\n"
+                "- Focus on telling the story behind the numbers. Be descriptive.\\n"
+                "- highlight key trends, outliers, or dominant categories.\\n"
                 f"{length_guidance}\\n"
                 f"{format_guidance}\\n"
                 f"{instructions_block}"
@@ -352,6 +354,8 @@ def run_formatter(
         return state
 
     if settings.use_local_models:
+        # Some local models return literal \n
+        answer = answer.replace('\\n', '\n')
         lines = answer.strip().split('\n')
         title = None
         answer_lines = []
@@ -402,7 +406,8 @@ def run_formatter(
     
     # Append suggestions as markdown if we have any
     if followup_suggestions:
-        suggestions_md = "\n\n---\n### 💡 Suggested Follow-up:\n"
+        # Clean formatting without markdown separators
+        suggestions_md = "\n\n💡 Suggested Follow-up:\n"
         for i, suggestion in enumerate(followup_suggestions, 1):
             suggestions_md += f"{i}. {suggestion}\n"
         answer = answer + suggestions_md

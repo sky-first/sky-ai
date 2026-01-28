@@ -21,14 +21,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# --- OBSERVABILITY: INÍCIO ---
-# Esta configuração expõe métricas de latência, contagem de requests e erros.
-# O endpoint será servido em /metrics
+# --- OBSERVABILITY: START ---
+# This configuration exposes latency metrics, request counts, and errors.
+# The endpoint will be served at /metrics
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 except ImportError:
-    # Caso a lib não esteja instalada no ambiente local, não quebra a execução
+    # If the lib is not installed in the local environment, it does not break execution
     log_event("observability_init_failed", {"message": "prometheus_fastapi_instrumentator not found"})
 # --- OBSERVABILITY: FIM ---
 
@@ -37,7 +37,7 @@ except ImportError:
 async def on_startup():
     log_event("app_startup", {"message": "DataAssistant API started"})
     
-    # Inicializar banco de dados (criar tabelas se não existirem)
+    # Initialize database (create tables if they don't exist)
     try:
         from db.base import init_db
         await init_db()
@@ -45,7 +45,7 @@ async def on_startup():
     except Exception as e:
         log_event("db_init_error", {"error": str(e), "message": "Failed to initialize DB tables, will retry on demand"})
 
-    # Iniciar audit flusher (thread separada, não bloqueia)
+    # Start audit flusher (separate thread, non-blocking)
     from core.security.audit import start_audit_flusher
     start_audit_flusher()
     log_event("audit_flusher_started", {"message": "Audit log flusher started"})
@@ -115,5 +115,5 @@ app.include_router(data_ingestion.router)
 # Rotas de pipeline
 app.include_router(pipeline.router)
 
-# Rotas de widgets (sugestão de títulos)
+# Widget routes (title suggestions)
 app.include_router(widget_titles.router)

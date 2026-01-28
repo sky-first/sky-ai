@@ -1826,24 +1826,40 @@ async def load_agent_config_from_connection(
     """
     Carrega TableMetadata e monta AgentConfig automaticamente para uma conexão.
     Compatível com schema real do banco (usa SQL raw).
-    
-    Args:
-        db: Sessão do banco de dados
-        space_id: ID do espaço
-        connection_id: ID da conexão
-        crew_ids: Lista opcional de crew_ids para filtrar por permissões do usuário
     """
     log_event(
         "load_agent_config_start",
-        {
-            "space_id": space_id,
-            "connection_id": connection_id,
-            "crew_ids": crew_ids,
-        },
+        {"space_id": space_id, "connection_id": connection_id, "crew_ids": crew_ids},
     )
 
+    from core.dialects import Dialect
+    
+    # 1. Fetch connection type and config
+    conn_result = await db.execute(
+        text("SELECT connector_id AS type, config FROM data_connections WHERE id = :id"),
+        {"id": connection_id},
+    )
+    row = conn_result.first()
+    if not row:
+        raise HTTPException(404, detail="Connection not found")
+        
+    ds_type = (row[0] or "").lower()
+    config = row[1] if row[1] else {}
+    if isinstance(config, str):
+        config = json.loads(config)
+    
+    # Map type to Dialect
+    dialect = Dialect.POSTGRES  # default fallback
+    if ds_type == "bigquery":
+        dialect = Dialect.BIGQUERY
+    elif ds_type == "api":
+        dialect = Dialect.NOSQL # APIs are NoSQL
+    elif ds_type == "mysql":
+        dialect = Dialect.MYSQL
+    elif ds_type == "snowflake":
+        dialect = Dialect.SNOWFLAKE
+    
     # Prefer backend-native catalog (poc backend writes to connection_metadata.tables).
-    # This avoids relying on the AI Engine's legacy `table_metadata` table, which may not exist in the same DB.
     try:
         result = await db.execute(
             text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
@@ -1852,18 +1868,6 @@ async def load_agent_config_from_connection(
         tables_json = result.scalar_one_or_none()
 
         if isinstance(tables_json, list) and len(tables_json) > 0:
-            # Load connection config for project_id fallback
-            conn_result = await db.execute(
-                text("SELECT config FROM data_connections WHERE id = :id"),
-                {"id": connection_id},
-            )
-            row = conn_result.first()
-            config = row[0] if row else {}
-            if isinstance(config, str):
-                config = json.loads(config)
-            elif config is None:
-                config = {}
-
             project_id = None
             if isinstance(config, dict):
                 project_id = config.get("project_id") or config.get("gcp_project_id")
@@ -1920,12 +1924,15 @@ async def load_agent_config_from_connection(
                     id=f"agent-conn-{connection_id}",
                     name=f"Agent for connection {connection_id}",
                     tables=table_schemas,
+                    dialect=dialect,  # 🔥 Pass correct dialect
+                    extra={"project_id": project_id}
                 )
                 log_event(
                     "load_agent_config_from_connection_metadata",
                     {
                         "space_id": space_id,
                         "connection_id": connection_id,
+                        "dialect": dialect.value,
                         "num_tables": len(table_schemas),
                     },
                 )
@@ -1936,14 +1943,12 @@ async def load_agent_config_from_connection(
             {"space_id": space_id, "connection_id": connection_id, "error": str(e)[:500]},
         )
 
-    # Backend-compatible mode: do NOT fall back to the legacy `table_metadata` table.
-    # In this repo, the backend is the source-of-truth and stores the catalog in
-    # `connection_metadata.tables` (JSON). If it's missing/empty, treat it as "no catalog yet".
-    raise HTTPException(
-        status_code=404,
-        detail="No catalog found in connection_metadata.tables for this connection. "
-        "Please synchronize the connection in the backend and try again.",
-    )
+        if not tables_json or not isinstance(tables_json, list) or len(tables_json) == 0:
+            log_event(
+                "load_agent_config_no_connection_metadata",
+                {"connection_id": connection_id}
+            )
+            # Proceed to legacy table_metadata check
     
     # Construir query SQL com filtro de permissões
     query_sql = """
@@ -2037,66 +2042,50 @@ async def load_agent_config_from_connection(
             return dataset
         return dataset
     
-    # Buscar config da conexão
-    conn_result = await db.execute(
-        text("SELECT config FROM data_connections WHERE id = :id"),
-        {"id": connection_id}
-    )
-    row = conn_result.first()
-    config = row[0] if row else {}
-    if isinstance(config, str):
-        config = json.loads(config)
-    elif config is None:
-        config = {}
+    # Buscar config da conexão (REMOVIDO - já carregado no início da função)
+    # config já existe no escopo local
     
-    log_event(
-        "load_agent_config_connection_config",
-        {
-            "connection_id": connection_id,
-            "config_dataset": config.get("dataset") if isinstance(config, dict) else None,
-            "config_keys": list(config.keys()) if isinstance(config, dict) else [],
-        },
-    )
-    
+    # Processar type para metadados
+    project_id = None
+    if isinstance(config, dict):
+        project_id = config.get("project_id") or config.get("gcp_project_id")
+
     # Criar TableSchemas
     table_schemas: list[TableSchema] = []
-    for tname, cols in tables.items():
-        dataset = detect_dataset(tname, config)
-        physical_name = f"{dataset}.{tname}" if "." not in tname else tname
+    for table_name, columns in tables.items():
+        # Lógica de dataset
+        dataset = detect_dataset(table_name, config)
         
-        # Normalizar logical_name para nome amigável (remove prefixos/sufixos)
-        logical_name = _normalize_logical_name(tname)
-        
-        log_event(
-            "load_agent_config_table_schema",
-            {
-                "connection_id": connection_id,
-                "table_name": tname,
-                "logical_name": logical_name,
-                "physical_name": physical_name,
-                "dataset": dataset,
-                "num_columns": len(cols),
-            },
+        # Nome físico
+        if dataset:
+           if project_id and not dataset.startswith(f"{project_id}."):
+                physical_name = f"{project_id}.{dataset}.{table_name}"
+           else:
+                physical_name = f"{dataset}.{table_name}"
+        else:
+            physical_name = table_name
+
+        table_schemas.append(
+            TableSchema(
+                logical_name=_normalize_logical_name(table_name),
+                physical_name=physical_name,
+                columns=[
+                     {
+                         "name": c["column_name"],
+                         "type": c["data_type"],
+                         "nullable": c["is_nullable"]
+                     }
+                     for c in columns
+                ],
+            )
         )
-        
-        schema = TableSchema(
-            logical_name=logical_name,
-            physical_name=physical_name,
-            columns=[
-                {
-                    "name": c["column_name"],
-                    "type": c["data_type"],
-                    "nullable": c["is_nullable"]
-                }
-                for c in cols
-            ],
-        )
-        table_schemas.append(schema)
     
     agent = AgentConfig(
         id=f"agent-conn-{connection_id}",
         name=f"Agent for connection {connection_id}",
         tables=table_schemas,
+        dialect=dialect,  # 🔥 Pass correct dialect
+        extra={"project_id": project_id}
     )
     
     log_event(
@@ -2193,26 +2182,7 @@ async def query_connection(
     except:
         lang = "en"
     
-    # ✅ LANGUAGE VALIDATION: Only accept English questions
-    if lang != "en":
-        log_event(
-            "non_english_question_rejected",
-            {
-                "connection_id": connection_id,
-                "user_id": str(body.user_id) if body.user_id else None,
-                "detected_language": lang,
-                "question_preview": body.question[:100] if body.question else ""
-            }
-        )
-        
-        return QueryResponse(
-            answer="I only understand questions in English. Please ask your question in English.",
-            sql=None,
-            data=[],
-            meta=QueryResultMeta(num_rows=0),
-            has_error=True,
-            error_code="language_not_supported"
-        )
+
     
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
@@ -2250,6 +2220,37 @@ async def query_connection(
                 sql=None,
                 num_rows=0,
                 error=error_code,
+            )
+        )
+
+    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
+    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
+    if lang != "en":
+        # Log the blocked attempt (with safety wrapper)
+        try:
+            log_event(
+                "query_blocked_language",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "detected_language": lang,
+                    "question": body.question[:200]
+                }
+            )
+        except Exception:
+            pass # Fail safe log
+        
+        # Friendly blocking message
+        return QueryResponse(
+            answer="I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!",
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error="language_not_supported",
             )
         )
 
@@ -2431,12 +2432,31 @@ async def query_connection(
         )
     
     # LLMs usando factory centralizado
-    llm_orchestrator = create_llm_orchestrator()
-    llm_specialist = create_llm_specialist()
-    llm_formatter = create_llm_formatter()
-    
-    # Provider de embeddings (RAG) usando factory centralizado
-    embedding_provider = create_embedding_provider()
+    try:
+        llm_orchestrator = create_llm_orchestrator()
+        llm_specialist = create_llm_specialist()
+        llm_formatter = create_llm_formatter()
+        
+        # Provider de embeddings (RAG) usando factory centralizado
+        embedding_provider = create_embedding_provider()
+    except Exception as e:
+        log_event(
+            "llm_factory_init_error",
+            {
+                "connection_id": connection_id,
+                "error": str(e),
+            },
+        )
+        # Retornar erro amigável em vez de 500 cru
+        return QueryResponse(
+            answer="I'm having trouble initializing my language models right now. Please execute a system check or contact support.",
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                error="llm_init_error",
+                num_rows=0
+            ) 
+        )
     
     # Buscar contexto RAG com crew_ids resolvidos
     retrieval_context: list[str] = []
@@ -2458,7 +2478,7 @@ async def query_connection(
     # The 'thread_id' connects this query to previous ones.
     query_thread_id = body.thread_id
     if not query_thread_id and body.user_id:
-        query_thread_id = f"{body.user_id}-{body.connection_id}"
+        query_thread_id = f"{body.user_id}-{connection_id}"
     
     chat_history_list = []
     if query_thread_id:
@@ -2527,7 +2547,7 @@ async def query_connection(
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
             # ✅ FIX: chat_history removed - run_agent_once() doesn't accept this parameter
-            # TODO: Implement memory/history support in the agent itself if needed
+            # chat_history will be available via state['chat_history'] inside the agent
         )
     except Exception as e:
         import traceback
@@ -2741,8 +2761,7 @@ async def query_connection(
     from core.security.pii_scanner import (
         scan_text_for_pii,
         scan_data_for_pii,
-        should_allow_pii_in_aggregate_context,
-        _is_aggregated_sql,
+        should_allow_pii_exception, # Usar nova função unificada
     )
     
     pii_response_text_result = scan_text_for_pii(answer) if answer else None
@@ -2756,12 +2775,12 @@ async def query_connection(
         (pii_response_data_result and pii_response_data_result.detected)
     )
     
-    # Verificar se PII deve ser permitido em contexto agregado (análise de negócio genérica)
+    # Verificar se PII deve ser permitido (exceções: agregado OU small result set)
     allow_pii_in_text = False
     allow_pii_in_data = False
     
     if pii_response_text_result and pii_response_text_result.should_block:
-        allow_pii_in_text = should_allow_pii_in_aggregate_context(
+        allow_pii_in_text = should_allow_pii_exception(
             question=body.question or "",
             sql=sql,
             data=data_sample,
@@ -2769,8 +2788,8 @@ async def query_connection(
         )
     
     if pii_response_data_result and pii_response_data_result.should_block:
-        # Usar dados originais (não filtrados) para verificação de contexto agregado
-        allow_pii_in_data = should_allow_pii_in_aggregate_context(
+        # Usar dados originais (não filtrados) para verificação
+        allow_pii_in_data = should_allow_pii_exception(
             question=body.question or "",
             sql=sql,
             data=data_for_pii_scan,  # Dados originais antes de filtrar
@@ -2994,7 +3013,29 @@ async def _stream_connection_query(
                 question=body.question,
                 was_rate_limited=True,
             )
-            yield f"data: {json.dumps({'type': 'error', 'message': error})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
+        if lang != "en":
+            try:
+                log_event(
+                    "stream_blocked_language",
+                    {
+                        "connection_id": connection_id,
+                        "user_id": body.user_id,
+                        "detected_language": lang,
+                        "question": body.question[:200]
+                    }
+                )
+            except Exception:
+                pass
+            
+            error_msg = "I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!"
+            
+            # Send error message as a normal "answer" chunk so client displays it
+            yield f"data: {json.dumps({'type': 'answer', 'text': error_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\\n\\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 

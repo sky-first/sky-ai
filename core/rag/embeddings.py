@@ -1,12 +1,12 @@
-# core/rag/embeddings.py
+# core/rag/embeddings.py - OLLAMA VERSION
 from __future__ import annotations
 
 from typing import List, Sequence, Optional
 import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import httpx
 
-from openai import OpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,11 +14,11 @@ from db.models import TableMetadata, EmbeddingRecord
 from core.logging_utils import log_event
 
 
-# ThreadPool para operações OpenAI (bloqueantes)
+# ThreadPool para operações de embedding
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
-# ========= PROVIDER GENÉRICO =========
+# ========= PROVIDER GEN ÉRICO =========
 
 class EmbeddingProvider:
     """
@@ -33,27 +33,62 @@ class EmbeddingProvider:
         return await loop.run_in_executor(_executor, self.embed, texts)
 
 
+class OllamaEmbeddingProvider(EmbeddingProvider):
+    """
+    Provider baseado em Ollama local embeddings.
+    Usa nomic-embed-text (274MB, 768 dimensions).
+    """
+    def __init__(self, model: str = "nomic-embed-text", base_url: str = None):
+        from config.settings import settings
+        self.model = model
+        self.base_url = base_url or settings.ollama_base_url
+    
+    def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        """Synchronous embedding via Ollama API"""
+        if not texts:
+            return []
+        
+        vectors = []
+        for text in texts:
+            response = httpx.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": self.model, "prompt": text},
+                timeout=30.0
+            )
+            response.raise_for_status()
+            result = response.json()
+            vectors.append(result["embedding"])
+        
+        return vectors
+
+
+# OpenAI provider (Cloud)
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """
-    Provider baseado em OpenAI Embeddings (ChatGPT).
-    Usa o modelo text-embedding-3-large por default (3072 dimensões).
+    Provider baseado em OpenAI (Cloud).
+    Usa text-embedding-3-large por padrão.
+    Força dimensions=768 para compatibilidade com o esquema de banco legado (Ollama).
     """
-    def __init__(self, model: str = "text-embedding-3-large"):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
-
+    def __init__(self, model: str = None, api_key: str = None):
+        from config.settings import settings
+        from langchain_openai import OpenAIEmbeddings
+        
+        self.model = model or settings.embedding_model
+        api_key = api_key or settings.openai_api_key
+        
+        # IMPORTANTE: O banco define Vector(768). O text-embedding-3-large gera 3072.
+        # Precisamos truncar para 768 via parâmetro da API.
+        self._client = OpenAIEmbeddings(
+            model=self.model,
+            openai_api_key=api_key,
+            dimensions=768
+        )
+    
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         if not texts:
             return []
-        resp = self.client.embeddings.create(
-            model=self.model,
-            input=list(texts),
-        )
-        vectors = [item.embedding for item in resp.data]
-        return vectors
+        # LangChain usa embed_documents para listas
+        return self._client.embed_documents(list(texts))
 
 
 # ========= HELPERS PARA TEXTO DE METADADOS =========
@@ -61,7 +96,6 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 def build_metadata_text(tm: TableMetadata) -> str:
     """
     Constrói um texto rico que descreve a coluna para ser embedado.
-    Você pode ir enriquecendo isso aos poucos.
     """
     desc = tm.description or ""
     nullable = "nullable" if tm.is_nullable else "not nullable"
@@ -89,20 +123,13 @@ async def create_embeddings_for_table_metadata(
     embedding_provider: EmbeddingProvider,
     space_id: str,
     crew_id: Optional[str] = None,
-    data_connection_id: Optional[str] = None,  # filtragem por conexão
+    data_connection_id: Optional[str] = None,
     limit: Optional[int] = None,
-    batch_size: int = 20,  # processa em lotes de 20 por padrão
-    delay_between_batches: float = 1.0,  # delay em segundos entre lotes
+    batch_size: int = 20,
+    delay_between_batches: float = 1.0,
 ) -> int:
     """
-    Cria embeddings para TableMetadata de um space (+ opcional crew + opcional data_connection).
-    - Se data_connection_id for informado, filtra apenas metadados daquela conexão.
-    - Usa build_metadata_text para criar o texto que será embedado.
-    - Processa em lotes menores para evitar rate limits e melhorar progresso incremental.
-    
-    Args:
-        batch_size: Número de embeddings a processar por lote (padrão: 20)
-        delay_between_batches: Delay em segundos entre lotes (padrão: 1.0s)
+    Cria embeddings para TableMetadata usando Ollama local.
     """
     query = select(TableMetadata).filter(TableMetadata.space_id == space_id)
 
@@ -158,7 +185,6 @@ async def create_embeddings_for_table_metadata(
                 },
             )
             print(f"Erro no lote {batch_num}: {e}")
-            # Continua para o próximo lote mesmo se um falhar
             continue
         
         # Salva embeddings do lote
@@ -167,14 +193,14 @@ async def create_embeddings_for_table_metadata(
             rec = EmbeddingRecord(
                 space_id=space_id,
                 crew_id=crew_id,
-                user_id=None,          # metadados de schema, não específicos de usuário
+                user_id=None,
                 document_id=None,
                 table_metadata_id=tm.id,
                 embedding=vec,
                 text=build_metadata_text(tm),
                 extra_metadata={
                     "kind": "table_metadata",
-                    "data_connection_id": str(tm.data_connection_id),  # UUID -> string para JSON
+                    "data_connection_id": str(tm.data_connection_id),
                     "table_name": tm.table_name,
                     "column_name": tm.column_name,
                 },

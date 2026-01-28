@@ -271,6 +271,111 @@ async def ingest_bigquery_metadata_for_connection(
     return inserted
 
 
+async def ingest_from_connection_metadata_cache(
+    db: AsyncSession,
+    data_connection: DataConnection,
+    space: Space,
+    crew_id: Optional[str] = None,
+) -> int:
+    """
+    Normaliza os dados já existentes em `connection_metadata` para `table_metadata`.
+    Isso permite que a AI use o schema já descoberto pelo Backend Principal.
+    """
+    from sqlalchemy import text
+    import uuid
+
+    # 1. Buscar JSON em connection_metadata
+    result = await db.execute(
+        text("SELECT tables FROM connection_metadata WHERE connection_id = :conn_id"),
+        {"conn_id": data_connection.id}
+    )
+    tables_json = result.scalar_one_or_none()
+
+    if not tables_json:
+        log_event(
+            "ingest_cache_metadata_failed",
+            {"connection_id": data_connection.id, "reason": "no_metadata_found"}
+        )
+        return 0
+
+    # 2. Apagar metadados antigos
+    delete_stmt = delete(TableMetadata).where(
+        TableMetadata.data_connection_id == data_connection.id,
+        TableMetadata.space_id == space.id,
+    )
+    if crew_id:
+        delete_stmt = delete_stmt.where(TableMetadata.crew_id == crew_id)
+    else:
+        delete_stmt = delete_stmt.where(TableMetadata.crew_id.is_(None))
+
+    await db.execute(delete_stmt)
+
+    # 3. Normalizar e Inserir
+    inserted = 0
+    now = datetime.utcnow()
+    
+    # Handle both list and dict formats
+    if isinstance(tables_json, list):
+        iterator = tables_json
+    elif isinstance(tables_json, dict):
+        iterator = tables_json.items()
+    else:
+        log_event("ingest_cache_metadata_error", {"reason": "invalid_json_format", "type": str(type(tables_json))})
+        return 0
+
+    for item in iterator:
+        # Extract table name and info based on structure
+        if isinstance(tables_json, list):
+            table_name = item.get('table_name') or item.get('name')
+            table_info = item
+        else:
+            table_name = item[0]
+            table_info = item[1]
+            
+        columns = table_info.get('columns', [])
+        
+        for col in columns:
+            # Handle column structure (dict or string)
+            if isinstance(col, dict):
+                col_name = col.get('name')
+                col_type = col.get('type', 'UNKNOWN')
+                is_nullable = col.get('nullable', True)
+            else:
+                col_name = col
+                col_type = 'UNKNOWN'
+                is_nullable = True
+                
+            if not col_name:
+                continue
+
+            tm = TableMetadata(
+                data_connection_id=data_connection.id,
+                space_id=space.id,
+                crew_id=crew_id,
+                table_name=table_name,
+                column_name=col_name,
+                data_type=col_type,
+                is_nullable=is_nullable,
+                description=None,
+                created_at=now,
+            )
+            db.add(tm)
+            inserted += 1
+
+    await db.commit()
+    
+    log_event(
+        "ingest_cache_metadata_done",
+        {
+            "connection_id": data_connection.id,
+            "space_id": space.id,
+            "inserted": inserted
+        }
+    )
+    
+    return inserted
+
+
 # ========== ENTRYPOINT GENÉRICO ==========
 
 async def ingest_metadata_for_connection(

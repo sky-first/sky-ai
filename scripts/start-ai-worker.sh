@@ -5,36 +5,36 @@
 
 set -e
 
-AI_DIR="/Users/thedatafirst/Desktop/Repositorios/sky-poc-ai"
+AI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "👷 Iniciando AI Celery Worker..."
+echo "👷 Starting AI Celery Worker..."
 
 cd "$AI_DIR"
 
-# Verifica se o ambiente virtual existe
+# Check if virtual environment exists
 if [ ! -d "venv" ] && [ ! -d ".venv" ]; then
-    echo "⚠️  Ambiente virtual não encontrado. Criando..."
+    echo "⚠️  Virtual environment not found. Creating..."
     python3 -m venv venv
 fi
 
-# Ativa o ambiente virtual
+# Activate virtual environment
 if [ -d "venv" ]; then
     source venv/bin/activate
 elif [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# Configura variáveis de ambiente
+# Configure environment variables
 export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/0}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/0}"
 
-echo "✅ Variáveis de ambiente configuradas"
+echo "✅ Environment variables configured"
 echo "   CELERY_BROKER_URL: $CELERY_BROKER_URL"
 echo ""
 
-# Roda o worker
-echo "🔄 Iniciando Celery worker..."
+# Run worker
+echo "🔄 Starting Celery worker..."
 if [ -d "venv" ]; then
     venv/bin/celery -A worker.celery_app worker --loglevel=info --concurrency=4
 elif [ -d ".venv" ]; then

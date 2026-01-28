@@ -74,6 +74,8 @@ def _metadata_row_to_column(row: TableMetadata) -> TableColumn:
 
 # ==================== FUNÇÃO PRINCIPAL ====================
 
+from core.dialects import Dialect
+
 def build_agent_config_for_user_space(
     db: Session,
     user_ctx: UserContext,
@@ -81,6 +83,7 @@ def build_agent_config_for_user_space(
     data_connection_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     agent_name: Optional[str] = None,
+    dialect: Dialect = Dialect.POSTGRES,
 ) -> AgentConfig:
     """
     Constrói um AgentConfig a partir de TableMetadata, respeitando:
@@ -131,6 +134,7 @@ def build_agent_config_for_user_space(
             id=agent_id or f"agent_space_{space_id}",
             name=agent_name or f"Agent for space {space_id}",
             tables=[],
+            dialect=dialect,
         )
 
     # Agrupa por (table_name, data_connection_id)
@@ -174,6 +178,7 @@ def build_agent_config_for_user_space(
         id=agent_id or f"agent_space_{space_id}",
         name=agent_name or f"Agent for space {space_id}",
         tables=tables,
+        dialect=dialect,
         extra={
             "space_id": space_id,
             "data_connection_id": data_connection_id,

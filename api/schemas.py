@@ -9,36 +9,36 @@ from core.security.security_config import SecurityConfig, TableSecurityConfig
 
 
 class QueryRequest(BaseModel):
-    question: str = Field(..., description="Pergunta do usuário em linguagem natural.")
-    user_id: Optional[str] = Field(None, description="ID do usuário (opcional).")
+    question: str = Field(..., description="User question in natural language.")
+    user_id: Optional[str] = Field(None, description="User ID (optional).")
     space_id: Optional[str] = Field(None, description="Space atual (opcional).")
     crew_ids: Optional[List[str]] = Field(
-        default=None, description="Lista de crews aos quais o usuário pertence."
+        default=None, description="List of crews the user belongs to."
     )
     thread_id: Optional[str] = Field(
         default=None,
-        description="ID do thread de conversa, se quiser contexto de múltiplas perguntas.",
+        description="Conversation thread ID, if multiple question context is desired.",
     )
     is_personal: Optional[bool] = Field(
         default=False,
-        description="Indica se a query está no modo personal, concedendo acesso a todos os crews e spaces do usuário."
+        description="Indicates if query is in personal mode, granting access to all user's crews and spaces."
     )
-    # Configurações de comportamento da IA
+    # AI Behavior Configuration
     instructions: Optional[str] = Field(
         default=None,
-        description="Instruções gerais sobre como a IA deve se comportar."
+        description="General instructions on how the AI should behave."
     )
     creativity: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
-        description="Nível de criatividade (0-100). Controla a temperatura do LLM."
+        description="Creativity level (0-100). Controls LLM temperature."
     )
     length: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
-        description="Nível de comprimento da resposta (0-100). Controla max_tokens do LLM."
+        description="Response length level (0-100). Controls LLM max_tokens."
     )
     response_format: Optional[str] = Field(
         default=None,
@@ -46,18 +46,18 @@ class QueryRequest(BaseModel):
     )
     sql_instructions: Optional[str] = Field(
         default=None,
-        description="Instruções específicas para geração de SQL."
+        description="Specific instructions for SQL generation."
     )
     selected_datasets: Optional[List[str]] = Field(
         default=None,
-        description="Lista de datasets/tabelas selecionados manualmente pelo usuário. Se fornecido, o orchestrator usará apenas essas tabelas ao invés de escolher automaticamente."
+        description="List of datasets/tables manually selected by the user. If provided, the orchestrator will use only these tables instead of choosing automatically."
     )
     
-    # ✅ NOVO: Configuração de segurança dinâmica (enviada pelo backend)
+    # ✅ NEW: Dynamic security configuration (sent by backend)
     security_config: Optional[SecurityConfig] = Field(
         default=None,
-        description="Configuração de segurança enviada pelo backend. Inclui row_filters (RLS), "
-                    "allowed/blocked columns, e outras regras de segurança por tabela."
+        description="Security configuration sent by backend. Includes row_filters (RLS), "
+                    "allowed/blocked columns, and other table-level security rules."
     )
 
 
@@ -66,7 +66,7 @@ class QueryResultMeta(BaseModel):
     chosen_table: Optional[str] = None
     chosen_datasets: Optional[List[str]] = None  # List of tables used by AI
     sql: Optional[str] = None
-    title: Optional[str] = None  # Novo: título gerado dinamicamente
+    title: Optional[str] = None  # New: dynamically generated title
     num_rows: int = 0
     error: Optional[str] = None
 
@@ -75,7 +75,7 @@ class QueryResponse(BaseModel):
     answer: str
     data_sample: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="Amostra dos dados retornados (máx. 15 linhas).",
+        description="Sample of returned data (max 15 rows).",
     )
     meta: QueryResultMeta
 
@@ -145,14 +145,14 @@ class DashboardPlanRequest(BaseModel):
     # Temporarily keep dashboard creation fully automatic with a fixed cap.
     max_widgets: int = Field(default=8, ge=1, le=8)
     
-    # ✅ NOVO: Pergunta original do usuário (70-80% de peso nas sugestões)
-    # A IA só será chamada quando este endpoint for invocado (ao clicar em "Criar Dashboard")
+    # ✅ NEW: Original user question (70-80% weight on suggestions)
+    # AI will only be called when this endpoint is invoked (on clicking 'Create Dashboard')
     original_question: Optional[str] = Field(
         default=None,
         description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question."
     )
     
-    # ✅ NOVO: Contexto rico para sugestões melhores
+    # ✅ NEW: Rich context for better suggestions
     initial_ai_response: Optional[str] = Field(
         default=None,
         description="The text content of the last AI answer the user saw. Use this to suggest specific titles."
@@ -201,7 +201,7 @@ class DashboardPlanResponse(BaseModel):
     meta: Optional[Dict[str, Any]] = None
 
 
-# Schemas para DataConnections (usados em outros módulos)
+# Schemas for DataConnections (used in other modules)
 class DataConnectionCreate(BaseModel):
     id: str
     name: str
@@ -329,42 +329,42 @@ class ConnectionResponse(BaseModel):
 
 class ValidateSQLRequest(BaseModel):
     """Request para validar SQL."""
-    user_id: str = Field(..., description="ID do usuário.")
+    user_id: str = Field(..., description="User ID.")
     space_id: str = Field(..., description="Space atual.")
-    sql: str = Field(..., min_length=1, description="SQL a ser validado (não pode ser vazio).")
+    sql: str = Field(..., min_length=1, description="SQL to validate (cannot be empty).")
     crew_ids: Optional[List[str]] = Field(
-        default=None, description="Lista de crews aos quais o usuário pertence."
+        default=None, description="List of crews the user belongs to."
     )
     is_personal: Optional[bool] = Field(
         default=False,
-        description="Indica se está no modo personal."
+        description="Indicates if in personal mode."
     )
-    # ✅ NOVO: Configuração de segurança dinâmica (enviada pelo backend)
+    # ✅ NEW: Dynamic security configuration (sent by backend)
     security_config: Optional[SecurityConfig] = Field(
         default=None,
-        description="Configuração de segurança para validar o SQL contra regras de RLS e colunas."
+        description="Security configuration to validate SQL against RLS rules and columns."
     )
-    # ✅ NOVO: Pedir explicação da IA
+    # ✅ NEW: Ask for AI explanation
     question: Optional[str] = Field(
         default=None,
-        description="Pergunta original do usuário (contexto para a explicação)."
+        description="User's original question (context for explanation)."
     )
     include_explanation: Optional[bool] = Field(
         default=False,
-        description="Se True, gera uma explicação textual dos resultados usando a IA."
+        description="If True, generates a textual explanation of results using AI."
     )
 
 
 class ValidateSQLResponse(BaseModel):
-    """Response da validação de SQL."""
-    is_valid: bool = Field(..., description="Se o SQL é válido e retorna dados.")
-    error: Optional[str] = Field(None, description="Mensagem de erro se inválido.")
+    """SQL validation response."""
+    is_valid: bool = Field(..., description="Whether SQL is valid and returns data.")
+    error: Optional[str] = Field(None, description="Error message if invalid.")
     preview_data: Optional[List[Dict[str, Any]]] = Field(
-        None, description="Preview dos dados (máx. 5 linhas) se válido."
+        None, description="Data preview (max 5 rows) if valid."
     )
-    num_rows: Optional[int] = Field(None, description="Número de linhas retornadas.")
-    execution_time_ms: Optional[float] = Field(None, description="Tempo de execução em ms.")
+    num_rows: Optional[int] = Field(None, description="Number of returned rows.")
+    execution_time_ms: Optional[float] = Field(None, description="Execution time in ms.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
     explanation: Optional[str] = Field(
-        None, description="Explicação textual gerada pela IA (se solicitado)."
+        None, description="Textual explanation generated by AI (if requested)."
     )
