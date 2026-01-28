@@ -3,11 +3,12 @@
 Script to test 15 business questions and save detailed results for comparison.
 """
 import asyncio
-import time
-import httpx
 import json
 import sys
-from typing import List, Dict, Any
+import time
+from typing import Any, Dict, List
+
+import httpx
 
 # Configuration
 API_BASE_URL = "http://localhost:8001"
@@ -35,10 +36,12 @@ QUESTIONS = [
     "What is the sales forecast for next month?",
 ]
 
-async def test_question(client: httpx.AsyncClient, question: str, index: int) -> Dict[str, Any]:
+
+async def test_question(client: httpx.AsyncClient,
+                        question: str, index: int) -> Dict[str, Any]:
     """Tests a question and returns detailed result."""
     start_time = time.time()
-    
+
     try:
         response = await client.post(
             f"{API_BASE_URL}/connections/{CONNECTION_ID}/query",
@@ -51,7 +54,7 @@ async def test_question(client: httpx.AsyncClient, question: str, index: int) ->
             timeout=120.0,
         )
         elapsed = time.time() - start_time
-        
+
         if response.status_code == 200:
             data = response.json()
             return {
@@ -88,7 +91,7 @@ async def run_tests(provider_name):
     print(f"TESTING 15 BUSINESS QUESTIONS - Provider: {provider_name.upper()}")
     print("=" * 80)
     print()
-    
+
     # Check server health
     async with httpx.AsyncClient() as client:
         try:
@@ -100,51 +103,52 @@ async def run_tests(provider_name):
         except Exception as e:
             print(f"❌ Could not connect to server: {e}")
             return
-    
+
     print()
     print("Running questions...")
     print("-" * 80)
-    
+
     results: List[Dict[str, Any]] = []
     total_start = time.time()
-    
+
     async with httpx.AsyncClient() as client:
         for i, question in enumerate(QUESTIONS):
             result = await test_question(client, question, i)
             results.append(result)
-            
+
             status_icon = "✅" if result["status"] == "SUCCESS" else "❌"
-            print(f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}...")
-    
+            print(
+                f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}...")
+
     total_time = time.time() - total_start
-    
+
     # Summary
     print()
     print("=" * 80)
     print("SUMMARY")
     print("=" * 80)
-    
+
     successful = [r for r in results if r["status"] == "SUCCESS"]
     failed = [r for r in results if r["status"] != "SUCCESS"]
-    
+
     times = [r["time_seconds"] for r in successful]
     avg_time = sum(times) / len(times) if times else 0
-    
+
     print(f"Total questions: {len(QUESTIONS)}")
     print(f"Success: {len(successful)}")
     print(f"Failed: {len(failed)}")
     print(f"Total time: {total_time:.1f}s")
     print(f"Average time per question: {avg_time:.1f}s")
-    
+
     if times:
         print(f"Min time: {min(times):.1f}s")
         print(f"Max time: {max(times):.1f}s")
-    
+
     # Save to file
     filename = f"test_results_{provider_name}.json"
     with open(filename, "w") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
-    
+
     print()
     print(f"✅ Results saved to {filename}")
     print("=" * 80)
@@ -154,6 +158,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 test_15_with_save.py <provider_name>")
         sys.exit(1)
-    
+
     provider = sys.argv[1]
     asyncio.run(run_tests(provider))

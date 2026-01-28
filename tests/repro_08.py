@@ -1,6 +1,5 @@
 
 import httpx
-import json
 
 url = "http://localhost:8001/connections/4e96c724-b1a1-47a8-9f8c-60af9deaeb89/query"
 payload = {
