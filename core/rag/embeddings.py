@@ -5,7 +5,7 @@ from typing import List, Sequence, Optional
 import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import httpx
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -35,31 +35,27 @@ class EmbeddingProvider:
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """
-    Provider baseado em Ollama local embeddings.
-    Usa nomic-embed-text (274MB, 768 dimensions).
+    Provider baseado em Ollama local via langchain_ollama.
+    Usa nomic-embed-text (274MB, 768 dimensions) por padrão.
     """
     def __init__(self, model: str = "nomic-embed-text", base_url: str = None):
         from config.settings import settings
+        from langchain_ollama import OllamaEmbeddings
+        
         self.model = model
         self.base_url = base_url or settings.ollama_base_url
+        self._client = OllamaEmbeddings(
+            model=self.model,
+            base_url=self.base_url,
+        )
     
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        """Synchronous embedding via Ollama API"""
+        """Synchronous embedding via LangChain"""
         if not texts:
             return []
         
-        vectors = []
-        for text in texts:
-            response = httpx.post(
-                f"{self.base_url}/api/embeddings",
-                json={"model": self.model, "prompt": text},
-                timeout=30.0
-            )
-            response.raise_for_status()
-            result = response.json()
-            vectors.append(result["embedding"])
-        
-        return vectors
+        # LangChain handles the API calls efficiently
+        return self._client.embed_documents(list(texts))
 
 
 # OpenAI provider (Cloud)
