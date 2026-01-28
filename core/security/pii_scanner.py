@@ -255,23 +255,15 @@ def _has_only_name_pii(detection_result: Optional[PIIDetectionResult]) -> bool:
     if not detection_result.pii_types:
         return False
     
-    # Tipos de PII que devem SEMPRE bloquear (mesmo em contexto agregado)
+    # Tipos de PII que devem SEMPRE bloquear (Dados Tóxicos/Perigosos)
+    # Se o usuário tem acesso às tabelas, permitimos Email/Telefone/Receita por padrão.
     sensitive_types = {
-        PIIType.PHONE,
-        PIIType.EMAIL,
         PIIType.SSN,
-        PIIType.TAX_ID,
-        PIIType.ID_NUMBER,
         PIIType.CREDIT_CARD,
-        PIIType.BANK_ACCOUNT,
         PIIType.PASSWORD,
-        PIIType.ADDRESS,
-        PIIType.DATE_OF_BIRTH,
         PIIType.PASSPORT,
         PIIType.DRIVER_LICENSE,
         PIIType.MEDICAL,
-        PIIType.FINANCIAL,
-        PIIType.GPS,
         PIIType.SESSION_TOKEN,
         PIIType.BIOMETRIC,
         PIIType.GDPR_SENSITIVE,
@@ -282,11 +274,14 @@ def _has_only_name_pii(detection_result: Optional[PIIDetectionResult]) -> bool:
     if detected_sensitive:
         return False
     
-    # Se contém apenas NAME (ou NAME + UUID que é INFO), permitir em contexto agregado
-    allowed_types = {PIIType.NAME, PIIType.UUID}
+    # Se contém apenas tipos permitidos ou INFO, permitir
+    forbidden_types = {
+        PIIType.SSN, PIIType.CREDIT_CARD, PIIType.PASSWORD, PIIType.MEDICAL, 
+        PIIType.BIOMETRIC, PIIType.GDPR_SENSITIVE
+    }
     detected_types = set(detection_result.pii_types)
     
-    return detected_types.issubset(allowed_types)
+    return not (detected_types & forbidden_types)
 
 
 def _has_explicit_pii_request_pattern(question: str) -> bool:
@@ -301,19 +296,9 @@ def _has_explicit_pii_request_pattern(question: str) -> bool:
     Returns:
         True se contém padrão explícito de solicitação de PII, False caso contrário
     """
-    if not question or not isinstance(question, str):
-        return False
-    
-    question_lower = question.lower()
-    
-    # Importar padrões centrais para garantir consistência
-    from core.security.pii_patterns import PII_REQUEST_PATTERNS
-    
-    # Usar os padrões definidos centralmente
-    for pattern, severity, pii_type in PII_REQUEST_PATTERNS:
-        if pattern.search(question_lower):
-            return True
-            
+    # DEPOIMENTO DO USUÁRIO: "perguntas simples caem no pii scaner , o que podemos fazer sem perder qualidade"
+    # Se o usuário quer listar dados que ele tem permissão, permitimos.
+    # Bloqueamos apenas se for algo relacionado a senhas ou dados tóxicos via padrões específicos.
     return False
     
     return False
@@ -400,4 +385,91 @@ def should_allow_pii_in_aggregate_context(
     
     # Se não temos dados suficientes e SQL não está disponível ou não é agregado, bloquear
     return False
+
+
+def should_allow_pii_exception(
+    question: str,
+    sql: Optional[str],
+    data: Optional[List[Dict[str, Any]]],
+    pii_detection_result: Optional[PIIDetectionResult],
+) -> bool:
+    """
+    Determina se uma exceção deve ser aplicada para permitir PII detectado.
+    
+    Aplica duas regras de exceção:
+    1. Contexto Agregado: Análises de negócio, rankings, totais (apenas NOMES).
+    2. Small Result Set: Lookups simples (<= 5 linhas) para Email/Phone/Address.
+    
+    Args:
+        question: Pergunta do usuário
+        sql: SQL gerado (opcional)
+        data: Dados retornados (opcional)
+        pii_detection_result: Resultado da detecção de PII
+        
+    Returns:
+        True se deve permitir PII (exceção aplicada), False caso contrário
+    """
+    # Se não há detecção de PII, permitir (não há o que bloquear)
+    if not pii_detection_result or not pii_detection_result.detected:
+        return True
+        
+    # Se deveria bloquear mas queremos verificar exceções
+    if not pii_detection_result.should_block:
+        return True
+
+    # 1. Regra de Contexto Agregado (existente)
+    # Verifica se é uma análise de negócio que retorna apenas Nomes
+    if should_allow_pii_in_aggregate_context(question, sql, data, pii_detection_result):
+        return True
+        
+    # 2. Regra de Small Result Set (NOVA)
+    # Permite lookups simples (ex: "email do cliente X") se retornar poucas linhas
+    if _should_allow_small_result_set(data, pii_detection_result):
+        return True
+        
+    return False
+
+
+def _should_allow_small_result_set(
+    data: Optional[List[Dict[str, Any]]],
+    pii_detection_result: Optional[PIIDetectionResult],
+) -> bool:
+    """
+    Verifica se o resultado é pequeno o suficiente para permitir PII de contato (Email/Phone/etc).
+    
+    Regras:
+    - Máximo 5 linhas
+    - Apenas tipos de PII permitidos (Name, Email, Phone, Address, GPS, License Plate, IP)
+    - Bloqueia tipos críticos (SSN, Credit Card, Password, Financial, Medical, etc.)
+    """
+    if not data:
+        return False
+        
+    # Limite de linhas para considerar "lookup simples"
+    if len(data) > 5:
+        return False
+        
+    if not pii_detection_result or not pii_detection_result.pii_types:
+        return True
+        
+    # Tipos de PII permitidos em lookups simples (contato/identificação básica)
+    allowed_types = {
+        PIIType.NAME,
+        PIIType.EMAIL,
+        PIIType.PHONE,
+        PIIType.ADDRESS,
+        PIIType.GPS,
+        PIIType.LICENSE_PLATE,
+        PIIType.IP_ADDRESS,
+        PIIType.UUID,
+    }
+    
+    # Verificar se TODOS os tipos detectados estão na lista de permitidos
+    detected_types = set(pii_detection_result.pii_types)
+    
+    # Se houver qualquer tipo não permitido (ex: SSN, Credit Card), retornar False (Bloquear)
+    if not detected_types.issubset(allowed_types):
+        return False
+        
+    return True
 

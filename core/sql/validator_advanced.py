@@ -39,13 +39,17 @@ class AdvancedSQLValidator:
     def validate(
         self, 
         sql: str,
-        connection_type: str = "bigquery"
+        dialect: str = "bigquery"
     ) -> Tuple[bool, Optional[str]]:
         """
         Valida SQL em 2 etapas:
         1. Regex (rápido, < 1ms)
         2. AST (se passar regex, ~5-20ms)
         """
+        # Bypass for NoSQL/API (Dialect.NOSQL)
+        if dialect == "nosql" or dialect == "api":
+             return True, None
+
         # ETAPA 1: Validação regex (rápida)
         is_valid, error = validate_sql_strict(sql)
         if not is_valid:
@@ -141,11 +145,14 @@ class AdvancedSQLValidator:
                         if found_table and col_name.lower() not in allowed_cols_for_table:
                             return False, f"Column '{col_name}' is not allowed"
         
-        # Validar LIMIT (obrigatório)
+        # Validar LIMIT (obrigatório, exceto ex: aggregation)
         limit_value = self._extract_limit(statement)
+        is_agg = self._is_aggregation(sql)
+
         if limit_value is None:
-            return False, f"LIMIT is required (maximum {self.max_limit} rows)"
-        if limit_value > self.max_limit:
+            if not is_agg:
+                return False, f"LIMIT is required for non-aggregated queries (maximum {self.max_limit} rows)"
+        elif limit_value > self.max_limit:
             return False, f"LIMIT exceeds maximum of {self.max_limit} rows"
 
         # Validar quantidade de colunas (limite duro)
@@ -429,4 +436,31 @@ class AdvancedSQLValidator:
                 # Mais de 3 partes - retornar tudo exceto último como tabela
                 return '.'.join(parts[:-1]).strip().strip('`'), parts[-1].strip().strip('`')
         return None, col_ref.strip().strip('`')
+
+    def _is_aggregation(self, sql: str) -> bool:
+        """
+        Verifica se a query é uma agregação (safe sem LIMIT).
+        Critérios:
+        - Tem GROUP BY
+        - OU usa funções de agregação no SELECT (COUNT, SUM, AVG, MIN, MAX) no nível principal
+        """
+        s = (sql or "").lower()
+        
+        # 1. GROUP BY
+        if "group by" in s:
+            return True
+            
+        # 2. Funções de agregação no SELECT
+        m = re.search(r"\bselect\b(.*?)\bfrom\b", s, re.IGNORECASE | re.DOTALL)
+        if not m:
+            return False
+            
+        select_clause = m.group(1)
+        
+        agg_funcs = ['count(', 'sum(', 'avg(', 'min(', 'max(']
+        for func in agg_funcs:
+            if func in select_clause:
+                return True
+                
+        return False
 

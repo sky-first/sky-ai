@@ -191,9 +191,24 @@ class BigQueryDataSource:
         Útil para enriquecer o prompt do especialista.
         """
         client = self._get_client()
-        dataset_id = self._get_full_dataset_id()
+        
+        # Se o table_name já tiver 2 pontos (proj.dataset.table) ou 1 ponto (dataset.table),
+        # usamos ele direto sem prefixar com dataset_id.
+        # Se o table_name já tiver 2 pontos (proj.dataset.table) ou 1 ponto (dataset.table),
+        # usamos ele direto sem prefixar com dataset_id.
+        if table_name.count(".") >= 1:
+            full_table_path = table_name
+            # Tenta extrair dataset_id do path para o log, ou usa o default
+            parts = table_name.split(".")
+            if len(parts) == 3:
+                dataset_id = f"{parts[0]}.{parts[1]}"
+            else:
+                dataset_id = parts[0]
+        else:
+            dataset_id = self._get_full_dataset_id()
+            full_table_path = f"{dataset_id}.{table_name}"
 
-        query = f"SELECT * FROM `{dataset_id}.{table_name}` LIMIT {int(limit)}"
+        query = f"SELECT * FROM `{full_table_path}` LIMIT {int(limit)}"
         job = client.query(query)
         rows = job.result()
 

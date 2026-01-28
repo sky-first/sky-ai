@@ -68,34 +68,34 @@ PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Formato internacional com código do país: +1 555-123-4567, +44 20 7946 0958
     # Mais específico: requer pelo menos 7 dígitos totais e formato estruturado
     (re.compile(r'\+?\d{1,4}[\s.-]\(?\d{3,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{4,9}'), 
-     PIISeverity.BLOCK, PIIType.PHONE),
+     PIISeverity.WARN, PIIType.PHONE),
     
     # Telefones brasileiros
-    (re.compile(r'\(\d{2}\)\s?\d{4,5}-?\d{4}'), PIISeverity.BLOCK, PIIType.PHONE),  # (11) 98765-4321
-    (re.compile(r'\d{2}\s?\d{4,5}-?\d{4}'), PIISeverity.BLOCK, PIIType.PHONE),  # 11 98765-4321
+    (re.compile(r'\(\d{2}\)\s?\d{4,5}-?\d{4}'), PIISeverity.WARN, PIIType.PHONE),  # (11) 98765-4321
+    (re.compile(r'\d{2}\s?\d{4,5}-?\d{4}'), PIISeverity.WARN, PIIType.PHONE),  # 11 98765-4321
     
     # EUA/Canadá: (555) 123-4567 ou 555-123-4567
-    (re.compile(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}'), PIISeverity.WARN, PIIType.PHONE),
     
     # UK: 020 7946 0958 ou 07700 900000
-    (re.compile(r'\b0\d{1,3}[\s-]?\d{3,4}[\s-]?\d{3,4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\b0\d{1,3}[\s-]?\d{3,4}[\s-]?\d{3,4}\b'), PIISeverity.WARN, PIIType.PHONE),
     
     # Europa (vários formatos): +33 1 23 45 67 89, +49 30 12345678
     # Mais específico: requer pelo menos 8 dígitos totais (evita falsos positivos)
     (re.compile(r'\+?\d{2,3}[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}'), 
-     PIISeverity.BLOCK, PIIType.PHONE),
+     PIISeverity.WARN, PIIType.PHONE),
     
     # Japão: 03-1234-5678 ou 090-1234-5678
-    (re.compile(r'\b0\d{1,2}-?\d{4}-?\d{4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\b0\d{1,2}-?\d{4}-?\d{4}\b'), PIISeverity.WARN, PIIType.PHONE),
     
     # China: 138-0013-8000
-    (re.compile(r'\b1[3-9]\d-?\d{4}-?\d{4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\b1[3-9]\d-?\d{4}-?\d{4}\b'), PIISeverity.WARN, PIIType.PHONE),
     
     # Índia: +91 98765 43210
-    (re.compile(r'\+91\s?\d{5}\s?\d{5}'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\+91\s?\d{5}\s?\d{5}'), PIISeverity.WARN, PIIType.PHONE),
     
     # Austrália: 02 1234 5678 ou 0412 345 678
-    (re.compile(r'\b0\d{1,2}\s?\d{4}\s?\d{4}\b'), PIISeverity.BLOCK, PIIType.PHONE),
+    (re.compile(r'\b0\d{1,2}\s?\d{4}\s?\d{4}\b'), PIISeverity.WARN, PIIType.PHONE),
     
     # Sequências longas de dígitos (pode ser telefone sem formatação)
     # Mais restritivo: pelo menos 10 dígitos (evita falsos positivos com números simples)
@@ -103,7 +103,7 @@ PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     
     # Padrões com palavras-chave de telefone (mais específicos)
     (re.compile(r'\b(phone|telefone|tel|mobile|celular|cell)\s*:?\s*[\+\d\s\-\(\)]{7,}', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.PHONE),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.PHONE),
     
     # Palavras-chave em múltiplos idiomas
     (re.compile(r'\b(telefone|phone|tel|téléphone|telefono|telefon|celular|mobile|whatsapp|fone|móvil|電話|전화)\s*:?\s*[\d\s\-\(\)\+]+', 
@@ -115,11 +115,11 @@ PHONE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 EMAIL_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Email padrão (universal)
     (re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'), 
-     PIISeverity.BLOCK, PIIType.EMAIL),
+     PIISeverity.WARN, PIIType.EMAIL),
     
     # Email com palavras-chave (múltiplos idiomas)
     (re.compile(r'\b(email|e-mail|correio|mail|correo|mél|e-post|posta|メール|이메일)\s*:?\s*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.EMAIL),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.EMAIL),
     
     # Email mascarado: j***@email.com
     (re.compile(r'\b[A-Za-z0-9_]{1,3}[*#X]{2,}[A-Za-z0-9_]*@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'), 
@@ -145,7 +145,7 @@ ID_NUMBER_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # NIF (Portugal/Espanha): 123456789 ou 12345678Z
     (re.compile(r'\b\d{8,9}[A-Z]?\b'), PIISeverity.WARN, PIIType.TAX_ID),
     (re.compile(r'\b(nif|número\s+de\s+identificação\s+fiscal)\s*:?\s*[\dA-Z]+', re.IGNORECASE), 
-     PIISeverity.BLOCK, PIIType.TAX_ID),
+     PIISeverity.INFO, PIIType.TAX_ID),
     
     # DNI (Espanha): 12345678A
     (re.compile(r'\b\d{8}[A-Z]\b'), PIISeverity.WARN, PIIType.ID_NUMBER),
@@ -168,7 +168,7 @@ ID_NUMBER_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
      PIISeverity.BLOCK, PIIType.TAX_ID),
     
     # Personal Number (Suécia/Noruega): YYMMDD-XXXX ou YYMMDDXXXX
-    (re.compile(r'\b\d{6}-?\d{4}\b'), PIISeverity.BLOCK, PIIType.ID_NUMBER),
+    (re.compile(r'\b\d{6}-?\d{4}\b'), PIISeverity.WARN, PIIType.ID_NUMBER),
     (re.compile(r'\b(personnummer|personal\s+number|henkilötunnus)\s*:?\s*[\d\-]+', re.IGNORECASE), 
      PIISeverity.BLOCK, PIIType.ID_NUMBER),
     
@@ -284,26 +284,26 @@ PASSWORD_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 ADDRESS_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Endereço com número (múltiplos idiomas)
     (re.compile(r'\b(rua|avenida|av\.?|street|st\.?|road|rd\.?|avenue|ave\.?|strasse|rue|calle|via|straat|通り|거리)\s+[^,]+,\s*\d+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.ADDRESS),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.ADDRESS),
     
     # CEP (Brasil): 12345-678
-    (re.compile(r'\b\d{5}-?\d{3}\b'), PIISeverity.BLOCK, PIIType.ADDRESS),
+    (re.compile(r'\b\d{5}-?\d{3}\b'), PIISeverity.WARN, PIIType.ADDRESS),
     (re.compile(r'\b(cep|zip\s+code|postal\s+code|código\s+postal|postleitzahl|code\s+postal|郵便番号|우편번호)\s*:?\s*\d{5}[\s-]?\d{3}', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.ADDRESS),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.ADDRESS),
     
     # ZIP Code (EUA): 12345 ou 12345-6789
-    (re.compile(r'\b\d{5}(-\d{4})?\b'), PIISeverity.BLOCK, PIIType.ADDRESS),
+    (re.compile(r'\b\d{5}(-\d{4})?\b'), PIISeverity.WARN, PIIType.ADDRESS),
     
     # Postcode (UK): SW1A 1AA, M1 1AA
-    (re.compile(r'\b[A-Z]{1,2}\d{1,2}\s?\d[A-Z]{2}\b'), PIISeverity.BLOCK, PIIType.ADDRESS),
+    (re.compile(r'\b[A-Z]{1,2}\d{1,2}\s?\d[A-Z]{2}\b'), PIISeverity.WARN, PIIType.ADDRESS),
     
     # Postcode (França): 75001
     (re.compile(r'\b(postcode|code\s+postal)\s*:?\s*\d{5}', re.IGNORECASE), 
-     PIISeverity.BLOCK, PIIType.ADDRESS),
+     PIISeverity.WARN, PIIType.ADDRESS),
     
     # Postcode (Alemanha): 10115
     (re.compile(r'\b(postleitzahl|plz)\s*:?\s*\d{5}', re.IGNORECASE), 
-     PIISeverity.BLOCK, PIIType.ADDRESS),
+     PIISeverity.WARN, PIIType.ADDRESS),
     
     # Endereço completo com palavras-chave (múltiplos idiomas)
     (re.compile(r'\b(endereço|address|morada|residência|residence|dirección|adresse|wohnort|indirizzo|住所|주소)\s*:?\s*[^\n]{10,}', 
@@ -311,7 +311,7 @@ ADDRESS_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     
     # Combinações: número + rua + cidade
     (re.compile(r'\b\d+\s+(street|st|road|rd|avenue|ave|rua|avenida|calle|rue|strasse)\s+[A-Za-z\s]+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.ADDRESS),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.ADDRESS),
 ]
 
 
@@ -342,7 +342,7 @@ NAME_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 DATE_OF_BIRTH_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Data com palavras-chave (múltiplos idiomas)
     (re.compile(r'\b(data\s+de\s+nascimento|date\s+of\s+birth|fecha\s+de\s+nacimiento|date\s+de\s+naissance|geburtsdatum|data\s+di\s+nascita|born|nascido|nacido|né|生年月日|생년월일)\s*:?\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.DATE_OF_BIRTH),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.DATE_OF_BIRTH),
     (re.compile(r'\b(idade|age|edad|âge|alter|年齢|나이)\s*:?\s*\d{1,3}\s*(anos|years|años|ans|jahre|歳)', 
                 re.IGNORECASE), PIISeverity.INFO, PIIType.DATE_OF_BIRTH),
     
@@ -383,7 +383,7 @@ LICENSE_PLATE_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     
     # Com palavra-chave (múltiplos idiomas)
     (re.compile(r'\b(placa|license\s+plate|matrícula|numéro\s+de\s+plaque|kennzeichen|targa|ナンバープレート|차량번호)\s*:?\s*[A-Z\d\s\-あ-ん]+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.LICENSE_PLATE),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.LICENSE_PLATE),
 ]
 
 
@@ -394,7 +394,7 @@ GPS_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
      PIISeverity.WARN, PIIType.GPS),
     # Com palavras-chave
     (re.compile(r'\b(latitude|longitude|gps|coordinates|coordenadas|location|座標|좌표)\s*:?\s*-?\d{1,3}\.\d+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.GPS),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.GPS),
     # Google Maps / Apple Maps links
     (re.compile(r'\b(google\.com/maps|maps\.apple\.com|goo\.gl/maps)\S+', re.IGNORECASE), 
      PIISeverity.WARN, PIIType.GPS),
@@ -497,10 +497,10 @@ FINANCIAL_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
                 re.IGNORECASE), PIISeverity.WARN, PIIType.FINANCIAL),
     # Dados bancários combinados
     (re.compile(r'\b(banco|bank|banque|banca|banka|銀行|은행)\s+[\w\s]+(conta|account|compte|cuenta|conto|口座)\s+[\d\-]+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.FINANCIAL),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.FINANCIAL),
     # Informações de salário com nome
     (re.compile(r'\b(salary|salário|wage|salario)\s+of\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+is\s+\$?\d+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.FINANCIAL),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.FINANCIAL),
 ]
 
 
@@ -508,10 +508,10 @@ FINANCIAL_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 EMPLOYEE_DATA_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Solicitações de dados de funcionários
     (re.compile(r'\b(employee|funcionário|empleado|employé|mitarbeiter|dipendente|従業員|직원)\s+(name|nome|nombre|nom|data|date|information|informação|información|salary|salário)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.NAME),
     # Dados de RH
     (re.compile(r'\b(hr\s+data|dados\s+de\s+rh|human\s+resources|recursos\s+humanos|人事データ)\s+of\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.NAME),
 ]
 
 
@@ -566,45 +566,45 @@ CONTEXTUAL_PII_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 PII_REQUEST_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Solicitações explícitas de dados pessoais (múltiplos idiomas)
     (re.compile(r'\b(mostre|show|list|liste|exiba|display|muestre|afficher|zeigen|mostrare|表示|보여)\s+(?:os\s+|as\s+|o\s+|a\s+|les\s+|die\s+|gli\s+)?(nomes|names|telefones|phones|emails|endereços|addresses|nombres|téléphones|adresses|namen|telefone|indirizzi)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.NAME),
     
     (re.compile(r'\b(quero|want|need|preciso|quiero|besoin|brauche|ho\s+bisogno|欲しい|원해)\s+(?:ver|see|saber|know|voir|sehen|vedere|見る|보고)\s+(?:os\s+|as\s+|o\s+|a\s+|les\s+|die\s+|gli\s+)?(dados\s+pessoais|personal\s+data|información\s+personal|données\s+personnelles|persönliche\s+daten|dati\s+personali)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
     
     (re.compile(r'\b(mostre|show|list|liste)\s+(?:todos\s+|all\s+|tous\s+|alle\s+|tutti\s+|すべて|모든)\s+(clientes|customers|clientes|clients|kunden|clienti|顧客|고객)\s+(?:com|with|avec|mit|con|と|와)\s+(?:seus|their|leurs|ihre|loro|彼らの|그들의)\s+(?:nomes|names|nombres|noms|namen|nomi)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
     
     (re.compile(r'\b(select|selecione|seleccionar|sélectionner|選択|선택)\s+.*\b(name|nome|nombre|nom|telephone|telefone|email|address|endereço|dirección|adresse)\b', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
     
     # Tentativas de buscar dados de usuários específicos
     (re.compile(r'\b(where|onde|dónde|où|wo|dove|どこ|어디서)\s+.*\b(name|nome|nombre|nom)\s*=\s*[\'"]?[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+', 
-                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.NAME),
     
     # Solicitações de informações de contato
     (re.compile(r'\b(contact\s+information|informações\s+de\s+contato|información\s+de\s+contacto|coordonnées|kontaktinformationen|informazioni\s+di\s+contatto|連絡先情報|연락처정보)\b', 
-                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.INFO, PIIType.NAME),
     
     # Solicitações de lista de emails/telefones
     (re.compile(r'\b(list\s+of\s+emails|lista\s+de\s+emails|liste\s+d\'?emails|lista\s+de\s+correos|e-mail-liste|メールリスト|이메일목록)\b', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.EMAIL),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.EMAIL),
     
     (re.compile(r'\b(list\s+of\s+phones|lista\s+de\s+telefones|liste\s+de\s+téléphones|lista\s+de\s+teléfonos|telefonliste|電話リスト|전화번호목록)\b', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.PHONE),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.PHONE),
 
     # Data Dumping / CSV Export Attempts (NEW)
     (re.compile(r'\b(format\s+as\s+csv|csv\s+format|dump\s+rows|export\s+data|formato\s+csv|exportar\s+dados)\b', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.FINANCIAL),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.FINANCIAL),
 
     # Comparative Leakage / "Who is highest" Attempts (NEW)
     (re.compile(r'\b(confirm\s+if|verify\s+if)\s+.*(highest|lowest|top|best|worst|maior|menor|melhor|pior)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
     (re.compile(r'\b(list|liste|listar)\s+(names|nomes|customers|clientes)\s+(of|de)\s+(top|highest|best|worst)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
 
     # "List All" / "Full Database" Attempts (NEW)
     (re.compile(r'\b(list|display|show)\s+(all\s+entries|everything|full\s+database|full\s+table|toda\s+a\s+tabela|todos\s+os\s+registros)', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+                re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
 ]
 
 

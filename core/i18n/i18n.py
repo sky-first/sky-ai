@@ -77,10 +77,10 @@ def _heuristic_detect(text: str) -> str:
     text_lower = text.lower()
 
     language_indicators: Dict[str, List[str]] = {
-        "en": ["what", "how", "when", "where", "which", "who", "why", "total", "revenue", "customer", "invoice"],
-        "pt": ["qual", "quais", "quanto", "como", "quando", "onde", "faturamento", "receita", "cliente", "fatura"],
-        "es": ["qué", "cuál", "cuánto", "cómo", "cuándo", "dónde", "facturación", "ingresos", "cliente", "factura"],
-        "fr": ["quel", "quelle", "combien", "comment", "quand", "où", "revenu", "facture", "client"],
+        "en": ["what", "how", "when", "where", "which", "who", "why", "revenue", "customer", "invoice"],
+        "pt": ["qual", "quais", "quanto", "como", "quando", "onde", "faturamento", "receita", "cliente", "fatura", "valor", "total"],
+        "es": ["qué", "cuál", "cuánto", "cómo", "cuándo", "dónde", "facturación", "ingresos", "cliente", "factura", "valor", "total"],
+        "fr": ["quel", "quelle", "combien", "comment", "quand", "où", "revenu", "facture", "client", "valeur", "total"],
     }
 
     scores: Dict[str, int] = {lang: 0 for lang in language_indicators.keys()}

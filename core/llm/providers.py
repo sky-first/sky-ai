@@ -116,8 +116,7 @@ class LangChainChatOpenAIProvider:
 
 class OllamaProvider:
     """
-    Provider para modelos locais via Ollama.
-    Converte mensagens de chat em prompt único para SLMs.
+    Provider para modelos locais via Ollama (usando langchain-ollama).
     """
     
     def __init__(
@@ -125,37 +124,48 @@ class OllamaProvider:
         model: str, 
         base_url: str = "http://localhost:11434",
         temperature: float = 0.0,
-        num_ctx: int = 4096  # Contexto grande para schemas
+        num_ctx: int = 4096
     ):
-        from langchain_community.llms import Ollama
+        try:
+            from langchain_ollama import ChatOllama
+        except ImportError:
+            # Fallback seguro caso a lib não esteja instalada (evita crash imediato)
+            from langchain_community.chat_models import ChatOllama
         
         self.model_name = model
-        self.llm = Ollama(
+        self.llm = ChatOllama(
             base_url=base_url,
             model=model,
             temperature=temperature,
             num_ctx=num_ctx,
-            timeout=300  # 5 minutes for cold start model loading
+            # Timeout alto para cold start (RunPod pode demorar)
+            timeout=300, 
         )
     
+    def _convert_messages(self, messages: List[Dict[str, str]]):
+        """
+        Converte dicts para SystemMessage, HumanMessage, AIMessage.
+        """
+        lc_msgs = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+
+            if role == "system":
+                lc_msgs.append(SystemMessage(content=content))
+            elif role == "assistant":
+                lc_msgs.append(AIMessage(content=content))
+            else:
+                lc_msgs.append(HumanMessage(content=content))
+        return lc_msgs
+    
     def invoke(self, messages: List[Dict[str, str]]) -> Any:
-        """
-        Converte lista de mensagens em prompt único.
-        
-        CPU Optimization: Check cache first to avoid 8-12s re-inference.
-        
-        Formato esperado pelo Ollama:
-        ### SYSTEM
-        <system content>
-        
-        ### USER
-        <user content>
-        """
         # Import cache here to avoid circular dependency
         from core.llm.cache import get_inference_cache, hash_prompt
         
         # Check cache first
         cache = get_inference_cache()
+        # Hash baseado na string crua das mensagens para consistência
         prompt_hash = hash_prompt(messages, self.model_name, 0.0)
         cached_response = cache.get(prompt_hash)
         
@@ -164,53 +174,45 @@ class OllamaProvider:
                 "ollama_cache_hit",
                 {
                     "model": self.model_name,
-                    "saved_latency": "8-12s" if "sqlcoder" in self.model_name else "1-2s"
+                    "saved_latency": "cached"
                 }
             )
             return cached_response
         
-        # Build prompt
-        prompt_parts = []
+        lc_msgs = self._convert_messages(messages)
         
-        for msg in messages:
-            role = msg.get("role", "user").upper()
-            content = msg.get("content", "")
-            prompt_parts.append(f"### {role}\\n{content}\\n")
-        
-        full_prompt = "\\n".join(prompt_parts)
-        
-        # Log start (with latency warning for specialist)
-        is_sql_query = "sqlcoder" in self.model_name or "SQL" in full_prompt[:500]
+        # Log start
+        is_sql_query = "sqlcoder" in self.model_name
         if is_sql_query:
             log_event(
                 "ollama_sql_generation_start",
                 {
                     "model": self.model_name,
                     "expected_latency_seconds": "8-12",
-                    "prompt_length": len(full_prompt)
+                    "num_messages": len(messages)
                 }
             )
         
         try:
-            response_text = self.llm.invoke(full_prompt)
+            # Invoke ChatOllama directly (it handles prompting)
+            resp = self.llm.invoke(lc_msgs)
             
-            # Criar objeto compatível com LangChain (Output wrapper)
+            # Wrapper para manter contrato .content
             class ResponseWrapper:
                 def __init__(self, content):
                     self.content = content
             
-            result = ResponseWrapper(content=response_text)
+            result = ResponseWrapper(content=resp.content)
             
-            # Cache result (critical for CPU performance)
+            # Cache result
             cache.set(prompt_hash, result)
             
             log_event(
                 "ollama_invoke_success",
                 {
                     "model": self.model_name,
-                    "prompt_length": len(full_prompt),
-                    "response_length": len(response_text),
-                    "cached": True
+                    "response_length": len(resp.content),
+                    "cached": False
                 },
             )
             return result
@@ -225,28 +227,17 @@ class OllamaProvider:
             raise
 
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
-        """
-        Stream tokens from Ollama response.
-        Yields string chunks as they are generated.
-        """
-        prompt_parts = []
-        for msg in messages:
-            role = msg.get("role", "user").upper()
-            content = msg.get("content", "")
-            prompt_parts.append(f"### {role}\\n{content}\\n")
-        
-        full_prompt = "\\n".join(prompt_parts)
+        lc_msgs = self._convert_messages(messages)
         
         try:
-            for chunk in self.llm.stream(full_prompt):
-                if chunk:
-                    yield chunk
+            for chunk in self.llm.stream(lc_msgs):
+                if chunk.content:
+                    yield chunk.content
             
             log_event(
                 "ollama_stream_success",
                 {
                     "model": self.model_name,
-                    "prompt_length": len(full_prompt),
                 },
             )
         except Exception as e:

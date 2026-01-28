@@ -14,7 +14,7 @@ from core.data_sources.base import (
 from core.data_sources.bigquery_source import BigQueryDataSource
 from core.logging_utils import log_event
 from core.dialects import Dialect
-
+from core.data_sources.api_source import APISource
 
 class DataSourceFactory:
     """
@@ -24,7 +24,7 @@ class DataSourceFactory:
     Suporta:
     - type = "bigquery"  -> BigQueryDataSource
     - type = "postgres"  -> SQLAlchemyDataSource
-    - (no futuro: mysql, sqlserver, databricks, redshift, bigquery, etc.)
+    - type = "api"       -> APISource
     """
 
     @staticmethod
@@ -82,6 +82,20 @@ class DataSourceFactory:
                 credentials_json=service_account_json,
                 label=f"bigquery:{conn.id}",
             )
+
+        elif ds_type == "api":
+            # API REST/GraphQL
+            ds_cfg = DataSourceConfig(
+                id=conn.id,
+                type="api",
+                default_schema=None,
+                extra=cfg_dict
+            )
+            log_event(
+                "build_api_datasource",
+                {"connection_id": conn.id}
+            )
+            return APISource(ds_cfg, label=f"api:{conn.id}")
 
         elif ds_type == "postgres":
             # Espera em config:

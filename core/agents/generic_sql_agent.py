@@ -7,7 +7,10 @@ from typing import Any, Dict, List, Optional, TypedDict, Callable
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
-from psycopg_pool import ConnectionPool
+try:
+    from psycopg_pool import ConnectionPool
+except ImportError:
+    ConnectionPool = None
 
 from core.auth.models import UserContext  # ajuste se o caminho for outro
 from core.llm.providers import LLMProvider
@@ -104,18 +107,22 @@ class TableSchema:
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
+from core.dialects import Dialect
+
 @dataclass
 class AgentConfig:
     """
     Configuração de um agente genérico:
     - id: identificador lógico (ex: "default_agent", "main_agent")
     - name: nome amigável
-    - tables: lista de TableSchema que esse agente conhece
+    - tables: lista de schemas de tabelas disponíveis
+    - dialect: dialeto do banco de dados (default=Dialect.POSTGRES)
+    - extra: metadados extras
     """
     id: str
     name: str
-    tables: List[TableSchema] = field(default_factory=list)
-    # lugar para configs extras (limites, instruções, etc.)
+    tables: List[TableSchema]
+    dialect: Dialect = Dialect.POSTGRES
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -369,7 +376,7 @@ def build_generic_sql_graph(
             sync_db_url = db_url
         
         # Create connection pool
-        pool = ConnectionPool(conninfo=sync_db_url, min_size=1, max_size=5)
+        # pool = ConnectionPool(conninfo=sync_db_url, min_size=1, max_size=5)
         
         # Create checkpointer
         # checkpointer = PostgresSaver(pool)
