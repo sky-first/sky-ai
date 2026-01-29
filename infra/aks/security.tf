@@ -64,7 +64,15 @@ resource "azurerm_role_assignment" "eso_secrets_user" {
   principal_id         = azurerm_user_assigned_identity.eso.principal_id
 }
 
-# 3. Federated Credential (Trust Relationship)
+# 3. Grant Access to GitHub Actions Service Principal (for CI/CD)
+resource "azurerm_role_assignment" "github_actions_secrets_user" {
+  count                = var.github_actions_sp_object_id != null ? 1 : 0
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = var.github_actions_sp_object_id
+}
+
+# 4. Federated Credential (Trust Relationship)
 resource "azurerm_federated_identity_credential" "eso" {
   name                = "fed-eso-${var.environment}"
   resource_group_name = azurerm_resource_group.aks.name
@@ -74,11 +82,12 @@ resource "azurerm_federated_identity_credential" "eso" {
   subject             = "system:serviceaccount:external-secrets:external-secrets"
 }
 
-# 4. Propagation Delay (Best Practice to avoid 403 on first try)
+# 5. Propagation Delay (Best Practice to avoid 403 on first try)
 resource "time_sleep" "wait_for_rbac" {
   depends_on = [
     azurerm_role_assignment.vault_admin,
-    azurerm_role_assignment.eso_secrets_user
+    azurerm_role_assignment.eso_secrets_user,
+    azurerm_role_assignment.github_actions_secrets_user
   ]
   create_duration = "30s"
 }

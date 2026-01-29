@@ -19,3 +19,6 @@ allowed_ssh_ips = [
   "169.155.237.158/32",
   "20.97.244.91/32"
 ]
+
+# GitHub Actions Service Principal (for CI/CD Key Vault access)
+github_actions_sp_object_id = "4eb2819d-b43b-4eb6-9d7f-f02b96088d1c"

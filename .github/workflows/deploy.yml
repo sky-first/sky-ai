@@ -944,6 +944,75 @@ jobs:
           echo "✅ Import process complete"
           echo "=========================================="
 
+      - name: Auto-Import Existing Role Assignments
+        run: |
+          set -euo pipefail
+          
+          echo "=========================================="
+          echo "🔍 Verificando role assignments existentes..."
+          echo "=========================================="
+          
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+          
+          if [ -z "$RG_NAME" ]; then
+            echo "⚠️  Resource Group não encontrado em $TFVARS_FILE, pulando auto-import"
+            exit 0
+          fi
+          
+          echo "Resource Group: $RG_NAME"
+          echo "Service Principal ObjectId: ${ARM_CLIENT_ID}"
+          
+          # Listar Key Vaults no Resource Group
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$KV_LIST" ]; then
+            echo "ℹ️  Nenhum Key Vault encontrado, pulando auto-import"
+            exit 0
+          fi
+          
+          echo "Key Vaults encontrados: $KV_LIST"
+          
+          # Para cada Key Vault, verificar se role assignment existe no Azure mas não no state
+          for kv in $KV_LIST; do
+            echo ""
+            echo "🔍 Verificando Key Vault: $kv"
+            
+            # Buscar role assignments existentes no Azure
+            EXISTING_ROLE=$(az role assignment list \
+              --assignee "${ARM_CLIENT_ID}" \
+              --scope "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.KeyVault/vaults/${kv}" \
+              --role "Key Vault Secrets User" \
+              --query "[0].id" -o tsv 2>/dev/null || echo "")
+            
+            if [ -z "$EXISTING_ROLE" ]; then
+              echo "   ℹ️  Nenhum role assignment existente (será criado pelo Terraform)"
+              continue
+            fi
+            
+            echo "   ✅ Role assignment encontrado no Azure: ${EXISTING_ROLE}"
+            
+            # Verificar se já está no Terraform state
+            if terraform state list | grep -q "azurerm_role_assignment.github_actions_secrets_user"; then
+              echo "   ℹ️  Role assignment já está no Terraform state"
+              continue
+            fi
+            
+            # Importar para o Terraform state
+            echo "   📥 Importando role assignment para Terraform state..."
+            if terraform import "azurerm_role_assignment.github_actions_secrets_user[0]" "$EXISTING_ROLE"; then
+              echo "   ✅ Role assignment importado com sucesso!"
+            else
+              echo "   ⚠️  Falha ao importar (pode já estar importado ou não existir no código)"
+            fi
+            
+            # Importar apenas o primeiro Key Vault encontrado (assumindo que é o atual)
+            break
+          done
+          
+          echo ""
+          echo "✅ Auto-import concluído"
+
       - name: Terraform Plan
         id: plan
         run: |

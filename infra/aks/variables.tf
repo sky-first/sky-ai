@@ -95,3 +95,10 @@ variable "tailscale_auth_key" {
   sensitive   = true
   default     = ""
 }
+
+variable "github_actions_sp_object_id" {
+  description = "Object ID do Service Principal do GitHub Actions para acesso ao Key Vault via RBAC"
+  type        = string
+  default     = null
+  nullable    = true
+}
