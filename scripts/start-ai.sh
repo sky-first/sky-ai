@@ -26,6 +26,14 @@ elif [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
+# Check if requirements.txt has changed since last install
+if [ -f "requirements.txt" ] && [ -f ".deps_installed" ]; then
+    if [ "requirements.txt" -nt ".deps_installed" ]; then
+        echo "🔄 Requirements updated. Triggering re-install..."
+        rm -f .deps_installed
+    fi
+fi
+
 # Install dependencies if needed
 if [ ! -f ".deps_installed" ]; then
     echo "📦 Installing dependencies..."
