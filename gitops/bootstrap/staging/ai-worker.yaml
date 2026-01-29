@@ -12,8 +12,6 @@ spec:
     helm:
       values: |
         nameOverride: "sky-ai-worker-stg"
-        podAnnotations:
-          rollout-trigger: "2026-01-29T12:35:00Z"
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-ai
           tag: "staging"
