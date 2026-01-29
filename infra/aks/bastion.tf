@@ -79,6 +79,11 @@ resource "azurerm_linux_virtual_machine" "bastion" {
               echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf
               echo 'net.ipv6.conf.all.forwarding = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf
               sudo sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+              # Professional Auto-Connect (Login automático e configuração de Exit Node)
+              if [ -n "${var.tailscale_auth_key}" ]; then
+                sudo tailscale up --authkey=${var.tailscale_auth_key} --accept-routes --advertise-exit-node --ssh --hostname=bastion-vm-${var.environment}
+              fi
               EOF
   )
 }

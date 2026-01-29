@@ -88,3 +88,10 @@ variable "authorized_ips" {
   type        = list(string)
   default     = []
 }
+
+variable "tailscale_auth_key" {
+  description = "Tailscale Auth Key for automatic machine registration"
+  type        = string
+  sensitive   = true
+  default     = null
+}
