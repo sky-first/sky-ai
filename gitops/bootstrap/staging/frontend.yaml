@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-29T09:59:56Z"
+          rollout-trigger: "2026-01-27T11:47:56Z"
         imagePullSecrets:
           - name: regcred
         image:
@@ -25,7 +25,7 @@ spec:
           enabled: true
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32"
+            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.158/32"
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
             - host: workspace-stg.skyfirstlabs.com
