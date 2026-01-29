@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-29T12:45:00Z"
+          rollout-trigger: "2026-01-29T13:20:00Z"
         imagePullSecrets:
           - name: regcred
         image:
@@ -155,6 +155,8 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
+          - name: OLLAMA_BASE_URL
+            value: "http://ollama.ollama.svc.cluster.local:11434"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging
