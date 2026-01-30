@@ -94,6 +94,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [yaml-lint, workflow-lint]
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
