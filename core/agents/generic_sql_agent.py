@@ -6,11 +6,9 @@ from typing import Any, Dict, List, Optional, TypedDict, Callable
 
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.postgres import PostgresSaver
-try:
-    from psycopg_pool import ConnectionPool
-except ImportError:
-    ConnectionPool = None
+
+# Centralized checkpoint manager
+from core.agents.checkpoint_manager import get_checkpointer
 
 from core.auth.models import UserContext  # ajuste se o caminho for outro
 from core.llm.providers import LLMProvider
@@ -47,6 +45,9 @@ class AgentState(TypedDict, total=False):
 
     # RAG
     retrieval_context: List[str]
+
+    # Conversational History (Window for LLM context)
+    chat_history: List[Dict[str, str]]
 
     # Configurações de comportamento da IA
     instructions: Optional[str]  # Instruções gerais sobre como a IA deve se comportar
@@ -142,6 +143,7 @@ def build_generic_sql_graph(
     llm_orchestrator: LLMProvider,
     llm_specialist: LLMProvider,
     llm_formatter: LLMProvider,
+    checkpointer: Optional[Any] = None,
 ):
     """
     Sistema de Query - Executor de Perguntas
@@ -361,41 +363,6 @@ def build_generic_sql_graph(
     graph.add_edge("merger", "formatter")
     graph.add_edge("formatter", END)
 
-    # Configure PostgresSaver for persistent conversation memory
-    checkpointer = None
-    try:
-        from config.settings import settings
-        
-        # Extract sync connection string from async DATABASE_URL
-        db_url = settings.database_url
-        if "postgresql+asyncpg://" in db_url:
-            sync_db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        elif "postgresql+psycopg2://" in db_url:
-            sync_db_url = db_url.replace("postgresql+psycopg2://", "postgresql://")
-        else:
-            sync_db_url = db_url
-        
-        # Create connection pool
-        # pool = ConnectionPool(conninfo=sync_db_url, min_size=1, max_size=5)
-        
-        # Create checkpointer
-        # checkpointer = PostgresSaver(pool)
-        checkpointer = None # Disabled to prevent per-request pool creation leaks
-        
-        # Setup tables (creates checkpoints table if not exists)
-        # checkpointer.setup()
-        
-        # log_event(
-        #     "langgraph_checkpointer_configured",
-        #     {"agent_id": agent_config.id, "checkpointer_type": "PostgresSaver"}
-        # )
-    except Exception as e:
-        log_event(
-            "langgraph_checkpointer_error",
-            {"agent_id": agent_config.id, "error": str(e)[:300]}
-        )
-        checkpointer = None  # Fallback to no persistence
-
     app = graph.compile(checkpointer=checkpointer)
 
     log_event(
@@ -403,6 +370,7 @@ def build_generic_sql_graph(
         {
             "agent_id": agent_config.id,
             "num_tables": len(agent_config.tables),
+            "checkpointer_active": checkpointer is not None
         },
     )
 
@@ -429,6 +397,7 @@ def run_agent_once(
     response_format: Optional[str] = None,
     sql_instructions: Optional[str] = None,
     selected_datasets: Optional[List[str]] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None,
 ) -> AgentState:
     """
     Função de alto nível:
@@ -476,8 +445,9 @@ def run_agent_once(
         "crew_role": crew_role,
         "locale": locale,
         "permissions": permissions,
-        # retrieval_context pode vir como parâmetro ou ser populado pelo orchestrator
+        # retrieval_context
         "retrieval_context": retrieval_context or [],
+        "chat_history": chat_history or [],
         # Configurações dinâmicas da IA
         "instructions": instructions,
         "creativity": creativity,
@@ -487,20 +457,25 @@ def run_agent_once(
         "selected_datasets": selected_datasets,
     }
 
-    app = build_generic_sql_graph(
-        agent_config=agent_config,
-        data_source=data_source,
-        db_session_factory=db_session_factory,
-        embedding_provider=embedding_provider,
-        llm_orchestrator=llm_orchestrator,
-        llm_specialist=llm_specialist,
-        llm_formatter=llm_formatter,
-    )
+    # Use checkpointer context manager to acquire and release connection
+    from core.agents.checkpoint_manager import get_checkpointer
+    
+    with get_checkpointer() as checkpointer:
+        app = build_generic_sql_graph(
+            agent_config=agent_config,
+            data_source=data_source,
+            db_session_factory=db_session_factory,
+            embedding_provider=embedding_provider,
+            llm_orchestrator=llm_orchestrator,
+            llm_specialist=llm_specialist,
+            llm_formatter=llm_formatter,
+            checkpointer=checkpointer,
+        )
 
-    final_state: AgentState = app.invoke(
-        state,
-        config={"configurable": {"thread_id": thread_id}},
-    )
+        final_state: AgentState = app.invoke(
+            state,
+            config={"configurable": {"thread_id": thread_id}},
+        )
 
     log_event(
         "run_agent_once_done",
@@ -509,7 +484,6 @@ def run_agent_once(
             "user_id": state.get("user_id"),
             "space_id": state.get("space_id"),
             "crew_ids": state.get("crew_ids"),
-            # NEW: Log UserContext fields for verification
             "platform_role": state.get("platform_role"),
             "crew_role": state.get("crew_role"),
             "locale": state.get("locale"),

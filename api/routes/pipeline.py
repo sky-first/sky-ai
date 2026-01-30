@@ -6,19 +6,61 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, Dict, Any
+from sqlalchemy.future import select
+from sqlalchemy import update
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
+import json
 
 from api.schemas import QueryRequest, QueryResponse
 from core.logging_utils import log_event
 from db.session import get_db
+from db.models import PipelineJob
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
-# Armazenamento simples em memória para status de pipeline
-# Em produção, isso deveria ser armazenado no banco de dados
-_pipeline_status: Dict[str, Dict[str, Any]] = {}
+async def _update_job(job_id: str, updates: Dict[str, Any], db_session: AsyncSession = None):
+    """Update job status helper."""
+    if db_session:
+        stmt = update(PipelineJob).where(PipelineJob.id == job_id).values(**updates)
+        await db_session.execute(stmt)
+        await db_session.commit()
+    else:
+        # Create a new session if none provided (for background tasks)
+        from db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            stmt = update(PipelineJob).where(PipelineJob.id == job_id).values(**updates)
+            await session.execute(stmt)
+            await session.commit()
+
+async def _append_log(job_id: str, message: str, level: str = "info", db_session: AsyncSession = None):
+    """Append a log entry to the job."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "level": level,
+        "message": message
+    }
+    
+    # We need to fetch current logs, append, and save back
+    # This is not atomic but sufficient for this use case
+    if db_session:
+        result = await db_session.execute(select(PipelineJob.logs).where(PipelineJob.id == job_id))
+        current_logs = result.scalar() or []
+        current_logs.append(log_entry)
+        
+        await _update_job(job_id, {"logs": current_logs}, db_session)
+    else:
+        from db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(PipelineJob.logs).where(PipelineJob.id == job_id))
+            current_logs = result.scalar() or []
+            current_logs.append(log_entry)
+            
+            # Update directly in this session to avoid double commit overhead via _update_job
+            stmt = update(PipelineJob).where(PipelineJob.id == job_id).values(logs=current_logs)
+            await session.execute(stmt)
+            await session.commit()
 
 
 @router.post("/execute")
@@ -32,111 +74,104 @@ async def execute_pipeline(
 ) -> dict:
     """
     Executa o pipeline de IA de forma assíncrona ou síncrona.
-    
-    Parâmetros:
-    - body: QueryRequest com question, space_id, etc.
-    - connection_id: ID da conexão (opcional, se não usar agent_id)
-    - agent_id: ID do agente (opcional, se não usar connection_id)
-    - run_async: Se True, executa em background (default: True)
-    
-    Retorna:
-    - pipeline_id: ID da execução do pipeline
-    - status: "pending" ou "completed"
-    - Se síncrono: resultado completo
+    Estado é persistido no banco de dados.
     """
     pipeline_id = str(uuid.uuid4())
     
-    # Inicializar status
-    _pipeline_status[pipeline_id] = {
-        "id": pipeline_id,
-        "status": "pending",
-        "question": body.question,
-        "space_id": body.space_id,
-        "connection_id": connection_id,
-        "agent_id": agent_id,
-        "created_at": datetime.utcnow().isoformat(),
-        "logs": [],
-        "result": None,
-        "error": None,
-    }
+    # Create initial job record
+    new_job = PipelineJob(
+        id=pipeline_id,
+        status="pending",
+        user_id=None, # TODO: Extract from auth context if available
+        connection_id=uuid.UUID(connection_id) if connection_id else None,
+        logs=[],
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(new_job)
+    await db.commit()
     
     async def _execute_pipeline_task():
         """Executa o pipeline em background"""
-        try:
-            _pipeline_status[pipeline_id]["status"] = "running"
-            _pipeline_status[pipeline_id]["logs"].append({
-                "timestamp": datetime.utcnow().isoformat(),
-                "level": "info",
-                "message": "Pipeline iniciado"
-            })
-            
-            # Importar aqui para evitar circular imports
-            from api.routes.connection_query import query_connection
-            from api.routes.agents import query_agent
-            
-            # Criar uma nova sessão async para o background task
-            from db.base import SessionLocal as AsyncSessionLocal
-            async with AsyncSessionLocal() as bg_db:
-                try:
-                    if connection_id:
-                        # Usar connection_query
-                        result = await query_connection(
-                            connection_id=connection_id,
-                            body=body,
-                            db=bg_db,
-                        )
-                    elif agent_id:
-                        # Usar agent query
-                        result = await query_agent(
-                            agent_id=agent_id,
-                            body=body,
-                            db=bg_db,
-                        )
-                    else:
-                        raise ValueError("connection_id ou agent_id deve ser fornecido")
-                    
-                    _pipeline_status[pipeline_id]["status"] = "completed"
-                    _pipeline_status[pipeline_id]["result"] = {
+        from db.session import AsyncSessionLocal
+        
+        # Use a fresh session for background execution
+        async with AsyncSessionLocal() as bg_db:
+            try:
+                # Update status to running
+                await _update_job(pipeline_id, {"status": "running"}, bg_db)
+                await _append_log(pipeline_id, "Pipeline iniciado", "info", bg_db)
+                
+                # Import here to avoid circular imports
+                from api.routes.connection_query import query_connection
+                from api.routes.agents import query_agent
+                
+                result_data = None
+                
+                if connection_id:
+                    # Usar connection_query
+                    result = await query_connection(
+                        connection_id=connection_id,
+                        body=body,
+                        db=bg_db,
+                    )
+                    result_data = {
                         "answer": result.answer,
                         "data_sample": result.data_sample,
                         "meta": result.meta.dict() if hasattr(result.meta, 'dict') else result.meta,
                     }
-                    _pipeline_status[pipeline_id]["logs"].append({
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "level": "info",
-                        "message": "Pipeline concluído com sucesso"
-                    })
-                except Exception as e:
-                    raise
+                elif agent_id:
+                    # Usar agent query
+                    result = await query_agent(
+                        agent_id=agent_id,
+                        body=body,
+                        db=bg_db,
+                    )
+                    result_data = {
+                        "answer": result.answer,
+                        "data_sample": result.data_sample,
+                        "meta": result.meta.dict() if hasattr(result.meta, 'dict') else result.meta,
+                    }
+                else:
+                    raise ValueError("connection_id ou agent_id deve ser fornecido")
                 
-        except Exception as e:
-            _pipeline_status[pipeline_id]["status"] = "failed"
-            _pipeline_status[pipeline_id]["error"] = str(e)
-            _pipeline_status[pipeline_id]["logs"].append({
-                "timestamp": datetime.utcnow().isoformat(),
-                "level": "error",
-                "message": f"Erro no pipeline: {str(e)}"
-            })
-            log_event(
-                "pipeline_execution_error",
-                {
-                    "pipeline_id": pipeline_id,
-                    "error": str(e)[:500],
-                }
-            )
+                # Serialização de result_data para JSON compatível
+                # Pydantic models need .dict() or .model_dump()
+                # Assuming result is QueryResponse pydantic model
+                
+                await _update_job(pipeline_id, {
+                    "status": "completed",
+                    "result": result_data
+                }, bg_db)
+                
+                await _append_log(pipeline_id, "Pipeline concluído com sucesso", "info", bg_db)
+                
+            except Exception as e:
+                error_msg = str(e)
+                await _update_job(pipeline_id, {
+                    "status": "failed", 
+                    "error": error_msg
+                }, bg_db)
+                
+                await _append_log(pipeline_id, f"Erro no pipeline: {error_msg}", "error", bg_db)
+                
+                log_event(
+                    "pipeline_execution_error",
+                    {
+                        "pipeline_id": pipeline_id,
+                        "error": error_msg[:500],
+                    }
+                )
     
     if run_async and background_tasks:
-        # Executar em background usando asyncio
+        # Executar em background
+        # Como _execute_pipeline_task cria sua própria sessão, podemos chamar direto
+        # Mas para garantir contexto async correto no FastAPI BackgroundTasks:
         import asyncio
-        def run_async_task():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(_execute_pipeline_task())
-            finally:
-                loop.close()
         
-        background_tasks.add_task(run_async_task)
+        # Wrapper para rodar logica async se necessario, mas background_tasks aceita coroutines
+        background_tasks.add_task(_execute_pipeline_task)
+        
         return {
             "pipeline_id": pipeline_id,
             "status": "pending",
@@ -145,39 +180,40 @@ async def execute_pipeline(
     else:
         # Executar síncrono
         await _execute_pipeline_task()
+        
+        # Recarregar estado atualizado
+        result = await db.execute(select(PipelineJob).where(PipelineJob.id == pipeline_id))
+        updated_job = result.scalar()
+        
         return {
             "pipeline_id": pipeline_id,
-            "status": _pipeline_status[pipeline_id]["status"],
-            "result": _pipeline_status[pipeline_id].get("result"),
-            "error": _pipeline_status[pipeline_id].get("error"),
+            "status": updated_job.status,
+            "result": updated_job.result,
+            "error": updated_job.error,
         }
 
 
 @router.get("/{pipeline_id}/status")
 async def get_pipeline_status(
     pipeline_id: str,
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Obtém o status de uma execução de pipeline.
-    
-    Retorna:
-    - status: "pending", "running", "completed", "failed"
-    - result: Resultado (se completed)
-    - error: Erro (se failed)
-    - logs: Lista de logs
+    Obtém o status de uma execução de pipeline do banco de dados.
     """
-    if pipeline_id not in _pipeline_status:
+    result = await db.execute(select(PipelineJob).where(PipelineJob.id == pipeline_id))
+    job = result.scalar()
+    
+    if not job:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
     
-    status = _pipeline_status[pipeline_id]
     return {
-        "pipeline_id": pipeline_id,
-        "status": status["status"],
-        "question": status["question"],
-        "created_at": status["created_at"],
-        "result": status.get("result"),
-        "error": status.get("error"),
-        "logs": status.get("logs", []),
+        "pipeline_id": job.id,
+        "status": job.status,
+        "created_at": job.created_at,
+        "result": job.result,
+        "error": job.error,
+        "logs": job.logs or [],
     }
 
 
@@ -185,20 +221,18 @@ async def get_pipeline_status(
 async def get_pipeline_logs(
     pipeline_id: str,
     limit: int = 100,
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
     Obtém os logs de uma execução de pipeline.
-    
-    Parâmetros:
-    - limit: Número máximo de logs a retornar (default: 100)
-    
-    Retorna:
-    - logs: Lista de logs ordenados por timestamp
     """
-    if pipeline_id not in _pipeline_status:
+    result = await db.execute(select(PipelineJob).where(PipelineJob.id == pipeline_id))
+    job = result.scalar()
+    
+    if not job:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
     
-    logs = _pipeline_status[pipeline_id].get("logs", [])
+    logs = job.logs or []
     return {
         "pipeline_id": pipeline_id,
         "logs": logs[-limit:] if len(logs) > limit else logs,

@@ -222,3 +222,26 @@ class ChatHistory(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+# ========== PIPELINE JOBS ==========
+
+class PipelineJob(Base):
+    """Stores the state of asynchronous pipeline executions."""
+    __tablename__ = "pipeline_jobs"
+
+    id = Column(String, primary_key=True)  # UUID string
+    status = Column(String, nullable=False, default="pending")  # pending, running, completed, failed
+    
+    # Store the full result or error detail
+    result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    logs = Column(JSON, nullable=True, default=list)
+    
+    # Metadata for filtering/ownership
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+

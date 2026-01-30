@@ -60,6 +60,12 @@ class QueryRequest(BaseModel):
                     "allowed/blocked columns, and other table-level security rules."
     )
 
+    # ✅ NEW: Chat history for conversational memory
+    chat_history: Optional[List[Dict[str, str]]] = Field(
+        default=None,
+        description="List of previous messages in the conversation to support follow-up questions."
+    )
+
 
 class QueryResultMeta(BaseModel):
     detected_language: Optional[str] = None
