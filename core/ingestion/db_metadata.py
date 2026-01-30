@@ -161,6 +161,24 @@ async def ingest_bigquery_metadata_for_connection(
     rows = await loop.run_in_executor(_executor, _run_bq_query_sync, client, query)
 
     # Remove metadados antigos dessa conexão + space + crew (se houver)
+    # PRIMEIRO deletar embeddings (filhos) para evitar FK Violation
+    from db.models import EmbeddingRecord
+    
+    # Subquery para IDs que serão deletados
+    subquery_tm_bq = select(TableMetadata.id).where(
+        TableMetadata.data_connection_id == data_connection.id,
+        TableMetadata.space_id == space.id
+    )
+    if crew_id:
+        subquery_tm_bq = subquery_tm_bq.where(TableMetadata.crew_id == crew_id)
+    else:
+        subquery_tm_bq = subquery_tm_bq.where(TableMetadata.crew_id.is_(None))
+
+    delete_embeddings_bq = delete(EmbeddingRecord).where(
+        EmbeddingRecord.table_metadata_id.in_(subquery_tm_bq)
+    )
+    await db.execute(delete_embeddings_bq)
+    
     delete_stmt = delete(TableMetadata).where(
         TableMetadata.data_connection_id == data_connection.id,
         TableMetadata.space_id == space.id,
@@ -299,6 +317,33 @@ async def ingest_from_connection_metadata_cache(
         return 0
 
     # 2. Apagar metadados antigos
+    # PRIMEIRO deletar embeddings (filhos) para evitar ForeignKeyViolationError
+    # (Já que o banco não está com ON DELETE CASCADE configurado para embeddings)
+    from db.models import EmbeddingRecord
+    
+    delete_embeddings_stmt = delete(EmbeddingRecord).where(
+        EmbeddingRecord.space_id == space.id
+    )
+    # Filtrar deletar apenas embeddings ligados a esta conexão (via table_metadata -> data_connection_id)
+    # Mas como EmbeddingRecord tem table_metadata_id, podemos fazer um subquery ou join delete.
+    # Porem, o SQLAlchemy delete com join é complexo.
+    # Vamos deletar baseando-se no table_metadata que SERÁ deletado.
+    
+    # Subquery para identificar IDs de TableMetadata que serão deletados
+    subquery_tm = select(TableMetadata.id).where(
+        TableMetadata.data_connection_id == data_connection.id,
+        TableMetadata.space_id == space.id
+    )
+    if crew_id:
+        subquery_tm = subquery_tm.where(TableMetadata.crew_id == crew_id)
+    else:
+        subquery_tm = subquery_tm.where(TableMetadata.crew_id.is_(None))
+        
+    delete_embeddings_stmt = delete(EmbeddingRecord).where(
+        EmbeddingRecord.table_metadata_id.in_(subquery_tm)
+    )
+    await db.execute(delete_embeddings_stmt)
+
     delete_stmt = delete(TableMetadata).where(
         TableMetadata.data_connection_id == data_connection.id,
         TableMetadata.space_id == space.id,
@@ -332,6 +377,11 @@ async def ingest_from_connection_metadata_cache(
             table_name = item[0]
             table_info = item[1]
             
+        # ✅ UX FIX: Clean up table name (remove project.dataset prefix)
+        original_table_name = table_name
+        if table_name and "." in table_name:
+            table_name = table_name.split(".")[-1]
+            
         columns = table_info.get('columns', [])
         
         for col in columns:
@@ -357,6 +407,7 @@ async def ingest_from_connection_metadata_cache(
                 data_type=col_type,
                 is_nullable=is_nullable,
                 description=None,
+                extra={"original_name": original_table_name},
                 created_at=now,
             )
             db.add(tm)

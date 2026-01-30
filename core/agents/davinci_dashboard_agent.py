@@ -801,16 +801,15 @@ def generate_dashboard_plan(
 
     # NOTE: when using `.format(...)`, any `{}` in the prompt becomes a formatting placeholder.
     # We intentionally avoid `.format` here because the JSON schema includes `{}`.
-    min_join = min(5, max_widgets)
+    min_join = min(3, max_widgets)
     
-    # Modificar prompt baseado em se temos pergunta original ou não
+    # Modify prompt based on whether we have an original question or not
     if original_question:
         system = (
             "You are Davinci, a dashboard planner.\n"
             "\n"
             "🎯 PRIMARY GOAL: The user asked a SPECIFIC question. Your dashboard MUST focus on answering THAT question.\n"
             "⚠️ DO NOT generate a generic 'overview' dashboard that happens to include the question.\n"
-            "⚠️ DO NOT try to use all available tables if they're not relevant to the question.\n"
             "\n"
             "CRITICAL REQUIREMENT: The user has provided an ORIGINAL QUESTION that MUST be the FIRST widget.\n"
             "\n"
@@ -825,52 +824,34 @@ def generate_dashboard_plan(
             "- Each widget must have: widget_key, type, title, question, viz.\n"
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical:\n"
-            "  * AVOID: 'How many rows are in the table?', 'Total rows in silver_credit_memos', 'Count of records'\n"
-            "  * PREFER: 'How many credit notes were issued?', 'Total number of invoices', 'Count of active customers'\n"
-            "  * Think: 'What business metric does this represent?' not 'What's in the database?'\n"
             "  * Use business terminology: 'credit notes' not 'credit_memos table rows', 'customers' not 'customer records'\n"
             "  * Focus on INSIGHTS, not data structure: 'revenue trends' not 'sum of amount column'\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- METRIC SELECTION: Choose the most relevant numeric column for business value (e.g., amount, price, total).\n"
+            "  * Ignore technical columns like 'id', 'log_id', 'batch_id', 'created_at' for metrics unless asking for counts.\n"
             "- Visualization (viz) RULES:\n"
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
             "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
             "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
-            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names/aliases in your SQL SELECT clause.\n"
-            "  * ⚠️ CRITICAL: If your SQL has 'SELECT ... AS total_revenue', use 'total_revenue' in mapping, NOT 'total_invoice_amount' or any other name.\n"
-            "  * ⚠️ CRITICAL: Check your SQL output columns before defining the mapping. Use the EXACT same names.\n"
-            "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
-            "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
-            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X (like 'reason', 'status', 'category'), use 'bar' or 'pie'.\n"
-            "  * CRITICAL: For questions about 'distribution by X', use 'bar' or 'pie', NOT 'scatter'.\n"
-            "  * CRITICAL: Match viz type to data - categorical data needs bar/pie, time series needs line/area, numeric correlation needs scatter.\n"
-            "  * 💡 TIP: Prefer 'table' for ranked lists (Top N), rankings, or multi-column data.\n"
+            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names in your implied SQL.\n"
+            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'pie'.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
-            "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins.\n"
             "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
-            "  * DO NOT use restrictive time filters like 'last 30 days' or 'last week' - data might not exist in that range.\n"
-            "  * Instead, use 'recent' or 'latest' without specific date ranges, or use broader ranges like 'last 12 months'.\n"
-            "  * For 'recent transactions', ask for 'latest 15 records ordered by date' instead of 'records from last 30 days'.\n"
-            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries.\n"
-            "  * Avoid questions about specific statuses/conditions that might not exist.\n"
-            "  * Example GOOD: 'Show the 15 most recent refund transactions ordered by date descending'.\n"
-            "  * Example BAD: 'Show refund transactions from the last 30 days' (might be empty).\n"
+            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
+            "  * Use broad questions that work with any data (e.g., 'total revenue' instead of 'overdue invoices')\n"
             f"- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
-            "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
-            "  * USE CONTEXT: If the user's question or previous answer mentions a specific region, product, or timeframe, INCLUDE IT in the title.\n"
-            "  * Examples: 'Sales Trend 2024 (SP)', 'Top Customers & Churn', 'High Value Orders Analysis'.\n"
             "  * Since original_question is present, the title MUST be directly related to it.\n"
             'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
             '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"
         )
         
-        # ✅ NOVO: Adicionar contexto de subspaces e crews se disponível
+        # ✅ NEW: Add subspaces and crews context if available
         context_str = ""
         if initial_ai_response:
             context_str += (
@@ -902,26 +883,6 @@ def generate_dashboard_plan(
             f"- Widget 7: Which products have the most refunds? (business insight)\n"
             f"- Widget 8: What are the recent refund transactions? (business data)\n"
             f"\n"
-            f"❌ BAD EXAMPLE (technical/literal questions - AVOID):\n"
-            f"- Widget 1: {original_question}\n"
-            f"- Widget 2: How many rows are in the refunds table? (technical, not useful)\n"
-            f"- Widget 3: Show all columns from credit_memos (technical, not insightful)\n"
-            f"- Widget 4: Count of records in payments table (technical, not business-oriented)\n"
-            f"- Widget 5: Sum of amount column (technical, lacks context)\n"
-            f"\n"
-            f"❌ BAD EXAMPLE (generic overview - AVOID):\n"
-            f"- Widget 1: {original_question}\n"
-            f"- Widget 2: Payment methods (NOT about refunds)\n"
-            f"- Widget 3: Customer distribution (NOT about refunds)\n"
-            f"- Widget 4: Credit memos (NOT about refunds)\n"
-            f"- Widget 5: Revenue trends (NOT about refunds)\n"
-            f"\n"
-            f"❌ BAD EXAMPLE (filters that return empty results):\n"
-            f"- Widget: 'What are the recent high-value invoices?' (implies WHERE category='High' -> EMPTY)\n"
-            f"- Widget: 'Show refunds from last week' (temporal filter -> EMPTY)\n"
-            f"- INSTEAD USE SORTING: 'Show the recent invoices with highest amounts' (ORDER BY amount DESC -> DATA)\n"
-            f"- INSTEAD USE SORTING: 'Show the 15 most recent refund transactions' (ORDER BY date DESC -> DATA)\n"
-            f"\n"
             f"{context_str}"
             f"Goal: {goal}\n"
             f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
@@ -931,7 +892,7 @@ def generate_dashboard_plan(
             f"Generate a dashboard that comprehensively answers: '{original_question}'\n"
         )
     else:
-        # Prompt original (sem pergunta original)
+        # Original prompt (without original question)
         system = (
             "You are Davinci, a dashboard planner.\n"
             "You propose a dashboard (name + widgets) based on accessible tables.\n"
@@ -943,39 +904,29 @@ def generate_dashboard_plan(
             "- Widget types allowed: chart, kpi, table, text.\n"
             "- Questions MUST be answerable from the provided tables.\n"
             "- Prefer aggregated queries that return <= 15 rows for charts.\n"
+            "- METRIC SELECTION: Choose the most relevant numeric column for business value (e.g., amount, price, total).\n"
+            "  * Ignore technical columns like 'id', 'log_id', 'batch_id', 'created_at' for metrics unless asking for counts.\n"
             "- Visualization (viz) RULES:\n"
             "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
             "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
             "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
-            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names/aliases in your SQL SELECT clause.\n"
-            "  * ⚠️ CRITICAL: If your SQL has 'SELECT ... AS total_revenue', use 'total_revenue' in mapping, NOT 'total_invoice_amount' or any other name.\n"
-            "  * ⚠️ CRITICAL: Check your SQL output columns before defining the mapping. Use the EXACT same names.\n"
-            "  * Example single-series: {\"type\": \"bar\", \"mapping\": {\"x\": \"month\", \"y\": \"total_sales\"}}.\n"
-            "  * Example multi-series: {\"type\": \"line\", \"mapping\": {\"x\": \"date\", \"y\": \"amount\", \"series\": \"status\"}}.\n"
+            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names in your implied SQL.\n"
             "  * 💡 TIP: Prefer 'table' for rankings (Top N) or many-column lists.\n"
             "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
             "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
-            "- Prefer a mix of chart viz types (bar/column, line/area, pie/donut, scatter) when applicable.\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- If keys are provided in the schema sample, use them to suggest joined questions (e.g., *_id and date fields).\n"
-            f"- Hard requirement: at least {min_join} of N widgets MUST require JOINs across 2+ tables.\n"
-            "- For N=8: enforce a fixed distribution: exactly 2 KPI widgets, exactly 1 Table widget, and exactly 5 Chart widgets.\n"
-            "- For N=8: at least 3 of the JOIN widgets MUST be fact+dimension joins (e.g., transactions↔entities, events↔references).\n"
+            "- If keys are provided in the schema sample, use them to suggest joined questions.\n"
             "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
             "- DATA SAFETY: Do not invent columns. Only use columns present in 'Schema sample'.\n"
             "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
             "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
-            "  * Avoid questions about specific statuses/conditions that might not exist (e.g., 'overdue', 'pending')\n"
             "  * Use broad questions that work with any data (e.g., 'total revenue' instead of 'overdue invoices')\n"
             "  * For tables/charts, ask for 'top N' or 'distribution by' instead of specific filters\n"
-            "  * Example GOOD: 'What is the total revenue by customer?' (always returns data)\n"
-            "  * Example BAD: 'Which customers are overdue?' (might return empty if no overdue customers)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
             "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
             "  * USE CONTEXT: If a specific goal, region, or timeframe is inferred, INCLUDE IT in the title.\n"
-            "  * Examples: 'Sales Trend 2024 (SP)', 'Top Customers & Churn', 'High Value Orders Analysis'.\n"
             'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
             '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"
@@ -1021,10 +972,28 @@ def generate_dashboard_plan(
             if not isinstance(w, dict):
                 continue
             widget_key = str(w.get("widget_key") or f"w{i}").strip() or f"w{i}"
-            wtype = str(w.get("type") or "chart").strip()
+            wtype = str(w.get("type") or "chart").strip().lower()
+            
+            # ✅ FIX: Normalize chart types if LLM outputs specific viz type as widget type
+            if wtype in {"line", "bar", "area", "pie", "donut", "scatter", "column"}:
+                wtype = "chart"
+            # Fallback for unknown types
+            if wtype not in {"chart", "kpi", "table", "text", "ai-box"}:
+                wtype = "chart"
+
             title = str(w.get("title") or "").strip() or f"Widget {i}"
             question = str(w.get("question") or "").strip()
-            viz = w.get("viz") if isinstance(w.get("viz"), dict) else {"type": "bar"}
+            viz = w.get("viz") if isinstance(w.get("viz"), dict) else {}
+            if not viz or "type" not in viz:
+                # Default viz type based on widget type
+                default_viz_type = "bar"
+                if wtype == "text":
+                    default_viz_type = "text" # or 'markdown' depending on frontend
+                elif wtype == "kpi":
+                    default_viz_type = "kpi"
+                elif wtype == "table":
+                    default_viz_type = "table"
+                viz["type"] = viz.get("type", default_viz_type)
             if not question:
                 continue
             widgets.append(
@@ -1040,12 +1009,12 @@ def generate_dashboard_plan(
         if not widgets:
             raise ValueError("LLM widgets invalid")
 
-        # ✅ CRÍTICO: Se temos pergunta original, garantir que seja a primeira widget
+        # ✅ CRITICAL: If we have an original question, ensure it is the first widget
         if original_question:
             original_question_clean = original_question.strip()
             first_widget_question = widgets[0].get("question", "").strip() if widgets else ""
             
-            # Verificar se a primeira widget já é a pergunta original (comparação flexível)
+            # Check if the first widget is already the original question (flexible comparison)
             is_same_question = (
                 original_question_clean.lower() == first_widget_question.lower() or
                 original_question_clean.lower() in first_widget_question.lower() or
@@ -1053,8 +1022,8 @@ def generate_dashboard_plan(
             )
             
             if not is_same_question:
-                # Criar widget com a pergunta original como primeiro
-                # Tentar preservar tipo e viz da primeira widget gerada, ou usar defaults
+                # Create widget with the original question as the first one
+                # Try to preserve type and viz from the first generated widget, or use defaults
                 original_widget = {
                     "widget_key": "w1",
                     "type": widgets[0].get("type", "chart") if widgets else "chart",
@@ -1062,39 +1031,25 @@ def generate_dashboard_plan(
                     "question": original_question_clean,
                     "viz": widgets[0].get("viz", {"type": "bar"}) if widgets else {"type": "bar"},
                 }
-                # Inserir no início e manter apenas max_widgets
+                # Insert at the beginning and keep only max_widgets
                 widgets = [original_widget] + widgets[1:max_widgets]
             else:
-                # Já está correto, mas garantir que a pergunta está exatamente como o usuário forneceu
+                # Already correct, but ensure the question is exactly as the user provided
                 widgets[0]["question"] = original_question_clean
 
         # Normalize count
         widgets = widgets[:max_widgets]
 
-        # Enforce cross-table join mix if the LLM didn't satisfy it.
-        widgets = _enforce_join_mix(
-            widgets,
-            logical_tables=logical_tables,
-            table_cols=table_cols,
-            table_keys=table_keys,
-            max_widgets=max_widgets,
-        )
+        # 🚀 REFACTORED: LLM-Driven Mode
+        # Removed _enforce_join_mix and _enforce_distribution_and_fact_dim
+        # We rely on the LLM's plan as the source of truth, avoiding "cookie cutter" overwrites.
 
-
-        widgets = _enforce_distribution_and_fact_dim(
-            widgets,
-            logical_tables=logical_tables,
-            table_cols=table_cols,
-            table_keys=table_keys,
-            max_widgets=max_widgets,
-        )
-
-        # ✅ NOVA: Validar widgets usando WidgetValidator
+        # ✅ NEW: Validate widgets using WidgetValidator
         try:
             from core.validation.widget_validator import WidgetValidator
             from core.validation.question_validator import QuestionValidator
             
-            # Preparar metadados para QuestionValidator
+            # Prepare metadata for QuestionValidator
             available_tables_meta = [
                 {
                     "name": t,
@@ -1109,11 +1064,11 @@ def generate_dashboard_plan(
             }
             
             question_validator = QuestionValidator(available_tables_meta, available_columns)
-            # ✅ FIX: strict_mode=False para não filtrar widgets com warnings
-            # A IA gera os widgets, então eles devem funcionar mesmo com warnings leves
+            # ✅ FIX: strict_mode=False to not filter widgets with mild warnings
+            # The AI generates the widgets, so they should work even with mild warnings
             widget_validator = WidgetValidator(question_validator, strict_mode=False)
             
-            # Filtrar widgets problemáticos (mas preservar a primeira se for original_question)
+            # Filter problematic widgets (but preserve the first one if it is original_question)
             widgets_before_validation = len(widgets)
             original_widget_preserved = None
             if original_question and widgets:
@@ -1127,22 +1082,32 @@ def generate_dashboard_plan(
                 min_widgets=max(1, (max_widgets - 1) // 2) if original_question else max(1, max_widgets // 2)
             )
             
-            # Reconstruir lista com original preservado
+            # Reconstruct list with preserved original
             if original_widget_preserved:
                 widgets = [original_widget_preserved] + widgets_validated
             else:
                 widgets = widgets_validated
             
-            # ✅ DEDUPLICATE: Remove widgets with duplicate titles
-            seen_titles = set()
+            # ✅ SEMANTIC DEDUPLICATION (MD5 Signature)
+            # Uses Question + Widget Type to identify duplicates, instead of just Title.
+            import hashlib
+            
+            def _widget_signature(w: Dict[str, Any]) -> str:
+                # Normalize question and type to create a signature
+                q = (w.get("question") or "").strip().lower()
+                t = (w.get("type") or "").strip().lower()
+                # Remove extra spaces from question to avoid false negatives
+                q_clean = " ".join(q.split())
+                base = f"{q_clean}|{t}"
+                return hashlib.md5(base.encode()).hexdigest()
+
+            seen_signatures = set()
             deduplicated_widgets = []
+            
             for widget in widgets:
-                title = widget.get("title", "").strip().lower()
-                if title and title not in seen_titles:
-                    seen_titles.add(title)
-                    deduplicated_widgets.append(widget)
-                elif not title:
-                    # Keep widgets without title (shouldn't happen, but be safe)
+                sig = _widget_signature(widget)
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
                     deduplicated_widgets.append(widget)
             
             widgets_before_dedup = len(widgets)
@@ -1156,12 +1121,13 @@ def generate_dashboard_plan(
                         "widgets_before": widgets_before_dedup,
                         "widgets_after": len(widgets),
                         "removed_duplicates": widgets_before_dedup - len(widgets),
+                        "method": "semantic_signature"
                     },
                 )
             
             widgets_after_validation = len(widgets)
             
-            # Se filtramos muitos widgets, logar aviso
+            # If we filtered many widgets, log warning
             if widgets_before_validation > widgets_after_validation:
                 log_event(
                     "davinci_widgets_validated",
@@ -1174,7 +1140,7 @@ def generate_dashboard_plan(
                     },
                 )
             
-            # Se não temos widgets suficientes após validação, usar fallback
+            # If we don't have enough widgets after validation, use fallback
             min_required = max(1, max_widgets // 2)
             if len(widgets) < min_required:
                 log_event(
@@ -1187,7 +1153,7 @@ def generate_dashboard_plan(
                         "action": "using_fallback",
                     },
                 )
-                # Retornar fallback se validação filtrou muitos widgets
+                # Return fallback if validation filtered too many widgets
                 return _fallback_plan(
                     goal=goal, 
                     logical_tables=logical_tables, 
@@ -1197,7 +1163,7 @@ def generate_dashboard_plan(
                 )
             
         except Exception as e:
-            # Se validação falhar, continuar sem filtrar (fail-safe)
+            # If validation fails, continue without filtering (fail-safe)
             log_event(
                 "davinci_validation_error",
                 {

@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Dict
 
-# Configura logging básico (pode ajustar depois)
+# Basic logging config (can adjust later)
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
@@ -15,7 +15,7 @@ logger = logging.getLogger("dataassistant")
 
 
 def _serialize_value(v: Any) -> Any:
-    """Tenta serializar para JSON; se não der, converte para string cortada."""
+    """Attempts to serialize to JSON; if it fails, converts to truncated string."""
     try:
         json.dumps(v)
         return v
