@@ -23,6 +23,11 @@ on:
           - staging
           - prod
           - poc-sky
+      promote_apps:
+        description: "🚀 Promover Apps (Staging -> Prod)"
+        required: false
+        type: boolean
+        default: false
       allow_destroy:
         description: "Permitir mudanças destrutivas"
         required: false
