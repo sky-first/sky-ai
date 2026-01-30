@@ -11,6 +11,9 @@ on:
           - staging
           - prod
           - poc-sky
+      lock_id:
+        description: "Lock ID to force unlock (optional)"
+        required: false
 
 permissions:
   contents: read
@@ -120,6 +123,12 @@ jobs:
       - name: Terraform Init
         run: |
           terraform init -reconfigure -backend-config=backend.hcl
+
+      - name: Force Unlock
+        if: ${{ inputs.lock_id != '' }}
+        run: |
+          echo "Forcing unlock for ID: ${{ inputs.lock_id }}"
+          terraform force-unlock -force ${{ inputs.lock_id }}
 
       - name: Select Workspace
         run: |
