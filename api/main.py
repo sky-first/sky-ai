@@ -49,6 +49,11 @@ async def on_startup():
     from core.security.audit import start_audit_flusher
     start_audit_flusher()
     log_event("audit_flusher_started", {"message": "Audit log flusher started"})
+    
+    # Initialize LangGraph Checkpoint Pool
+    from core.agents.checkpoint_manager import get_connection_pool
+    get_connection_pool()  # Init singleton
+    log_event("checkpoint_pool_initialized", {"message": "LangGraph checkpoint pool ready"})
 
 
 @app.on_event("shutdown")
@@ -57,6 +62,11 @@ async def on_shutdown():
     from core.security.audit import stop_audit_flusher
     stop_audit_flusher()
     log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
+
+    # Close LangGraph Checkpoint Pool
+    from core.agents.checkpoint_manager import close_pool
+    close_pool()
+    log_event("checkpoint_pool_closed", {"message": "LangGraph checkpoint pool closed"})
 
 
 @app.get("/health", tags=["health"])

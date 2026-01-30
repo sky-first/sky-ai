@@ -6,7 +6,7 @@ Analisa textos e dados estruturados procurando por informações sensíveis
 usando os padrões definidos em pii_patterns.py.
 """
 import re
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Set
 
 from core.security.pii_patterns import (
     PIISeverity,
@@ -93,6 +93,11 @@ def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
     """
     Escaneia dados estruturados (lista de dicionários) procurando por PII.
     
+    Esta versão implementa SMART SAMPLE:
+    Em vez de apenas ler as primeiras 100 linhas, ela extrai valores únicos
+    de colunas de string e escaneia esses valores (up to a limit).
+    Isso aumenta a cobertura sem sacrificar performance.
+    
     Args:
         data: Lista de dicionários com dados
         
@@ -102,33 +107,69 @@ def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
     if not data or not isinstance(data, list):
         return PIIDetectionResult(detected=False)
     
+    unique_values: Set[str] = set()
+    MAX_UNIQUE_TOKENS = 2000  # Scanear até 2000 strings únicas
+    
+    # 1. Coleta e Deduplicação Inteligente
+    for row in data:
+        if len(unique_values) >= MAX_UNIQUE_TOKENS:
+            break
+            
+        if not isinstance(row, dict):
+            continue
+            
+        for v in row.values():
+            if isinstance(v, str) and v.strip():
+                # Normalização leve para aumentar taxa de deduplicação
+                unique_values.add(v.strip())
+                if len(unique_values) >= MAX_UNIQUE_TOKENS:
+                    break
+    
+    # 2. Escaneamento dos valores únicos
     all_detected_types = set()
     all_matched_patterns = []
     max_severity = None
     
-    # Escanear cada linha de dados (limitar para performance)
-    for row in data[:100]:
-        if not isinstance(row, dict):
-            continue
+    combined_text = " ".join(unique_values)
+    
+    # Se combinarmos tudo em um textão, o regex é mais rápido (1 scan vs N scans)
+    # mas perdemos granularidade de saber qual valor disparou.
+    # Dado que queremos apenas saber SE tem PII, um scan combinado ou por lotes é melhor.
+    # Vamos fazer scan por lotes de 20kb para evitar regex ReDoS em strings gigantes.
+    
+    chunk_size = 20000
+    current_chunk = ""
+    
+    for val in unique_values:
+        if len(current_chunk) + len(val) > chunk_size:
+            # Process chunk
+            result = scan_text_for_pii(current_chunk)
+            if result.detected:
+                all_detected_types.update(result.pii_types)
+                all_matched_patterns.extend(result.patterns_matched)
+                if result.severity == PIISeverity.BLOCK:
+                    max_severity = PIISeverity.BLOCK
+                elif result.severity == PIISeverity.WARN and max_severity != PIISeverity.BLOCK:
+                    max_severity = PIISeverity.WARN
+                elif result.severity == PIISeverity.INFO and max_severity is None:
+                    max_severity = PIISeverity.INFO
+            current_chunk = ""
         
-        # Converter linha para string para escanear
-        row_text = " ".join(str(v) for v in row.values() if v is not None)
-        
-        # Escanear o texto da linha
-        result = scan_text_for_pii(row_text)
-        
+        current_chunk += " " + val
+    
+    # Process last chunk
+    if current_chunk:
+        result = scan_text_for_pii(current_chunk)
         if result.detected:
             all_detected_types.update(result.pii_types)
             all_matched_patterns.extend(result.patterns_matched)
-            
-            # Atualizar severidade máxima
-            if max_severity is None:
-                max_severity = result.severity
-            elif result.severity == PIISeverity.BLOCK:
+            if result.severity == PIISeverity.BLOCK:
                 max_severity = PIISeverity.BLOCK
             elif result.severity == PIISeverity.WARN and max_severity != PIISeverity.BLOCK:
                 max_severity = PIISeverity.WARN
-    
+            elif result.severity == PIISeverity.INFO and max_severity is None:
+                max_severity = PIISeverity.INFO
+
     if max_severity is None:
         return PIIDetectionResult(detected=False)
     
@@ -136,7 +177,7 @@ def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
         detected=True,
         severity=max_severity,
         pii_types=list(all_detected_types),
-        patterns_matched=list(set(all_matched_patterns))[:10],  # Remover duplicatas
+        patterns_matched=list(set(all_matched_patterns))[:10],
         should_block=(max_severity == PIISeverity.BLOCK),
     )
 
@@ -299,8 +340,6 @@ def _has_explicit_pii_request_pattern(question: str) -> bool:
     # DEPOIMENTO DO USUÁRIO: "perguntas simples caem no pii scaner , o que podemos fazer sem perder qualidade"
     # Se o usuário quer listar dados que ele tem permissão, permitimos.
     # Bloqueamos apenas se for algo relacionado a senhas ou dados tóxicos via padrões específicos.
-    return False
-    
     return False
 
 
@@ -472,4 +511,3 @@ def _should_allow_small_result_set(
         return False
         
     return True
-

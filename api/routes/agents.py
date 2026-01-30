@@ -125,6 +125,7 @@ async def query_agent(
         response_format=body.response_format,
         sql_instructions=body.sql_instructions,
         selected_datasets=body.selected_datasets,
+        chat_history=body.chat_history,  # ✅ Pass history
     )
 
     answer = state.get("answer") or ""
