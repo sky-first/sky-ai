@@ -13,7 +13,7 @@ spec:
       values: |
         nameOverride: "sky-ai-worker-prd"
         image:
-          repository: skyacrstagingj3minh.azurecr.io/sky-poc-ai
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
           tag: "latest"
         
         service:
@@ -36,7 +36,7 @@ spec:
             memory: 2Gi
 
         command: ["celery"]
-        args: ["-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+        args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
         
         externalSecret:
           enabled: true
@@ -86,6 +86,10 @@ spec:
             key: celery_result_backend
             
         extraEnv:
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-prd-common-app"
+          - name: DATABASE_POOL_SIZE
+            value: "10"
           - name: REDIS_PORT
             value: "6379"
           - name: DEBUG

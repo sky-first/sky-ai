@@ -1335,7 +1335,7 @@ jobs:
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
+          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.sha }}
           path: |
             _tfplan_artifact/tfplan
             _tfplan_artifact/plan-output.txt
@@ -2126,7 +2126,7 @@ jobs:
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
+          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.sha }}
           path: ${{ env.TF_WORKING_DIR }}
 
       - name: Verify Artifact Contents
@@ -2240,7 +2240,7 @@ jobs:
         id: download-artifact
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
+          name: tfplan-${{ needs.detect-environment.outputs.environment }}-${{ github.sha }}
           path: _tfplan_artifact
 
       - name: Verify Plan Artifact Downloaded

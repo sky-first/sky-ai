@@ -12,7 +12,8 @@ kubernetes_version  = "1.33.5"
 authorized_ips = [
   "81.84.211.111/32",
   "169.155.237.158/32",
-  "20.97.244.91/32"
+  "20.97.244.91/32",
+  "169.155.237.143/32"
 ]
 
 # Domínios de produção (configurados em Ingress later)
@@ -25,8 +26,9 @@ external_dns_identity_resource_group = "rg-core-infra-prd"
 allowed_ssh_ips = [
   "81.84.211.111/32",
   "169.155.237.158/32",
-  "20.97.244.91/32"
+  "20.97.244.91/32",
+  "169.155.237.143/32"
 ]
 
 # GitHub Actions Service Principal (for CI/CD Key Vault access)
-github_actions_sp_object_id = "4eb2819d-b43b-4eb6-9d7f-f02b96088d1c"
+github_actions_sp_object_id = "ac642806-ae70-4e1d-a800-c8ed0f43ecd0"

@@ -66,10 +66,17 @@ resource "azurerm_role_assignment" "eso_secrets_user" {
 
 # 3. Grant Access to GitHub Actions Service Principal (for CI/CD)
 resource "azurerm_role_assignment" "github_actions_secrets_user" {
-  count                = var.github_actions_sp_object_id != null ? 1 : 0
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = var.github_actions_sp_object_id
+  count                            = var.github_actions_sp_object_id != null ? 1 : 0
+  name                             = uuidv5("dns", "${azurerm_key_vault.main.id}-${var.github_actions_sp_object_id}-secrets-user")
+  scope                            = azurerm_key_vault.main.id
+  role_definition_name             = "Key Vault Secrets User"
+  principal_id                     = var.github_actions_sp_object_id
+  skip_service_principal_aad_check = true
+}
+
+import {
+  to = azurerm_role_assignment.github_actions_secrets_user[0]
+  id = "/subscriptions/e1070cf9-7790-4f2d-b449-d4bf4bc21906/resourceGroups/sky-aks-staging-rg/providers/Microsoft.KeyVault/vaults/akv-sky-staging-5364fd0f/providers/Microsoft.Authorization/roleAssignments/65c62e8d-9e19-4258-b3db-2780b0eb8a36"
 }
 
 # 4. Federated Credential (Trust Relationship)

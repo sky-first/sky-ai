@@ -13,9 +13,9 @@ spec:
       values: |
         nameOverride: "sky-ai-worker-stg"
         podAnnotations:
-          rollout-trigger: "2026-01-29T13:20:00Z"
+          rollout-trigger: "2026-01-30T08:42:40Z"
         image:
-          repository: skyacrstagingj3minh.azurecr.io/sky-poc-ai
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
           tag: "staging"
         
         # O Worker não precisa de Ingress nem Service
@@ -30,7 +30,7 @@ spec:
             enabled: false
 
         command: ["celery"]
-        args: ["-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+        args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
         
         # Reutilizar os segredos da IA
         externalSecret:
@@ -87,6 +87,10 @@ spec:
             value: "false"
           - name: OLLAMA_BASE_URL
             value: "http://ollama.ollama.svc.cluster.local:11434"
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-stg-common-app"
+          - name: DATABASE_POOL_SIZE
+            value: "10"
 
   destination:
     server: "https://kubernetes.default.svc"
