@@ -77,8 +77,49 @@ def retrieve_schema_rag(
         
         results.append(table_info)
     
-    # TODO: If db and space_id provided, query table_metadata with embeddings
-    # This would provide richer semantic descriptions
+    # ✅ IMPLEMENTED: Query embeddings table with vector search
+    if db and space_id:
+        try:
+            # Embed question
+            question_embedding = embedding_provider.embed(question)
+            
+            # Query embeddings table with similarity search
+            # We search for chunks related to tables in the current space
+            query = text("""
+                SELECT 
+                    text,
+                    1 - (embedding <=> :embedding::vector) as similarity
+                FROM embeddings
+                WHERE space_id = :space_id
+                ORDER BY embedding <=> :embedding::vector
+                LIMIT :top_k
+            """)
+            
+            rows = db.execute(
+                query,
+                {
+                    "space_id": space_id,
+                    "embedding": question_embedding,
+                    "top_k": top_k
+                }
+            ).fetchall()
+            
+            for row in rows:
+                results.append(row.text)
+                
+        except Exception as e:
+            # Log error but fallback to basic schema info
+            log_event(
+                "schema_rag_error",
+                {"error": str(e)[:200]}
+            )
+    
+    # If no results from vector search, fallback to basic schema info (top 3 tables)
+    if not results:
+        for table in tables[:top_k]:
+             # Basic table info
+            table_info = f"{table.logical_name}: {len(table.columns)} columns"
+            results.append(table_info)
     
     log_event(
         "schema_rag_retrieved",

@@ -503,6 +503,38 @@ def run_specialist(
         # Usar configuração padrão se não foi enviada
         security_config = get_default_security_config()
 
+    # Determine dialect early
+    current_dialect = getattr(data_source, "dialect", None)
+    if not current_dialect:
+        current_dialect = getattr(agent_config, "dialect", Dialect.POSTGRES)
+    if isinstance(current_dialect, str):
+        try:
+            current_dialect = Dialect(current_dialect.lower())
+        except ValueError:
+            current_dialect = Dialect.POSTGRES
+
+    # Pre-calculate BigQuery rules to avoid duplication
+    bq_aggregation_guidance = ""
+    if current_dialect == Dialect.BIGQUERY:
+        bq_aggregation_guidance = (
+            "\n\nCRITICAL: BIGQUERY AGGREGATION RULES (STRICT):\n"
+            "- BIGQUERY IS VERY STRICT: You CANNOT mixing 'GROUP BY' and Window Functions ('OVER') arbitrarily.\n"
+            "- 🚫 FORBIDDEN: SELECT x, SUM(y) OVER(PARTITION BY x) FROM t GROUP BY x\n"
+            "  (Reason: 'x' is grouped, but 'SUM(y) OVER...' is a window function on the result, which causes granularity conflicts on non-aggregated columns)\n"
+            "- ✅ SOLUTION: USE A CTE (Common Table Expression) for the aggregations first.\n"
+            "  * Step 1 (CTE): Calculate the GROUP BY aggregations.\n"
+            "  * Step 2 (Main Query): specific Window Functions on the results of the CTE.\n"
+            "  * Example:\n"
+            "    WITH monthly_stats AS (\n"
+            "      SELECT invoice_year, invoice_month, customer_id, SUM(total_amount) as mth_total\n"
+            "      FROM `dataset.table`\n"
+            "      GROUP BY 1, 2, 3\n"
+            "    )\n"
+            "    SELECT *, SUM(mth_total) OVER(PARTITION BY customer_id) as customer_lifetime_value\n"
+            "    FROM monthly_stats\n"
+            "- ERROR TO AVOID: 'SELECT list expression references column which is neither grouped nor aggregated'.\n"
+        )
+
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata) ou marcou como impossível, não gerar SQL.
     if state.get("answer") or state.get("impossible_reason"):
@@ -741,7 +773,7 @@ def run_specialist(
             max_columns=50, # Updated max_columns
             use_multiple_tables=True,
             security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
-            dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
+            dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
         
@@ -780,16 +812,21 @@ def run_specialist(
             "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
         )
         
-        # ✅ CRITICAL: Force fully qualified table names (BigQuery)
-        table_qualification_guidance = (
-            "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
-            "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
-            "- DO NOT use the short logical name (e.g. 'invoices').\n"
-            "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
-            "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
-            "- Failure to use the full path will cause a 400 error.\n"
-            f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
-        )
+        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
+        table_qualification_guidance = ""
+        if current_dialect == Dialect.BIGQUERY:
+            table_qualification_guidance = (
+                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
+                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
+                "- DO NOT use the short logical name (e.g. 'invoices').\n"
+                "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
+                "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
+                "- Failure to use the full path will cause a 400 error.\n"
+                f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
+            )
+
+
+
         
         # ✅ CRITICAL: Robust string comparison
         string_comparison_guidance = (
@@ -803,7 +840,7 @@ def run_specialist(
         )
         
         # Atualizar content com instruções adicionais
-        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + string_comparison_guidance
+        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
 
         user_msg = {
             "role": "user",
@@ -828,7 +865,7 @@ def run_specialist(
             max_columns=10,
             use_multiple_tables=False,
             security_rules=security_rules_str.format(max_limit=100, max_columns=10),
-            dialect=getattr(data_source, "dialect", Dialect.POSTGRES),
+            dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
         
@@ -860,16 +897,18 @@ def run_specialist(
             "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
         )
         
-        # ✅ CRITICAL: Force fully qualified table names (BigQuery)
-        table_qualification_guidance = (
-            "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
-            "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
-            "- DO NOT use the short logical name (e.g. 'invoices').\n"
-            "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
-            "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
-            "- Failure to use the full path will cause a 400 error.\n"
-            f"- PHYSICAL NAMES TO USE: {primary_table.physical_name}\n"
-        )
+        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
+        table_qualification_guidance = ""
+        if current_dialect == Dialect.BIGQUERY:
+            table_qualification_guidance = (
+                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
+                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
+                "- DO NOT use the short logical name (e.g. 'invoices').\n"
+                "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
+                "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
+                "- Failure to use the full path will cause a 400 error.\n"
+                f"- PHYSICAL NAMES TO USE: {primary_table.physical_name}\n"
+            )
         
         # ✅ CRITICAL: Robust string comparison
         string_comparison_guidance = (
@@ -883,7 +922,7 @@ def run_specialist(
         )
 
         # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + string_comparison_guidance
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
 
         user_msg = {
             "role": "user",

@@ -81,6 +81,15 @@ async def run_metadata_ingestion(
             "inserted": inserted,
         },
     )
+    
+    # ✅ PATCH: Update backend timestamp to prevent immediate staleness (infinite loop fix)
+    from sqlalchemy import text
+    await db.execute(
+        text("UPDATE connection_metadata SET last_metadata_update = NOW() WHERE connection_id = :cid"),
+        {"cid": connection_id}
+    )
+    await db.commit()
+
     return inserted
 
 
