@@ -146,6 +146,14 @@ jobs:
             'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-ai"]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-ai-staging" \
             "Federated Credential: sky-poc-ai staging"
+
+          # Import Prod Role Assignment Fix
+          if [ "$ENV" == "prod" ]; then
+             import_resource \
+               'azurerm_role_assignment.gh_actions_contributor' \
+               "/subscriptions/e1070cf9-7790-4f2d-b449-d4bf4bc21906/resourceGroups/sky-aks-prod-rg/providers/Microsoft.Authorization/roleAssignments/19c320d4-16d0-8dd9-e13c-d784ec0ac454" \
+               "GitHub Actions Contributor Role (Prod fix)"
+          fi
           
           echo ""
           echo "=========================================="
