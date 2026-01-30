@@ -1,4 +1,4 @@
-name: Promote Staging to Prod
+name: Sync Prod Apps
 
 on:
   workflow_dispatch:
