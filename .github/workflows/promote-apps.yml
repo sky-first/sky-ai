@@ -1,0 +1,109 @@
+name: Promote Staging to Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_merge:
+        description: "Automatically merge the promotion PR?"
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    name: Sync Apps Staging -> Prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Promote Versions
+        run: |
+          set -euo pipefail
+
+          # Função helper para ler trigger de staging
+          get_staging_trigger() {
+            local file="gitops/bootstrap/staging/$1.yaml"
+            # Tenta ler do podAnnotations ou extraEnv
+            grep "rollout-trigger" "$file" | head -1 | awk '{print $2}' | tr -d '"'
+          }
+
+          # Ler Versões de Staging
+          TRIGGER_BE=$(get_staging_trigger "backend")
+          TRIGGER_FE=$(get_staging_trigger "frontend")
+          TRIGGER_AI=$(get_staging_trigger "ai") # Ou ai-worker, ver qual existe
+
+          echo "Staging Versions Found:"
+          echo "  Backend: $TRIGGER_BE"
+          echo "  Frontend: $TRIGGER_FE"
+          echo "  AI: $TRIGGER_AI"
+
+          # Função helper para atualizar prod (usa replace genérico para o campo rollout-trigger)
+          update_prod() {
+            local service="$1"
+            local timestamp="$2"
+            local file="gitops/bootstrap/prod/$service.yaml"
+            
+            if [ -f "$file" ] && [ -n "$timestamp" ]; then
+              echo "Updating $service to $timestamp..."
+              # Substitui o valor de rollout-trigger (não importa se está em annotation ou env)
+              # Procura por 'rollout-trigger' (qualquer indentação) na linha anterior, ou na mesma linha key:value
+              # Como a estrutura varia, vamos usar sed focado no VALUE da cláusa rollout-trigger.
+              # A abordagem mais segura para Yaml não estruturado com sed é substituir a linha toda se possível ou o valor.
+              
+              # Estrategia: Buscar a linha com rollout-trigger, e na linha SEGUINTE (se for lista) ou MESMA linha (se for map) mudar o valor.
+              # Nos arquivos de Prod atuais, é:
+              # - name: ROLLOUT_TRIGGER
+              #   value: "DATA"
+              
+              if grep -q "ROLLOUT_TRIGGER" "$file"; then
+                 # Formato Env Var (Lista)
+                 # Encontra ROLLOUT_TRIGGER, pula linha, substitui value
+                 sed -i -E "/ROLLOUT_TRIGGER/{n;s/value: \".*\"/value: \"$timestamp\"/;}" "$file"
+              else
+                 # Formato Annotation (Map) key: value
+                 sed -i -E "s/rollout-trigger: \".*\"/rollout-trigger: \"$timestamp\"/" "$file"
+              fi
+            else
+              echo "⚠️ Skipping $service (File not found or empty timestamp)"
+            fi
+          }
+
+          update_prod "backend" "$TRIGGER_BE"
+          update_prod "frontend" "$TRIGGER_FE"
+          update_prod "ai" "$TRIGGER_AI"
+          # Tentar ai-worker se ai falhar ou vice versa
+          if [ -f "gitops/bootstrap/prod/ai-worker.yaml" ]; then
+             update_prod "ai-worker" "$TRIGGER_AI"
+          fi
+
+          echo "✅ Update complete."
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        id: cpr
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(gitops): promote staging apps to production"
+          title: "🚀 Promote Staging to Production"
+          body: |
+            Syncs application versions (rollout-triggers) from Staging to Production.
+            
+            **Changes:**
+            - Updates `backend`, `frontend`, and `ai` to match Staging timestamps.
+            
+            *Automated by Promote Workflow.*
+          branch: "promote/staging-to-prod"
+          base: "main"
+          delete-branch: true
+
+      - name: Auto Merge
+        if: ${{ inputs.auto_merge == 'true' && steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --squash --admin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
