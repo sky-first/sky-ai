@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import detect_language
 from core.logging_utils import log_event
+from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
 from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
@@ -582,20 +583,51 @@ def run_orchestrator(
                 pass
             retrieval_context = []
 
-    # 🔒 SECURITY FIX: IGNORE selected_datasets from frontend
-    # Only use tables provided by backend through agent_config.tables
-    # This ensures only authorized tables are used based on user permissions
+    # 🔒 SECURITY FIX: Intersect frontend selection with authorized tables
+    # This allows users to narrow scope (intent) without accessing unauthorized data.
     selected_datasets = state.get("selected_datasets")
+    
     if selected_datasets:
-        log_event(
-            "orchestrator_ignored_frontend_selection",
-            {
-                "agent_id": agent_config.id,
-                "selected_datasets": selected_datasets,
-                "reason": "Frontend table selection ignored - using only backend-authorized tables",
-                "authorized_tables": [t.logical_name for t in agent_config.tables],
-            },
-        )
+        # Create lookups for authorized tables (support both logical and physical names)
+        # We use a case-insensitive match for robustness if needed, but strict for now
+        authorized_map = {t.physical_name: t for t in agent_config.tables}
+        authorized_map.update({t.logical_name: t for t in agent_config.tables})
+        
+        valid_selection = []
+        # Filter agent_config.tables to only include what the user selected
+        # BUT only if it is in the authorized list.
+        unique_selected_names = set()
+        
+        for name in selected_datasets:
+            if name in authorized_map:
+                table_obj = authorized_map[name]
+                if table_obj.logical_name not in unique_selected_names:
+                    valid_selection.append(table_obj)
+                    unique_selected_names.add(table_obj.logical_name)
+        
+        if valid_selection:
+            # Update agent_config to only include the user-selected subset
+            # This effectively restricts the LLM to only see these tables
+            agent_config.tables = valid_selection
+            log_event(
+                "orchestrator_frontend_selection_applied",
+                {
+                    "agent_id": agent_config.id,
+                    "original_count": len(authorized_map) // 2, # approx
+                    "selected_requested": selected_datasets,
+                    "selected_applied": [t.logical_name for t in valid_selection]
+                }
+            )
+        else:
+            log_event(
+                "orchestrator_frontend_selection_invalid",
+                {
+                    "agent_id": agent_config.id,
+                    "reason": "No selected tables were found in authorized list",
+                    "selected_requested": selected_datasets,
+                    "authorized_tables": [t.logical_name for t in agent_config.tables]
+                }
+            )
     
     # 🎯 Otimização: Se há apenas 1 tabela disponível (já filtrada por permissões no backend),
     #                 escolher automaticamente sem consultar o LLM

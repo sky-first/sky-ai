@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # Controls whether to use "ollama" (local) or "openai" (cloud)
     # Default: "ollama"
     ai_provider: str = Field(
-        default="ollama",
+        default="openai",
         validation_alias=AliasChoices("AI_PROVIDER", "ai_provider")
     )
 
