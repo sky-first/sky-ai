@@ -74,10 +74,7 @@ resource "azurerm_role_assignment" "github_actions_secrets_user" {
   skip_service_principal_aad_check = true
 }
 
-import {
-  to = azurerm_role_assignment.github_actions_secrets_user[0]
-  id = "/subscriptions/e1070cf9-7790-4f2d-b449-d4bf4bc21906/resourceGroups/sky-aks-staging-rg/providers/Microsoft.KeyVault/vaults/akv-sky-staging-5364fd0f/providers/Microsoft.Authorization/roleAssignments/65c62e8d-9e19-4258-b3db-2780b0eb8a36"
-}
+
 
 # 4. Federated Credential (Trust Relationship)
 resource "azurerm_federated_identity_credential" "eso" {
