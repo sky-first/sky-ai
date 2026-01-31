@@ -1,0 +1,62 @@
+name: Deploy AI to AKS (Production)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: deploy-ai-prod
+  cancel-in-progress: true
+permissions:
+  id-token: write
+  contents: read
+env:
+  ACR_NAME: skyacrprodel5zpw
+  IMAGE_NAME: sky-poc-ai
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and Push
+        run: |
+          az acr login --name $ACR_NAME
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -t $ACR_NAME.azurecr.io/$IMAGE_NAME:latest .
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:latest
+      - name: Update Infra Repository (GitOps Write-Back)
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+          INFRA_REPO: sky-first/sky-poc-infra
+          BRANCH: main
+        run: |
+          echo "🔄 Checking out Infra Repository..."
+          git clone https://$GITOPS_PAT@github.com/$INFRA_REPO.git infra-repo
+          cd infra-repo
+          git checkout $BRANCH
+          
+          TARGET_FILE="gitops/bootstrap/prod/ai.yaml"
+          echo "📂 Updating $TARGET_FILE..."
+          
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          if grep -q "rollout-trigger:" $TARGET_FILE; then
+             sed -i "s/rollout-trigger: \".*\"/rollout-trigger: \"$TIMESTAMP\"/g" $TARGET_FILE
+          else
+             echo "⚠️ 'rollout-trigger' not found."
+          fi
+          
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add $TARGET_FILE
+          
+          if git diff --staged --quiet; then
+            echo "⚠️ No changes."
+          else
+            git commit -m "GitOps: Update rollout-trigger for ai prod at $TIMESTAMP"
+            git push origin $BRANCH
+          fi
