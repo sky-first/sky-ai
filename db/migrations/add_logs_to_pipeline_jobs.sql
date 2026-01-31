@@ -1,0 +1,1 @@
+ALTER TABLE pipeline_jobs ADD COLUMN IF NOT EXISTS logs JSONB DEFAULT '[]'::jsonb;

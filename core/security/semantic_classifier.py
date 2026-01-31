@@ -2,15 +2,15 @@
 """
 Classificador semântico usando LLM (agnóstico).
 
-Usa gpt-4o-mini para classificar intenções de forma semântica,
-sem depender de palavras-chave específicas de domínio.
+Usa um LLMProvider para classificar intenções de forma semântica,
+sem depender de palavras-chave específicas de domínio e sem acoplamento 
+com a biblioteca da OpenAI.
 """
 import hashlib
-import os
 import json
-from typing import Tuple, Optional, Literal
-from openai import OpenAI
+from typing import Tuple, Optional, Literal, Any
 from config.settings import settings
+from core.llm.providers import LLMProvider
 
 # Tentar usar Redis para cache distribuído, fallback para memória
 _INTENT_CACHE_MEMORY: dict[str, Tuple[str, float]] = {}
@@ -42,14 +42,6 @@ IntentCategory = Literal[
     "SYSTEM_MANIPULATION",
     "UNKNOWN"
 ]
-
-
-def _create_openai_client() -> Optional[OpenAI]:
-    """Cria cliente OpenAI se API key estiver disponível"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return None
-    return OpenAI(api_key=api_key)
 
 
 def _get_cache_key(question: str) -> str:
@@ -99,7 +91,7 @@ def _set_to_cache(cache_key: str, category: IntentCategory, confidence: float) -
 
 async def classify_intent_with_llm(
     question: str,
-    llm_client: Optional[OpenAI] = None
+    llm_provider: Optional[LLMProvider] = None
 ) -> Tuple[IntentCategory, float]:
     """
     Classifica a intenção usando LLM (agnóstico).
@@ -108,7 +100,7 @@ async def classify_intent_with_llm(
     
     Args:
         question: Pergunta do usuário
-        llm_client: Cliente OpenAI (opcional, cria novo se None)
+        llm_provider: Provider LLM (opcional)
         
     Returns:
         Tupla (categoria, confiança)
@@ -122,11 +114,9 @@ async def classify_intent_with_llm(
     if cached_result:
         return cached_result
     
-    # Criar cliente se necessário
-    if llm_client is None:
-        llm_client = _create_openai_client()
-        if llm_client is None:
-            return "UNKNOWN", 0.0
+    # Se não houver provider, não podemos classificar via LLM
+    if llm_provider is None:
+        return "UNKNOWN", 0.0
     
     # Prompt agnóstico (sem exemplos específicos de domínio)
     system_prompt = """You are a security classifier for a business analytics system.
@@ -151,21 +141,23 @@ Rules:
 - Output ONLY the category name, nothing else."""
 
     try:
-        response = llm_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.1,  # Determinístico
-            max_tokens=50,    # Resposta curta
-            timeout=2.0,      # Timeout curto para não bloquear
-        )
+        # Usar interface genérica do LLMProvider
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question}
+        ]
         
-        category_text = response.choices[0].message.content.strip().upper()
+        response = llm_provider.invoke(messages)
+        
+        # Provedores retornam objeto com .content (str)
+        content = getattr(response, "content", str(response)).strip().upper()
+        
+        category_text = content
         confidence = 0.9
         
         # Mapear resposta para categoria válida
+        category: IntentCategory = "UNKNOWN"
+        
         if "SAFE_BUSINESS" in category_text or "SAFE" in category_text:
             category = "SAFE_BUSINESS"
         elif "MALICIOUS" in category_text or "INJECTION" in category_text:
@@ -190,4 +182,3 @@ Rules:
     except Exception as e:
         # Em caso de erro, retornar UNKNOWN (não bloquear por erro de API)
         return "UNKNOWN", 0.0
-

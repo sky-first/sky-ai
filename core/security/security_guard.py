@@ -15,7 +15,7 @@ from enum import Enum
 from core.security.business_intent_detector import is_business_intent
 from core.security.risk_scorer import calculate_risk_score, RiskScore
 from core.security.semantic_classifier import classify_intent_with_llm, IntentCategory
-from openai import OpenAI
+from core.llm.providers import LLMProvider
 
 
 class SecurityAction(Enum):
@@ -45,7 +45,7 @@ class SecurityDecision:
 
 async def evaluate_security(
     question: str,
-    llm_client: Optional[OpenAI] = None,
+    llm_provider: Optional[LLMProvider] = None,
     allowed_tables: Optional[List[str]] = None,
     security_config: Optional[Dict] = None
 ) -> SecurityDecision:
@@ -60,7 +60,7 @@ async def evaluate_security(
     
     Args:
         question: Pergunta do usuário
-        llm_client: Cliente OpenAI (opcional)
+        llm_provider: Provider LLM para classificação semântica (opcional)
         allowed_tables: Tabelas permitidas (para contexto futuro)
         security_config: Configuração de segurança (para contexto futuro)
         
@@ -105,9 +105,9 @@ async def evaluate_security(
     
     should_call_llm = risk_score >= 2
     
-    if should_call_llm and llm_client:
+    if should_call_llm and llm_provider:
         try:
-            llm_category, llm_confidence = await classify_intent_with_llm(question, llm_client)
+            llm_category, llm_confidence = await classify_intent_with_llm(question, llm_provider)
             
             # Se LLM classifica como SAFE_BUSINESS, permitir
             if llm_category == "SAFE_BUSINESS":
@@ -172,4 +172,3 @@ async def evaluate_security(
             llm_category=llm_category,
             confidence=llm_confidence
         )
-

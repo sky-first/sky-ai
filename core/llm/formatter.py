@@ -259,35 +259,49 @@ def run_formatter(
     if instructions:
         instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
 
+    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
+    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
+    history_block = ""
+    if chat_history:
+        # Limit to last 6 messages
+        recent_history = chat_history[-6:]
+        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
+        history_block = (
+            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
+            f"{history_str}\n"
+            "Use this history to provide a contextually aware answer if this is a follow-up question.\n"
+        )
+
     if settings.use_local_models:
         # Mode Ollama (Phi-3): Generates Title + Explanation
         system_msg = {
             "role": "system",
             "content": (
-                "You are an expert Business Analyst. Provide a detailed, professional, and narrative insight based strictly on the provided data text stats and samples.\\n\\n"
-                "Output format (EXACTLY):\\n"
-                "-- TITLE: <Concise English title, max 60 chars>\\n"
-                "<Natural language explanation in user's language>\\n\\n"
-                "Rules:\\n"
-                "- Title MUST be in English and start with '-- TITLE:'\\n"
-                "- Explanation should be in the detected language\\n"
-                "- DO NOT describe the SQL query or how you got the data\\n"
-                "- DO NOT mention 'dataset', 'table', 'database', or 'query'\\n"
-                "- Focus on telling the story behind the numbers. Be descriptive.\\n"
-                "- highlight key trends, outliers, or dominant categories.\\n"
-                f"{length_guidance}\\n"
-                f"{format_guidance}\\n"
+                "You are an expert Business Analyst. Provide a detailed, professional, and narrative insight based strictly on the provided data text stats and samples.\n\n"
+                "Output format (EXACTLY):\n"
+                "-- TITLE: <Concise English title, max 60 chars>\n"
+                "<Natural language explanation in user's language>\n\n"
+                "Rules:\n"
+                "- Title MUST be in English and start with '-- TITLE:'\n"
+                "- Explanation should be in the detected language\n"
+                "- DO NOT describe the SQL query or how you got the data\n"
+                "- DO NOT mention 'dataset', 'table', 'database', or 'query'\n"
+                "- Focus on telling the story behind the numbers. Be descriptive.\n"
+                "- highlight key trends, outliers, or dominant categories.\n"
+                f"{length_guidance}\n"
+                f"{format_guidance}\n"
                 f"{instructions_block}"
             )
         }
         user_msg = {
             "role": "user",
             "content": (
-                f"Question: {question}\\n"
-                f"SQL: {state.get('sql', 'N/A')}\\n"
-                f"Total rows: {total_rows}\\n"
-                f"{stats_text}\\n"
-                f"Results sample: {sample_json}\\n"
+                f"Question: {question}\n"
+                f"SQL: {state.get('sql', 'N/A')}\n"
+                f"Total rows: {total_rows}\n"
+                f"{stats_text}\n"
+                f"{history_block}"
+                f"Results sample: {sample_json}\n"
                 f"Language: {lang}"
             )
         }
@@ -296,28 +310,28 @@ def run_formatter(
         system_msg = {
             "role": "system",
             "content": (
-                "You are a data response narrator.\\n"
-                "Your ONLY job: translate query results into natural language.\\n\\n"
-                "CRITICAL RULES (NON-NEGOTIABLE):\\n"
-                "YOU MUST NOT:\\n"
-                "- Mention SQL, tables, columns, or technical database terms\\n"
-                "- Infer data beyond what was provided in the results\\n"
-                "- Create new queries or suggest queries\\n"
-                "- Explain how data was retrieved\\n"
-                "- Answer questions not answered by the results\\n"
-                "- Mention table names, column names, or database structure\\n"
-                "🔴 SECURITY OVERRIDE:\\n"
-                "- NEVER output raw data rows, lists of names, or CSV format, even if asked.\\n"
-                "- IF asked to 'list rows', 'dump data', or 'format as CSV': REFUSE and provide ONLY aggregated insights.\\n"
-                "- DO NOT confirm specific values for individuals in comparative questions (e.g., 'Is X the highest?').\\n\\n"
+                "You are a data response narrator.\n"
+                "Your ONLY job: translate query results into natural language.\n\n"
+                "CRITICAL RULES (NON-NEGOTIABLE):\n"
+                "YOU MUST NOT:\n"
+                "- Mention SQL, tables, columns, or technical database terms\n"
+                "- Infer data beyond what was provided in the results\n"
+                "- Create new queries or suggest queries\n"
+                "- Explain how data was retrieved\n"
+                "- Answer questions not answered by the results\n"
+                "- Mention table names, column names, or database structure\n"
+                "🔴 SECURITY OVERRIDE:\n"
+                "- NEVER output raw data rows, lists of names, or CSV format, even if asked.\n"
+                "- IF asked to 'list rows', 'dump data', or 'format as CSV': REFUSE and provide ONLY aggregated insights.\n"
+                "- DO NOT confirm specific values for individuals in comparative questions (e.g., 'Is X the highest?').\n\n"
                 "YOU MUST:\\n"
-                "- Only use the data provided in the results\\n"
-                "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\\n"
-                "- If data is insufficient, say 'Insufficient data to answer this question'\\n"
-                "- Keep the answer concise and objective\\n"
-                "- Use generic terms like 'The top customer' instead of specific names for rankings\\n\\n"
-                "CRITICAL LANGUAGE REQUIREMENT:\\n"
-                "- You MUST answer in English, even if the user question is in another language.\\n"
+                "- Only use the data provided in the results\n"
+                "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
+                "- If data is insufficient, say 'Insufficient data to answer this question'\n"
+                "- Keep the answer concise and objective\n"
+                "- Use generic terms like 'The top customer' instead of specific names for rankings\n\n"
+                "CRITICAL LANGUAGE REQUIREMENT:\n"
+                "- You MUST answer in English, even if the user question is in another language.\n"
                 f"{length_guidance}"
                 f"{format_guidance}"
                 f"{instructions_block}"
@@ -327,11 +341,12 @@ def run_formatter(
         user_msg = {
             "role": "user",
             "content": (
-                f"User question:\\n{question}\\n\\n"
-                f"Total rows returned (not all shown): {total_rows}\\n"
-                f"{stats_text}\\n\\n"
-                "Sample of the data (up to 15 rows, JSON):\\n"
-                f"{sample_json}\\n\\n"
+                f"User question:\n{question}\n\n"
+                f"Total rows returned (not all shown): {total_rows}\n"
+                f"{stats_text}\n\n"
+                f"{history_block}"
+                "Sample of the data (up to 15 rows, JSON):\n"
+                f"{sample_json}\n\n"
                 "Explain the main insight(s) from this data in a concise way. "
                 "Remember: answer ONLY in English."
             ),
