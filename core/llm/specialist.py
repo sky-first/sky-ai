@@ -842,12 +842,27 @@ def run_specialist(
         # Atualizar content com instruções adicionais
         system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
 
+    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
+    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
+    history_block = ""
+    if chat_history:
+        # Limit to last 6 messages
+        recent_history = chat_history[-6:]
+        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
+        history_block = (
+            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
+            f"{history_str}\n"
+            "Use this history to understand the user's intent if the current question is a follow-up.\n"
+        )
+
+    if use_multiple_tables:
         user_msg = {
             "role": "user",
             "content": (
                 f"User question:\n{question}\n\n"
                 f"Table schemas:\n{schema_text}\n"
                 f"{data_preview_block}"
+                f"{history_block}"
                 f"{context_block}"
                 f"{sql_instructions_block}"
                 f"{security_instructions_block}"
@@ -930,6 +945,7 @@ def run_specialist(
                 f"User question:\n{question}\n\n"
                 f"Table schema:\n{schema_text}\n"
                 f"{data_preview_block}"
+                f"{history_block}"
                 f"{context_block}"
                 f"{sql_instructions_block}"
                 f"{security_instructions_block}"
@@ -1183,7 +1199,11 @@ def run_specialist(
     else:
         state["sql"] = final_query
         
-    state["data"] = rows
+    # Serialize data if it's an Arrow Table (checkpointer needs JSON-serializable data)
+    if hasattr(rows, "to_pylist"):
+        state["data"] = rows.to_pylist()
+    else:
+        state["data"] = rows
 
     real_num_rows = 0
     if hasattr(rows, "num_rows"): # Arrow Table

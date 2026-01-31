@@ -44,7 +44,6 @@ from core.security.risk_scorer import (
 
 from core.security.semantic_classifier import (
     classify_intent_with_llm,
-    _create_openai_client,
 )
 
 __all__ = [
@@ -78,6 +77,5 @@ __all__ = [
     "RiskScore",
     # Semantic Classifier
     "classify_intent_with_llm",
-    "_create_openai_client",
 ]
 

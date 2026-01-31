@@ -1524,12 +1524,13 @@ async def dashboards_plan(
     if original_question:
         try:
             from core.security.security_guard import evaluate_security
-            from core.security.semantic_classifier import _create_openai_client
+            from core.llm.factory import create_llm_orchestrator
             
-            llm_client_for_security = _create_openai_client()
+            # Use orchestrator LLM for security checks (it's a smart model)
+            llm_provider = create_llm_orchestrator()
             security_decision = await evaluate_security(
                 question=original_question,
-                llm_client=llm_client_for_security,
+                llm_provider=llm_provider,
             )
             
             if security_decision.is_blocked():
@@ -2161,11 +2162,11 @@ async def query_connection(
     
     # ✅ CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
     from core.security.audit_manager import AuditManager
-    from core.security.semantic_classifier import _create_openai_client
+    from core.llm.factory import create_llm_orchestrator
     from core.i18n.i18n import detect_language, get_message
     
-    # Criar cliente OpenAI para avaliação de segurança
-    llm_client_for_security = _create_openai_client()
+    # Criar provider LLM para avaliação de segurança
+    llm_provider = create_llm_orchestrator()
     
     # Avaliação consolidada: PII + Injection + Escalation + Auditoria
     security_report = await AuditManager.evaluate_prompt(
@@ -2173,7 +2174,7 @@ async def query_connection(
         user_id=body.user_id,
         connection_id=connection_id,
         thread_id=body.thread_id,
-        llm_client=llm_client_for_security
+        llm_provider=llm_provider
     )
     
     # Detectar idioma para validação
@@ -2540,14 +2541,14 @@ async def query_connection(
             llm_formatter=llm_formatter,
             thread_id=query_thread_id,
             retrieval_context=retrieval_context,
+            chat_history=chat_history_list,
             instructions=body.instructions,
             creativity=body.creativity,
             length=body.length,
             response_format=body.response_format,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
-            # ✅ FIX: chat_history removed - run_agent_once() doesn't accept this parameter
-            # chat_history will be available via state['chat_history'] inside the agent
+
         )
     except Exception as e:
         import traceback
@@ -3041,10 +3042,10 @@ async def _stream_connection_query(
 
         # ✅ CAMADA 2: CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
         from core.security.audit_manager import AuditManager
-        from core.security.semantic_classifier import _create_openai_client
+        from core.llm.factory import create_llm_orchestrator
         
-        # Criar cliente OpenAI para avaliação de segurança
-        llm_client_for_security = _create_openai_client()
+        # Criar provider LLM para avaliação de segurança
+        llm_provider = create_llm_orchestrator()
         
         # Avaliação consolidada: PII + Injection + Escalation + Auditoria
         security_report = await AuditManager.evaluate_prompt(
@@ -3052,7 +3053,7 @@ async def _stream_connection_query(
             user_id=body.user_id,
             connection_id=connection_id,
             thread_id=body.thread_id,
-            llm_client=llm_client_for_security
+            llm_provider=llm_provider
         )
         
         if security_report.is_blocked:

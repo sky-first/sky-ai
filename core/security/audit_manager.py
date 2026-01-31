@@ -32,7 +32,7 @@ class AuditManager:
         user_id: Optional[str],
         connection_id: str,
         thread_id: Optional[str] = None,
-        llm_client: Any = None
+        llm_provider: Any = None
     ) -> SecurityAuditReport:
         report = SecurityAuditReport(redacted_prompt=question)
         
@@ -54,10 +54,10 @@ class AuditManager:
             return report
 
         # 2. Security Guard (Prompt Injection / Jailbreak)
-        # Nota: llm_client deve ser o cliente OpenAI configurado
+        # Nota: llm_provider deve ser uma implementação de LLMProvider
         security_decision = await evaluate_security(
             question=question,
-            llm_client=llm_client
+            llm_provider=llm_provider
         )
         
         report.scan_details["security_guard"] = {

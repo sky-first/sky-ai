@@ -460,17 +460,34 @@ def _enforce_distribution_and_fact_dim(
 
 
 def _safe_json_loads(text: str) -> Optional[dict]:
+    """
+    Safely load JSON, handling common LLM formatting errors (markdown fences, double braces).
+    """
     if not text:
         return None
+
+    # 1. Strip markdown fences
+    text = text.replace("```json", "").replace("```", "").strip()
+
+    # 2. Handle double braces {{ ... }} common in some LLM outputs
+    # If the text starts with {{ and ends with }}, strip the outer braces
+    if text.startswith("{{") and text.endswith("}}"):
+        text = text[1:-1]
+    
+    # 3. Try standard load
     try:
         return json.loads(text)
     except Exception:
-        # try extracting first {...} block
+        # 4. Fallback: extract first {...} block
         try:
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1 and end > start:
-                return json.loads(text[start : end + 1])
+                candidate = text[start : end + 1]
+                # Fix double braces inside the block if present
+                if candidate.startswith("{{") and candidate.endswith("}}"):
+                    candidate = candidate[1:-1]
+                return json.loads(candidate)
         except Exception:
             return None
     return None
@@ -481,6 +498,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
     Deterministic fallback plan when LLM fails.
     Produces widgets that are safe to execute with small result sets.
     """
+
     picked = logical_tables[:12]
     widgets: List[Dict[str, Any]] = []
 
@@ -846,8 +864,8 @@ def generate_dashboard_plan(
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
             "  * Since original_question is present, the title MUST be directly related to it.\n"
-            'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
+            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
+            f'{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"
         )
         
@@ -927,8 +945,8 @@ def generate_dashboard_plan(
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
             "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
             "  * USE CONTEXT: If a specific goal, region, or timeframe is inferred, INCLUDE IT in the title.\n"
-            'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            '{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
+            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
+            f'{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
             "]}}.\n"
         )
         

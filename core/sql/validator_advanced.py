@@ -215,6 +215,16 @@ class AdvancedSQLValidator:
                 continue
             # cortar alias se por acaso veio grudado (defensivo)
             ident = ident.split()[0]
+            
+            # IGNORAR FUNÇÕES COMUNS QUE USAM "FROM" NA SINTAXE (EXTRACT, SUBSTRING, TRIM)
+            # OU QUE FORAM CAPTURADAS POR ACASO
+            if ident.upper() in {
+                'DATE_SUB', 'DATE_ADD', 'CURRENT_DATE', 'NOW', 
+                'EXTRACT', 'SUBSTRING', 'TRIM', 'POSITION', 'OVERLAY',
+                'UNNEST', 'GENERATE_SERIES', 'VALUES'
+            }:
+                continue
+                
             tables.add(ident)
 
         return tables
