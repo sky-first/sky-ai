@@ -52,6 +52,22 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
+      - name: Break Blob Leases (Emergency)
+        env:
+          STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
+          CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
+          STATE_BLOB: "poc-deploy-${{ inputs.environment }}.tfstate"
+          LOCK_BLOB: ".terraform.tfstate.lock.info"
+        run: |
+           echo "Emergency: Breaking lease for $STATE_BLOB..."
+           az storage blob lease break --blob-name "$STATE_BLOB" --container-name "$CONTAINER" --account-name "$STORAGE_ACCOUNT" --auth-mode login || echo "No lease on state blob"
+
+           echo "Emergency: Breaking lease for $LOCK_BLOB..."
+           az storage blob lease break --blob-name "$LOCK_BLOB" --container-name "$CONTAINER" --account-name "$STORAGE_ACCOUNT" --auth-mode login || echo "No lease on lock blob"
+
+           echo "Emergency: Deleting lock blob..."
+           az storage blob delete --name "$LOCK_BLOB" --container-name "$CONTAINER" --account-name "$STORAGE_ACCOUNT" --auth-mode login || echo "Lock blob not found"
+
       - name: Verify Permission (User Access Administrator)
         run: |
           set -euo pipefail
