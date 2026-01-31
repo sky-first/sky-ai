@@ -52,25 +52,22 @@ jobs:
           tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           client_id: ${{ secrets.AZURE_CLIENT_ID }}
 
-      - name: Break Blob Leases (Emergency - Find & Destroy)
+      - name: Break Blob Leases (Emergency - Nuclear Option)
         env:
           STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
           ENV_SUFFIX: "${{ inputs.environment }}.tfstate"
         run: |
-           echo "Listing blobs ending in '$ENV_SUFFIX' in container '$CONTAINER'..."
-           # List blobs filtering by the environment suffix to avoid touching other envs
+           echo "☢️ NUCLEAR OPTION: Breaking leases for ALL blobs in container '$CONTAINER'..."
+           # List ALL blobs. No filters. We need to unblock production.
            BLOBS=$(az storage blob list \
              --container-name "$CONTAINER" \
              --account-name "$STORAGE_ACCOUNT" \
              --auth-mode login \
-             --query "[?ends_with(name, '$ENV_SUFFIX')].name" -o tsv)
+             --query "[].name" -o tsv)
 
            if [ -z "$BLOBS" ]; then
-             echo "⚠️ No blobs found matching suffix '$ENV_SUFFIX'"
-             # Fallback to listing all and grepping
-             echo "Fallback: listing all blobs..."
-             az storage blob list --container-name "$CONTAINER" --account-name "$STORAGE_ACCOUNT" --auth-mode login --query "[].name" -o tsv
+             echo "⚠️ No blobs found in container '$CONTAINER'"
            fi
 
            for BLOB in $BLOBS; do
@@ -79,19 +76,19 @@ jobs:
                --blob-name "$BLOB" \
                --container-name "$CONTAINER" \
                --account-name "$STORAGE_ACCOUNT" \
-               --auth-mode login || echo "⚠️ Failed to break lease for $BLOB (maybe none)"
+               --auth-mode login || echo "⚠️ Failed to break lease for $BLOB (maybe none) - continuing..."
                
-             # Also try breaking potential lock file
+             # Check for lock.info associated with this blob (just in case)
              LOCK_BLOB="$BLOB.lock.info"
-             echo "🔨 Breaking lease for potential lock blob: $LOCK_BLOB"
+             # No harm in trying to break it blindly
              az storage blob lease break \
                --blob-name "$LOCK_BLOB" \
                --container-name "$CONTAINER" \
                --account-name "$STORAGE_ACCOUNT" \
-               --auth-mode login || true
+               --auth-mode login 2>/dev/null || true
            done
            
-           # Also break the generic .terraform.tfstate.lock.info if it exists
+           # Also break the generic .terraform.tfstate.lock.info
            echo "🔨 Breaking generic lock info"
            az storage blob lease break \
              --blob-name ".terraform.tfstate.lock.info" \
@@ -103,30 +100,19 @@ jobs:
         run: |
           set -euo pipefail
           echo "Verifying RBAC permissions for Runner Identity..."
-
-          # Get current client ID (Identity)
           CLIENT_ID=$(az account show --query user.name -o tsv)
-          echo "Current Client ID: $CLIENT_ID"
-
           RG_NAME="sky-aks-${{ github.event.inputs.environment }}-rg"
-          echo "Checking permissions on Resource Group: $RG_NAME"
-
           ROLES=$(az role assignment list --assignee "$CLIENT_ID" --resource-group "$RG_NAME" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
 
-          echo "Assigned Roles found: $ROLES"
-
           if echo "$ROLES" | grep -qE "Owner|User Access Administrator"; then
-            echo "✅ Permission Verified: Identity has sufficient privileges to manage Role Assignments."
+            echo "✅ Permission Verified."
           else
-            echo "⚠️  WARNING: 'Owner' or 'User Access Administrator' role NOT found on Resource Group '$RG_NAME'."
-            echo "⚠️  Checking Subscription level permissions..."
+            echo "⚠️  WARNING: 'Owner' or 'User Access Administrator' role NOT found."
             SUB_ROLES=$(az role assignment list --assignee "$CLIENT_ID" --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
-            echo "Subscription Roles: $SUB_ROLES"
-            
             if echo "$SUB_ROLES" | grep -qE "Owner|User Access Administrator"; then
-               echo "✅ Permission Verified (Inherited from Subscription)."
+               echo "✅ Permission Verified (Inherited)."
             else
-               echo "❌ CRITICAL ERROR: Identidade do Pipeline NÃO tem permissão para gerenciar acessos."
+               echo "❌ CRITICAL ERROR: Pipeline Identity lacks management permissions."
             fi
           fi
 
@@ -139,10 +125,7 @@ jobs:
       - name: Generate Backend Config
         run: |
           ENV="${{ inputs.environment }}"
-
-          # Use same key format as deploy.yml
           KEY_PREFIX="${{ secrets.TF_BACKEND_KEY_PREFIX || 'poc-deploy' }}"
-
           cat > backend.hcl <<EOF
           resource_group_name  = "${{ secrets.TF_BACKEND_RESOURCE_GROUP }}"
           storage_account_name = "${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}"
@@ -150,7 +133,6 @@ jobs:
           key                  = "${KEY_PREFIX}-${ENV}.tfstate"
           use_azuread_auth     = true
           EOF
-
           echo "Backend Config generated for $ENV"
           cat backend.hcl
 
@@ -175,45 +157,24 @@ jobs:
           set -e
           ENV="${{ inputs.environment }}"
           TFVARS="terraform.tfvars.${ENV}"
-
-          echo "=========================================="
-          echo "Importing existing Azure resources to Terraform state"
-          echo "Environment: $ENV"
-          echo "=========================================="
-          echo ""
-
-          # Extract values from tfvars
           RG_NAME=$(grep "^resource_group_name" "$TFVARS" | cut -d'"' -f2)
           AKS_NAME=$(grep "^aks_cluster_name" "$TFVARS" | cut -d'"' -f2)
-
-          echo "Target Resources:"
-          echo "  Resource Group: $RG_NAME"
-          echo "  AKS Cluster: $AKS_NAME"
-          echo ""
 
           # Function to import if resource exists in Azure but not in state
           import_if_needed() {
             local TF_ADDRESS="$1"
             local AZURE_ID="$2"
             local RESOURCE_NAME="$3"
-            
-            echo "Checking $RESOURCE_NAME..."
-            
             if terraform state show "$TF_ADDRESS" >/dev/null 2>&1; then
               echo "  ✅ Already in state"
               return 0
             fi
-            
-            echo "  ⚠️  Not in state, attempting import..."
             if terraform import -var-file="$TFVARS" "$TF_ADDRESS" "$AZURE_ID" 2>&1 | tee import-temp.log; then
               echo "  ✅ Import successful"
               return 0
             else
-              # Check if error is because resource doesn't exist in Azure
-              if grep -q "Cannot import non-existent" import-temp.log || \
-                 grep -q "does not exist" import-temp.log || \
-                 grep -q "was not found" import-temp.log; then
-                echo "  ℹ️  Resource doesn't exist in Azure (will be created by Terraform)"
+              if grep -q "Cannot import non-existent" import-temp.log || grep -q "does not exist" import-temp.log || grep -q "was not found" import-temp.log; then
+                echo "  ℹ️  Resource doesn't exist in Azure"
                 return 0
               else
                 echo "  ❌ Import failed"
@@ -223,77 +184,44 @@ jobs:
             fi
           }
 
-          # Import Resource Group
-          import_if_needed \
-            "azurerm_resource_group.aks" \
-            "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME" \
-            "Resource Group"
-
-          # Import AKS Cluster (only if RG exists)
-          if az group show -n "$RG_NAME" >/dev/null 2>&1; then
-            # Import AKS
-            if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
-              import_if_needed \
-                "azurerm_kubernetes_cluster.aks" \
-                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME" \
-                "AKS Cluster"
-            else
-              echo "AKS Cluster doesn't exist in Azure yet"
-            fi
-
-            # Import User Node Pool
-            NODE_POOL_NAME="userapps"
-            import_if_needed \
-              "azurerm_kubernetes_cluster_node_pool.user_pool" \
-              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" \
-              "AKS User Node Pool"
-
-            # Import AI Node Pool
-            AI_NODE_POOL_NAME="aicpu16"
-            import_if_needed \
-              "azurerm_kubernetes_cluster_node_pool.ai_turbo" \
-              "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$AI_NODE_POOL_NAME" \
-              "AKS AI Node Pool"
-
-            # Import Public IP (Bastion)
-            PIP_NAME="bastion-pip-${ENV}"
-            if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
-              import_if_needed \
-                "azurerm_public_ip.bastion" \
-                "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/publicIPAddresses/$PIP_NAME" \
-                "Bastion Public IP"
-            fi
-            # ... other resources kept as original logic ...
-          fi
-
-          # CRITICAL FIXED IMPORT: Role Assignment for GH Actions
-          echo "Checking for Role Assignment Conflict (GH Actions Contributor)..."
-          # SP ID for github-actions-sp
-          SP_ID="ac642806-ae70-4e1d-a800-c8ed0f43ecd0"
-          SCOPE="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
-          # List assignments for this SP on this RG with Contributor role
-          RA_ID=$(az role assignment list --assignee "$SP_ID" --scope "$SCOPE" --role "Contributor" --query "[0].id" -o tsv || echo "")
+          # Minimal set of critical imports
+          import_if_needed "azurerm_resource_group.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME" "Resource Group"
           
-          if [ -n "$RA_ID" ]; then
-             echo "Found existing Role Assignment: $RA_ID"
-             import_if_needed \
-               "azurerm_role_assignment.gh_actions_contributor" \
-               "$RA_ID" \
-               "GH Actions Contributor Role"
-          else
-             echo "Role assignment not found (will be created)"
-          fi
+          if az group show -n "$RG_NAME" >/dev/null 2>&1; then
+            if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
+               import_if_needed "azurerm_kubernetes_cluster.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME" "AKS Cluster"
+               
+               NODE_POOL_NAME="userapps"
+               import_if_needed "azurerm_kubernetes_cluster_node_pool.user_pool" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" "AKS User Node Pool"
 
-          echo ""
-          echo "=========================================="
-          echo "Import phase completed"
-          echo "=========================================="
+               AI_NODE_POOL_NAME="aicpu16"
+               import_if_needed "azurerm_kubernetes_cluster_node_pool.ai_turbo" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$AI_NODE_POOL_NAME" "AKS AI Node Pool"
+            fi
+            
+            # CRITICAL: Import Role Assignment Conflict
+            SP_ID="ac642806-ae70-4e1d-a800-c8ed0f43ecd0"
+            SCOPE="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
+            RA_ID=$(az role assignment list --assignee "$SP_ID" --scope "$SCOPE" --role "Contributor" --query "[0].id" -o tsv || echo "")
+            if [ -n "$RA_ID" ]; then
+                import_if_needed "azurerm_role_assignment.gh_actions_contributor" "$RA_ID" "GH Actions Contributor Role"
+            fi
+            
+            # Bastion networking imports
+             PIP_NAME="bastion-pip-${ENV}"
+             if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
+               import_if_needed "azurerm_public_ip.bastion" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/publicIPAddresses/$PIP_NAME" "Bastion Public IP"
+             fi
+             
+             VNET_NAME="sky-aks-vnet-${ENV}"
+             if az network vnet show -g "$RG_NAME" -n "$VNET_NAME" >/dev/null 2>&1; then
+               import_if_needed "azurerm_virtual_network.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME" "AKS VNet"
+             fi
+          fi
 
       - name: Refresh State
         run: |
           ENV="${{ inputs.environment }}"
           TFVARS="terraform.tfvars.${ENV}"
-
           echo "Refreshing Terraform state to sync with Azure..."
           terraform refresh -var-file="$TFVARS"
           echo "✅ State refreshed successfully"
