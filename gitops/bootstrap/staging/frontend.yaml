@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-30T14:22:28Z"
+          rollout-trigger: "2026-01-31T23:44:17Z"
         imagePullSecrets:
           - name: regcred
         image:
