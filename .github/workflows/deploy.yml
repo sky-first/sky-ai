@@ -1120,6 +1120,7 @@ jobs:
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -out=tfplan \
             -no-color \
+            -lock=false \
             -detailed-exitcode 2>&1 | tee plan-output.txt
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
@@ -1151,6 +1152,7 @@ jobs:
               -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
               -out=tfplan \
               -no-color \
+              -lock=false \
               -detailed-exitcode 2>&1 | tee plan-output.txt
             PLAN_EXIT_CODE=${PIPESTATUS[0]}
             set -e
@@ -2900,7 +2902,8 @@ jobs:
           fi
 
           # Aplicar usando o plan file (mais seguro que -auto-approve)
-          terraform apply tfplan 2>&1 | tee apply-output.txt
+          # Bypass lock explicitamente para resolver travamentos persistentes
+          terraform apply -lock=false tfplan 2>&1 | tee apply-output.txt
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
 
           if [ $APPLY_EXIT_CODE -ne 0 ]; then
