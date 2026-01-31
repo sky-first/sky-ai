@@ -14,7 +14,7 @@ authorized_ips = [
   "169.155.237.158/32",
   "20.97.244.91/32",
   "169.155.237.143/32",
-  "2a01:11:8610:8e0:5c97:d3bf:c879:d7c1/128"
+
 ]
 
 # Domínios de produção (configurados em Ingress later)
@@ -29,7 +29,7 @@ allowed_ssh_ips = [
   "169.155.237.158/32",
   "20.97.244.91/32",
   "169.155.237.143/32",
-  "2a01:11:8610:8e0:5c97:d3bf:c879:d7c1/128"
+
 ]
 
 # GitHub Actions Service Principal (for CI/CD Key Vault access)
