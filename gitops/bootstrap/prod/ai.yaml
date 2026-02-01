@@ -185,7 +185,9 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-01-30T15:20:00Z"
+            value: "2026-01-31T23:55:00Z"
+          - name: OLLAMA_BASE_URL
+            value: "http://ollama-service.prod.svc.cluster.local:11434"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod
