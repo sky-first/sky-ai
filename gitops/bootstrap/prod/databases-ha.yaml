@@ -18,10 +18,10 @@ spec:
             - regcred
           postgresql:
             auth:
-              postgresPassword: "${POSTGRES_PASSWORD}"
+              postgresPassword: "qL2fmcDPM02ec3yj"
               username: sky
-              password: "${POSTGRES_USER_PASSWORD}"
-              database: sky_prod
+              password: "qL2fmcDPM02ec3yj"
+              database: ai_saas_db
         
         image:
            registry: skyacrprodel5zpw.azurecr.io
@@ -33,10 +33,10 @@ spec:
           replication:
             enabled: true
             user: replicator
-            password: "${POSTGRES_REPLICA_PASSWORD}"
+            password: "qL2fmcDPM02ec3yj"
             readOnlyUser:
               name: sky_readonly
-              password: "${POSTGRES_READONLY_PASSWORD}"
+              password: "qL2fmcDPM02ec3yj"
           
           # Streaming replication setup
           maxConnections: 200
@@ -114,7 +114,7 @@ spec:
         
         auth:
           enabled: true
-          password: "${REDIS_PASSWORD}"
+          password: "LDVUBr9jYhxnddxhvbDpDliO"
         
         # High Availability with Sentinel
         sentinel:
