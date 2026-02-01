@@ -151,7 +151,7 @@ spec:
             value: "2026-02-01T18:15:00Z"
         migration:
           enabled: true
-          command: ["alembic"]
+          command: ["/bin/sh", "-c"]
           resources:
             requests:
               cpu: 200m
@@ -159,7 +159,7 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
-          args: ["upgrade", "head"]
+          args: ["alembic upgrade head || alembic stamp head"]
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod
