@@ -23,6 +23,11 @@ spec:
               password: "${POSTGRES_USER_PASSWORD}"
               database: sky_prod
         
+        image:
+           registry: skyacrprodel5zpw.azurecr.io
+           repository: bitnami/postgresql
+           tag: 15.1.0-debian-11-r19
+
         # High Availability configuration
         postgresql:
           replication:
@@ -36,10 +41,6 @@ spec:
           # Streaming replication setup
           maxConnections: 200
           sharedBuffers: 256MB
-          image:
-             registry: skyacrprodel5zpw.azurecr.io
-             repository: bitnami/postgresql
-             tag: 15.1.0-debian-11-r19
         
         primary:
           persistence:
@@ -101,20 +102,12 @@ spec:
         global:
           imagePullSecrets:
             - regcred
+        
         image:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
           tag: 7.2.3-debian-11-r2
-        sentinel:
-          image:
-            registry: skyacrprodel5zpw.azurecr.io
-            repository: bitnami/redis-sentinel
-            tag: latest
-        metrics:
-          image:
-            registry: skyacrprodel5zpw.azurecr.io
-            repository: bitnami/redis-exporter
-            tag: latest
+        
         auth:
           enabled: true
           password: "${REDIS_PASSWORD}"
@@ -125,6 +118,10 @@ spec:
           quorum: 2
           downAfterMilliseconds: 5000
           failoverTimeout: 10000
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-sentinel
+            tag: latest
         
         replica:
           replicaCount: 2
@@ -150,6 +147,10 @@ spec:
         
         metrics:
           enabled: true
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-exporter
+            tag: latest
           serviceMonitor:
             enabled: true
             labels:
