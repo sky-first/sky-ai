@@ -41,10 +41,6 @@ spec:
           # Streaming replication setup
           maxConnections: 200
           sharedBuffers: 256MB
-          image:
-             registry: skyacrprodel5zpw.azurecr.io
-             repository: bitnami/postgresql
-             tag: 15.1.0-debian-11-r19
         
         primary:
           persistence:
@@ -110,6 +106,7 @@ spec:
         global:
           imagePullSecrets:
             - regcred
+        
         image:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
