@@ -111,6 +111,7 @@ spec:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
           tag: latest
+
         auth:
           enabled: true
           password: "LDVUBr9jYhxnddxhvbDpDliO"
