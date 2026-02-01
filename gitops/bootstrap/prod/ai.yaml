@@ -61,7 +61,7 @@ spec:
                 - workspace-prd-ollama.skyfirstlabs.com
         # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
-          enabled: true
+          enabled: false
           secretStoreRef:
             name: azure-keyvault
             kind: ClusterSecretStore
