@@ -11,7 +11,8 @@ spec:
     targetRevision: main
     helm:
       values: |
-        imagePullSecrets: []
+        imagePullSecrets:
+          - name: regcred
         image:
           repository: skyacrprodel5zpw.azurecr.io/sky-poc-backend
           tag: "latest"
@@ -32,6 +33,7 @@ spec:
         service:
           port: 80
           targetPort: 8000
+        
         ingress:
           enabled: true
           className: "nginx"
@@ -69,7 +71,7 @@ spec:
                 celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
                 celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
                 # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" | replace \"@postgres\" \"@postgresql\" }}"
           data:
             - secretKey: jwt_secret_key
               remoteRef:
@@ -146,7 +148,7 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-01-30T15:20:00Z"
+            value: "2026-02-01T17:55:00Z"
         migration:
           enabled: true
           command: ["alembic"]

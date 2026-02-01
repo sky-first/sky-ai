@@ -68,7 +68,7 @@ spec:
           - name: NEXT_PUBLIC_API_URL
             value: "https://workspace-prd-api.skyfirstlabs.com"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-01T17:50:00Z"
+            value: "2026-02-01T17:55:00Z"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod
