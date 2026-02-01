@@ -159,7 +159,7 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
-          args: ["alembic upgrade head || alembic stamp head"]
+          args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod
