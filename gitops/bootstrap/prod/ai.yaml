@@ -34,6 +34,12 @@ spec:
           port: 80
           targetPort: 8001
         
+        probes:
+          liveness:
+            path: /docs
+          readiness:
+            path: /docs
+        
         ingress:
           enabled: true
           className: "nginx"
