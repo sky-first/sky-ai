@@ -15,7 +15,7 @@ spec:
         global:
           imageRegistry: skyacrprodel5zpw.azurecr.io
           imagePullSecrets:
-            - regcred
+            - name: regcred
           postgresql:
             auth:
               postgresPassword: "qL2fmcDPM02ec3yj"
@@ -109,8 +109,7 @@ spec:
       values: |
         global:
           imagePullSecrets:
-            - regcred
-        
+            - name: regcred
         image:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
