@@ -81,7 +81,7 @@ spec:
                 celery_broker_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/1\" }}"
                 celery_result_backend: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/2\" }}"
                 # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
+                database_url: "{{ .database_url | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
           data:
             - secretKey: jwt_secret_key
               remoteRef:
