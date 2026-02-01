@@ -33,7 +33,7 @@ spec:
           port: 80
           targetPort: 8000
         ingress:
-          enabled: false
+          enabled: true
           className: "nginx"
           hosts:
             - host: workspace-prd-api.skyfirstlabs.com
@@ -51,7 +51,7 @@ spec:
                 - workspace-prd.skyfirstlabs.com
         # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
-          enabled: false
+          enabled: true
           secretStoreRef:
             name: azure-keyvault
             kind: ClusterSecretStore

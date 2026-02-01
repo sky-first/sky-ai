@@ -44,18 +44,10 @@ spec:
           replicas: 1
           # CRÍTICO: Admin password sincronizado via ExternalSecrets
           # Valor será injetado em tempo de deploy via environment variable
-          adminPassword: "${GRAFANA_ADMIN_PASSWORD}"
+          adminPassword: "SkyRescueSecret2026!"
           persistence:
             enabled: true
             size: 10Gi
-          datasources:
-            datasources.yaml:
-              apiVersion: 1
-              datasources:
-              - name: Prometheus
-                type: prometheus
-                url: http://prometheus-kube-prometheus-prometheus:9090
-                access: proxy
                 isDefault: true
               - name: Loki
                 type: loki
