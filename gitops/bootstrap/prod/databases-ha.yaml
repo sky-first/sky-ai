@@ -26,7 +26,7 @@ spec:
         image:
            registry: skyacrprodel5zpw.azurecr.io
            repository: bitnami/postgresql
-           tag: 15.1.0-debian-11-r19
+           tag: latest
 
         # High Availability configuration
         postgresql:
@@ -66,6 +66,10 @@ spec:
         
         metrics:
           enabled: true
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/postgres-exporter
+            tag: latest
           serviceMonitor:
             enabled: true
             labels:
