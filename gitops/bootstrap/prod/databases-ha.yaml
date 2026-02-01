@@ -100,6 +100,16 @@ spec:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
           tag: 7.2.3-debian-11-r2
+        sentinel:
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-sentinel
+            tag: latest
+        metrics:
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-exporter
+            tag: latest
         auth:
           enabled: true
           password: "${REDIS_PASSWORD}"
