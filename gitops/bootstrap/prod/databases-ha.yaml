@@ -13,6 +13,7 @@ spec:
       releaseName: postgresql
       values: |
         global:
+          imageRegistry: skyacrprodel5zpw.azurecr.io
           postgresql:
             auth:
               postgresPassword: "${POSTGRES_PASSWORD}"
@@ -33,6 +34,10 @@ spec:
           # Streaming replication setup
           maxConnections: 200
           sharedBuffers: 256MB
+          image:
+             registry: skyacrprodel5zpw.azurecr.io
+             repository: bitnami/postgresql
+             tag: 15.1.0-debian-11-r19
         
         primary:
           persistence:
@@ -91,6 +96,10 @@ spec:
     helm:
       releaseName: redis
       values: |
+        image:
+          registry: skyacrprodel5zpw.azurecr.io
+          repository: bitnami/redis
+          tag: 7.2.3-debian-11-r2
         auth:
           enabled: true
           password: "${REDIS_PASSWORD}"
