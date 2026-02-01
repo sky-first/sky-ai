@@ -11,7 +11,8 @@ spec:
     targetRevision: main
     helm:
       values: |
-        imagePullSecrets: []
+        imagePullSecrets:
+          - name: regcred
         image:
           repository: skyacrprodel5zpw.azurecr.io/sky-poc-ai
           tag: "latest"
@@ -31,9 +32,16 @@ spec:
         
         service:
           port: 80
-          targetPort: 8000
+          targetPort: 8001
+        
+        probes:
+          liveness:
+            path: /docs
+          readiness:
+            path: /docs
+        
         ingress:
-          enabled: false
+          enabled: true
           className: "nginx"
           hosts:
             - host: workspace-prd-ollama.skyfirstlabs.com
@@ -60,7 +68,7 @@ spec:
                 redis_url: "{{ .redis_url }}"
                 celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
                 celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
           data:
             - secretKey: openai_api_key
               remoteRef:
@@ -185,7 +193,9 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-01-30T15:20:00Z"
+            value: "2026-02-01T18:00:00Z"
+          - name: OLLAMA_BASE_URL
+            value: "http://ollama-service.prod.svc.cluster.local:11434"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: prod

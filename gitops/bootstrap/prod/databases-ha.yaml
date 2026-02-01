@@ -13,22 +13,30 @@ spec:
       releaseName: postgresql
       values: |
         global:
+          imageRegistry: skyacrprodel5zpw.azurecr.io
+          imagePullSecrets:
+            - regcred
           postgresql:
             auth:
-              postgresPassword: "${POSTGRES_PASSWORD}"
+              postgresPassword: "qL2fmcDPM02ec3yj"
               username: sky
-              password: "${POSTGRES_USER_PASSWORD}"
-              database: sky_prod
+              password: "qL2fmcDPM02ec3yj"
+              database: ai_saas_db
         
+        image:
+           registry: skyacrprodel5zpw.azurecr.io
+           repository: bitnami/postgresql
+           tag: latest
+
         # High Availability configuration
         postgresql:
           replication:
             enabled: true
             user: replicator
-            password: "${POSTGRES_REPLICA_PASSWORD}"
+            password: "qL2fmcDPM02ec3yj"
             readOnlyUser:
               name: sky_readonly
-              password: "${POSTGRES_READONLY_PASSWORD}"
+              password: "qL2fmcDPM02ec3yj"
           
           # Streaming replication setup
           maxConnections: 200
@@ -58,6 +66,10 @@ spec:
         
         metrics:
           enabled: true
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/postgres-exporter
+            tag: latest
           serviceMonitor:
             enabled: true
             labels:
@@ -91,9 +103,18 @@ spec:
     helm:
       releaseName: redis
       values: |
+        global:
+          imagePullSecrets:
+            - regcred
+        
+        image:
+          registry: skyacrprodel5zpw.azurecr.io
+          repository: bitnami/redis
+          tag: latest
+        
         auth:
           enabled: true
-          password: "${REDIS_PASSWORD}"
+          password: "LDVUBr9jYhxnddxhvbDpDliO"
         
         # High Availability with Sentinel
         sentinel:
@@ -101,6 +122,10 @@ spec:
           quorum: 2
           downAfterMilliseconds: 5000
           failoverTimeout: 10000
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-sentinel
+            tag: latest
         
         replica:
           replicaCount: 2
@@ -126,6 +151,10 @@ spec:
         
         metrics:
           enabled: true
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis-exporter
+            tag: latest
           serviceMonitor:
             enabled: true
             labels:

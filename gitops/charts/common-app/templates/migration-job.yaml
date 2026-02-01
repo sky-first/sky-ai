@@ -6,9 +6,7 @@ metadata:
   labels:
     {{- include "common-app.labels" . | nindent 4 }}
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-delete-policy": hook-succeeded
-    "helm.sh/hook-weight": "-5"
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   template:
     metadata:
