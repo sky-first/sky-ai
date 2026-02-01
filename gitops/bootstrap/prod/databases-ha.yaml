@@ -106,7 +106,7 @@ spec:
         image:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
-          tag: 7.2.3-debian-11-r2
+          tag: latest
         
         auth:
           enabled: true
