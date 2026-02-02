@@ -96,8 +96,10 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
+          - name: AI_PROVIDER
+            value: "openai"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-02T09:52:00Z"
+            value: "2026-02-02T10:50:00Z"
 
   destination:
     server: "https://kubernetes.default.svc"
