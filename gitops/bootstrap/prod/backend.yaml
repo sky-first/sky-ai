@@ -148,10 +148,14 @@ spec:
         extraEnv:
           - name: CORS_ORIGINS
             value: "https://workspace-prd.skyfirstlabs.com,https://workspace-prd-ai.skyfirstlabs.com"
-          - name: DEBUG
-            value: "false"
+          - name: AI_SERVICE_TYPE
+            value: "real"
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-prd-common-app"
+          - name: ENVIRONMENT
+            value: "production"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-02T09:52:00Z"
+            value: "2026-02-02T10:50:00Z"
         migration:
           enabled: true
           command: ["/bin/sh", "-c"]
