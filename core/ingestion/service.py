@@ -25,11 +25,21 @@ class SpaceNotFoundError(Exception):
 
 
 async def _get_connection_and_space(
-    db: AsyncSession, connection_id: str, space_id: str
-) -> tuple[DataConnection, Space]:
+    db: AsyncSession, connection_id: str, space_id: Optional[str] = None
+) -> tuple[DataConnection, Optional[Space]]:
     from db.models import SpaceConnection
     
-    # Updated to support many-to-many through space_connections
+    if not space_id:
+        # Global mode: just fetch connection
+        result = await db.execute(
+            select(DataConnection).where(DataConnection.id == connection_id)
+        )
+        dc = result.scalar_one_or_none()
+        if not dc:
+            raise ConnectionNotFoundError(f"DataConnection {connection_id} not found")
+        return dc, None
+
+    # Space-specific mode
     stmt = (
         select(DataConnection, Space)
         .join(SpaceConnection, SpaceConnection.connection_id == DataConnection.id)
@@ -43,7 +53,20 @@ async def _get_connection_and_space(
     result = await db.execute(stmt)
     row = result.first()
     
+    # Fallback: if not linked via SpaceConnection but both exist (e.g. newly created),
+    # we might still want to proceed if we trust the caller.
+    # But strictly following the logic: "linked to space".
+    # However, if we are doing global ingestion, we shouldn't be here.
+    
     if not row:
+         # Try fetching separately to give better error
+         dc_check = await db.get(DataConnection, connection_id)
+         space_check = await db.get(Space, space_id)
+         if not dc_check:
+             raise ConnectionNotFoundError(f"DataConnection {connection_id} not found")
+         if not space_check:
+             raise SpaceNotFoundError(f"Space {space_id} not found")
+             
          raise ConnectionNotFoundError(f"DataConnection {connection_id} not found linked to space {space_id}")
          
     return row[0], row[1]
@@ -51,8 +74,8 @@ async def _get_connection_and_space(
 
 async def run_metadata_ingestion(
     db: AsyncSession,
-    space_id: str,
     connection_id: str,
+    space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
 ) -> int:
     """
@@ -95,8 +118,8 @@ async def run_metadata_ingestion(
 
 async def run_metadata_embeddings(
     db: AsyncSession,
-    space_id: str,
     connection_id: str,
+    space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
     embedding_provider: Optional[EmbeddingProvider] = None,
 ) -> int:
@@ -111,7 +134,7 @@ async def run_metadata_embeddings(
     created = await create_embeddings_for_table_metadata(
         db=db,
         embedding_provider=embedding_provider,
-        space_id=space.id,
+        space_id=space.id if space else None,
         crew_id=crew_id,
         data_connection_id=dc.id,
     )
@@ -131,8 +154,8 @@ async def run_metadata_embeddings(
 
 async def run_full_refresh_for_connection(
     db: AsyncSession,
-    space_id: str,
     connection_id: str,
+    space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
     embedding_provider: Optional[EmbeddingProvider] = None,
 ) -> dict:

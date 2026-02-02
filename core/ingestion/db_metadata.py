@@ -292,7 +292,7 @@ async def ingest_bigquery_metadata_for_connection(
 async def ingest_from_connection_metadata_cache(
     db: AsyncSession,
     data_connection: DataConnection,
-    space: Space,
+    space: Optional[Space] = None,
     crew_id: Optional[str] = None,
 ) -> int:
     """
@@ -318,22 +318,18 @@ async def ingest_from_connection_metadata_cache(
 
     # 2. Apagar metadados antigos
     # PRIMEIRO deletar embeddings (filhos) para evitar ForeignKeyViolationError
-    # (Já que o banco não está com ON DELETE CASCADE configurado para embeddings)
     from db.models import EmbeddingRecord
-    
-    delete_embeddings_stmt = delete(EmbeddingRecord).where(
-        EmbeddingRecord.space_id == space.id
-    )
-    # Filtrar deletar apenas embeddings ligados a esta conexão (via table_metadata -> data_connection_id)
-    # Mas como EmbeddingRecord tem table_metadata_id, podemos fazer um subquery ou join delete.
-    # Porem, o SQLAlchemy delete com join é complexo.
-    # Vamos deletar baseando-se no table_metadata que SERÁ deletado.
     
     # Subquery para identificar IDs de TableMetadata que serão deletados
     subquery_tm = select(TableMetadata.id).where(
-        TableMetadata.data_connection_id == data_connection.id,
-        TableMetadata.space_id == space.id
+        TableMetadata.data_connection_id == data_connection.id
     )
+    
+    if space:
+        subquery_tm = subquery_tm.where(TableMetadata.space_id == space.id)
+    else:
+        subquery_tm = subquery_tm.where(TableMetadata.space_id.is_(None))
+
     if crew_id:
         subquery_tm = subquery_tm.where(TableMetadata.crew_id == crew_id)
     else:
@@ -346,8 +342,13 @@ async def ingest_from_connection_metadata_cache(
 
     delete_stmt = delete(TableMetadata).where(
         TableMetadata.data_connection_id == data_connection.id,
-        TableMetadata.space_id == space.id,
     )
+    
+    if space:
+        delete_stmt = delete_stmt.where(TableMetadata.space_id == space.id)
+    else:
+        delete_stmt = delete_stmt.where(TableMetadata.space_id.is_(None))
+
     if crew_id:
         delete_stmt = delete_stmt.where(TableMetadata.crew_id == crew_id)
     else:
@@ -400,7 +401,7 @@ async def ingest_from_connection_metadata_cache(
 
             tm = TableMetadata(
                 data_connection_id=data_connection.id,
-                space_id=space.id,
+                space_id=space.id if space else None,
                 crew_id=crew_id,
                 table_name=table_name,
                 column_name=col_name,
@@ -419,7 +420,7 @@ async def ingest_from_connection_metadata_cache(
         "ingest_cache_metadata_done",
         {
             "connection_id": data_connection.id,
-            "space_id": space.id,
+            "space_id": space.id if space else None,
             "inserted": inserted
         }
     )
