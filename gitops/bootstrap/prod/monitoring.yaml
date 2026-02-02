@@ -48,15 +48,17 @@ spec:
           persistence:
             enabled: true
             size: 10Gi
-                isDefault: true
-              - name: Loki
-                type: loki
-                url: http://loki:3100
-                access: proxy
-              - name: Tempo
-                type: tempo
-                url: http://tempo:3100
-                access: proxy
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              url: http://loki:3100
+              access: proxy
+              isDefault: false
+            - name: Tempo
+              type: tempo
+              url: http://tempo:3100
+              access: proxy
+              isDefault: false
         
         alertmanager:
           enabled: true

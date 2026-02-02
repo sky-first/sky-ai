@@ -69,10 +69,10 @@ spec:
                 jwt_secret_key: "{{ .jwt_secret_key }}"
                 encryption_key: "{{ .encryption_key }}"
                 openai_api_key: "{{ .openai_api_key }}"
-                redis_url: "{{ .redis_url }}"
+                redis_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" }}"
                 # Derivando URLs do Celery a partir da redis_url do segredo
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                celery_broker_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/2\" }}"
                 # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
                 database_url: "{{ .database_url | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
           data:
@@ -151,7 +151,7 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-01T18:15:00Z"
+            value: "2026-02-02T09:52:00Z"
         migration:
           enabled: true
           command: ["/bin/sh", "-c"]

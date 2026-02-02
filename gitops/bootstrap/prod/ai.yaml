@@ -65,9 +65,9 @@ spec:
               data:
                 openai_api_key: "{{ .openai_api_key }}"
                 qdrant_url: "{{ .qdrant_url }}"
-                redis_url: "{{ .redis_url }}"
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                redis_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" }}"
+                celery_broker_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/2\" }}"
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
           data:
             - secretKey: openai_api_key
@@ -193,7 +193,7 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-01T18:00:00Z"
+            value: "2026-02-02T09:52:00Z"
           - name: OLLAMA_BASE_URL
             value: "http://ollama-service.prod.svc.cluster.local:11434"
   destination:
