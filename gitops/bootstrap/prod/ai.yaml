@@ -193,7 +193,7 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-01T18:00:00Z"
+            value: "2026-02-02T09:52:00Z"
           - name: OLLAMA_BASE_URL
             value: "http://ollama-service.prod.svc.cluster.local:11434"
   destination:
