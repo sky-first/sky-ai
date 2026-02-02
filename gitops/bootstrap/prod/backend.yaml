@@ -151,7 +151,7 @@ spec:
           - name: DEBUG
             value: "false"
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-01T18:15:00Z"
+            value: "2026-02-02T09:52:00Z"
         migration:
           enabled: true
           command: ["/bin/sh", "-c"]
