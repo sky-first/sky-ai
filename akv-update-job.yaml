@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: akv-update-pod
+  namespace: prod
+spec:
+  containers:
+  - name: az-cli
+    image: mcr.microsoft.com/azure-cli
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        az login --identity
+        az keyvault secret set --vault-name akv-sky-prod-30877422 --name openai-api-key --value "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"
+  restartPolicy: Never
