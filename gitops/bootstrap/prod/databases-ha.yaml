@@ -116,19 +116,13 @@ spec:
           enabled: true
           password: "LDVUBr9jYhxnddxhvbDpDliO"
         
-        # High Availability with Sentinel
+        # Architecture standalone to avoid write errors in workers
+        architecture: standalone
         sentinel:
-          enabled: true
-          quorum: 2
-          downAfterMilliseconds: 5000
-          failoverTimeout: 10000
-          image:
-            registry: skyacrprodel5zpw.azurecr.io
-            repository: bitnami/redis-sentinel
-            tag: latest
+          enabled: false
         
         replica:
-          replicaCount: 2
+          replicaCount: 0
           persistence:
             enabled: true
             size: 10Gi
