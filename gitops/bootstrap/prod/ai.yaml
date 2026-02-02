@@ -65,9 +65,9 @@ spec:
               data:
                 openai_api_key: "{{ .openai_api_key }}"
                 qdrant_url: "{{ .qdrant_url }}"
-                redis_url: "{{ .redis_url }}"
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                redis_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" }}"
+                celery_broker_url: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/2\" }}"
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
           data:
             - secretKey: openai_api_key
