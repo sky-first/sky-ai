@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-30T14:22:28Z"
+          rollout-trigger: "2026-01-31T23:44:17Z"
         imagePullSecrets:
           - name: regcred
         image:
@@ -49,7 +49,7 @@ spec:
           maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://workspace-stg-api.skyfirstlabs.com"
+            value: "https://workspace-stg.skyfirstlabs.com/api"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging
