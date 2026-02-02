@@ -788,6 +788,9 @@ def run_orchestrator(
                 "- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
                 "- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
                 "- Use the additional semantic context and available relationships to make the best choice.\n"
+                "Conversation Handling:\n"
+                "- If the user question is a fragment or follow-up (e.g., \"And in RJ?\", \"How about last month?\"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n"
+                "- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
                 f"{relationships_info}"
                 f"{instructions_block}"
             ),
@@ -800,6 +803,7 @@ def run_orchestrator(
                 f"Available tables:\n{tables_summary}"
                 f"{context_block}"
                 f"{relationships_info}"
+                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
                 "\nRespond with the logical table name(s) needed, separated by commas if multiple "
                 "(for example: 'table1' or 'table1, table2' or 'orders, products')."
             ),
