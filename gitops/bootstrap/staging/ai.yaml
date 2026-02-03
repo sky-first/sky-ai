@@ -10,9 +10,11 @@ spec:
     path: gitops/charts/common-app
     targetRevision: staging
     helm:
+      valueFiles:
+        - .argocd-source-sky-ai-stg.yaml
       values: |
         podAnnotations:
-          rollout-trigger: "2026-01-31T23:43:39Z"
+          rollout-trigger: "2026-02-02T14:51:12Z"
         imagePullSecrets:
           - name: regcred
         image:

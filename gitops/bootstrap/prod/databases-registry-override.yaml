@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: databases-prod
+  namespace: argocd
+spec:
+  source:
+    helm:
+      values: |
+        postgresql:
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/postgresql
+            tag: 15.1.0-debian-11-r19
+        redis:
+          image:
+            registry: skyacrprodel5zpw.azurecr.io
+            repository: bitnami/redis
+            tag: 7.2.3-debian-11-r2
