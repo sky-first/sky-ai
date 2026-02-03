@@ -10,9 +10,12 @@ spec:
     path: gitops/charts/common-app
     targetRevision: staging
     helm:
+      valueFiles:
+        - .argocd-source-sky-be-stg.yaml
       values: |
         podAnnotations:
           rollout-trigger: "2026-02-02T09:26:49Z"
+
         replicaCount: 2
         imagePullSecrets:
           - name: regcred

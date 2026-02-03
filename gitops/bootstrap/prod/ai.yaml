@@ -10,6 +10,8 @@ spec:
     path: gitops/charts/common-app
     targetRevision: main
     helm:
+      valueFiles:
+        - .argocd-source-sky-ai-prd.yaml
       values: |
         imagePullSecrets:
           - name: regcred
