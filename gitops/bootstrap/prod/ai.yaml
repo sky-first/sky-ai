@@ -3,6 +3,11 @@ kind: Application
 metadata:
   name: sky-ai-prd
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: sky-poc-ai=skyacrprodel5zpw.azurecr.io/sky-poc-ai:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-ai.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    argocd-image-updater.argoproj.io/write-back-target: branch:update-prod-ai
 spec:
   project: default
   source:
