@@ -1,31 +1,30 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
   labels:
-    k8s-app: node-local-dns
+    k8s-app: sky-node-local-dns
     kubernetes.io/cluster-service: "true"
-    addonmanager.kubernetes.io/mode: Reconcile
 spec:
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 1
   selector:
     matchLabels:
-      k8s-app: node-local-dns
+      k8s-app: sky-node-local-dns
   template:
     metadata:
       labels:
-        k8s-app: node-local-dns
+        k8s-app: sky-node-local-dns
       annotations:
         prometheus.io/port: "9253"
         prometheus.io/scrape: "true"
     spec:
       priorityClassName: system-node-critical
-      serviceAccountName: node-local-dns
+      serviceAccountName: sky-node-local-dns
       hostNetwork: true
-      dnsPolicy: Default  # Don't use cluster DNS to avoid loops
+      dnsPolicy: Default
       tolerations:
       - operator: Exists
       containers:
@@ -72,7 +71,7 @@ spec:
       volumes:
       - name: config-volume
         configMap:
-          name: node-local-dns
+          name: sky-node-local-dns
       - name: xtables-lock
         hostPath:
           path: /run/xtables.lock
@@ -81,10 +80,8 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
-  labels:
-    addonmanager.kubernetes.io/mode: EnsureExists
 data:
   Corefile: |
     cluster.local:53 {
@@ -139,8 +136,7 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
   labels:
     kubernetes.io/cluster-service: "true"
-    addonmanager.kubernetes.io/mode: Reconcile
