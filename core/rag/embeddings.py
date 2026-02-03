@@ -117,7 +117,7 @@ def build_metadata_text(tm: TableMetadata) -> str:
 async def create_embeddings_for_table_metadata(
     db: AsyncSession,
     embedding_provider: EmbeddingProvider,
-    space_id: str,
+    space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
     data_connection_id: Optional[str] = None,
     limit: Optional[int] = None,
@@ -127,7 +127,12 @@ async def create_embeddings_for_table_metadata(
     """
     Cria embeddings para TableMetadata usando Ollama local.
     """
-    query = select(TableMetadata).filter(TableMetadata.space_id == space_id)
+    query = select(TableMetadata)
+    
+    if space_id:
+        query = query.filter(TableMetadata.space_id == space_id)
+    else:
+        query = query.filter(TableMetadata.space_id.is_(None))
 
     if crew_id:
         query = query.filter(TableMetadata.crew_id == crew_id)

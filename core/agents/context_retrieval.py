@@ -17,6 +17,7 @@ async def build_retrieval_context_for_question(
     crew_ids: Optional[List[str]],
     question: str,
     top_k: int = 20,
+    connection_id: Optional[str] = None,
 ) -> str:
     """
     Usa o vector_store para buscar os embeddings mais relevantes e
@@ -37,6 +38,7 @@ async def build_retrieval_context_for_question(
         crew_ids=crew_ids,
         query_text=question,
         top_k=top_k,
+        connection_id=connection_id,
     )
 
     if not records:

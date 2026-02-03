@@ -145,7 +145,7 @@ class TableMetadata(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
     data_connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=False)
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
 
     table_name = Column(String, nullable=False)
@@ -170,7 +170,7 @@ class EmbeddingRecord(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=False)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
