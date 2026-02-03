@@ -1,36 +1,35 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
   labels:
-    k8s-app: node-local-dns
+    k8s-app: sky-node-local-dns
     kubernetes.io/cluster-service: "true"
-    addonmanager.kubernetes.io/mode: Reconcile
 spec:
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 1
   selector:
     matchLabels:
-      k8s-app: node-local-dns
+      k8s-app: sky-node-local-dns
   template:
     metadata:
       labels:
-        k8s-app: node-local-dns
+        k8s-app: sky-node-local-dns
       annotations:
         prometheus.io/port: "9253"
         prometheus.io/scrape: "true"
     spec:
       priorityClassName: system-node-critical
-      serviceAccountName: node-local-dns
+      serviceAccountName: sky-node-local-dns
       hostNetwork: true
-      dnsPolicy: Default  # Don't use cluster DNS to avoid loops
+      dnsPolicy: Default
       tolerations:
       - operator: Exists
       containers:
       - name: node-cache
-        image: registry.k8s.io/dns/k8s-dns-node-cache:1.22.28
+        image: registry.k8s.io/dns/k8s-dns-node-cache:1.23.1
         resources:
           requests:
             cpu: 25m
@@ -42,8 +41,8 @@ spec:
         - 169.254.20.10
         - -conf
         - /etc/Corefile
-        - -upstreamentry
-        - 10.0.0.10
+        - -upstreamsvc
+        - kube-dns
         securityContext:
           privileged: true
         ports:
@@ -66,12 +65,13 @@ spec:
         volumeMounts:
         - mountPath: /etc/Corefile
           name: config-volume
+          subPath: Corefile
         - mountPath: /run/xtables.lock
           name: xtables-lock
       volumes:
       - name: config-volume
         configMap:
-          name: node-local-dns
+          name: sky-node-local-dns
       - name: xtables-lock
         hostPath:
           path: /run/xtables.lock
@@ -80,10 +80,8 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
-  labels:
-    addonmanager.kubernetes.io/mode: EnsureExists
 data:
   Corefile: |
     cluster.local:53 {
@@ -95,7 +93,7 @@ data:
         reload
         loop
         bind 169.254.20.10
-        forward . 10.0.0.10 {
+        forward . 10.3.0.10 {
                 force_tcp
         }
         prometheus :9253
@@ -107,7 +105,7 @@ data:
         reload
         loop
         bind 169.254.20.10
-        forward . 10.0.0.10 {
+        forward . 10.3.0.10 {
                 force_tcp
         }
         prometheus :9253
@@ -118,7 +116,7 @@ data:
         reload
         loop
         bind 169.254.20.10
-        forward . 10.0.0.10 {
+        forward . 10.3.0.10 {
                 force_tcp
         }
         prometheus :9253
@@ -138,8 +136,7 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: node-local-dns
+  name: sky-node-local-dns
   namespace: kube-system
   labels:
     kubernetes.io/cluster-service: "true"
-    addonmanager.kubernetes.io/mode: Reconcile
