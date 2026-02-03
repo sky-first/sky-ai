@@ -25,7 +25,6 @@ spec:
           - name: regcred
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
-          tag: "staging"
           pullPolicy: Always
         service:
           port: 80
