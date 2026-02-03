@@ -1,8 +1,2 @@
-helm:
-  parameters:
-  - name: image.name
-    value: skyacrprodel5zpw.azurecr.io/sky-poc-frontend
-    forcestring: true
-  - name: image.tag
-    value: sha-7bf1d77362db66ab2ef3a7fdab1a4db315e7eb70
-    forcestring: true
+image:
+  tag: "placeholder-prd"
