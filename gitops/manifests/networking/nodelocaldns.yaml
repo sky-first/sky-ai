@@ -30,7 +30,7 @@ spec:
       - operator: Exists
       containers:
       - name: node-cache
-        image: registry.k8s.io/dns/k8s-dns-node-cache:1.22.20
+        image: registry.k8s.io/dns/k8s-dns-node-cache:1.23.1
         resources:
           requests:
             cpu: 25m
@@ -66,6 +66,7 @@ spec:
         volumeMounts:
         - mountPath: /etc/Corefile
           name: config-volume
+          subPath: Corefile
         - mountPath: /run/xtables.lock
           name: xtables-lock
       volumes:
