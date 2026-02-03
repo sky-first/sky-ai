@@ -1,2 +1,8 @@
-image:
-  tag: "sha-e960828d31e9f915d524fa8dae447d63e3d1d95a"
+helm:
+  parameters:
+  - name: image.name
+    value: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+    forcestring: true
+  - name: image.tag
+    value: staging
+    forcestring: true
