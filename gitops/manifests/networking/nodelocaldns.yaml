@@ -42,8 +42,8 @@ spec:
         - 169.254.20.10
         - -conf
         - /etc/Corefile
-        - -upstreamentry
-        - 10.3.0.10
+        - -upstreamsvc
+        - kube-dns
         securityContext:
           privileged: true
         ports:
