@@ -3,6 +3,11 @@ kind: Application
 metadata:
   name: sky-fe-stg
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/.argocd-source-sky-fe-stg.yaml
 spec:
   project: default
   source:
@@ -15,7 +20,6 @@ spec:
       values: |
         podAnnotations:
           rollout-trigger: "2026-02-02T09:32:31Z"
-
         imagePullSecrets:
           - name: regcred
         image:
