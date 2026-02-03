@@ -444,8 +444,11 @@ async def _filter_tables_by_permissions(
             query = text("""
                 SELECT DISTINCT table_name
                 FROM table_metadata
-                WHERE space_id = CAST(:space_id AS uuid)
-                AND data_connection_id = CAST(:conn_id AS uuid)
+                WHERE data_connection_id = CAST(:conn_id AS uuid)
+                AND (
+                    space_id = CAST(:space_id AS uuid)
+                    OR space_id IS NULL
+                )
                 AND (
                     crew_id IS NULL
                     OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
@@ -2469,6 +2472,7 @@ async def query_connection(
             crew_ids=crew_ids if crew_ids else None,
             question=body.question,
             top_k=10,
+            connection_id=connection_id,
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
@@ -3180,6 +3184,7 @@ async def _stream_connection_query(
                 crew_ids=crew_ids if crew_ids else None,
                 question=body.question,
                 top_k=10,
+                connection_id=connection_id,
             )
         except Exception:
             retrieval_context = []

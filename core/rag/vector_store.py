@@ -5,11 +5,11 @@ from typing import List, Optional, Tuple, Union
 import json
 import asyncio
 
-from sqlalchemy import or_, text, select
+from sqlalchemy import or_, text, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from db.models import EmbeddingRecord
+from db.models import EmbeddingRecord, TableMetadata
 from core.rag.embeddings import EmbeddingProvider
 from core.logging_utils import log_event
 
@@ -42,6 +42,56 @@ def _is_pgvector_available_sync(db: Session) -> bool:
         return False
 
 
+def _build_embedding_base_query(
+    space_id: str,
+    crew_ids: List[str],
+    connection_id: Optional[str] = None,
+):
+    """
+    Constrói a query base para buscar embeddings.
+    
+    Lógica de visualização:
+    1. Se connection_id for fornecido (Busca Global/Híbrida):
+       - Retorna embeddings da connection específica.
+       - Inclui tanto embeddings do Space atual quanto Globais (space_id=NULL).
+       - Exige JOIN com TableMetadata para verificar connection_id.
+       
+    2. Se connection_id NÃO for fornecido (Busca Legada/Local):
+       - Retorna apenas embeddings do Space atual.
+       - Comportamento padrão para compatibilidade.
+    """
+    query = select(EmbeddingRecord)
+    
+    if connection_id:
+        # join para filtrar por connection
+        query = query.join(TableMetadata, EmbeddingRecord.table_metadata_id == TableMetadata.id)
+        
+        # Filtro principal: (Space Local OR Global) AND Connection correta
+        # Isso garante que só vemos globais PERTENCENTES a esta conexão
+        query = query.filter(
+            and_(
+                or_(
+                    EmbeddingRecord.space_id == space_id,
+                    EmbeddingRecord.space_id.is_(None)
+                ),
+                TableMetadata.data_connection_id == connection_id
+            )
+        )
+    else:
+        # Filtro legado: Apenas Space Local
+        query = query.filter(EmbeddingRecord.space_id == space_id)
+        
+    # Filtro de Crew (se aplicável ao registro)
+    query = query.filter(
+        or_(
+            EmbeddingRecord.crew_id.is_(None),
+            EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
+        )
+    )
+    
+    return query
+
+
 async def search_embeddings_async(
     db: AsyncSession,
     embedding_provider: EmbeddingProvider,
@@ -49,14 +99,11 @@ async def search_embeddings_async(
     crew_ids: Optional[List[str]],
     query_text: str,
     top_k: int = 20,
+    connection_id: Optional[str] = None,
 ) -> List[EmbeddingRecord]:
     """
-    Faz busca semântica em EmbeddingRecord usando pgvector (se disponível).
-    
-    Se pgvector não estiver disponível, retorna resultados sem ordenação vetorial
-    (apenas filtrados por space_id e crew_id).
-    
-    Isso é a base do seu RAG agnóstico por Space/Crew.
+    Faz busca semântica em EmbeddingRecord usando pgvector.
+    Suporta busca global se connection_id for fornecido.
     """
     if crew_ids is None:
         crew_ids = []
@@ -70,29 +117,18 @@ async def search_embeddings_async(
             "search_embeddings_no_pgvector",
             {
                 "space_id": space_id,
-                "crew_ids": crew_ids,
-                "query_preview": query_text[:200],
+                "connection_id": connection_id,
                 "fallback": "simple_filter",
             },
         )
         
-        query = (
-            select(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .limit(top_k)
-        )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.limit(top_k)
         
         try:
             result = await db.execute(query)
             results: List[EmbeddingRecord] = list(result.scalars().all())
         except Exception as e:
-            # ✅ PATCH 3: CRITICAL - Rollback para não deixar transação abortada
             try:
                 await db.rollback()
             except Exception:
@@ -104,38 +140,16 @@ async def search_embeddings_async(
             )
             return []
         
-        log_event(
-            "search_embeddings_fallback",
-            {
-                "space_id": space_id,
-                "crew_ids": crew_ids,
-                "query_preview": query_text[:200],
-                "top_k": top_k,
-                "num_results": len(results),
-            },
-        )
-        
         return results
 
     # Busca vetorial com pgvector
     query_vec = await embedding_provider.embed_async([query_text])
     query_vec = query_vec[0]
 
-    # A API do pgvector-sqlalchemy permite expressões tipo:
-    # EmbeddingRecord.embedding.l2_distance(query_vec)
     try:
-        query = (
-            select(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
-            .limit(top_k)
-        )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
+        query = query.limit(top_k)
 
         result = await db.execute(query)
         results: List[EmbeddingRecord] = list(result.scalars().all())
@@ -150,41 +164,25 @@ async def search_embeddings_async(
             },
         )
         
-        query = (
-            select(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .limit(top_k)
-        )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.limit(top_k)
         
         try:
             result = await db.execute(query)
             results: List[EmbeddingRecord] = list(result.scalars().all())
         except Exception as e:
-            # ✅ PATCH 3: CRITICAL - Rollback em fallback também
             try:
                 await db.rollback()
             except Exception:
                 pass
             
-            log_event(
-                "search_embeddings_vector_fallback_error",
-                {"space_id": space_id, "error": str(e)[:500]},
-            )
             return []
 
     log_event(
         "search_embeddings",
         {
             "space_id": space_id,
-            "crew_ids": crew_ids,
-            "query_preview": query_text[:200],
-            "top_k": top_k,
+            "connection_id": connection_id,
             "num_results": len(results),
             "pgvector_enabled": pgvector_available,
         },

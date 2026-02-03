@@ -89,8 +89,8 @@ async def _discover_tables_sync(db: AsyncSession, connection_id: str) -> dict:
 @router.post("/{connection_id}/discover")
 async def discover_tables(
     connection_id: str,
-    space_id: str,
     background_tasks: BackgroundTasks,
+    space_id: Optional[str] = Query(None, description="Optional space ID for scoping"),
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
     auto_generate_embeddings: bool = True,  # ✅ ENABLED: Auto-generate embeddings on discover
@@ -101,17 +101,9 @@ async def discover_tables(
     
     Parâmetros:
     - connection_id: ID da conexão
-    - space_id: ID do space (query parameter)
+    - space_id: ID do space (query parameter, opcional)
     - run_in_background: Se True, executa em background (default: False)
     - auto_generate_embeddings: Se True, gera embeddings automaticamente após descobrir (default: True)
-    
-    Retorna:
-    - metadata_rows_inserted: Número de colunas de metadados inseridas
-    - tables_discovered: Número de tabelas descobertas
-    - embeddings_created: Número de embeddings criados (se auto_generate_embeddings=True)
-    
-    Exemplo:
-    POST /connections/{connection_id}/discover?space_id=xxx&auto_generate_embeddings=true
     """
     try:
         from core.ingestion.service import run_metadata_ingestion, run_metadata_embeddings
@@ -130,16 +122,16 @@ async def discover_tables(
                                 # Ingerir metadados na tabela table_metadata (se necessário)
                                 await run_metadata_ingestion(
                                     db=bg_db,
-                                    space_id=space_id,
                                     connection_id=connection_id,
+                                    space_id=space_id,
                                     crew_id=None,
                                 )
                                 # Gerar embeddings
                                 embedding_provider = create_embedding_provider()
                                 await run_metadata_embeddings(
                                     db=bg_db,
-                                    space_id=space_id,
                                     connection_id=connection_id,
+                                    space_id=space_id,
                                     crew_id=None,
                                     embedding_provider=embedding_provider,
                                 )
@@ -187,8 +179,8 @@ async def discover_tables(
                 # Ingerir metadados na tabela table_metadata (se necessário)
                 inserted = await run_metadata_ingestion(
                     db=db,
-                    space_id=space_id,
                     connection_id=connection_id,
+                    space_id=space_id,
                     crew_id=None,
                 )
                 
@@ -196,8 +188,8 @@ async def discover_tables(
                 embedding_provider = create_embedding_provider()
                 created = await run_metadata_embeddings(
                     db=db,
-                    space_id=space_id,
                     connection_id=connection_id,
+                    space_id=space_id,
                     crew_id=None,
                     embedding_provider=embedding_provider,
                 )
