@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sky-db-backup
+  namespace: prod # Também será replicado para staging
+  annotations:
+    # Vincula o Pod à identidade gerenciada da Azure via Workload Identity
+    azure.workload.identity/client-id: "fe7a5318-f7d1-4191-9fe2-477534fd8b02"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sky-db-backup
+  namespace: prod
+spec:
+  schedule: "0 2 * * *" # Diariamente às 2 AM
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600 # Limite de 1 hora
+      template:
+        metadata:
+          labels:
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: sky-db-backup
+          restartPolicy: OnFailure
+          volumes:
+          - name: backup-data
+            emptyDir: {}
+          initContainers:
+          - name: dump
+            image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              DB_HOST="postgresql"
+              DB_NAME="ai_saas_db"
+              DB_USER="sky"
+              
+              echo "🔍 Verificando Replication Lag..."
+              LAG=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME -t -c "SELECT COALESCE(floor(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))), 0)" | xargs)
+              echo "Current Lag: ${LAG}s"
+              
+              if [ "$LAG" -gt 300 ]; then
+                echo "❌ ERRO: Replication Lag muito alto (${LAG}s). Abortando."
+                exit 1
+              fi
+
+              FILENAME="/data/backup-${DB_NAME}.dump"
+              echo "📦 Gerando dump em /data/backup..."
+              PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h $DB_HOST -U $DB_USER -d $DB_NAME -Fc -f $FILENAME
+              echo "✅ Dump concluído localmente."
+            env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: postgres-password
+            volumeMounts:
+            - name: backup-data
+              mountPath: /data
+          containers:
+          - name: upload
+            image: mcr.microsoft.com/azure-cli:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              STORAGE_ACCOUNT="skybkpprod8ooz9z"
+              CONTAINER_NAME="sql-backups"
+              DB_NAME="ai_saas_db"
+              FILENAME="backup-${DB_NAME}-$(date +%Y%m%d-%H%M%S).dump"
+              
+              echo "🔍 Debug: AZURE_CLIENT_ID=${AZURE_CLIENT_ID}"
+              echo "🔍 Debug: Token exists: $(ls -l $AZURE_FEDERATED_TOKEN_FILE)"
+              
+              echo "🔑 Autenticando na Azure via Workload Identity..."
+              TOKEN=$(cat $AZURE_FEDERATED_TOKEN_FILE)
+              az login --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" --federated-token "$TOKEN"
+              
+              echo "🚀 Enviando backup para o Azure: ${FILENAME}"
+              az storage blob upload \
+                --account-name "$STORAGE_ACCOUNT" \
+                --container-name "$CONTAINER_NAME" \
+                --name "$FILENAME" \
+                --auth-mode login \
+                --file "/data/backup-${DB_NAME}.dump"
+
+              echo "✅ Backup finalizado com sucesso na Azure!"
+            volumeMounts:
+            - name: backup-data
+              mountPath: /data
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 256Mi

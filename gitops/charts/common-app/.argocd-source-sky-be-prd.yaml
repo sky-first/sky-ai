@@ -1,8 +1,8 @@
 helm:
   parameters:
   - name: image.name
-    value: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+    value: skyacrprodel5zpw.azurecr.io/sky-poc-backend
     forcestring: true
   - name: image.tag
-    value: staging
+    value: sha-d6a36ed
     forcestring: true
