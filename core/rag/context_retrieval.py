@@ -79,6 +79,7 @@ def build_retrieval_context_for_question(
             "crew_ids": crew_ids,
             "question_preview": question[:200],
             "num_records": len(records),
+            "chunks_preview": [c[:100] + "..." for c in contexts[:3]] # Log first 3 chunks preview
         },
     )
 

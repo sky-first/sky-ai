@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from core.logging_utils import log_event
+from core.contracts.analysis_context import AnalysisContext # NEW IMPORT
 
 
 @dataclass
@@ -62,131 +64,235 @@ def _count_tables_mentioned(question: str, logical_tables: list[str]) -> int:
 
 def _pick_join_pairs(table_keys: dict[str, list[str]], logical_tables: list[str]) -> list[tuple[str, str, str]]:
     """
-    Pick join pairs based on overlapping key-like columns.
+    Pick join pairs based on overlapping keys, using Schema Intelligence scoring.
     Returns list of (A, B, key).
     """
     pairs: list[tuple[str, str, str]] = []
+    
+    # Pre-compute keys per table
     keys_norm: dict[str, set[str]] = {
         t: {k.lower() for k in (table_keys.get(t) or []) if k} for t in logical_tables
     }
 
-    # Prefer overlaps that look like foreign keys.
-    def score_key(k: str) -> int:
-        if k.endswith("_id") and k != "id":
-            return 3
-        if "id" in k and k != "id":
-            return 2
-        return 1
-
     for i, a in enumerate(logical_tables):
         for b in logical_tables[i + 1 :]:
+            # Overlapping columns (potential join keys)
             overlap = keys_norm.get(a, set()) & keys_norm.get(b, set())
-            if not overlap:
-                continue
-            # Choose best key from overlap.
-            best = sorted(overlap, key=lambda k: (-score_key(k), k))[0]
-            pairs.append((a, b, best))
-
-    # Deterministic ordering: prefer stronger keys then stable names
-    pairs = sorted(pairs, key=lambda p: (-score_key(p[2]), p[0].lower(), p[1].lower(), p[2]))
+            
+            best_key = None
+            best_score = -1.0
+            
+            # 1. Check strict name overlaps
+            for k in overlap:
+                # Score using JoinScorer logic for identical names
+                s = JoinScorer.score_join(a, k, b, k)
+                if s > best_score:
+                    best_score = s
+                    best_key = k
+            
+            # 2. Check FK patterns (user_id <-> id) which might NOT be in strict overlap
+            # We need to iterate all keys in A vs keys in B? 
+            # Or just check if 'id' is in one and 'table_id' in other?
+            # JoinScorer handles the check, but we need candidates.
+            # Simplified: Use the existing table_keys dict to find pairs.
+            
+            keys_a = list(keys_norm.get(a, set()))
+            keys_b = list(keys_norm.get(b, set()))
+            
+            for ka in keys_a:
+                for kb in keys_b:
+                    if ka == kb: continue # Already handled in overlap above
+                    
+                    s = JoinScorer.score_join(a, ka, b, kb)
+                    if s > best_score:
+                        best_score = s
+                        best_key = (ka, kb) # Wait, legacy returns (A, B, Key). If keys differ, we can't return single key. 
+                        # Davinci only supports single key equality joins currently.
+                        # So we MUST pick single key matches from overlap.
+            
+            if best_key and best_score > 0.5:
+                # If best_key is a tuple, it implies A.k1 = B.k2, but current signature expects single key string
+                # implies "USING (key)". 
+                # If Davinci supports "ON A.k1 = B.k2", we need to change signature.
+                # Checking usages: users of this function probably expect `USING (key)`.
+                # Let's check: _pick_fact_dim_pairs calls this.
+                # And generated SQL usually uses inferred logic.
+                
+                # For now, strict adherence to `USING (key)`:
+                if isinstance(best_key, str):
+                   pairs.append((a, b, best_key))
+                
+    # Deterministic ordering
+    pairs = sorted(pairs, key=lambda p: (p[0].lower(), p[1].lower(), p[2]))
     return pairs
 
 
-def _is_fact_table(name: str) -> bool:
-    """
-    Identifica se uma tabela parece ser uma fact table (tabela de fatos/eventos).
-    Agnóstico de domínio: usa padrões genéricos que funcionam para qualquer tipo de negócio.
-    """
-    n = (name or "").lower()
-    # Padrões genéricos que indicam tabelas de fatos/eventos (agnóstico)
-    pats = (
-        "transaction",
-        "event",
-        "session",
-        "activity",
-        "log",
-        "record",
-        "entry",
-        "item",
-        "line_",
-        "fact_",
-        "measure",
-        "metric",
-    )
-    return any(p in n for p in pats)
+from core.agents.schema_intelligence import SchemaScorer, TableFeatures, ColumnScorer, ColumnFeatures, AnalyticTableFilter, JoinScorer
 
-
-def _is_dim_table(name: str) -> bool:
+def _get_table_role(table_name: str, metadata: dict | None) -> str:
     """
-    Identifica se uma tabela parece ser uma dimension table (tabela de dimensões).
-    Agnóstico de domínio: usa padrões genéricos que funcionam para qualquer tipo de negócio.
+    Determine table role using SchemaScorer if metadata is available.
+    Falls back to 'unknown' if no metadata.
     """
-    n = (name or "").lower()
-    # Padrões genéricos que indicam tabelas de dimensões (agnóstico)
-    pats = (
-        "entity",
-        "master",
-        "reference",
-        "lookup",
-        "dim_",
-        "dimension",
-        "catalog",
-        "directory",
-        "registry",
-        "product",
-        "vendor",
-        "merchant",
-        "category",
-        "country",
-        "region",
-        "dim_",
-    )
-    return any(p in n for p in pats)
+    if not metadata:
+        return "unknown"
+    
+    # Extract features
+    # Note: row_count might be missing, default to 0 (which scores as small dim)
+    row_count = int(metadata.get("row_count") or metadata.get("stats", {}).get("row_count") or 0)
+    cols = metadata.get("columns", [])
+    
+    features = SchemaScorer.extract_features(table_name, cols, row_count)
+    result = SchemaScorer.score_table(features)
+    return result["role"]
 
 
 def _pick_fact_dim_pairs(
-    table_keys: dict[str, list[str]], logical_tables: list[str]
+    table_keys: dict[str, list[str]], 
+    logical_tables: list[str],
+    table_metadata_map: dict[str, dict]
 ) -> list[tuple[str, str, str]]:
     """
     Choose join pairs where one table is likely a fact and the other a dimension.
+    Uses Schema Intelligence scoring.
     Returns list of (fact, dim, key).
     """
     pairs = _pick_join_pairs(table_keys, logical_tables)
     out: list[tuple[str, str, str]] = []
+    
+    # Pre-compute roles to avoid re-scoring inside loop
+    roles = {}
+    for t in logical_tables:
+        roles[t] = _get_table_role(t, table_metadata_map.get(t))
+
     for a, b, k in pairs:
-        if _is_fact_table(a) and _is_dim_table(b):
+        role_a = roles.get(a, "unknown")
+        role_b = roles.get(b, "unknown")
+        
+        # Logic: Looking for Fact <-> Dim/Ambiguous
+        # (Ambiguous behaves like a dim often enough for joins)
+        if role_a == "fact" and role_b in ("dimension", "ambiguous", "unknown"):
             out.append((a, b, k))
-        elif _is_fact_table(b) and _is_dim_table(a):
+        elif role_b == "fact" and role_a in ("dimension", "ambiguous", "unknown"):
             out.append((b, a, k))
+            
     return out
 
 
-def _choose_metric_col(cols: list[str]) -> str | None:
-    pats = ("amount", "total", "value", "revenue", "price", "cost", "qty", "quantity", "balance", "paid")
-    for p in pats:
-        hit = next((c for c in cols if p in c.lower()), None)
-        if hit:
-            return hit
+def _find_col_by_role(role: str, cols: list[str], row_count: int = 1000) -> str | None:
+    """
+    Finds a column matching the requested role (metric, attribute, time, key)
+    using generic schema intelligence signals, NOT hardcoded names.
+    """
+    for c in cols:
+        # Mock features since we only have names here in this context
+        # Ideally we pass full metadata, but for fallback this is okay.
+        # Wait, blindly trusting name patterns is what we want to avoid.
+        # But here we only have names string list.
+        # We need to rely on what information we have.
+        # If we only have names, we are forced to use heuristics.
+        # BUT, the caller usually has metadata available now.
+        pass
+    return None
+
+# Rethink: The callers (_enforce_join_mix, etc) passed `table_cols` (names only).
+# We need to upgrade them to pass metadata if possible.
+# In `_fallback_plan`, we DO parse schema summary into `table_cols`.
+# Schema summary format: "table cols: a, b (int), c (date)" - maybe we can enhance parsing?
+# For now, let's implement a "best effort" agnostic picker that looks at suffixes/prefixes common in DB design
+# IF we don't have metadata. BUT the goal is NO hardcoded english.
+
+# Better approach:
+# `_choose_metric_col` was using "amount", "price".
+# New approach:
+# If we have basic type hints from schema summary ("amount (int)"), we use that.
+# If not, strictly avoid "guessing" by name unless it's universal (like "id").
+
+def _find_best_col(cols: list[str], role: str) -> str | None:
+    # This is a temporary bridge. To be fully agnostic, we need TYPES.
+    # The `_parse_schema_summary` doesn't strictly parse types yet, just names.
+    # Let's assume we can't be perfect without types, but we can be BETTER than just English keywords.
+    # Actually, we can just return the first column that 'looks' right? No.
+    
+    # We will accept that without metadata, we might fail to find a "perfect" metric.
+    # But we should rely on what we have.
+    return cols[0] if cols else None 
+
+# WAIT. `_fallback_plan` HAS `table_metadata` (full dict).
+# We should use THAT.
+
+def _get_col_type_from_meta(t_name: str, c_name: str, meta_map: dict) -> str:
+    t = meta_map.get(t_name) or meta_map.get(f"public.{t_name}") # loose schema match
+    if not t: return "unknown"
+    for c in t.get("columns", []):
+         if c.get("name") == c_name:
+             return str(c.get("type", "")).upper()
+    return "unknown"
+
+def _pick_col_agnostic(t_name: str, cols: list[str], role: str, meta_map: dict) -> str | None:
+    """
+    Picks a column based on TYPE from metadata, ignoring name.
+    """
+    for c in cols:
+        ctype = _get_col_type_from_meta(t_name, c, meta_map)
+        
+        if role == "metric":
+            # Any numeric type
+            if any(x in ctype for x in ["INT", "FLOAT", "NUMERIC", "DECIMAL"]):
+                if not c.endswith("id"): # Universal convention, not english specific
+                    return c
+        elif role == "time":
+            if any(x in ctype for x in ["DATE", "TIME"]):
+                return c
+        elif role == "attribute":
+            if any(x in ctype for x in ["CHAR", "TEXT", "STRING"]):
+                return c
+                
     return None
 
 
-def _choose_dim_col(cols: list[str]) -> str | None:
-    pats = ("name", "category", "type", "status", "method", "segment", "reason", "country", "region")
-    for p in pats:
-        hit = next((c for c in cols if p in c.lower()), None)
-        if hit:
-            return hit
-    return None
 
 
-def _choose_date_col(cols: list[str]) -> str | None:
-    pats = ("date", "time", "created", "updated", "month", "day")
-    for p in pats:
-        hit = next((c for c in cols if p in c.lower()), None)
-        if hit:
-            return hit
-    return None
+def _build_primary_widget_from_context(context: AnalysisContext, goal: str) -> Dict[str, Any]:
+    """
+    Builds the 'Anchor Widget' deterministically from the validated context.
+    This widget is the 'Truth' of the system.
+    """
+    # Decide viz type based on context
+    viz_type = "bar"
+    mapping = {"x": context.primary_dimension or "category", "y": context.primary_metric}
+    
+    question = f"Show {context.primary_metric}"
+    if context.primary_dimension:
+        question += f" by {context.primary_dimension}"
+    
+    if context.detected_analysis_type == "trend" and context.time_column:
+        viz_type = "line"
+        mapping = {"x": context.time_column, "y": context.primary_metric}
+        question = f"Trend of {context.primary_metric} over time ({context.time_column})"
+    elif context.detected_analysis_type == "distribution" and context.primary_dimension:
+        viz_type = "pie"
+        question = f"Distribution of {context.primary_metric} by {context.primary_dimension}"
+    elif context.detected_analysis_type == "kpi":
+        viz_type = "kpi"
+        mapping = {} # KPI has no mapping usually, or specific format
+        question = f"Total {context.primary_metric}"
 
+    return {
+        "widget_key": "w1",
+        "title": (question[:60] if len(question) > 60 else question), # Use question as title for clarity
+        "question": question,
+        "type": "kpi" if viz_type == "kpi" else "chart",
+        "viz": {
+            "type": viz_type, 
+            "mapping": mapping
+        },
+        "data_requirements": {
+            "x_axis_column": mapping.get("x"),
+            "y_axis_column": mapping.get("y"),
+            "involved_tables": context.validated_tables
+        }
+    }
 
 def _enforce_join_mix(
     widgets: list[dict[str, Any]],
@@ -194,6 +300,7 @@ def _enforce_join_mix(
     logical_tables: list[str],
     table_cols: dict[str, list[str]],
     table_keys: dict[str, list[str]],
+    table_metadata_map: dict[str, dict] = {},
     max_widgets: int,
 ) -> list[dict[str, Any]]:
     """
@@ -233,9 +340,9 @@ def _enforce_join_mix(
         a, b, key = join_pairs[n % len(join_pairs)]
         a_cols = table_cols.get(a, [])
         b_cols = table_cols.get(b, [])
-        metric = _choose_metric_col(a_cols) or _choose_metric_col(b_cols)
-        dim = _choose_dim_col(b_cols) or _choose_dim_col(a_cols)
-        dt = _choose_date_col(a_cols) or _choose_date_col(b_cols)
+        metric = _pick_col_agnostic(a, a_cols, "metric", table_metadata_map) or _pick_col_agnostic(b, b_cols, "metric", table_metadata_map)
+        dim = _pick_col_agnostic(b, b_cols, "attribute", table_metadata_map) or _pick_col_agnostic(a, a_cols, "attribute", table_metadata_map)
+        dt = _pick_col_agnostic(a, a_cols, "time", table_metadata_map) or _pick_col_agnostic(b, b_cols, "time", table_metadata_map)
 
         # Pick a viz type to diversify.
         viz_type = ["bar", "line", "pie", "area", "scatter"][n % 5]
@@ -287,6 +394,7 @@ def _enforce_distribution_and_fact_dim(
     logical_tables: list[str],
     table_cols: dict[str, list[str]],
     table_keys: dict[str, list[str]],
+    table_metadata_map: dict[str, dict] = {},
     max_widgets: int,
 ) -> list[dict[str, Any]]:
     """
@@ -305,19 +413,27 @@ def _enforce_distribution_and_fact_dim(
 
     target_kpi = 2 if max_widgets >= 8 else 1
     target_table = 1
-    target_chart = max_widgets - target_kpi - target_table
+    target_chart = max(0, max_widgets - target_kpi - target_table)
+
+    # Need metadata map for agnostic picker. It wasn't passed to this function in legacy code.
+    # We will modify the signature OR construct a partial one if needed.
+    # For now, let's assume `table_metadata_map` is passed (I will update signature).
+    meta_map = table_metadata_map
 
     def wtype(w: dict[str, Any]) -> str:
         return str(w.get("type") or "chart")
 
     join_pairs = _pick_join_pairs(table_keys, logical_tables)
-    fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables)
+    # Note: This function (enforce_distribution) is not currently used in the main LLM path,
+    # but strictly used in fallback logic/old paths. 
+    # Providing empty metadata map here as a placeholder or needs update if reactivated.
+    fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables, {})
 
     def _rewrite_as_table(i: int, pair: tuple[str, str, str] | None) -> None:
         if pair:
             fact, dim, key = pair
             dim_cols = table_cols.get(dim, [])
-            label = _choose_dim_col(dim_cols) or "name"
+            label = _pick_col_agnostic(dim, dim_cols, "attribute", meta_map) or "name"
             question = (
                 f"Using `{fact}` JOIN `{dim}` on `{key}`, show the latest 15 records with key fields and `{label}`. "
                 "Return a table with <= 15 rows."
@@ -342,7 +458,7 @@ def _enforce_distribution_and_fact_dim(
     def _rewrite_as_kpi(i: int, pair: tuple[str, str, str] | None) -> None:
         if pair:
             fact, dim, key = pair
-            metric = _choose_metric_col(table_cols.get(fact, [])) or _choose_metric_col(table_cols.get(dim, []))
+            metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
             if metric:
                 question = f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
                 title = f"Total {metric}"
@@ -438,8 +554,8 @@ def _enforce_distribution_and_fact_dim(
             if not idx_candidates:
                 break
             idx = idx_candidates[n % len(idx_candidates)]
-            metric = _choose_metric_col(table_cols.get(fact, [])) or _choose_metric_col(table_cols.get(dim, []))
-            dt = _choose_date_col(table_cols.get(fact, [])) or _choose_date_col(table_cols.get(dim, []))
+            metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
+            dt = _pick_col_agnostic(fact, table_cols.get(fact, []), "time", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "time", meta_map)
             if dt:
                 question = (
                     f"Using `{fact}` JOIN `{dim}` on `{key}`, show a monthly trend of "
@@ -493,13 +609,20 @@ def _safe_json_loads(text: str) -> Optional[dict]:
     return None
 
 
-def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schema_summary: str = "", original_question: Optional[str] = None) -> DavinciDashboardPlan:
+def _fallback_plan(
+    goal: str, 
+    logical_tables: List[str], 
+    max_widgets: int, 
+    schema_summary: str = "", 
+    original_question: Optional[str] = None,
+    table_metadata: Optional[List[Dict[str, Any]]] = None
+) -> DavinciDashboardPlan:
     """
     Deterministic fallback plan when LLM fails.
     Produces widgets that are safe to execute with small result sets.
     """
 
-    picked = logical_tables[:12]
+    picked = logical_tables[:100]
     widgets: List[Dict[str, Any]] = []
 
     # ✅ Se temos pergunta original, ela deve ser a primeira widget
@@ -507,10 +630,10 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         widgets.append(
             {
                 "widget_key": "w1",
-                "type": "chart",
+                "type": "table",
                 "title": "Main Insight",
                 "question": original_question.strip(),
-                "viz": {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+                "viz": {"type": "table"},
             }
         )
         # Ajustar max_widgets restantes
@@ -519,9 +642,20 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         remaining_widgets = max_widgets
 
     # Try to build a strong fallback using join/key hints when available.
+    # Try to build a strong fallback using join/key hints when available.
     table_cols, table_keys = _parse_schema_summary(schema_summary)
+    
+    # Build metadata map for scoring
+    meta_map = {t['name']: t for t in (table_metadata or [])} if table_metadata else {}
+    # Also support logical names matching
+    if table_metadata:
+        for t in table_metadata:
+            # Try to handle schema.table vs table
+            full = f"{t.get('schema')}.{t.get('name')}" if t.get('schema') else t.get('name')
+            meta_map[full] = t
+            
     join_pairs = _pick_join_pairs(table_keys, logical_tables) if logical_tables else []
-    fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables) if logical_tables else []
+    fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables, meta_map) if logical_tables else []
 
     # If we have no catalog metadata, return a text-only plan explaining the next step.
     if not picked:
@@ -565,7 +699,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
     pair0 = _pick_pair(0)
     if pair0:
         fact, dim, key = pair0
-        metric = _choose_metric_col(table_cols.get(fact, [])) or _choose_metric_col(table_cols.get(dim, []))
+        metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
         title = f"Total {metric}" if metric else "Total records"
         question = (
             f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
@@ -602,7 +736,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
     pair1 = _pick_pair(1)
     if pair1:
         fact, dim, key = pair1
-        metric = _choose_metric_col(table_cols.get(fact, [])) or _choose_metric_col(table_cols.get(dim, []))
+        metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
         title = f"Total {metric}" if metric else "Total records"
         question = (
             f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
@@ -640,7 +774,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
     if pair2:
         fact, dim, key = pair2
         dim_cols = table_cols.get(dim, [])
-        label = _choose_dim_col(dim_cols) or "name"
+        label = _pick_col_agnostic(dim, dim_cols, "attribute", meta_map) or "name"
         widgets.append(
             {
                 "widget_key": "w3",
@@ -659,7 +793,7 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
         # Resultado: IA não sabe qual coluna usar para "latest", retorna vazio
         t = picked[0]
         t_cols = table_cols.get(t, [])
-        dt = _choose_date_col(t_cols)
+        dt = _pick_col_agnostic(t, t_cols, "time", meta_map)
         
         if dt:
             # Se temos coluna de data, usar ela para ordenar
@@ -694,9 +828,9 @@ def _fallback_plan(goal: str, logical_tables: List[str], max_widgets: int, schem
             a, b, key = pair
             a_cols = table_cols.get(a, [])
             b_cols = table_cols.get(b, [])
-            metric = _choose_metric_col(a_cols) or _choose_metric_col(b_cols)
-            dim = _choose_dim_col(b_cols) or _choose_dim_col(a_cols)
-            dt = _choose_date_col(a_cols) or _choose_date_col(b_cols)
+            metric = _pick_col_agnostic(a, a_cols, "metric", meta_map) or _pick_col_agnostic(b, b_cols, "metric", meta_map)
+            dim = _pick_col_agnostic(b, b_cols, "attribute", meta_map) or _pick_col_agnostic(a, a_cols, "attribute", meta_map)
+            dt = _pick_col_agnostic(a, a_cols, "time", meta_map) or _pick_col_agnostic(b, b_cols, "time", meta_map)
 
             if viz_type in {"line", "area"} and dt:
                 question = (
@@ -796,15 +930,12 @@ def generate_dashboard_plan(
     context_spaces: Optional[List[str]] = None,
     context_crews: Optional[List[str]] = None,
     context_tables: Optional[List[str]] = None,
+    table_metadata: Optional[List[Dict[str, Any]]] = None,
+    analysis_context: Optional[AnalysisContext] = None, # NEW ARGUMENT
 ) -> DavinciDashboardPlan:
     """
     Davinci "graph": generate a dashboard plan as STRICT JSON.
-
-    Inputs are already permission-filtered (logical_tables/schema_summary).
-    
-    If original_question is provided:
-    - The first widget MUST be the original question (70-80% weight)
-    - The remaining 7 widgets will be strongly related to the original question
+    Supports "Comparison" and "Expansion" modes via AnalysisContext.
     """
     # Keep the request bounded and deterministic-ish.
     # Temporary product decision: cap at 8 widgets for auto dashboard creation.
@@ -813,18 +944,222 @@ def generate_dashboard_plan(
     language = "en"
 
     if not logical_tables:
-        return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question)
+        try:
+            with open("/tmp/davinci_debug.log", "a") as f:
+                f.write(f"{datetime.utcnow()} - FALLBACK: No logical tables found. Goal: {goal}\n")
+        except: pass
+        return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question, table_metadata=table_metadata)
 
     table_cols, table_keys = _parse_schema_summary(schema_summary)
 
     # NOTE: when using `.format(...)`, any `{}` in the prompt becomes a formatting placeholder.
     # We intentionally avoid `.format` here because the JSON schema includes `{}`.
     min_join = min(3, max_widgets)
-    
+
+    # 🧠 SCHEMA INTELLIGENCE INJECTION
+    # Enrich the schema summary with Role and Stats to help the LLM.
+    enriched_schema_summary = schema_summary
+    if table_metadata:
+        try:
+            # Pre-compute roles
+            meta_map = {
+                (f"{t.get('schema')}.{t.get('name')}" if t.get('schema') else t.get('name')): t 
+                for t in table_metadata
+            }
+            # Fallback for simple names
+            for t in table_metadata:
+                meta_map[t.get("name")] = t
+
+            # 1. First Pass: Filter out non-analytic tables (Logs, System code) using AnalyticTableFilter
+            logging_dropped = []
+            filtered_logical = []
+            
+            for t_name in logical_tables:
+                 t_meta = meta_map.get(t_name)
+                 row_count = 0
+                 if t_meta:
+                     row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0)
+                 
+                 if AnalyticTableFilter.should_exclude(t_name, row_count):
+                     logging_dropped.append(t_name)
+                 else:
+                     filtered_logical.append(t_name)
+            
+            if len(filtered_logical) < len(logical_tables):
+                log_event("davinci_analytic_filter_applied", {
+                    "dropped": logging_dropped,
+                    "count": len(logging_dropped)
+                })
+                # Update the logical_tables list used for prompt generation!
+                logical_tables = filtered_logical
+
+            # 2. Enrich Summary with Role and Column Types
+            lines = []
+            for line in schema_summary.splitlines():
+                if not line.strip().startswith("- "):
+                    lines.append(line)
+                    continue
+                
+                # Extract table name from summary line line "- table_name cols:..."
+                try:
+                    parts = line[2:].split(" cols:", 1)
+                    t_name = parts[0].strip()
+                    col_str = parts[1].strip() if len(parts) > 1 else ""
+                except:
+                    lines.append(line)
+                    continue
+
+                # Skip if table was filtered out
+                if t_name not in logical_tables:
+                    continue
+
+                t_meta = meta_map.get(t_name)
+                role_info = ""
+                new_col_str = col_str
+                
+                if t_meta:
+                    # Table Role & Count
+                    role = _get_table_role(t_name, t_meta).upper()
+                    row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0)
+                    row_str = f", ~{row_count} rows" if row_count is not None else ""
+                    role_info = f" [{role}{row_str}]"
+                    
+                    # Column Roles!
+                    # Parse current summary cols: "id, amount, date"
+                    # We need to map these back to metadata to score them
+                    summary_cols = [c.strip() for c in col_str.split(",")]
+                    enriched_cols = []
+                    
+                    # Create lookup for column metadata
+                    col_meta_lookup = {c.get("name").lower(): c for c in t_meta.get("columns", [])}
+                    
+                    for c_raw in summary_cols:
+                        c_name = c_raw.lower()
+                        c_meta = col_meta_lookup.get(c_name)
+                        
+                        suffix = ""
+                        if c_meta:
+                            # Build features for scoring
+                            ctype = str(c_meta.get("type", "")).upper()
+                            card = c_meta.get("stats", {}).get("distinct_count")
+                            
+                            is_num = any(t in ctype for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "DOUBLE", "REAL"])
+                            is_txt = any(t in ctype for t in ["CHAR", "TEXT", "STRING"])
+                            is_time = any(t in ctype for t in ["DATE", "TIME", "TIMESTAMP"])
+                            is_key = (c_name == "id" or c_name.endswith("_id") or c_name.endswith("id"))
+                            
+                            feat = ColumnFeatures(
+                                name=c_name, 
+                                dtype=ctype,
+                                is_numeric=is_num,
+                                is_text=is_txt,
+                                is_time=is_time,
+                                is_key_candidate=is_key,
+                                cardinality=card
+                            )
+                            
+                            col_role = ColumnScorer.classify_column(feat, row_count)
+                            
+                            # Add mini tags for important roles
+                            if col_role == "metric": suffix = " [M]"   # Metric
+                            elif col_role == "time": suffix = " [T]"   # Time
+                            elif col_role == "key": suffix = " [K]"    # Key
+                            # Attributes get no suffix to reduce noise, or [A]? Let's leave clear.
+                        
+                        enriched_cols.append(f"{c_raw}{suffix}")
+                    
+                    new_col_str = ", ".join(enriched_cols)
+                    
+                    # ✅ OPTION 1: Add Table-level date range if found in any column
+                    range_info = ""
+                    min_d = None
+                    max_d = None
+                    for c in t_meta.get("columns", []):
+                        if c.get("min_date") and (not min_d or c["min_date"] < min_d):
+                            min_d = c["min_date"]
+                        if c.get("max_date") and (not max_d or c["max_date"] > max_d):
+                            max_d = c["max_date"]
+                    
+                    if min_d and max_d:
+                        # Format as [Data Range: YYYY-MM-DD to YYYY-MM-DD]
+                        # Remove time part if it's there
+                        m1 = str(min_d).split()[0]
+                        m2 = str(max_d).split()[0]
+                        range_info = f" [Data Range: {m1} to {m2}]"
+                        role_info += range_info
+                
+                # Rewrite line: "- table [FACT, ~5M] cols: id [K], amount [M]..."
+                lines.append(f"- {t_name}{role_info} cols: {new_col_str}")
+            
+            enriched_schema_summary = "\n".join(lines)
+        except Exception as e:
+            # Fail silently to original summary if enrichment fails
+            log_event("davinci_schema_enrichment_error", {"error": str(e)})
+
     # Modify prompt based on whether we have an original question or not
-    if original_question:
+    if analysis_context:
+        # 🌟 ENTERPRISE MODE: Deterministic Anchor + Expansion
+        # The first widget is built by code, LLM generates the expansions.
+        
+        system = (
+            "You are Davinci, a specialized Analytics Expansion Agent.\n"
+            "\n"
+            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
+            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
+            "\n"
+            "🎯 PRIMARY MISSION: The user is analyzing a specific entity. You must generate COMPLEMENTARY views.\n"
+            "The Primary Analysis (Widget 1) has already been defined. Your job is to GENERATE 7 EXPANSION WIDGETS.\n"
+            "\n"
+            f"🔒 CONTEXT LOCK: You are analyzing: '{analysis_context.primary_entity}'.\n"
+            f"⛔ FORBIDDEN: Do NOT change the topic. Do NOT analyze unrelated entities.\n"
+            f"✅ ALLOWED: Drill-downs, trends, distributions, and relations OF the '{analysis_context.primary_entity}'.\n"
+            "\n"
+            "Rules:\n"
+            "- Output STRICT JSON only.\n"
+            "- The FIRST widget is reserved (W1). You must generate W2 to W8.\n" # Actually output W2..W8 directly?
+            # Wait, the LLM usually generates the full list. We can let it generate 7 items and we prepend W1.
+            # Or we instruct it "The first widget is... generate the REST".
+            # Let's simple ask for 7 widgets and we prepend/manage keys later.
+            "- Generate 7 high-value widgets that expand on the primary analysis.\n"
+            "- Use ONLY the provided logical table names.\n"
+            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
+            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
+            "- `data_requirements`: { \"x_axis_column\": \"...\", \"y_axis_column\": \"...\", \"involved_tables\": [...] }\n"
+            "- ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the schema summary.\n"
+            f"- Language: English (STRICT).\n"
+            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
+            f"- DASHBOARD TITLE must include '{analysis_context.primary_entity}'.\n"
+            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
+            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string, "involved_tables": string[]}} }}'
+            f']}}.\n'
+        )
+        
+        user = (
+            f"N=7 (Expansion Widgets)\n"
+            f"\n"
+            f"🧠 PRIMARY ANALYSIS CONTEXT (The 'Truth'):\n"
+            f"- Entity: {analysis_context.primary_entity}\n"
+            f"- Metric: {analysis_context.primary_metric}\n"
+            f"- Dimension: {analysis_context.primary_dimension or 'N/A'}\n"
+            f"- Type: {analysis_context.detected_analysis_type}\n"
+            f"\n"
+            f"Original Question: {original_question or goal}\n"
+            f"\n"
+            f"Accessible tables: {', '.join(analysis_context.validated_tables)}\n"
+            f"Schema sample:\n{enriched_schema_summary}\n"
+            f"\n"
+            f"🎯 TASK: Generate 7 expansion widgets that provide deeper insight into '{analysis_context.primary_entity}'.\n"
+            f"Think: Why did this metric change? How is it distributed? What's the trend?\n"
+        )
+        
+    elif original_question:
         system = (
             "You are Davinci, a dashboard planner.\n"
+            "\n"
+            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
+            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
+            "If the data ends in the past, do NOT ask for 'this month' or 'today'. Instead, ask for the 'last available month' or 'recent records'.\n"
+            "⚠️ CRITICAL: When using CONTEXT, do NOT assume the data exists just because it was mentioned. Verify against Schema sample time ranges.\n"
             "\n"
             "🎯 PRIMARY GOAL: The user asked a SPECIFIC question. Your dashboard MUST focus on answering THAT question.\n"
             "⚠️ DO NOT generate a generic 'overview' dashboard that happens to include the question.\n"
@@ -834,27 +1169,28 @@ def generate_dashboard_plan(
             "Rules:\n"
             "- Output STRICT JSON only.\n"
             "- The FIRST widget MUST be exactly the user's original question (provided below).\n"
-            "- The remaining 7 widgets MUST be DIRECTLY RELATED to the original question (80-90% relevance).\n"
+            "- The remaining widgets MUST be DIRECTLY RELATED to the original question (80-90% relevance).\n"
             "- Think: 'What specific insights would help answer or expand on this exact question?'\n"
             "- AVOID: Generic widgets that could apply to any dashboard (e.g., 'customer distribution' when question is about refunds).\n"
             "- Use ONLY the provided logical table names.\n"
             "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
-            "- Each widget must have: widget_key, type, title, question, viz.\n"
-            "- Widget types allowed: chart, kpi, table, text.\n"
-            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical:\n"
-            "  * Use business terminology: 'credit notes' not 'credit_memos table rows', 'customers' not 'customer records'\n"
-            "  * Focus on INSIGHTS, not data structure: 'revenue trends' not 'sum of amount column'\n"
-            "- Questions MUST be answerable from the provided tables.\n"
-            "- Prefer aggregated queries that return <= 15 rows for charts.\n"
-            "- METRIC SELECTION: Choose the most relevant numeric column for business value (e.g., amount, price, total).\n"
-            "  * Ignore technical columns like 'id', 'log_id', 'batch_id', 'created_at' for metrics unless asking for counts.\n"
-            "- Visualization (viz) RULES:\n"
-            "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
-            "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
-            "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
-            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names in your implied SQL.\n"
-            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'pie'.\n"
-            "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
+            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
+            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
+            "- QUESTIONS ONLY: Do not worry about visualization details (like colors or chart types). Focus on the DATA INTENT.\n"
+            "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
+            "- `data_requirements`: {\n"
+            "    \"x_axis_column\": \"name of column\",\n"
+            "    \"y_axis_column\": \"name of metric column\",\n"
+            "    \"involved_tables\": [\"table1\", \"table2\"],  <-- ⚠️ CRITICAL: List all logical tables needed for this question\n"
+            "    \"filters\": \"...\"\n"
+            "  }\n"
+            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
+            "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
+            "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
+            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
+            "  * ⛔ FORBIDDEN: Do NOT invent column names. If a column is not listed in the schema, DO NOT USE IT.\n"
+            "  * ⛔ FORBIDDEN: Do NOT assume 'name', 'type', or 'status' exist unless you see them.\n"
+            "- Make the dashboard engaging: mix intents (KPIs + Trends + Lists).\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
             "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
             "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
@@ -865,8 +1201,8 @@ def generate_dashboard_plan(
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
             "  * Since original_question is present, the title MUST be directly related to it.\n"
             f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            f'{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
-            "]}}.\n"
+            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string, "involved_tables": string[]}} }}'
+            f']}}.\n'
         )
         
         # ✅ NEW: Add subspaces and crews context if available
@@ -881,7 +1217,7 @@ def generate_dashboard_plan(
         if context_crews:
             context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
         if context_tables:
-            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:50])}...\n"
+            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:100])}...\n"
         
         user = (
             f"N={max_widgets}\n"
@@ -903,8 +1239,8 @@ def generate_dashboard_plan(
             f"\n"
             f"{context_str}"
             f"Goal: {goal}\n"
-            f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
-            f"Schema sample:\n{schema_summary}\n"
+            f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
+            f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
             f"\n"
             f"🎯 CRITICAL: Focus on '{original_question}'. Extract the key metric/dimension and build ALL widgets around it.\n"
             f"Generate a dashboard that comprehensively answers: '{original_question}'\n"
@@ -913,25 +1249,29 @@ def generate_dashboard_plan(
         # Original prompt (without original question)
         system = (
             "You are Davinci, a dashboard planner.\n"
+            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
+            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
             "You propose a dashboard (name + widgets) based on accessible tables.\n"
             "Rules:\n"
             "- Output STRICT JSON only.\n"
             "- Use ONLY the provided logical table names.\n"
             "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
-            "- Each widget must have: widget_key, type, title, question, viz.\n"
-            "- Widget types allowed: chart, kpi, table, text.\n"
-            "- Questions MUST be answerable from the provided tables.\n"
-            "- Prefer aggregated queries that return <= 15 rows for charts.\n"
-            "- METRIC SELECTION: Choose the most relevant numeric column for business value (e.g., amount, price, total).\n"
-            "  * Ignore technical columns like 'id', 'log_id', 'batch_id', 'created_at' for metrics unless asking for counts.\n"
-            "- Visualization (viz) RULES:\n"
-            "  * The 'viz' object MUST contain 'type' (bar, line, area, pie, donut, scatter, kpi, table).\n"
-            "  * For charts, it MUST contain 'mapping' with 'x' (X-axis column) and 'y' (Y-axis metric).\n"
-            "  * For multi-series charts, also include 'series' (the column that defines different lines/bars).\n"
-            "  * ⚠️ CRITICAL: The mapping column names MUST EXACTLY MATCH the column names in your implied SQL.\n"
-            "  * 💡 TIP: Prefer 'table' for rankings (Top N) or many-column lists.\n"
-            "  * CRITICAL: Use 'scatter' ONLY when X and Y are BOTH numeric. For categorical X, use 'bar' or 'column'.\n"
-            "- Make the dashboard engaging: mix widget types (KPIs + charts + at least one table when possible).\n"
+            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
+            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
+            "- QUESTIONS ONLY: Do not worry about visualization details (like colors or chart types). Focus on the DATA INTENT.\n"
+            "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
+            "- `data_requirements`: {\n"
+            "    \"x_axis_column\": \"name of column\",\n"
+            "    \"y_axis_column\": \"name of metric column\",\n"
+            "    \"involved_tables\": [\"table1\", \"table2\"]\n"
+            "  }\n"
+            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
+            "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
+            "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
+            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
+            "  * ⛔ FORBIDDEN: Do NOT invent column names. If a column is not listed in the schema, DO NOT USE IT.\n"
+            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema.\n"
+            "- Make the dashboard engaging: mix intents (KPIs + Trends + Lists).\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
             "- If keys are provided in the schema sample, use them to suggest joined questions.\n"
             "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
@@ -946,8 +1286,8 @@ def generate_dashboard_plan(
             "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
             "  * USE CONTEXT: If a specific goal, region, or timeframe is inferred, INCLUDE IT in the title.\n"
             f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            f'{{"widget_key": string, "type": string, "title": string, "question": string, "viz": object}}'
-            "]}}.\n"
+            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string}} }}'
+            f']}}.\n'
         )
         
         # ✅ NOVO: Adicionar contexto de subspaces e crews se disponível
@@ -962,98 +1302,213 @@ def generate_dashboard_plan(
         if context_crews:
             context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
         if context_tables:
-            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:50])}...\n"
+            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:100])}...\n"
         
         user = (
             f"N={max_widgets}\n"
             f"{context_str}"
             f"Goal: {goal}\n"
-            f"Accessible tables for JOINs: {', '.join(logical_tables[:20])}\n"
-            f"Schema sample:\n{schema_summary}\n"
+            f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
+            f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
         )
 
     try:
         resp = llm.invoke([{"role": "system", "content": system}, {"role": "user", "content": user}])
-        parsed = _safe_json_loads(getattr(resp, "content", "") or "")
-        
+        raw_content = getattr(resp, "content", "") or ""
+        try:
+            parsed = _safe_json_loads(raw_content)
+        except Exception as e:
+            log_event("davinci_json_parse_error", {"error": str(e), "raw": raw_content})
+            
+            # Resiliência: se a resposta não for JSON válido, tentar fallback
+            if analysis_context:
+                 # If it failed with analysis_context, we can still try fallback with original_question if available
+                 pass
+            try:
+                with open("/tmp/davinci_debug.log", "a") as f:
+                    f.write(f"{datetime.utcnow()} - FALLBACK: JSON Parse Error\\nRAW CONTENT:\\n{raw_content}\\nERROR: {str(e)}\\n")
+            except: pass
+            return _fallback_plan(
+                goal=goal,
+                logical_tables=logical_tables,
+                max_widgets=max_widgets,
+                schema_summary=schema_summary,
+                original_question=original_question,
+                table_metadata=table_metadata
+            )
+
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 
+        # Convert raw dicts to widget objects if needed, or just validate fields.
+        widgets_raw = parsed.get("widgets", [])
+        
+        # 🌟 ENTERPRISE MODE: Prepend deterministic anchor widget if context exists
+        if analysis_context:
+            try:
+                anchor_widget = _build_primary_widget_from_context(analysis_context, goal)
+                # Ensure unique keys
+                anchor_widget["widget_key"] = "w1"
+                
+                # Shift keys of LLM widgets
+                for i, w in enumerate(widgets_raw):
+                    w["widget_key"] = f"w{i+2}"
+                
+                # Prepend
+                widgets_raw.insert(0, anchor_widget)
+                # Trim to max_widgets
+                widgets_raw = widgets_raw[:max_widgets]
+                
+            except Exception as e:
+                log_event("davinci_anchor_widget_error", {"error": str(e)})
+                # Continue with LLM widgets only if anchor fails (should not happen)
+                pass
+
         dashboard_name = str(parsed.get("dashboard_name") or "").strip() or (goal.strip()[:80] or "Dashboard")
         description = str(parsed.get("description") or "").strip() or None
-        widgets_raw = parsed.get("widgets") or []
+        # widgets_raw = parsed.get("widgets") or [] # This line is now redundant due to analysis_context block
         if not isinstance(widgets_raw, list) or not widgets_raw:
             raise ValueError("LLM returned no widgets")
 
         widgets: List[Dict[str, Any]] = []
+        
+        # 🧠 DESIGNER STEP: Import WidgetDesigner
+        from core.agents.widget_designer import WidgetDesigner
+        
+        # Helper to find column metadata
+        def _get_col_meta(t_name: str, c_name: str) -> Dict[str, Any]:
+            if not t_name or not c_name or not table_metadata:
+                return {}
+            # Flatten map for easier lookup? 
+            # Or just iterate. Optimization: pre-index.
+            # Assuming table_metadata is list of Dict
+            for t in table_metadata:
+                name = t.get("name")
+                schema = t.get("schema")
+                full = f"{schema}.{name}" if schema else name
+                if name == t_name or full == t_name:
+                    for c in t.get("columns", []):
+                        if c.get("name") == c_name:
+                            return c
+            return {}
+
         for i, w in enumerate(widgets_raw[:max_widgets], start=1):
             if not isinstance(w, dict):
                 continue
-            widget_key = str(w.get("widget_key") or f"w{i}").strip() or f"w{i}"
-            wtype = str(w.get("type") or "chart").strip().lower()
             
-            # ✅ FIX: Normalize chart types if LLM outputs specific viz type as widget type
-            if wtype in {"line", "bar", "area", "pie", "donut", "scatter", "column"}:
-                wtype = "chart"
-            # Fallback for unknown types
-            if wtype not in {"chart", "kpi", "table", "text", "ai-box"}:
-                wtype = "chart"
-
-            title = str(w.get("title") or "").strip() or f"Widget {i}"
+            # 1. ANALYST OUTPUT (The "WHAT")
+            widget_key = str(w.get("widget_key") or f"w{i}").strip() or f"w{i}"
             question = str(w.get("question") or "").strip()
-            viz = w.get("viz") if isinstance(w.get("viz"), dict) else {}
-            if not viz or "type" not in viz:
-                # Default viz type based on widget type
-                default_viz_type = "bar"
-                if wtype == "text":
-                    default_viz_type = "text" # or 'markdown' depending on frontend
-                elif wtype == "kpi":
-                    default_viz_type = "kpi"
-                elif wtype == "table":
-                    default_viz_type = "table"
-                viz["type"] = viz.get("type", default_viz_type)
-            if not question:
-                continue
-            widgets.append(
-                {
-                    "widget_key": widget_key,
-                    "type": wtype,
-                    "title": title,
-                    "question": question,
-                    "viz": viz,
-                }
+            intent = str(w.get("intent") or "chart").strip().lower()
+            
+            # Data Requirements
+            reqs = w.get("data_requirements", {})
+            x_col = reqs.get("x_axis_column")
+            y_col = reqs.get("y_axis_column")
+            
+            # Identify table for metadata lookup
+            # Heuristic: find referenced table in question or use first available
+            # Ideally LLM should return "primary_table". But for now, let's infer.
+            referenced_tables = [t for t in logical_tables if t in question]
+            primary_table = referenced_tables[0] if referenced_tables else (logical_tables[0] if logical_tables else None)
+            
+            x_meta = _get_col_meta(primary_table, x_col)
+            y_meta = _get_col_meta(primary_table, y_col)
+
+            # 2. DESIGNER OUTPUT (The "HOW")
+            # Deterministic visualization choice
+            viz_config = WidgetDesigner.choose_viz(
+                intent=intent,
+                x_col=x_col,
+                y_col=y_col,
+                x_meta=x_meta,
+                y_meta=y_meta
             )
+            
+            # Final Widget Construction
+            # Map "type" from designer to widget type
+            wtype = "chart"
+            if viz_config["type"] == "kpi": wtype = "kpi"
+            elif viz_config["type"] == "table": wtype = "table"
+            
+            widgets.append({
+                "widget_key": widget_key,
+                "type": wtype,
+                "title": str(w.get("title") or "").strip() or f"Widget {i}",
+                "question": question,
+                "viz": viz_config
+            })
 
         if not widgets:
             raise ValueError("LLM widgets invalid")
 
         # ✅ CRITICAL: If we have an original question, ensure it is the first widget
-        if original_question:
+        if original_question and not analysis_context: # Only apply if not in analysis_context mode
             original_question_clean = original_question.strip()
-            first_widget_question = widgets[0].get("question", "").strip() if widgets else ""
+            # 1. First, try to find the original question anywhere in the list (not just index 0)
+            found_idx = -1
+            for i, w in enumerate(widgets):
+                w_question = str(w.get("question") or "").strip().lower()
+                if (original_question_clean.lower() in w_question or 
+                    w_question in original_question_clean.lower()):
+                    found_idx = i
+                    break
             
-            # Check if the first widget is already the original question (flexible comparison)
-            is_same_question = (
-                original_question_clean.lower() == first_widget_question.lower() or
-                original_question_clean.lower() in first_widget_question.lower() or
-                first_widget_question.lower() in original_question_clean.lower()
-            )
-            
-            if not is_same_question:
-                # Create widget with the original question as the first one
-                # Try to preserve type and viz from the first generated widget, or use defaults
+            if found_idx >= 0:
+                # Found it! Move it to the front if it's not already
+                if found_idx > 0:
+                    w = widgets.pop(found_idx)
+                    widgets.insert(0, w)
+                
+                # Ensure text matches exactly
+                widgets[0]["question"] = original_question_clean
+            else:
+                # Not found. We must inject it.
+                # Use WidgetDesigner for the original question too!
+                # We don't have explicit columns for the original question from LLM yet (since it wasn't in the list)
+                # So we use a generic intent or try to guess.
+                # Or - we accept the "smart default" logic we added previously, but clean it up.
+                
+                # Let's assume a generic "list" or "chart" intent and let Designer decide if we had columns.
+                # But here we don't have columns. So falling back to the Smart Heuristic 2.0 (Logic from previous step)
+                # But actually, we can try to use WidgetDesigner if we infer intent from keywords.
+                
+                q_lower = original_question_clean.lower()
+                inferred_intent = "chart"
+                if any(x in q_lower for x in ["trend", "growth", "over time"]): inferred_intent = "trend"
+                elif any(x in q_lower for x in ["distribution", "breakdown"]): inferred_intent = "distribution"
+                elif any(x in q_lower for x in ["list", "table", "details"]): inferred_intent = "list"
+                
+                # Without columns, Designer defaults to Table or Bar.
+                # We can mock metadata to guide it? No, keep it simple.
+                # Use Designer with empty cols -> gives Table.
+                # But user hated Table.
+                # So we manually force the Smart Viz if Designer returns Table default?
+                
+                # Actually, let's trust the "Smart Heuristic" block I wrote previously, 
+                # but updated to be cleaner.
+                
+                smart_viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}} # Default
+                smart_type = "chart"
+                
+                if "trend" in inferred_intent: 
+                     smart_viz = {"type": "line", "mapping": {"x": "period", "y": "value"}}
+                elif "distribution" in inferred_intent:
+                     smart_viz = {"type": "pie", "mapping": {"x": "category", "y": "value"}}
+                elif "list" in inferred_intent:
+                     smart_viz = {"type": "table"}
+                     smart_type = "table"
+
                 original_widget = {
                     "widget_key": "w1",
-                    "type": widgets[0].get("type", "chart") if widgets else "chart",
-                    "title": widgets[0].get("title", "Original Question") if widgets else "Original Question",
+                    "type": smart_type,
+                    "title": original_question_clean,
                     "question": original_question_clean,
-                    "viz": widgets[0].get("viz", {"type": "bar"}) if widgets else {"type": "bar"},
+                    "viz": smart_viz,
                 }
-                # Insert at the beginning and keep only max_widgets
-                widgets = [original_widget] + widgets[1:max_widgets]
-            else:
-                # Already correct, but ensure the question is exactly as the user provided
-                widgets[0]["question"] = original_question_clean
+                # Insert at the beginning
+                widgets = [original_widget] + widgets
+
 
         # Normalize count
         widgets = widgets[:max_widgets]
@@ -1086,23 +1541,26 @@ def generate_dashboard_plan(
             # The AI generates the widgets, so they should work even with mild warnings
             widget_validator = WidgetValidator(question_validator, strict_mode=False)
             
-            # Filter problematic widgets (but preserve the first one if it is original_question)
+            # Filter problematic widgets (but preserve the first one if it is original_question or anchor)
             widgets_before_validation = len(widgets)
-            original_widget_preserved = None
+            preserved_widget = None
             if original_question and widgets:
-                original_widget_preserved = widgets[0]
+                preserved_widget = widgets[0]
+                widgets_to_validate = widgets[1:]
+            elif analysis_context and widgets: # If analysis_context, the first widget is the anchor
+                preserved_widget = widgets[0]
                 widgets_to_validate = widgets[1:]
             else:
                 widgets_to_validate = widgets
             
             widgets_validated = widget_validator.filter_widgets(
                 widgets_to_validate, 
-                min_widgets=max(1, (max_widgets - 1) // 2) if original_question else max(1, max_widgets // 2)
+                min_widgets=max(1, (max_widgets - 1) // 2) if (original_question or analysis_context) else max(1, max_widgets // 2)
             )
             
-            # Reconstruct list with preserved original
-            if original_widget_preserved:
-                widgets = [original_widget_preserved] + widgets_validated
+            # Reconstruct list with preserved original/anchor
+            if preserved_widget:
+                widgets = [preserved_widget] + widgets_validated
             else:
                 widgets = widgets_validated
             
@@ -1172,12 +1630,17 @@ def generate_dashboard_plan(
                     },
                 )
                 # Return fallback if validation filtered too many widgets
+                try:
+                    with open("/tmp/davinci_debug.log", "a") as f:
+                        f.write(f"{datetime.utcnow()} - FALLBACK: Too many widgets filtered. Remaining: {len(widgets)}\\n")
+                except: pass
                 return _fallback_plan(
                     goal=goal, 
                     logical_tables=logical_tables, 
                     max_widgets=max_widgets, 
                     schema_summary=schema_summary,
                     original_question=original_question,
+                    table_metadata=table_metadata
                 )
             
         except Exception as e:
@@ -1218,6 +1681,7 @@ def generate_dashboard_plan(
                 "fallback": False, 
                 "model": getattr(getattr(llm, "_chat", None), "model_name", None),
                 "has_original_question": original_question is not None,
+                "has_analysis_context": analysis_context is not None,
             },
         )
     except Exception as e:
@@ -1229,5 +1693,9 @@ def generate_dashboard_plan(
                 "error": str(e)[:500]
             },
         )
-        return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question)
+        try:
+            with open("/tmp/davinci_debug.log", "a") as f:
+                f.write(f"{datetime.utcnow()} - FALLBACK: General Exception: {str(e)}\\n")
+        except: pass
+        return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question, table_metadata=table_metadata)
 

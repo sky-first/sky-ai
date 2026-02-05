@@ -122,8 +122,7 @@ class DataConnection(Base):
     # space_id removido (agora usa tabela de associação space_connections)
 
     name = Column(String, nullable=False)
-    name = Column(String, nullable=False)
-    # type removed (connector_id is used instead in real schema)
+    connector_id = Column(String, nullable=True) # "bigquery", "postgres", etc.
 
     config = Column(JSON, nullable=False, default=dict)
 

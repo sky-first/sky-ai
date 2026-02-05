@@ -606,16 +606,17 @@ def run_orchestrator(
                     unique_selected_names.add(table_obj.logical_name)
         
         if valid_selection:
-            # Update agent_config to only include the user-selected subset
-            # This effectively restricts the LLM to only see these tables
-            agent_config.tables = valid_selection
+            # ✅ REFACTOR (Non-destructive): Instead of deleting other tables, 
+            # we store the preferred ones and pass them as context to the LLM.
+            # This prevents session/dashboard context from blocking necessary tables.
+            state["preferred_tables"] = [t.logical_name for t in valid_selection]
             log_event(
-                "orchestrator_frontend_selection_applied",
+                "orchestrator_frontend_selection_noted",
                 {
                     "agent_id": agent_config.id,
-                    "original_count": len(authorized_map) // 2, # approx
+                    "original_count": len(authorized_map) // 2,
                     "selected_requested": selected_datasets,
-                    "selected_applied": [t.logical_name for t in valid_selection]
+                    "selected_applied": state["preferred_tables"]
                 }
             )
         else:
@@ -769,6 +770,17 @@ def run_orchestrator(
                 + "\n- You can use these relationships to join tables when needed.\n"
             )
 
+    # ✅ REFACTOR: Build preferred tables hint if available
+    preferred_tables_hint = ""
+    preferred_tables = state.get("preferred_tables")
+    if preferred_tables:
+        preferred_tables_hint = (
+            "\n\nUSER FOCUS TIPS:\n"
+            f"- The user is currently focusing on these tables: {', '.join(preferred_tables)}\n"
+            "- Favor these tables if they can answer the question, but feel free to include "
+            "OTHER tables from the catalog below if they are necessary for a complete or better answer.\n"
+        )
+
     # SEMPRE permitir múltiplas tabelas - deixar o LLM decidir baseado no contexto
     # Isso melhora a capacidade de responder perguntas complexas que precisam de JOINs
     if len(agent_config.tables) > 1:
@@ -780,17 +792,18 @@ def run_orchestrator(
                 f"{user_profile_block}"
                 "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
                 "from the list to answer the user's question.\n\n"
-                "Rules:\n"
-                "- You can choose ONE or MULTIPLE logical table names from the list.\n"
-                "- If the question requires data from multiple tables (e.g., comparing data, "
-                "  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
-                "- If the question can be answered with a single table, choose ONE table.\n"
-                "- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
-                "- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
-                "- Use the additional semantic context and available relationships to make the best choice.\n"
-                "Conversation Handling:\n"
-                "- If the user question is a fragment or follow-up (e.g., \"And in RJ?\", \"How about last month?\"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n"
-                "- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
+                f"Rules:\n"
+                f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
+                f"- If the question requires data from multiple tables (e.g., comparing data, "
+                f"  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
+                f"- If the question can be answered with a single table, choose ONE table.\n"
+                f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
+                f"- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
+                f"- Use the additional semantic context and available relationships to make the best choice.\n"
+                f"{preferred_tables_hint}\n"
+                f"Conversation Handling:\n"
+                f"- If the user question is a fragment or follow-up (e.g., \"And in RJ?\", \"How about last month?\"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n"
+                f"- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
                 f"{relationships_info}"
                 f"{instructions_block}"
             ),

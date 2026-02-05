@@ -75,6 +75,7 @@ class QueryResultMeta(BaseModel):
     title: Optional[str] = None  # New: dynamically generated title
     num_rows: int = 0
     error: Optional[str] = None
+    rag_context: Optional[List[str]] = None # Debug info
 
 
 class QueryResponse(BaseModel):
