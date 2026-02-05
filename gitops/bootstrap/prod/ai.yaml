@@ -7,7 +7,7 @@ metadata:
     argocd-image-updater.argoproj.io/image-list: sky-poc-ai=skyacrprodel5zpw.azurecr.io/sky-poc-ai:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-ai.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: branch:update-prod-ai://gitops/charts/common-app/.argocd-source-sky-ai-prd.yaml
+    argocd-image-updater.argoproj.io/write-back-target: branch:update-prod-ai://gitops/charts/common-app/values-sky-ai-prd.yaml
 spec:
   project: default
   source:
@@ -16,7 +16,7 @@ spec:
     targetRevision: main
     helm:
       valueFiles:
-        - .argocd-source-sky-ai-prd.yaml
+        - values-sky-ai-prd.yaml
       values: |
         imagePullSecrets:
           - name: regcred

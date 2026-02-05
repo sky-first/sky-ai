@@ -7,7 +7,7 @@ metadata:
     argocd-image-updater.argoproj.io/image-list: sky-poc-backend=skyacrprodel5zpw.azurecr.io/sky-poc-backend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: branch:update-prod-backend://gitops/charts/common-app/.argocd-source-sky-be-prd.yaml
+    argocd-image-updater.argoproj.io/write-back-target: branch:update-prod-backend://gitops/charts/common-app/values-sky-be-prd.yaml
 spec:
   project: default
   source:
@@ -16,7 +16,7 @@ spec:
     targetRevision: main
     helm:
       valueFiles:
-        - .argocd-source-sky-be-prd.yaml
+        - values-sky-be-prd.yaml
       values: |
         imagePullSecrets:
           - name: regcred
@@ -161,8 +161,6 @@ spec:
             value: "http://sky-ai-prd-common-app"
           - name: ENVIRONMENT
             value: "production"
-          - name: DEBUG
-            value: "false"
           - name: ROLLOUT_TRIGGER
             value: "2026-02-02T10:50:00Z"
         migration:
