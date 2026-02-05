@@ -1096,14 +1096,16 @@ def generate_dashboard_plan(
             # Fail silently to original summary if enrichment fails
             log_event("davinci_schema_enrichment_error", {"error": str(e)})
     
-    # ✅ DATASET PROFILING & CONSTRAINT GENERATION (Phase 2)
+    # ✅ DATASET PROFILING & CONSTRAINT GENERATION (Phase 2 + 3)
     # Profile tables based on row count and generate query constraints
+    # WITH user intent override for explicit filters
     dataset_constraints_text = ""
     try:
-        from core.profiling import DatasetProfiler, ConstraintGenerator
+        from core.profiling import DatasetProfiler, ConstraintGenerator, IntentOverride
         
         profiler = DatasetProfiler()
         constraint_gen = ConstraintGenerator()
+        intent_override = IntentOverride()
         
         # Profile available tables
         profiles = profiler.profile_tables(table_metadata or [])
@@ -1112,9 +1114,18 @@ def generate_dashboard_plan(
         stats = profiler.get_size_statistics(profiles)
         smallest_size = stats["smallest_size"]
         
-        # Generate constraints based on smallest dataset
+        # Generate base constraints based on smallest dataset
         # (most conservative approach for multi-table scenarios)
         constraints = constraint_gen.generate(smallest_size)
+        
+        # 🎯 PHASE 3: Check for user intent override
+        # If user explicitly mentions filters (e.g., "failed payments"),
+        # allow those filters even on TINY datasets
+        allow_filters, override_reason = intent_override.should_allow_filters(
+            goal=goal,
+            dataset_size=smallest_size,
+            base_constraints=constraints.to_dict()
+        )
         
         log_event("davinci_dataset_profiling", {
             "total_tables": stats["total_tables"],
@@ -1123,6 +1134,8 @@ def generate_dashboard_plan(
             "smallest_size": smallest_size,
             "requires_aggregation": constraints.requires_aggregation,
             "max_filter_complexity": constraints.max_filter_complexity,
+            "intent_override_active": allow_filters,
+            "override_reason": override_reason,
         })
         
         # Build constraint text for prompt injection
@@ -1138,9 +1151,23 @@ def generate_dashboard_plan(
                     "- ✅ REQUIRED: Use aggregations (COUNT, SUM, AVG) with GROUP BY to avoid empty results"
                 )
             
-            if constraints.max_filter_complexity == 0:
+            # Adaptive filter guidance based on intent override
+            if allow_filters and override_reason and "explicit intent" in override_reason.lower():
+                # User has explicit filter intent - allow it!
+                constraint_lines.append(
+                    f"- ✅ ALLOWED: WHERE filters detected in user request ({override_reason})"
+                )
+                filter_hints = intent_override.extract_filter_hints(goal)
+                if filter_hints:
+                    constraint_lines.append(
+                        f"  → User-requested filter: {filter_hints[0]}"
+                    )
+            elif constraints.max_filter_complexity == 0:
                 constraint_lines.append(
                     "- ❌ AVOID: WHERE filters (dataset too small, filters will likely return empty results)"
+                )
+                constraint_lines.append(
+                    "  → EXCEPTION: If user explicitly mentions a filter (e.g., 'failed payments'), you MAY use it"
                 )
             elif constraints.max_filter_complexity <= 2:
                 constraint_lines.append(
