@@ -861,7 +861,6 @@ def run_orchestrator(
                 f"{context_block}"
                 f"{relationships_info}"
                 "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
-                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
                 "\nRespond with the logical table name(s) needed, separated by commas if multiple "
                 "(for example: 'table1' or 'table1, table2' or 'orders, products')."
             ),
