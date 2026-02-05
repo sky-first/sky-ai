@@ -1095,6 +1095,74 @@ def generate_dashboard_plan(
         except Exception as e:
             # Fail silently to original summary if enrichment fails
             log_event("davinci_schema_enrichment_error", {"error": str(e)})
+    
+    # ✅ DATASET PROFILING & CONSTRAINT GENERATION (Phase 2)
+    # Profile tables based on row count and generate query constraints
+    dataset_constraints_text = ""
+    try:
+        from core.profiling import DatasetProfiler, ConstraintGenerator
+        
+        profiler = DatasetProfiler()
+        constraint_gen = ConstraintGenerator()
+        
+        # Profile available tables
+        profiles = profiler.profile_tables(table_metadata or [])
+        
+        # Get size statistics
+        stats = profiler.get_size_statistics(profiles)
+        smallest_size = stats["smallest_size"]
+        
+        # Generate constraints based on smallest dataset
+        # (most conservative approach for multi-table scenarios)
+        constraints = constraint_gen.generate(smallest_size)
+        
+        log_event("davinci_dataset_profiling", {
+            "total_tables": stats["total_tables"],
+            "total_rows": stats["total_rows"],
+            "size_distribution": stats["by_size"],
+            "smallest_size": smallest_size,
+            "requires_aggregation": constraints.requires_aggregation,
+            "max_filter_complexity": constraints.max_filter_complexity,
+        })
+        
+        # Build constraint text for prompt injection
+        if smallest_size in ["tiny", "small"]:
+            # Only inject constraints for small datasets
+            constraint_lines = [
+                f"\n⚠️ DATASET SIZE NOTICE: The smallest dataset has only {smallest_size.upper()} size ({stats['total_rows']} total rows).",
+                "\n📊 QUERY SAFETY GUIDELINES:",
+            ]
+            
+            if constraints.requires_aggregation:
+                constraint_lines.append(
+                    "- ✅ REQUIRED: Use aggregations (COUNT, SUM, AVG) with GROUP BY to avoid empty results"
+                )
+            
+            if constraints.max_filter_complexity == 0:
+                constraint_lines.append(
+                    "- ❌ AVOID: WHERE filters (dataset too small, filters will likely return empty results)"
+                )
+            elif constraints.max_filter_complexity <= 2:
+                constraint_lines.append(
+                    "- ⚠️ CAUTION: Use WHERE filters very sparingly (simple conditions only)"
+                )
+            
+            if "temporal_grouping" in constraints.preferred_strategies:
+                constraint_lines.append(
+                    "- ✅ PREFERRED: Temporal groupings (GROUP BY month/year/quarter)"
+                )
+            
+            if "categorical_breakdown" in constraints.preferred_strategies:
+                constraint_lines.append(
+                    "- ✅ PREFERRED: Categorical breakdowns (GROUP BY status/category/type)"
+                )
+            
+            dataset_constraints_text = "\n".join(constraint_lines) + "\n"
+    
+    except Exception as e:
+        # Profiling failure should not break dashboard generation
+        log_event("davinci_profiling_error", {"error": str(e)})
+        dataset_constraints_text = ""
 
     # Modify prompt based on whether we have an original question or not
     if analysis_context:
@@ -1147,6 +1215,7 @@ def generate_dashboard_plan(
             f"\n"
             f"Accessible tables: {', '.join(analysis_context.validated_tables)}\n"
             f"Schema sample:\n{enriched_schema_summary}\n"
+            f"{dataset_constraints_text}"
             f"\n"
             f"🎯 TASK: Generate 7 expansion widgets that provide deeper insight into '{analysis_context.primary_entity}'.\n"
             f"Think: Why did this metric change? How is it distributed? What's the trend?\n"
@@ -1241,6 +1310,7 @@ def generate_dashboard_plan(
             f"Goal: {goal}\n"
             f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
             f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
+            f"{dataset_constraints_text}"
             f"\n"
             f"🎯 CRITICAL: Focus on '{original_question}'. Extract the key metric/dimension and build ALL widgets around it.\n"
             f"Generate a dashboard that comprehensively answers: '{original_question}'\n"
@@ -1310,6 +1380,7 @@ def generate_dashboard_plan(
             f"Goal: {goal}\n"
             f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
             f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
+            f"{dataset_constraints_text}"
         )
 
     try:
