@@ -49,6 +49,15 @@ async def suggest_widget_title(request: SuggestTitleRequest):
     And generates a more specific and informative title.
     """
     try:
+        # ✅ FIX: Fast-path fallback for error states
+        # If the answer indicates a failure and there's no data, don't ask LLM (it hallucinates).
+        if request.answer:
+            error_keywords = ["error", "impossible", "sorry", "i can't", "i cannot", "fail", "exception"]
+            ans_lower = request.answer.lower()
+            if any(k in ans_lower for k in error_keywords) and not request.data_sample:
+                log_event("widget_title_error_fallback", {"reason": "detected_error_in_answer"})
+                return SuggestTitleResponse(title=request.current_title or "Widget")
+
         # Create LLM instance
         llm = LangChainChatOpenAIProvider(
             model=settings.llm_model_formatter or "gpt-4o-mini",

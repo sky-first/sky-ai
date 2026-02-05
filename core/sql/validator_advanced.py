@@ -202,11 +202,23 @@ class AdvancedSQLValidator:
                 |
                 [A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_]+){0,2}  # a.b.c (até 3 partes)
             )
+            (?P<is_func>\s*\()?                   # Capture optional parenthesis to identify functions
             """,
             re.IGNORECASE | re.VERBOSE,
         )
 
         for m in pattern.finditer(sql):
+            # If it's followed by '(', it's likely a function call (e.g., EXTRACT(... FROM DATE_SUB(...)))
+            if m.group("is_func"):
+                continue
+
+            # Manual check: if followed by '(', it is a function
+            end_pos = m.end()
+            while end_pos < len(sql) and sql[end_pos].isspace():
+                end_pos += 1
+            if end_pos < len(sql) and sql[end_pos] == '(':
+                continue
+
             ident = m.group("ident").strip()
             if ident.startswith("("):
                 continue
@@ -221,7 +233,9 @@ class AdvancedSQLValidator:
             if ident.upper() in {
                 'DATE_SUB', 'DATE_ADD', 'CURRENT_DATE', 'NOW', 
                 'EXTRACT', 'SUBSTRING', 'TRIM', 'POSITION', 'OVERLAY',
-                'UNNEST', 'GENERATE_SERIES', 'VALUES'
+                'UNNEST', 'GENERATE_SERIES', 'VALUES',
+                'DATE_TRUNC', 'LAST_DAY', 'DATE_DIFF', 'CURRENT_DATETIME', 'CURRENT_TIMESTAMP',
+                'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'INTERVAL'
             }:
                 continue
                 
