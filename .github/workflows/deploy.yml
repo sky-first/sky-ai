@@ -903,6 +903,16 @@ jobs:
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
             "Federated Credential: sky-poc-infra"
 
+          import_resource \
+            'azurerm_user_assigned_identity.db_backup' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-sky-db-backup-${ENV}" \
+            "Backup Identity"
+
+          import_resource \
+            'azurerm_federated_identity_credential.db_backup' \
+            "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-sky-db-backup-${ENV}/federatedIdentityCredentials/fed-sky-db-backup-${ENV}" \
+            "Federated Credential: DB Backup"
+
           # Import Key Vault Access Policy (Fix for already exists error)
           echo ""
           echo "🔍 Detecting Key Vault for policy import..."
