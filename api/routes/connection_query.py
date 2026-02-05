@@ -1681,21 +1681,22 @@ async def dashboards_plan(
         context_tables=getattr(body, "context_tables", None),
     )
     
-    cached_response = _get_cached_dashboard_plan(cache_key)
-    if cached_response:
-        log_event(
-            "dashboard_plan_cache_hit",
-            {
-                "connection_id": connection_id,
-                "space_id": body.space_id,
-                "cache_key": cache_key,
-                "num_widgets": len(cached_response.widgets),
-            },
-        )
-        # Atualizar meta para indicar que veio do cache
-        if cached_response.meta:
-            cached_response.meta["cached"] = True
-        return cached_response
+    # CACHE DISABLED per user request to ensure fresh generation and avoid stale errors.
+    # cached_response = _get_cached_dashboard_plan(cache_key)
+    # if cached_response:
+    #     log_event(
+    #         "dashboard_plan_cache_hit",
+    #         {
+    #             "connection_id": connection_id,
+    #             "space_id": body.space_id,
+    #             "cache_key": cache_key,
+    #             "num_widgets": len(cached_response.widgets),
+    #         },
+    #     )
+    #     # Atualizar meta para indicar que veio do cache
+    #     if cached_response.meta:
+    #         cached_response.meta["cached"] = True
+    #     return cached_response
     
     log_event(
         "dashboard_plan_cache_miss",
@@ -1845,7 +1846,8 @@ async def dashboards_plan(
         )
         
         # ✅ NOVA: Armazenar no cache após gerar
-        _set_cached_dashboard_plan(cache_key, response)
+        # CACHE DISABLED per user request
+        # _set_cached_dashboard_plan(cache_key, response)
         log_event(
             "dashboard_plan_cache_set",
             {
@@ -2431,6 +2433,43 @@ async def query_connection(
     escalation_score = esc_info.get("score", 0.0)
     escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION" or security_report.security_status == "FLAGGED"
     escalation_reason = esc_info.get("reason")
+    
+    # ✅ DASHBOARD INTENT DETECTION (Step 1.2)
+    # Check if user wants direct dashboard generation instead of text answer
+    from core.intent.detector import DashboardIntentDetector
+    
+    intent_detector = DashboardIntentDetector()
+    is_dashboard_request = intent_detector.detect(body.question)
+    
+    if is_dashboard_request:
+        # Log intent detection
+        log_event(
+            "dashboard_intent_detected",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "question": body.question[:200],
+                "thread_id": thread_id,
+            }
+        )
+        
+        # Route to dashboard generation (handled in Step 1.3)
+        # For now, return a placeholder response indicating detection
+        # Will be replaced with actual generation in Step 1.3
+        return QueryResponse(
+            answer="Dashboard generation intent detected. Full implementation in Step 1.3.",
+            data_sample=[],
+            meta=QueryResultMeta(
+                detected_language=lang,
+                chosen_table=None,
+                chosen_datasets=None,
+                sql=None,
+                num_rows=0,
+                error=None,
+            )
+        )
+    
+    # Continue with normal query flow if not dashboard request
     # Verificar se conexão existe
     result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
