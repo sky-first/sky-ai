@@ -11,9 +11,8 @@ kubernetes_version  = "1.33.5"
 # Access via Bastion VM only for admin access
 authorized_ips = [
   "81.84.211.111/32",
-  "169.155.237.158/32",
+  "169.155.237.0/24",
   "20.97.244.91/32",
-  "169.155.237.143/32",
 
 ]
 
@@ -26,9 +25,8 @@ external_dns_identity_resource_group = "rg-core-infra-prd"
 
 allowed_ssh_ips = [
   "81.84.211.111/32",
-  "169.155.237.158/32",
+  "169.155.237.0/24",
   "20.97.244.91/32",
-  "169.155.237.143/32",
 
 ]
 

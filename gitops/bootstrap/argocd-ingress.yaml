@@ -6,7 +6,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    # nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32,169.155.237.158/32"
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32,169.155.237.0/24"
 spec:
   ingressClassName: nginx
   tls:
