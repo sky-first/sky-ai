@@ -69,6 +69,13 @@ def _metadata_row_to_column(row: TableMetadata) -> TableColumn:
         "is_primary_key": bool(extra.get("is_primary_key") or extra.get("pk") or False),
         "is_foreign_key": bool(extra.get("is_foreign_key") or extra.get("fk") or False),
     }
+    
+    # Propagate temporal ranges if they exist
+    if "min_date" in extra:
+        col["min_date"] = extra["min_date"]
+    if "max_date" in extra:
+        col["max_date"] = extra["max_date"]
+        
     return col
 
 
@@ -172,6 +179,26 @@ def build_agent_config_for_user_space(
                 "source_table_name": table_name,
             },
         )
+        
+        # Propagate table-level temporal context (based on any of its columns)
+        table_min = None
+        table_max = None
+        for col in columns:
+            if "min_date" in col:
+                # Simple logic: pick the oldest and newest dates from all cols
+                val = col["min_date"]
+                if not table_min or val < table_min:
+                    table_min = val
+            if "max_date" in col:
+                val = col["max_date"]
+                if not table_max or val > table_max:
+                    table_max = val
+                    
+        if table_min:
+            schema.extra["data_min_date"] = table_min
+        if table_max:
+            schema.extra["data_max_date"] = table_max
+
         tables.append(schema)
 
     cfg = AgentConfig(

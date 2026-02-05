@@ -135,6 +135,9 @@ async def discover_tables(
                                     crew_id=None,
                                     embedding_provider=embedding_provider,
                                 )
+                                # ✅ OPTION 1: Enrich with date ranges
+                                from core.ingestion.enrichment import enrich_table_date_ranges
+                                await enrich_table_date_ranges(db=bg_db, connection_id=connection_id)
                             except Exception as e:
                                 # ✅ PATCH 2: CRITICAL - Rollback em background task também
                                 try:
@@ -194,8 +197,13 @@ async def discover_tables(
                     embedding_provider=embedding_provider,
                 )
                 
+                # ✅ OPTION 1: Enrich with date ranges
+                from core.ingestion.enrichment import enrich_table_date_ranges
+                enriched_count = await enrich_table_date_ranges(db=db, connection_id=connection_id)
+                
                 result["embeddings_created"] = created
                 result["metadata_rows_inserted"] = inserted
+                result["temporal_enrichment_count"] = enriched_count
                 
                 log_event(
                     "discover_auto_embed_success",

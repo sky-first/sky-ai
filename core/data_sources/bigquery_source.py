@@ -13,6 +13,9 @@ from google.oauth2 import service_account
 from core.data_sources.base import BaseDataSource
 from core.dialects import Dialect
 from core.logging_utils import log_event
+from datetime import datetime
+import threading
+from uuid import UUID
 
 
 class BigQueryDataSource:
@@ -52,57 +55,76 @@ class BigQueryDataSource:
         self.dialect = Dialect.BIGQUERY
 
         self._client: Optional[bigquery.Client] = None
+        self._client_lock = threading.Lock() # Added by user
 
     # ---------- Cliente interno ----------
 
     def _get_client(self) -> bigquery.Client:
         """
-        Cria (lazy) e cacheia o cliente BigQuery.
-        Usa credentials_path se fornecido, senão usa credenciais padrão.
+        Retorna o cliente do BigQuery, criando se necessário (Singleton per instance).
+        Thread-safe.
         """
+        # First check outside lock (fast path)
         if self._client is not None:
             return self._client
 
-        # Permite configurar o caminho via env var se credentials_path não for passado
-        credentials_path = self.credentials_path or os.getenv(
-            "GCP_CREDENTIALS_PATH", os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        )
+        with self._client_lock:
+            # Second check inside lock (safe path)
+            if self._client is not None:
+                return self._client
 
-        if credentials_path:
-            creds = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=["https://www.googleapis.com/auth/bigquery"],
+            # Permite configurar o caminho via env var se credentials_path não for passado
+            credentials_path = self.credentials_path or os.getenv(
+                "GCP_CREDENTIALS_PATH", os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
             )
-            client = bigquery.Client(
-                project=self.project_id,
-                credentials=creds,
-                location=self.location,
-            )
-            mode = "service_account_file"
-        elif self.credentials_json:
-            try:
-                info = (
-                    json.loads(self.credentials_json)
-                    if isinstance(self.credentials_json, str)
-                    else self.credentials_json
+
+            client = None
+            mode = "default"
+
+            if credentials_path:
+                creds = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=["https://www.googleapis.com/auth/bigquery"],
                 )
-            except Exception as e:
-                raise ValueError(f"Invalid credentials_json: {e}")
+                client = bigquery.Client(
+                    project=self.project_id,
+                    credentials=creds,
+                    location=self.location,
+                )
+                mode = "service_account_file"
+            elif self.credentials_json:
+                try:
+                    info = (
+                        json.loads(self.credentials_json)
+                        if isinstance(self.credentials_json, str)
+                        else self.credentials_json
+                    )
+                except Exception as e:
+                    raise ValueError(f"Invalid credentials_json: {e}")
 
-            creds = service_account.Credentials.from_service_account_info(
-                info,
-                scopes=["https://www.googleapis.com/auth/bigquery"],
-            )
-            client = bigquery.Client(
-                project=self.project_id,
-                credentials=creds,
-                location=self.location,
-            )
-            mode = "service_account_info"
-        else:
-            creds, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+                creds = service_account.Credentials.from_service_account_info(
+                    info,
+                    scopes=["https://www.googleapis.com/auth/bigquery"],
+                )
+                client = bigquery.Client(
+                    project=self.project_id,
+                    credentials=creds,
+                    location=self.location,
+                )
+                mode = "service_account_info"
+            else:
+                creds, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/bigquery"]
+                )
+                client = bigquery.Client(
+                    project=self.project_id,
+                    credentials=creds,
+                    location=self.location,
+                )
+                mode = "default_auth"
+
+            self._client = client
+            return client
             client = bigquery.Client(
                 project=self.project_id,
                 credentials=creds,
@@ -192,8 +214,6 @@ class BigQueryDataSource:
         """
         client = self._get_client()
         
-        # Se o table_name já tiver 2 pontos (proj.dataset.table) ou 1 ponto (dataset.table),
-        # usamos ele direto sem prefixar com dataset_id.
         # Se o table_name já tiver 2 pontos (proj.dataset.table) ou 1 ponto (dataset.table),
         # usamos ele direto sem prefixar com dataset_id.
         if table_name.count(".") >= 1:

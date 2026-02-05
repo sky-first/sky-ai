@@ -142,6 +142,20 @@ def run_formatter(
     data = state.get("data") or []
     error = state.get("error")
     impossible_reason = state.get("impossible_reason")
+    
+    # ✅ FIX: Preserve Orchestrator answer if already present (e.g. refusals, conversational)
+    # This prevents overwriting valid answers with "No data found".
+    if state.get("answer") and not data:
+        log_event(
+            "formatter_skipped_preservation",
+            {
+                "agent_id": agent_config.id,
+                "reason": "Orchestrator answer preserved",
+                "answer_preview": state["answer"][:100]
+            }
+        )
+        return state
+
     impossible_reason = state.get("impossible_reason")
     detected_language = state.get("detected_language")
 

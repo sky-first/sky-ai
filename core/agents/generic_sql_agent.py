@@ -201,6 +201,7 @@ def build_generic_sql_graph(
         # Importação tardia para evitar circular import
         from core.llm.specialist import run_specialist
         from core.llm.factory import create_llm_specialist
+        from core.llm.analysis_context_generator import generate_and_save_analysis_context
         
         # Criar LLM dinamicamente se houver configurações no estado
         creativity = state.get("creativity")
@@ -216,6 +217,15 @@ def build_generic_sql_graph(
             data_source=data_source,
             llm=dynamic_llm,
         )
+        
+        # 🔗 NEW: Hybrid Context Extraction (Analysis Bridge)
+        # We extract intent/context AFTER SQL generation to ensure it matches the actual data query.
+        try:
+            generate_and_save_analysis_context(new_state, dynamic_llm)
+        except Exception:
+            # Context generation should never block the main query flow
+            pass
+            
         return new_state
 
     def parallel_specialist_node(state: AgentState) -> AgentState:

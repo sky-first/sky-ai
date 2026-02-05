@@ -61,6 +61,7 @@ from core.llm.factory import (
     create_llm_formatter,
     create_embedding_provider,
 )
+from core.rag.vector_store import search_embeddings_async
 from core.agents.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
@@ -73,7 +74,8 @@ from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
 from core.agents.generic_sql_agent import UserContext # Import UserContext
-from datetime import datetime, timedelta  # ✅ FIX: Add missing import for datetime
+from datetime import datetime, timedelta
+from core.context.analysis_session_store import AnalysisSessionStore # NEW IMPORT
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
@@ -86,6 +88,7 @@ MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de me
 
 # ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
 DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
+DISABLE_BOOTSTRAP_EXECUTION = True # ✅ PAUSADO A PEDIDO DO CLIENTE (Step 547)
 
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
@@ -289,7 +292,7 @@ def _get_dashboard_plan_cache_key(
     # Incrementar versão quando houver mudanças significativas na lógica de geração
     # v2: validação menos restritiva + fallback melhorado
     # v3: cache key fix + table query improvements
-    CACHE_VERSION = "v3"
+    CACHE_VERSION = "v4_no_cache_debug"
     
     # ✅ FIX: Usar hash completo da resposta inicial para diferenciar contextos
     # Problema: dashboards idênticos para perguntas diferentes porque initial_ai_response
@@ -314,6 +317,9 @@ def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse
     Returns:
         DashboardPlanResponse se encontrado e válido, None caso contrário
     """
+    # ✅ DEBUG FORCE NO CACHE
+    return None
+
     if cache_key not in _dashboard_plan_cache:
         return None
     
@@ -384,6 +390,69 @@ async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str)
     except Exception as e:
         log_event("ai_connection_metadata_load_error", {"connection_id": connection_id, "error": str(e)})
         return []
+
+async def _enrich_tables_with_ai_metadata(
+    db: AsyncSession, 
+    connection_id: str, 
+    tables: list[dict]
+) -> list[dict]:
+    """
+    Enriches the cached backend metadata with AI-specific metadata 
+    (row_counts, temporal ranges, etc.) from TableMetadata.
+    """
+    if not tables:
+        return []
+        
+    try:
+        # Fetch all TableMetadata for this connection
+        from db.models import TableMetadata
+        result = await db.execute(
+            select(TableMetadata).where(TableMetadata.data_connection_id == connection_id)
+        )
+        ai_meta_rows = result.scalars().all()
+        
+        # Group by table name (normalized)
+        meta_by_table = defaultdict(list)
+        for row in ai_meta_rows:
+            meta_by_table[row.table_name].append(row)
+            
+        enriched = []
+        for t in tables:
+            name = t.get("name")
+            if not name:
+                enriched.append(t)
+                continue
+                
+            # Find matching metadata row (usually one per column, so we pick the first to get table-level info)
+            table_rows = meta_by_table.get(name)
+            if not table_rows:
+                # Try with schema-qualified name
+                full_name = f"{t.get('schema')}.{name}" if t.get('schema') else name
+                table_rows = meta_by_table.get(full_name)
+                
+            if table_rows:
+                # Update table-level info (using first row)
+                row0 = table_rows[0]
+                t["row_count"] = getattr(row0, "row_count", 0) # if we had a row_count field
+                
+                # Merge columns status
+                col_meta = {r.column_name: r for r in table_rows}
+                for col in t.get("columns", []):
+                    cname = col.get("name")
+                    if cname in col_meta:
+                        rmeta = col_meta[cname]
+                        col["extra"] = rmeta.extra or {}
+                        # Extract ranges for Davinci's schema summary if needed
+                        if rmeta.extra and "min_date" in rmeta.extra:
+                            col["min_date"] = rmeta.extra["min_date"]
+                        if rmeta.extra and "max_date" in rmeta.extra:
+                            col["max_date"] = rmeta.extra["max_date"]
+                            
+            enriched.append(t)
+        return enriched
+    except Exception as e:
+        log_event("ai_metadata_enrich_error", {"error": str(e)})
+        return tables
 
 
 async def _filter_tables_by_permissions(
@@ -579,7 +648,7 @@ async def _get_allowed_tables_for_validation(
         return []
 
 
-def _schema_summary_from_tables(tables: list[dict], max_tables: int = 12) -> tuple[list[str], str]:
+def _schema_summary_from_tables(tables: list[dict], max_tables: int = 30) -> tuple[list[str], str]:
     logical_tables: list[str] = []
     lines: list[str] = []
 
@@ -594,7 +663,7 @@ def _schema_summary_from_tables(tables: list[dict], max_tables: int = 12) -> tup
         cols = t.get("columns") or []
         col_names: list[str] = []
         if isinstance(cols, list):
-            for c in cols[:10]:
+            for c in cols[:20]:
                 if isinstance(c, dict) and c.get("name"):
                     col_names.append(str(c["name"]))
         if col_names:
@@ -994,6 +1063,13 @@ async def chat_bootstrap(
     # Gatekeeper: Force English
     lang = "en"
 
+    # ✅ Feature Flag: Pausar Bootstrap se solicitado
+    if DISABLE_BOOTSTRAP_EXECUTION:
+        return ChatBootstrapResponse(
+            greeting="Bootstrap is paused (Maintenance Mode)",
+            suggestions=[]
+        )
+
     # ✅ NOVA: Resolver crew_ids baseado no contexto (personal vs collaborative)
     resolved_crew_ids: Optional[List[str]] = None
     try:
@@ -1116,7 +1192,7 @@ async def chat_bootstrap(
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
     # Build a compact schema summary for the LLM.
-    max_tables_in_prompt = min(12, len(tables))
+    max_tables_in_prompt = min(30, len(tables))
     _logical, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
 
     # ✅ NOVO: Coletar estatísticas dos dados reais (seguindo melhores práticas)
@@ -1635,10 +1711,76 @@ async def dashboards_plan(
         if body.logical_tables_override:
             logical_tables = [str(x) for x in body.logical_tables_override if str(x).strip()]
             schema_summary = str(body.schema_summary_override or "").strip()
-            max_tables_in_prompt = min(12, len(logical_tables))
+            max_tables_in_prompt = min(30, len(logical_tables))
         else:
             tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
-            max_tables_in_prompt = min(12, len(tables))
+            # ✅ Enrich with AI metadata (date ranges!)
+            tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
+
+            # ✅ SEMANTIC RE-RANKING (Hybrid Logic)
+            # If we have an original question, use vector search to bubble up relevant tables.
+            original_q_for_rank = getattr(body, "original_question", None) or body.goal
+            if original_q_for_rank and len(tables) > 0:
+                try:
+                    # 1. Instantiate Provider using Factory
+                    provider = create_embedding_provider()
+                    
+                    # 2. Search (Top 50 to get good coverage)
+                    # We search for the question + goal to maximize context
+                    search_query = f"{original_q_for_rank}"
+                    
+                    # We pass connection_id to enable "Hybrid Search" (Global + Local) if supported,
+                    # but typically we want to search within this specific connection's metadata scope.
+                    # search_embeddings_async arguments: space_id, crew_ids, query, top_k...
+                    # NOTE: Schema embeddings are usually linked to connection_id via TableMetadata -> data_connection_id logic.
+                    # vector_store.search_embeddings_async supports connection_id filtering.
+                    
+                    top_records = await search_embeddings_async(
+                        db=db,
+                        embedding_provider=provider,
+                        space_id=body.space_id,
+                        crew_ids=resolved_crew_ids,
+                        query_text=search_query,
+                        top_k=50,
+                        connection_id=connection_id
+                    )
+                    
+                    # 3. Extract scores
+                    # Record: extra_metadata={'table_name': '...'}
+                    # We want to map Table -> Min Distance (Best Match)
+                    # Lower distance is better.
+                    table_scores = {}
+                    for rec in top_records:
+                        t_name = (rec.extra_metadata or {}).get("table_name")
+                        if not t_name: continue
+                        
+                        # Use a simple score: 1.0 for top result, decreasing.
+                        # Or just use rank order.
+                        # Let's use rank order boosting.
+                        if t_name not in table_scores:
+                            table_scores[t_name] = 0
+                        table_scores[t_name] += 1 # Frequency boost?
+                        # Actually simple presence in top K is a strong signal.
+                    
+                    # 4. Sort 'tables' list
+                    # Tables is a list of dicts. We need to match names.
+                    # Sort key: -score (descending), then name (asc)
+                    def get_score(t_meta):
+                        tn = t_meta.get("name", "")
+                        return table_scores.get(tn, 0) + table_scores.get(t_meta.get("logical_name", ""), 0)
+
+                    # Stable sort: relevant first, then original order
+                    tables.sort(key=lambda t: get_score(t), reverse=True)
+                    
+                    log_event("dashboard_plan_semantic_rerank", {
+                        "query": search_query[:50],
+                        "top_tables": [t.get("name") for t in tables[:5]]
+                    })
+                    
+                except Exception as e:
+                     log_event("dashboard_plan_rerank_error", {"error": str(e)})
+
+            max_tables_in_prompt = min(30, len(tables))
             logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
     except Exception:
         tables = []
@@ -1656,7 +1798,22 @@ async def dashboards_plan(
         context_crews = getattr(body, "context_crews", None)
         context_tables = getattr(body, "context_tables", None)
         
-        plan = generate_dashboard_plan(
+        # 🔗 NEW: Analysis Context Bridge
+        # Try to retrieve validated intent from the chat session
+        user_id_str = str(body.user_id) if hasattr(body, "user_id") and body.user_id else "anon"
+        analysis_context = AnalysisSessionStore.get(user_id_str, connection_id)
+        
+        if analysis_context:
+            log_event("dashboard_plan_context_found", {
+                "user_id": user_id_str,
+                "analysis_type": analysis_context.detected_analysis_type,
+                "entity": analysis_context.primary_entity
+            })
+
+        
+        # 🏃 ASYNC FIX: Offload synchronous agent to thread to prevent loop blocking
+        plan = await asyncio.to_thread(
+            generate_dashboard_plan,
             llm=llm,
             goal=body.goal,
             language=lang,
@@ -1668,6 +1825,8 @@ async def dashboards_plan(
             context_spaces=context_spaces,
             context_crews=context_crews,
             context_tables=context_tables,
+            table_metadata=tables, # ✅ Pass full metadata for Schema Intelligence
+            analysis_context=analysis_context, # 🔗 Pass the context bridge
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
@@ -2530,10 +2689,11 @@ async def query_connection(
         # security_config removed (not in UserContext schema)
     )
     
-    # 🏃 EXECUÇÃO: Roda o agente (graph) DE FORMA SÍNCRONA
+    # 🏃 EXECUÇÃO: Roda o agente (graph) DE FORMA SÍNCRONA (em thread separada para não bloquear loop)
     # O grafo monta o plano, gera SQL e formata a resposta.
     try:
-        final_state = run_agent_once(
+        final_state = await asyncio.to_thread(
+            run_agent_once,
             question=body.question,
             user_ctx=mock_user_ctx, # Contexto montado acima
             agent_config=agent_config,
@@ -2552,7 +2712,6 @@ async def query_connection(
             response_format=body.response_format,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
-
         )
     except Exception as e:
         import traceback
@@ -2980,6 +3139,10 @@ async def query_connection(
         pii_blocked=pii_blocked,
     )
     
+    # Inject RAG context (debug)
+    if retrieval_context:
+        meta.rag_context = retrieval_context[:5]
+
     return QueryResponse(
         answer=answer,
         data_sample=data_sample,
