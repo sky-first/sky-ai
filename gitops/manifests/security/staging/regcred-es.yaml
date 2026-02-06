@@ -1,8 +1,7 @@
 apiVersion: external-secrets.io/v1beta1
-kind: SecretStore
+kind: ClusterSecretStore
 metadata:
   name: azure-keyvault-staging
-  namespace: staging
 spec:
   provider:
     azurekv:
@@ -10,6 +9,7 @@ spec:
       vaultUrl: https://akv-sky-staging-a56c7aad.vault.azure.net
       serviceAccountRef:
         name: external-secrets
+        namespace: external-secrets
 ---
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
@@ -20,7 +20,7 @@ spec:
   refreshInterval: 1h
   secretStoreRef:
     name: azure-keyvault-staging
-    kind: SecretStore
+    kind: ClusterSecretStore
   target:
     name: regcred
     template:
