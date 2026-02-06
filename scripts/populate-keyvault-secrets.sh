@@ -7,12 +7,19 @@ set -euo pipefail
 
 echo "🔐 Populating Azure Key Vault with secrets..."
 
-# Get variables from Terraform outputs
-KEY_VAULT_NAME=$(terraform output -raw key_vault_name)
-POSTGRES_PASSWORD=$(terraform output -raw postgres_password)
-REDIS_PASSWORD=$(terraform output -raw redis_password)
-JWT_SECRET=$(terraform output -raw jwt_secret)
-ENCRYPTION_KEY=$(terraform output -raw encryption_key)
+# Get variables from Terraform outputs with fallback/validation
+echo "🔍 Fetching secrets from Terraform outputs..."
+KEY_VAULT_NAME=$(terraform output -raw key_vault_name 2>/dev/null || echo "")
+POSTGRES_PASSWORD=$(terraform output -raw postgres_password 2>/dev/null || echo "")
+REDIS_PASSWORD=$(terraform output -raw redis_password 2>/dev/null || echo "")
+JWT_SECRET=$(terraform output -raw jwt_secret 2>/dev/null || echo "")
+ENCRYPTION_KEY=$(terraform output -raw encryption_key 2>/dev/null || echo "")
+
+if [ -z "$KEY_VAULT_NAME" ]; then
+    echo "❌ ERROR: Could not get key_vault_name from Terraform outputs"
+    terraform output
+    exit 1
+fi
 
 # Construct connection strings
 DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_db"
@@ -29,23 +36,30 @@ set_secret() {
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
+        echo "  Attempting to set $secret_name (try $((retry_count + 1))/$max_retries)..."
+        
+        # We use set +e / set -e or a helper to avoid crashing the script on failure
+        # so we can actually see the error message
+        set +e
         ERROR_OUTPUT=$(az keyvault secret set \
             --vault-name "$KEY_VAULT_NAME" \
             --name "$secret_name" \
             --value "$secret_value" \
             --output none 2>&1)
+        EXIT_CODE=$?
+        set -e
         
-        if [ $? -eq 0 ]; then
-            echo "  ✅ $secret_name"
+        if [ $EXIT_CODE -eq 0 ]; then
+            echo "  ✅ $secret_name set successfully"
             return 0
         else
+            echo "  ⚠️  Failed to set $secret_name: $ERROR_OUTPUT"
             retry_count=$((retry_count + 1))
             if [ $retry_count -lt $max_retries ]; then
-                echo "  ⚠️  Retry $retry_count/$max_retries for $secret_name..."
-                sleep 5
+                echo "  ⏳ Retrying in 10s..."
+                sleep 10
             else
-                echo "  ❌ Failed to set $secret_name after $max_retries attempts"
-                echo "  📋 Error details: $ERROR_OUTPUT"
+                echo "  ❌ Final failure for $secret_name after $max_retries attempts"
             fi
         fi
     done

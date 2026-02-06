@@ -2834,7 +2834,12 @@ jobs:
           export TF_VAR_runner_ip=""
           
           # Run terraform apply again to remove the IP from firewall
+          # We need to pass the var-file to ensure all required variables are present
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          
           terraform apply -auto-approve \
+            -var-file="$TFVARS_FILE" \
+            -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -var="runner_ip=" \
             -target=azurerm_key_vault.main
           
