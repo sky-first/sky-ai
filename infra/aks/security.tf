@@ -22,18 +22,23 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = true
 
   network_acls {
-    # Restricted access to AKS Subnet and Azure Services only
-    default_action             = var.key_vault_firewall_allow ? "Allow" : "Deny"
+    # Restricted access to AKS Subnet, Azure Services, and GitHub Actions Runner
+    default_action             = "Deny" # Always deny by default for security
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-    ip_rules                   = var.runner_ip != null ? (length(regexall("/[0-9]+$", var.runner_ip)) > 0 ? [var.runner_ip] : ["${var.runner_ip}/32"]) : []
+
+    # Ensure runner IP is included during Key Vault creation
+    ip_rules = compact([
+      var.runner_ip != null ? (
+        length(regexall("/[0-9]+$", var.runner_ip)) > 0
+        ? var.runner_ip
+        : "${var.runner_ip}/32"
+      ) : null
+    ])
   }
 
-  lifecycle {
-    ignore_changes = [
-      network_acls[0].ip_rules
-    ]
-  }
+  # Allow Terraform to manage IP rules - no ignore_changes
+  # This ensures the runner IP is always present during apply
 
   tags = {
     Environment = var.environment
@@ -87,13 +92,17 @@ resource "azurerm_federated_identity_credential" "eso" {
 }
 
 # 5. Propagation Delay (Best Practice to avoid 403 on first try)
-resource "time_sleep" "wait_for_rbac" {
+# Azure RBAC propagation typically takes 30-90 seconds
+resource "time_sleep" "wait_for_rbac_and_firewall" {
   depends_on = [
+    azurerm_key_vault.main,
     azurerm_role_assignment.vault_admin,
     azurerm_role_assignment.eso_secrets_user,
     azurerm_role_assignment.github_actions_secrets_user
   ]
-  create_duration = "30s"
+
+  # Extended wait time to ensure both RBAC and firewall rules are propagated
+  create_duration = "90s"
 }
 
 
@@ -115,28 +124,28 @@ resource "azurerm_key_vault_secret" "postgres_password" {
   name         = "postgres-password"
   value        = random_password.postgres.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "azurerm_key_vault_secret" "redis_password" {
   name         = "redis-password"
   value        = random_password.redis.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "azurerm_key_vault_secret" "database_url" {
   name         = "database-url"
   value        = "postgresql://postgres:${random_password.postgres.result}@postgres:5432/ai_saas_db"
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "azurerm_key_vault_secret" "redis_url" {
   name         = "redis-url"
   value        = "redis://:${random_password.redis.result}@redis:6379/0"
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "random_password" "jwt_secret" {
@@ -147,7 +156,7 @@ resource "azurerm_key_vault_secret" "jwt_secret_key" {
   name         = "jwt-secret-key"
   value        = random_password.jwt_secret.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "random_password" "encryption_key" {
@@ -158,21 +167,21 @@ resource "azurerm_key_vault_secret" "encryption_key" {
   name         = "encryption-key"
   value        = random_password.encryption_key.result
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "azurerm_key_vault_secret" "openai_api_key" {
   name         = "openai-api-key"
   value        = "sk-placeholder-replace-me" # Placeholder for OpenAI
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 resource "azurerm_key_vault_secret" "qdrant_url" {
   name         = "qdrant-url"
   value        = "http://qdrant:6333" # Internal Qdrant if used, or external
   key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  depends_on   = [time_sleep.wait_for_rbac_and_firewall]
 }
 
 # Outputs are now in outputs.tf
