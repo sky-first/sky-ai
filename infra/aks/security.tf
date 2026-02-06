@@ -22,17 +22,15 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = true
 
   network_acls {
-    # Restricted access: AKS Subnet + Azure Trusted Services (includes GitHub Actions with Managed Identity)
+    # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
     default_action             = "Deny"          # Always deny by default for security
-    bypass                     = "AzureServices" # Allows GitHub Actions Managed Identity + other Azure services
+    bypass                     = "AzureServices" # Allows other Azure services
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
 
-    # No IP rules - GitHub Actions runner IPs are dynamic and change between executions
-    # Instead, we rely on:
-    # 1. AzureServices bypass (allows Managed Identity authentication)
-    # 2. RBAC roles (controls WHO can access)
-    # 3. VNet integration (allows AKS pods to access)
-    ip_rules = []
+    # Temporarily allow runner IP during secret population
+    # This is removed after secrets are created via a second Terraform apply
+    # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
+    ip_rules = var.runner_ip != "" ? [var.runner_ip] : []
   }
 
   # Allow Terraform to manage network rules

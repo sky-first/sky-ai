@@ -2939,6 +2939,28 @@ jobs:
           echo ""
           echo "✅ Key Vault secrets population complete!"
 
+      - name: Close Key Vault Firewall
+        id: close-firewall
+        working-directory: infra/aks
+        run: |
+          set -euo pipefail
+          
+          echo "🔒 Removing runner IP from Key Vault firewall..."
+          echo "This closes the temporary security exception"
+          echo ""
+          
+          # Unset the runner IP variable
+          unset TF_VAR_runner_ip
+          export TF_VAR_runner_ip=""
+          
+          # Run terraform apply again to remove the IP from firewall
+          terraform apply -auto-approve \
+            -var="runner_ip=" \
+            -target=azurerm_key_vault.main
+          
+          echo ""
+          echo "✅ Key Vault firewall closed - runner IP removed!"
+
       - name: Get Terraform Outputs
         id: outputs
         run: |
