@@ -2925,9 +2925,9 @@ jobs:
 
       - name: Populate Key Vault Secrets
         id: populate-secrets
+        working-directory: infra/aks
         run: |
           set -euo pipefail
-          cd infra/aks
           
           echo "🔐 Populating Key Vault secrets via Azure CLI..."
           echo "This bypasses firewall restrictions since Azure CLI is a trusted service"
