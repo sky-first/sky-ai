@@ -10,6 +10,7 @@ on:
     paths:
       - "infra/**"
       - "scripts/**"
+      - "gitops/**"
       - ".github/workflows/deploy.yml"
       - ".github/actions/**"
   repository_dispatch:
