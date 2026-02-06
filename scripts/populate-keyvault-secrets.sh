@@ -29,11 +29,13 @@ set_secret() {
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
-        if az keyvault secret set \
+        ERROR_OUTPUT=$(az keyvault secret set \
             --vault-name "$KEY_VAULT_NAME" \
             --name "$secret_name" \
             --value "$secret_value" \
-            --output none 2>/dev/null; then
+            --output none 2>&1)
+        
+        if [ $? -eq 0 ]; then
             echo "  ✅ $secret_name"
             return 0
         else
@@ -41,11 +43,13 @@ set_secret() {
             if [ $retry_count -lt $max_retries ]; then
                 echo "  ⚠️  Retry $retry_count/$max_retries for $secret_name..."
                 sleep 5
+            else
+                echo "  ❌ Failed to set $secret_name after $max_retries attempts"
+                echo "  📋 Error details: $ERROR_OUTPUT"
             fi
         fi
     done
     
-    echo "  ❌ Failed to set $secret_name after $max_retries attempts"
     return 1
 }
 
