@@ -28,38 +28,50 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set State Path
-        id: state-path
-        run: |
-          if [ "${{ inputs.environment }}" == "staging" ]; then
-            echo "key=env:staging/poc-deploy-staging.tfstate" >> $GITHUB_OUTPUT
-          else
-            echo "key=poc-deploy-prod.tfstate" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Break Lease
+      - name: Break Leases (Robust)
         env:
           STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
-          KEY: ${{ steps.state-path.outputs.key }}
+          ENV: ${{ inputs.environment }}
         run: |
-          echo "Breaking lease for state blob: $KEY..."
-          az storage blob lease break \
-            --blob-name "$KEY" \
-            --container-name "$CONTAINER" \
+          echo "🔍 Searching for state blobs for environment: $ENV..."
+          
+          # List all blobs and try to find matches
+          BLOBS=$(az storage blob list \
             --account-name "$STORAGE_ACCOUNT" \
-            --auth-mode login || echo "Failed to break state blob lease (maybe none exists)"
-
-          echo "Breaking lease for lock blob..."
-          az storage blob lease break \
-            --blob-name ".terraform.tfstate.lock.info" \
             --container-name "$CONTAINER" \
-            --account-name "$STORAGE_ACCOUNT" \
-            --auth-mode login || echo "Failed to break lock blob lease (maybe none exists)"
+            --auth-mode login \
+            --query "[].name" -o tsv)
             
-          echo "Deleting lock blob..."
-          az storage blob delete \
-            --name ".terraform.tfstate.lock.info" \
-            --container-name "$CONTAINER" \
-            --account-name "$STORAGE_ACCOUNT" \
-            --auth-mode login || echo "Failed to delete lock blob"
+          echo "Found blobs:"
+          echo "$BLOBS"
+          
+          # Match patterns:
+          # 1. env:/staging/poc-deploy-staging.tfstate
+          # 2. env:staging/poc-deploy-staging.tfstate
+          # 3. poc-deploy-staging.tfstate
+          
+          for blob in $BLOBS; do
+            if [[ "$blob" == *"$ENV"* ]] && [[ "$blob" == *".tfstate"* ]]; then
+              echo "🔓 Breaking lease for: $blob"
+              az storage blob lease break \
+                --blob-name "$blob" \
+                --container-name "$CONTAINER" \
+                --account-name "$STORAGE_ACCOUNT" \
+                --auth-mode login || echo "Failed to break lease for $blob"
+            fi
+          done
+
+          # Also try the specific lock info blob if it exists anywhere
+          for blob in $BLOBS; do
+            if [[ "$blob" == *".lock.info"* ]]; then
+              echo "🗑️ Deleting lock blob: $blob"
+              az storage blob delete \
+                --name "$blob" \
+                --container-name "$CONTAINER" \
+                --account-name "$STORAGE_ACCOUNT" \
+                --auth-mode login || echo "Failed to delete $blob"
+            fi
+          done
+          
+          echo "✅ Lease break process complete!"
