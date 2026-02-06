@@ -103,5 +103,10 @@ class DistributedRateLimiter:
 
 
 # Instância global (substitui _rate_limiter)
-_rate_limiter = DistributedRateLimiter()
+# AUMENTO DE LIMITES PARA VALIDAÇÃO: 1000/min, 5000/hour
+_rate_limiter = DistributedRateLimiter(
+    max_queries_per_minute=1000,
+    max_queries_per_hour=5000,
+    max_validate_per_minute=1000
+)
 
