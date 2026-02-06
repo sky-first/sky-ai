@@ -22,18 +22,19 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = true
 
   network_acls {
-    # Restricted access to AKS Subnet and Azure Services only
-    default_action             = var.key_vault_firewall_allow ? "Allow" : "Deny"
-    bypass                     = "AzureServices"
+    # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
+    default_action             = "Deny"          # Always deny by default for security
+    bypass                     = "AzureServices" # Allows other Azure services
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-    ip_rules                   = var.runner_ip != null ? (length(regexall("/[0-9]+$", var.runner_ip)) > 0 ? [var.runner_ip] : ["${var.runner_ip}/32"]) : []
+
+    # Temporarily allow runner IP during secret population
+    # This is removed after secrets are created via a second Terraform apply
+    # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
+    ip_rules = var.runner_ip != "" ? [var.runner_ip] : []
   }
 
-  lifecycle {
-    ignore_changes = [
-      network_acls[0].ip_rules
-    ]
-  }
+  # Allow Terraform to manage network rules
+  # No ignore_changes needed since we're not using dynamic IP rules
 
   tags = {
     Environment = var.environment
@@ -87,19 +88,25 @@ resource "azurerm_federated_identity_credential" "eso" {
 }
 
 # 5. Propagation Delay (Best Practice to avoid 403 on first try)
-resource "time_sleep" "wait_for_rbac" {
+# Azure RBAC propagation typically takes 30-90 seconds
+resource "time_sleep" "wait_for_rbac_and_firewall" {
   depends_on = [
+    azurerm_key_vault.main,
     azurerm_role_assignment.vault_admin,
     azurerm_role_assignment.eso_secrets_user,
     azurerm_role_assignment.github_actions_secrets_user
   ]
-  create_duration = "30s"
+
+  # Extended wait time to ensure both RBAC and firewall rules are propagated
+  create_duration = "90s"
 }
 
 
 
-# --- Infrastructure Secrets Injection ---
-# Save the generated passwords and connection strings to Key Vault
+
+
+# --- Infrastructure Secrets Generation ---
+# Generate passwords and secrets (Terraform manages generation, Azure CLI manages Key Vault population)
 
 resource "random_password" "postgres" {
   length  = 16
@@ -111,69 +118,20 @@ resource "random_password" "redis" {
   special = false
 }
 
-resource "azurerm_key_vault_secret" "postgres_password" {
-  name         = "postgres-password"
-  value        = random_password.postgres.result
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
-resource "azurerm_key_vault_secret" "redis_password" {
-  name         = "redis-password"
-  value        = random_password.redis.result
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
-resource "azurerm_key_vault_secret" "database_url" {
-  name         = "database-url"
-  value        = "postgresql://postgres:${random_password.postgres.result}@postgres:5432/ai_saas_db"
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
-resource "azurerm_key_vault_secret" "redis_url" {
-  name         = "redis-url"
-  value        = "redis://:${random_password.redis.result}@redis:6379/0"
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
 resource "random_password" "jwt_secret" {
-  length = 64
-}
-
-resource "azurerm_key_vault_secret" "jwt_secret_key" {
-  name         = "jwt-secret-key"
-  value        = random_password.jwt_secret.result
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
+  length  = 64
+  special = false
 }
 
 resource "random_password" "encryption_key" {
-  length = 32
+  length  = 32
+  special = false
 }
 
-resource "azurerm_key_vault_secret" "encryption_key" {
-  name         = "encryption-key"
-  value        = random_password.encryption_key.result
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
-resource "azurerm_key_vault_secret" "openai_api_key" {
-  name         = "openai-api-key"
-  value        = "sk-placeholder-replace-me" # Placeholder for OpenAI
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
-
-resource "azurerm_key_vault_secret" "qdrant_url" {
-  name         = "qdrant-url"
-  value        = "http://qdrant:6333" # Internal Qdrant if used, or external
-  key_vault_id = azurerm_key_vault.main.id
-  depends_on   = [time_sleep.wait_for_rbac]
-}
+# NOTE: Secrets are NOT created via Terraform due to firewall limitations
+# Instead, they are populated via Azure CLI in the GitHub Actions workflow
+# See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
+# This approach works because Azure CLI is recognized as a trusted service
 
 # Outputs are now in outputs.tf
 

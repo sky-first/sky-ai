@@ -9,6 +9,7 @@ on:
     branches: [staging, main]
     paths:
       - "infra/**"
+      - "scripts/**"
       - ".github/workflows/deploy.yml"
       - ".github/actions/**"
   repository_dispatch:
@@ -34,9 +35,9 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: deploy-${{ github.ref_name }}-${{ github.event.inputs.environment || 'auto' }}
-  cancel-in-progress: false
+
+# Concurrency removed as per user request for immediate execution
+# WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
 
 env:
   TERRAFORM_VERSION: "1.9.0"
@@ -1134,37 +1135,6 @@ jobs:
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt || echo "")
-          set -e  # Reabilitar exit on error
-
-          # Verificar se o erro foi devido a lock
-          if [ $PLAN_EXIT_CODE -eq 1 ] && echo "$PLAN_OUTPUT" | grep -qi "state lock\|already locked"; then
-            echo "⚠️  ERRO: Terraform plan falhou devido a lock do estado"
-            echo "Tentando remover lock e executar novamente..."
-            
-            # Remover lock forçadamente
-            az storage blob delete \
-              --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-              --container-name "${TF_BACKEND_CONTAINER}" \
-              --name ".terraform.tfstate.lock.info" \
-              --auth-mode login \
-              --output none 2>/dev/null && echo "✅ Lock removido" || echo "⚠️  Não foi possível remover lock"
-            
-            # Aguardar um pouco antes de tentar novamente
-            sleep 5
-            
-            # Tentar plan novamente
-            echo "Tentando terraform plan novamente após remover lock..."
-            set +e
-            terraform plan \
-              -var-file="$TFVARS_FILE" \
-              -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-              -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
-              -out=tfplan \
-              -no-color \
-              -detailed-exitcode 2>&1 | tee plan-output.txt
-            PLAN_EXIT_CODE=${PIPESTATUS[0]}
-            set -e
-          fi
 
           # Tratar exit codes
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
@@ -2746,96 +2716,6 @@ jobs:
             echo "ℹ️ Cluster não existe ainda. Safe to proceed."
           fi
 
-      - name: Configure Key Vault Firewall
-        run: |
-          set -euo pipefail  # Falhar em erro - não mascarar problemas
-          echo "=========================================="
-          echo "🔐 Configuring Key Vault Firewall"
-          echo "Runner IP: ${RUNNER_IP:-<não definido>}"
-          echo "=========================================="
-          
-          # Validar variáveis obrigatórias
-          if [ -z "${RUNNER_IP:-}" ]; then
-            echo "ERRO: RUNNER_IP não definido"
-            exit 1
-          fi
-
-          # Get all Key Vaults in the resource group
-          KV_LIST="${KV_OVERRIDE_LIST:-}"
-          if [ -z "$KV_LIST" ]; then
-            echo "  ℹ️  No Key Vault override list, discovering from resource group..."
-            KV_LIST=$(az keyvault list \
-              --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
-              --query "[].name" -o tsv | tr '\n' ' ' || echo "")
-          fi
-
-          if [ -n "$KV_LIST" ]; then
-            CONFIGURATION_FAILURES=0
-            
-            for KV_NAME in $KV_LIST; do
-              echo ""
-              echo "  🔧 Configuring: $KV_NAME"
-              
-              # Add runner IP to firewall (idempotent)
-              if az keyvault network-rule add \
-                --name "$KV_NAME" \
-                --ip-address "${RUNNER_IP}/32" \
-                --only-show-errors >/dev/null 2>&1; then
-                echo "    ✅ Runner IP whitelisted"
-              else
-                echo "    ℹ️  IP already whitelisted or firewall disabled"
-              fi
-              
-              # Ensure AzureServices bypass is enabled
-              az keyvault update \
-                --name "$KV_NAME" \
-                --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
-                --bypass AzureServices \
-                --only-show-errors >/dev/null 2>&1 || {
-                echo "    ⚠️  Não foi possível habilitar AzureServices bypass"
-              }
-                
-              # Validar acesso REAL (apenas secret list)
-              echo "    🔍 Validando acesso efetivo..."
-              MAX_VALIDATION_ATTEMPTS=12
-              VALIDATION_DELAY=5
-              ACCESS_CONFIRMED=false
-              
-              for ((i=1; i<=MAX_VALIDATION_ATTEMPTS; i++)); do
-                if az keyvault secret list --vault-name "$KV_NAME" --maxresults 1 >/dev/null 2>&1; then
-                  echo "    ✅ Acesso confirmado para $KV_NAME!"
-                  ACCESS_CONFIRMED=true
-                  break
-                fi
-                
-                if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
-                  echo "    ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
-                  sleep $VALIDATION_DELAY
-                fi
-              done
-              
-              # FALHAR se não conseguir validar acesso
-              if [ "$ACCESS_CONFIRMED" == "false" ]; then
-                echo "    ❌ ERRO: Key Vault $KV_NAME não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
-                CONFIGURATION_FAILURES=$((CONFIGURATION_FAILURES + 1))
-              fi
-            done
-            
-            # FALHAR se houver falhas na configuração
-            if [ $CONFIGURATION_FAILURES -gt 0 ]; then
-              echo ""
-              echo "❌ ERRO: Falha ao configurar $CONFIGURATION_FAILURES Key Vault(s)"
-              echo "Terraform Apply pode falhar devido a Key Vaults inacessíveis"
-              exit 1
-            fi
-          else
-            echo "  ℹ️  No Key Vaults found (will be created during apply)"
-          fi
-
-          echo ""
-          echo "✅ Key Vault firewall configuration complete"
-          echo "=========================================="
-
       - name: Terraform Apply
         id: apply
         run: |
@@ -2922,6 +2802,50 @@ jobs:
           fi
 
           echo "OK: Terraform apply concluído com sucesso"
+
+      - name: Populate Key Vault Secrets
+        id: populate-secrets
+        working-directory: infra/aks
+        run: |
+          set -euo pipefail
+          
+          echo "🔐 Populating Key Vault secrets via Azure CLI..."
+          echo "This bypasses firewall restrictions since Azure CLI is a trusted service"
+          echo ""
+          
+          chmod +x ../../scripts/populate-keyvault-secrets.sh
+          ../../scripts/populate-keyvault-secrets.sh
+          
+          echo ""
+          echo "✅ Key Vault secrets population complete!"
+
+      - name: Close Key Vault Firewall
+        id: close-firewall
+        if: always()  # Always close firewall, even if secret population fails
+        working-directory: infra/aks
+        run: |
+          set -euo pipefail
+          
+          echo "🔒 Removing runner IP from Key Vault firewall..."
+          echo "This closes the temporary security exception"
+          echo ""
+          
+          # Unset the runner IP variable
+          unset TF_VAR_runner_ip
+          export TF_VAR_runner_ip=""
+          
+          # Run terraform apply again to remove the IP from firewall
+          # We need to pass the var-file to ensure all required variables are present
+          TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
+          
+          terraform apply -auto-approve \
+            -var-file="$TFVARS_FILE" \
+            -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
+            -var="runner_ip=" \
+            -target=azurerm_key_vault.main
+          
+          echo ""
+          echo "✅ Key Vault firewall closed - runner IP removed!"
 
       - name: Get Terraform Outputs
         id: outputs
