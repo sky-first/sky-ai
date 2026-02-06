@@ -78,22 +78,20 @@ class ConstraintGenerator:
         """
         Constraints for TINY datasets (< 100 rows).
         
-        Strategy: Avoid filters entirely, use aggregations and groupings
+        Strategy: Avoid complex filters, prefer aggregations and groupings.
+        Allow simple categorical filters if explicitly requested or high value.
         """
         return QueryConstraints(
             size_category="tiny",
             allowed_operations={
                 "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT"
+                "GROUP BY", "ORDER BY", "LIMIT", "WHERE"
             },
             discouraged_filters={
                 "WHERE date >",
                 "WHERE date <",
-                "WHERE status =",
                 "WHERE amount >",
                 "WHERE amount <",
-                "WHERE [column] =",  # Any equality filter
-                "WHERE [column] IN",  # Any IN filter
                 "HAVING",  # Post-aggregation filters
             },
             preferred_strategies=[
@@ -104,7 +102,7 @@ class ConstraintGenerator:
                 "comparative_metrics",  # Avg by segment
             ],
             requires_aggregation=True,
-            max_filter_complexity=0,  # No filters
+            max_filter_complexity=1,  # Allow simple categorical filters (e.g. status='paid')
         )
     
     def _small_constraints(self) -> QueryConstraints:

@@ -609,18 +609,49 @@ def _safe_json_loads(text: str) -> Optional[dict]:
     return None
 
 
+def _is_instrumental_command(text: str) -> bool:
+    """
+    Check if the text is purely an instrumental command (e.g. 'Create a dashboard')
+    rather than a substantive data query.
+    """
+    if not text:
+        return True
+    t = text.lower().strip()
+    # Common command patterns
+    commands = [
+        "create", "generate", "make", "build", "show me a", "show a", "dashboard", "report", "analysis"
+    ]
+    # If the text is very short and starts with a command, or is exactly a command sequence
+    # E.g. "Create dashboard", "Generate report for sales"
+    # We want to be careful not to trap "Sales per month"
+    
+    # If it's just "dashboard", "sales dashboard", etc.
+    if t in ["dashboard", "sales dashboard", "report", "sales report"]:
+        return True
+    
+    # If it starts with a command and is short (likely a meta-command)
+    words = t.split()
+    if len(words) <= 5:
+        if words[0] in ["create", "generate", "make", "build"]:
+            return True
+            
+    return False
+
+
 def _fallback_plan(
     goal: str, 
     logical_tables: List[str], 
     max_widgets: int, 
     schema_summary: str = "", 
     original_question: Optional[str] = None,
-    table_metadata: Optional[List[Dict[str, Any]]] = None
+    table_metadata: Optional[List[Dict[str, Any]]] = None,
+    language: str = "en"
 ) -> DavinciDashboardPlan:
     """
-    Deterministic fallback plan when LLM fails.
-    Produces widgets that are safe to execute with small result sets.
+    Smart fallback plan when LLM fails.
+    Uses domain-aware weighted random choices to avoid a deterministic 'hardcoded' feel.
     """
+    import random
 
     picked = logical_tables[:100]
     widgets: List[Dict[str, Any]] = []
@@ -893,7 +924,6 @@ def _fallback_plan(
                 viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}}
                 title = f"Top {dim.replace('_', ' ').title()}"
             else:
-                # Último recurso: pergunta genérica mas ainda melhor que antes
                 question = f"What is the distribution of records in `{t}` by main dimension? Show top 10."
                 viz = {"type": viz_type, "mapping": {"x": "category", "y": "value"}}
                 title = f"Distribution in {t}"
@@ -909,11 +939,94 @@ def _fallback_plan(
     # Trim to max_widgets
     widgets = widgets[:max_widgets]
 
+    # Detect primary domain
+    domain = "general"
+    goal_lower = goal.lower()
+    all_tables_lower = " ".join(logical_tables).lower()
+    
+    if any(x in goal_lower or x in all_tables_lower for x in ["sale", "order", "revenue", "product", "deal"]):
+        domain = "sales"
+    elif any(x in goal_lower or x in all_tables_lower for x in ["pay", "refund", "invoice", "transaction", "bank", "billing"]):
+        domain = "payments"
+    elif any(x in goal_lower or x in all_tables_lower for x in ["user", "customer", "visitor", "churn", "client"]):
+        domain = "users"
+
+    # Define thematic pattern clusters
+    patterns = {
+        "sales": [
+            ("kpi", "Total Revenue", "What is the total revenue summed across all records?"),
+            ("chart", "Revenue Trend", "Show the monthly revenue trend. Return period and value.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+            ("chart", "Top Products", "What are the top 10 products by revenue?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+            ("chart", "Sales Distribution", "Show sales distribution by category.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            ("table", "Recent Orders", "Show the 15 most recent orders with key details."),
+            ("chart", "Monthly Growth", "Show the percentage growth in sales month over month.", {"type": "area", "mapping": {"x": "period", "y": "value"}}),
+        ],
+        "payments": [
+            ("kpi", "Total Collections", "What is the total amount collected?"),
+            ("chart", "Payment Status", "Show the distribution of payments by status.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            ("chart", "Refund Rate", "What is the trend of refunds over time?", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+            ("chart", "Top Billing Regions", "Which regions have the highest billing volume?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+            ("table", "Recent Transactions", "Show the last 15 payment transactions."),
+            ("chart", "Average Transaction Value", "Show average transaction value by month.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+        ],
+        "users": [
+            ("kpi", "Total Users", "How many unique users are in the system?"),
+            ("chart", "User Growth", "Show the monthly trend of new user registrations.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+            ("chart", "User Retention", "Show active users by segment/type.", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+            ("chart", "Geographic Distribution", "Show the distribution of users by country or region.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            ("table", "Latest Signups", "Show details of the 15 newest members."),
+            ("chart", "Activity Breakdown", "What is the distribution of user activity status?", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+        ],
+        "general": [
+            ("kpi", "Total Activity", "What is the total count of records?"),
+            ("chart", "Volume Trend", "How does record volume trend over time?", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+            ("chart", "Top Segments", "What are the top 10 segments for this data?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+            ("chart", "Data Composition", "Show the distribution of records by its primary category.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            ("table", "Recent Records", "Show the most recent 15 records."),
+            ("chart", "Density Analysis", "Show the distribution of data counts.", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+        ]
+    }
+
+    # Select domain patterns and shuffle to avoid fixed order
+    domain_patterns = patterns.get(domain, patterns["general"])
+    random.shuffle(domain_patterns)
+    
+    # Fill remaining widgets from patterns
+    pattern_idx = 0
+    while len(widgets) < max_widgets and pattern_idx < len(domain_patterns):
+        p_type, p_title, p_question, *p_viz = domain_patterns[pattern_idx]
+        
+        # Determine table to use
+        t = picked[pattern_idx % max(1, len(picked))] # Use picked tables for context
+        question_with_table = p_question.replace("records", f"`{t}` records").replace("system", f"`{t}` table")
+        if "`" not in question_with_table and not question_with_table.startswith("From"):
+             question_with_table = f"From `{t}`: {p_question}"
+        
+        widgets.append({
+            "widget_key": f"w{len(widgets)+1}",
+            "type": p_type,
+            "title": f"[{domain.title()}] {p_title}",
+            "question": question_with_table,
+            "viz": p_viz[0] if p_viz else {"type": p_type}
+        })
+        pattern_idx += 1
+
+    # Final safety: if still not enough, add simple KPI for each table
+    for i, t in enumerate(picked):
+        if len(widgets) >= max_widgets: break
+        widgets.append({
+            "widget_key": f"w{len(widgets)+1}",
+            "type": "kpi",
+            "title": f"Total {t.title()}",
+            "question": f"How many records are in `{t}` in total?",
+            "viz": {"type": "kpi"}
+        })
+
     return DavinciDashboardPlan(
         dashboard_name=goal.strip()[:80] or "Dashboard",
-        description="Auto-generated super dashboard based on your accessible data.",
+        description=f"Auto-generated {domain} dashboard with intention-aware variety.",
         widgets=widgets[:max_widgets],
-        meta={"fallback": True, "reason": "LLM_FALLBACK", "has_original_question": original_question is not None},
+        meta={"fallback": True, "reason": "SMART_FALLBACK", "domain": domain, "has_original_question": original_question is not None},
     )
 
 
@@ -1162,16 +1275,12 @@ def generate_dashboard_plan(
                     constraint_lines.append(
                         f"  → User-requested filter: {filter_hints[0]}"
                     )
-            elif constraints.max_filter_complexity == 0:
-                constraint_lines.append(
-                    "- ❌ AVOID: WHERE filters (dataset too small, filters will likely return empty results)"
-                )
-                constraint_lines.append(
-                    "  → EXCEPTION: If user explicitly mentions a filter (e.g., 'failed payments'), you MAY use it"
-                )
             elif constraints.max_filter_complexity <= 2:
                 constraint_lines.append(
-                    "- ⚠️ CAUTION: Use WHERE filters very sparingly (simple conditions only)"
+                    "- ⚠️ CAUTION: Use WHERE filters very sparingly."
+                )
+                constraint_lines.append(
+                    "- 💡 STEERING: For small datasets, prefer categorical filters (status, type, category) over time-based filters to avoid empty results."
                 )
             
             if "temporal_grouping" in constraints.preferred_strategies:
@@ -1190,6 +1299,11 @@ def generate_dashboard_plan(
         # Profiling failure should not break dashboard generation
         log_event("davinci_profiling_error", {"error": str(e)})
         dataset_constraints_text = ""
+
+    # Check if we have temporal data in the enriched schema to guide variety
+    has_time = "[T]" in enriched_schema_summary
+    variety_instruction = "Mix Trends, Distributions, Top entities, and Segmentation." if has_time else "Mix Distributions, Top entities, Segmentation, and Comparisons (Skip Trends)."
+    analyst_time_instruction = "4. Add time: Is this getting better or worse? (Trends)." if has_time else "4. [SKIP TRENDS] No temporal columns available in schema."
 
     # Modify prompt based on whether we have an original question or not
     if analysis_context:
@@ -1245,7 +1359,7 @@ def generate_dashboard_plan(
             f"{dataset_constraints_text}"
             f"\n"
             f"🎯 TASK: Generate 7 expansion widgets that provide deeper insight into '{analysis_context.primary_entity}'.\n"
-            f"Think: Why did this metric change? How is it distributed? What's the trend?\n"
+            f"Think: Why did this metric change? How is it distributed? " + ("What's the trend?\n" if has_time else "How does it compare?\n")
         )
         
     elif original_question:
@@ -1257,41 +1371,35 @@ def generate_dashboard_plan(
             "If the data ends in the past, do NOT ask for 'this month' or 'today'. Instead, ask for the 'last available month' or 'recent records'.\n"
             "⚠️ CRITICAL: When using CONTEXT, do NOT assume the data exists just because it was mentioned. Verify against Schema sample time ranges.\n"
             "\n"
-            "🎯 PRIMARY GOAL: The user asked a SPECIFIC question. Your dashboard MUST focus on answering THAT question.\n"
-            "⚠️ DO NOT generate a generic 'overview' dashboard that happens to include the question.\n"
-            "\n"
-            "CRITICAL REQUIREMENT: The user has provided an ORIGINAL QUESTION that MUST be the FIRST widget.\n"
+            "🎯 PRIMARY GOAL: The user provided an ORIGINAL QUESTION. Use it wisely:\n"
+            "1. If the question is a SPECIFIC DATA QUERY (e.g. 'What are sales in SP?'), it MUST be the FIRST widget word-for-word.\n"
+            "2. If the question is an INSTRUMENTAL COMMAND (e.g. 'Create a dashboard', 'Generate report'), DO NOT use the command as the question. Instead, create a substantive KPI or Trend as the Main Insight for W1.\n"
             "\n"
             "Rules:\n"
             "- Output STRICT JSON only.\n"
-            "- The FIRST widget MUST be exactly the user's original question (provided below).\n"
-            "- The remaining widgets MUST be DIRECTLY RELATED to the original question (80-90% relevance).\n"
+            "- The FIRST widget (W1) must be the answer to the user's specific query, or a high-level KPI if the query was a command.\n"
+            "- The remaining widgets MUST be DIRECTLY RELATED to the core intent of the original question (80-90% relevance).\n"
+            f"- PRIORITIZE ANALYST VARIETY: Do not create duplicate views. {variety_instruction}\n"
+            "- ⚠️ AVOID SEMANTIC DUPLICATION: Each widget must provide a unique business perspective. Do not repeat the same metric across multiple widgets unless the dimension is fundamentally different.\n"
             "- Think: 'What specific insights would help answer or expand on this exact question?'\n"
-            "- AVOID: Generic widgets that could apply to any dashboard (e.g., 'customer distribution' when question is about refunds).\n"
             "- Use ONLY the provided logical table names.\n"
             "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
             "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
             "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
-            "- QUESTIONS ONLY: Do not worry about visualization details (like colors or chart types). Focus on the DATA INTENT.\n"
             "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
             "- `data_requirements`: {\n"
             "    \"x_axis_column\": \"name of column\",\n"
             "    \"y_axis_column\": \"name of metric column\",\n"
-            "    \"involved_tables\": [\"table1\", \"table2\"],  <-- ⚠️ CRITICAL: List all logical tables needed for this question\n"
+            "    \"involved_tables\": [\"table1\", \"table2\"],\n"
             "    \"filters\": \"...\"\n"
             "  }\n"
             "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
             "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
             "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
             "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
-            "  * ⛔ FORBIDDEN: Do NOT invent column names. If a column is not listed in the schema, DO NOT USE IT.\n"
-            "  * ⛔ FORBIDDEN: Do NOT assume 'name', 'type', or 'status' exist unless you see them.\n"
-            "- Make the dashboard engaging: mix intents (KPIs + Trends + Lists).\n"
+            "- Make the dashboard engaging: mix intents (KPIs + " + ("Trends" if has_time else "Distributions") + " + Lists).\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
-            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
-            "  * Use broad questions that work with any data (e.g., 'total revenue' instead of 'overdue invoices')\n"
-            f"- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
+            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
@@ -1318,20 +1426,16 @@ def generate_dashboard_plan(
         user = (
             f"N={max_widgets}\n"
             f"\n"
-            f"🎯 ORIGINAL QUESTION (MUST be first widget, word-for-word): {original_question}\n"
+            f"🎯 ORIGINAL QUESTION: {original_question}\n"
+            f"(IMPORTANT: If this is a specific data query, use it as W1 word-for-word. If it's an instrumental command like 'Create a dashboard', generate a substantive first widget instead).\n"
             f"\n"
-            f"📋 INSTRUCTIONS:\n"
-            f"Generate 7 additional widgets that are DIRECTLY RELATED to the question above.\n"
-            f"\n"
-            f"✅ GOOD EXAMPLE (if question is about 'monthly refund performance'):\n"
-            f"- Widget 1: {original_question} (exact question)\n"
-            f"- Widget 2: What is the total refund amount over time? (business metric)\n"
-            f"- Widget 3: What are the top reasons for refunds? (business insight)\n"
-            f"- Widget 4: What is the refund rate by customer segment? (business analysis)\n"
-            f"- Widget 5: What is the average refund processing time? (operational metric)\n"
-            f"- Widget 6: How are refund amounts distributed? (business distribution)\n"
-            f"- Widget 7: Which products have the most refunds? (business insight)\n"
-            f"- Widget 8: What are the recent refund transactions? (business data)\n"
+            f"📋 ANALYST INSTRUCTIONS:\n"
+            f"Generate 7 additional widgets providing COHERENT EXPANSION. Think like a Business Analyst:\n"
+            f"1. Start with the direct answer (Widget 1).\n"
+            f"2. Add causality: Why is this happening? (Segmentation/Breakdown).\n"
+            f"3. Add context: How does this compare to total volume? (Comparison).\n"
+            f"{analyst_time_instruction}\n"
+            f"5. Add entities: Who are the main actors involved? (Ranking/Top Entities).\n"
             f"\n"
             f"{context_str}"
             f"Goal: {goal}\n"
@@ -1339,8 +1443,8 @@ def generate_dashboard_plan(
             f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
             f"{dataset_constraints_text}"
             f"\n"
-            f"🎯 CRITICAL: Focus on '{original_question}'. Extract the key metric/dimension and build ALL widgets around it.\n"
-            f"Generate a dashboard that comprehensively answers: '{original_question}'\n"
+            f"🎯 CRITICAL: Build a COHESIVE analytical story around '{original_question}'.\n"
+            f"Generate a dashboard that provides a 360-degree view of the problem.\n"
         )
     else:
         # Original prompt (without original question)
@@ -1353,9 +1457,10 @@ def generate_dashboard_plan(
             "- Output STRICT JSON only.\n"
             "- Use ONLY the provided logical table names.\n"
             "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
+            "- PRIORITIZE ANALYST VARIETY: Do not create duplicate views. " + variety_instruction + "\n"
+            "- ⚠️ AVOID SEMANTIC DUPLICATION: Each widget must provide a unique business perspective.\n"
             "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
             "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
-            "- QUESTIONS ONLY: Do not worry about visualization details (like colors or chart types). Focus on the DATA INTENT.\n"
             "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
             "- `data_requirements`: {\n"
             "    \"x_axis_column\": \"name of column\",\n"
@@ -1366,22 +1471,13 @@ def generate_dashboard_plan(
             "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
             "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
             "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
-            "  * ⛔ FORBIDDEN: Do NOT invent column names. If a column is not listed in the schema, DO NOT USE IT.\n"
-            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema.\n"
-            "- Make the dashboard engaging: mix intents (KPIs + Trends + Lists).\n"
+            "- Make the dashboard engaging: mix intents (KPIs + " + ("Trends" if has_time else "Distributions") + " + Lists).\n"
             "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- If keys are provided in the schema sample, use them to suggest joined questions.\n"
-            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH) - EVEN IF USER SPEAKS ANOTHER LANGUAGE.\n"
-            "- DATA SAFETY: Do not invent columns. Only use columns present in 'Schema sample'.\n"
-            "- CRITICAL: AVOID EMPTY WIDGETS - Every widget MUST return data:\n"
-            "  * Prefer aggregated queries (COUNT, SUM, AVG) over filtered queries\n"
-            "  * Use broad questions that work with any data (e.g., 'total revenue' instead of 'overdue invoices')\n"
-            "  * For tables/charts, ask for 'top N' or 'distribution by' instead of specific filters\n"
+            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH).\n"
             "- EXACTLY N widgets.\n"
             "- DASHBOARD TITLE (dashboard_name) RULES:\n"
             "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
             "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
-            "  * USE CONTEXT: If a specific goal, region, or timeframe is inferred, INCLUDE IT in the title.\n"
             f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
             f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string}} }}'
             f']}}.\n'
@@ -1541,7 +1637,14 @@ def generate_dashboard_plan(
             raise ValueError("LLM widgets invalid")
 
         # ✅ CRITICAL: If we have an original question, ensure it is the first widget
-        if original_question and not analysis_context: # Only apply if not in analysis_context mode
+        # EXCEPTION: Do not force it if it's an instrumental command (e.g. 'Create dashboard')
+        should_force = (
+            original_question and 
+            not analysis_context and 
+            not _is_instrumental_command(original_question)
+        )
+        
+        if should_force:
             original_question_clean = original_question.strip()
             # 1. First, try to find the original question anywhere in the list (not just index 0)
             found_idx = -1
