@@ -35,7 +35,7 @@ on:
         default: false
 
 concurrency:
-  group: deploy-${{ github.ref_name }}-${{ github.event.inputs.environment || 'auto' }}
+  group: terraform-${{ github.event.inputs.environment || github.ref_name }}
   cancel-in-progress: false
 
 env:
@@ -1136,34 +1136,6 @@ jobs:
           PLAN_OUTPUT=$(cat plan-output.txt || echo "")
           set -e  # Reabilitar exit on error
 
-          # Verificar se o erro foi devido a lock
-          if [ $PLAN_EXIT_CODE -eq 1 ] && echo "$PLAN_OUTPUT" | grep -qi "state lock\|already locked"; then
-            echo "⚠️  ERRO: Terraform plan falhou devido a lock do estado"
-            echo "Tentando remover lock e executar novamente..."
-            
-            # Remover lock forçadamente
-            az storage blob delete \
-              --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-              --container-name "${TF_BACKEND_CONTAINER}" \
-              --name ".terraform.tfstate.lock.info" \
-              --auth-mode login \
-              --output none 2>/dev/null && echo "✅ Lock removido" || echo "⚠️  Não foi possível remover lock"
-            
-            # Aguardar um pouco antes de tentar novamente
-            sleep 5
-            
-            # Tentar plan novamente
-            echo "Tentando terraform plan novamente após remover lock..."
-            set +e
-            terraform plan \
-              -var-file="$TFVARS_FILE" \
-              -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-              -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
-              -out=tfplan \
-              -no-color \
-              -detailed-exitcode 2>&1 | tee plan-output.txt
-            PLAN_EXIT_CODE=${PIPESTATUS[0]}
-            set -e
           fi
 
           # Tratar exit codes

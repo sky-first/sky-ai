@@ -38,8 +38,8 @@ on:
       - "env.example"
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  group: terraform-${{ github.event.pull_request.base.ref || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   TERRAFORM_VERSION: "1.9.0"
@@ -385,74 +385,6 @@ jobs:
           echo "tfvars=terraform.tfvars.${ENV}" >> $GITHUB_OUTPUT
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
 
-      - name: Open Key Vault Internal Firewalls
-        id: kv_override
-        run: |
-          set -euo pipefail
-          
-          # Validar variáveis obrigatórias
-          if [ -z "${ARM_CLIENT_ID:-}" ]; then
-            echo "ERRO: ARM_CLIENT_ID não definido"
-            exit 1
-          fi
-          if [ -z "${ARM_SUBSCRIPTION_ID:-}" ]; then
-            echo "ERRO: ARM_SUBSCRIPTION_ID não definido"
-            exit 1
-          fi
-          if [ -z "${RUNNER_IP:-}" ]; then
-            echo "ERRO: RUNNER_IP não definido (deve ser obtido no step anterior)"
-            exit 1
-          fi
-          
-          TFVARS_FILE="${{ steps.detect-env.outputs.tfvars }}"
-          if [ ! -f "$TFVARS_FILE" ]; then
-            echo "ERRO: Arquivo tfvars não encontrado: $TFVARS_FILE"
-            exit 1
-          fi
-
-          # Extrair Resource Group com validação
-          RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' | sed "s/.*= *'\([^']*\)'.*/\1/" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
-          if [ -z "$RG_NAME" ]; then
-            echo "ERRO: Resource Group não encontrado em $TFVARS_FILE"
-            exit 1
-          fi
-
-          echo "Resource Group: $RG_NAME"
-          echo "Runner IP: $RUNNER_IP"
-
-          # Obter Client ID e scope para RBAC
-          CLIENT_ID="${ARM_CLIENT_ID}"
-          KV_SCOPE_PREFIX="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.KeyVault/vaults"
-
-          # Listar todos os Key Vaults no Resource Group
-          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
-          
-          if [ -z "$KV_LIST" ]; then
-            echo "ℹ️  Nenhum Key Vault encontrado no RG $RG_NAME"
-          else
-            echo "Encontrados Key Vaults: $KV_LIST"
-            
-            # Repetir a mesma lógica robusta do deploy.yml
-            for kv in $KV_LIST; do
-              echo ""
-              echo "🔧 Configurando Key Vault: $kv"
-              
-              az keyvault network-rule add --name "$kv" --ip-address "${RUNNER_IP}/32" || true
-              az keyvault update --name "$kv" --bypass AzureServices || true
-              
-              # Acesso básico para o runner (Access Policy)
-              az keyvault set-policy --name "$kv" --spn "$CLIENT_ID" --secret-permissions get list || true
-              
-              # Abrir firewall
-              echo "   🔓 Abrindo firewall em $kv..."
-              if az keyvault update --name "$kv" --default-action Allow; then
-                echo "   ✅ Firewall aberto"
-                echo "   ⏳ Aguardando propagação (30s)..."
-                sleep 30
-              fi
-            done
-          fi
-
       - name: Validate Terraform Backend Secrets
         run: |
           set -euo pipefail
@@ -500,25 +432,6 @@ jobs:
           terraform workspace select ${{ steps.detect-env.outputs.workspace }} || \
           terraform workspace new ${{ steps.detect-env.outputs.workspace }}
 
-      - name: Check/Clear Terraform State Lock
-        run: |
-          set -euo pipefail
-          echo "Verificando lock do Terraform state..."
-          LOCK_BLOB=".terraform.tfstate.lock.info"
-          
-          # Verificar se arquivo existe para evitar erro
-          if az storage blob exists \
-            --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-            --container-name "${TF_BACKEND_CONTAINER}" \
-            --name "$LOCK_BLOB" \
-            --auth-mode login \
-            --query "exists" -o tsv 2>/dev/null | grep -q "true"; then
-            
-            echo "⚠️  Lock detectado. Como este é um workflow de CI (Plan Preview), vamos limpar se falhar."
-          else
-            echo "OK: Nenhum lock detectado"
-          fi
-
       - name: Terraform Plan
         id: plan
         run: |
@@ -541,23 +454,6 @@ jobs:
           PLAN_OUTPUT=$(cat plan-output.txt)
           set -e
 
-          if [ $PLAN_EXIT_CODE -eq 1 ] && echo "$PLAN_OUTPUT" | grep -qi "state lock\|already locked"; then
-            echo "⚠️  Lock detectado durante plan. Removendo forçadamente..."
-            az storage blob delete \
-              --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
-              --container-name "${TF_BACKEND_CONTAINER}" \
-              --name ".terraform.tfstate.lock.info" \
-              --auth-mode login \
-              --output none 2>/dev/null || true
-            
-            echo "Tentando plan novamente..."
-            terraform plan \
-              -var-file=${{ steps.detect-env.outputs.tfvars }} \
-              -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-              -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
-              -no-color \
-              -out=tfplan-preview 2>&1 | tee plan-output.txt
-            PLAN_EXIT_CODE=${PIPESTATUS[0]}
           fi
 
           # Verificar se o arquivo do plan foi gerado

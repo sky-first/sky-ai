@@ -28,13 +28,22 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Set State Path
+        id: state-path
+        run: |
+          if [ "${{ inputs.environment }}" == "staging" ]; then
+            echo "key=env:staging/poc-deploy-staging.tfstate" >> $GITHUB_OUTPUT
+          else
+            echo "key=poc-deploy-prod.tfstate" >> $GITHUB_OUTPUT
+          fi
+
       - name: Break Lease
         env:
           STORAGE_ACCOUNT: ${{ secrets.TF_BACKEND_STORAGE_ACCOUNT }}
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
-          KEY: "poc-deploy-prod.tfstate" # Assuming prod based on inputs
+          KEY: ${{ steps.state-path.outputs.key }}
         run: |
-          echo "Breaking lease for state blob..."
+          echo "Breaking lease for state blob: $KEY..."
           az storage blob lease break \
             --blob-name "$KEY" \
             --container-name "$CONTAINER" \
