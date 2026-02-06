@@ -38,7 +38,10 @@ on:
       - "env.example"
 
 
-# Concurrency removed as per user request for immediate execution
+# Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
+concurrency:
+  group: terraform-${{ github.ref_name }}
+  cancel-in-progress: true
 
 env:
   TERRAFORM_VERSION: "1.9.0"
