@@ -76,6 +76,11 @@ class QueryResultMeta(BaseModel):
     num_rows: int = 0
     error: Optional[str] = None
     rag_context: Optional[List[str]] = None # Debug info
+    # ✅ NEW: Dashboard plan for direct generation (Phase 1)
+    dashboard_plan: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Dashboard plan when direct generation is triggered via intent detection"
+    )
 
 
 class QueryResponse(BaseModel):
