@@ -37,9 +37,8 @@ on:
       - ".env.example"
       - "env.example"
 
-concurrency:
-  group: terraform-${{ github.event.pull_request.base.ref || github.ref_name }}
-  cancel-in-progress: false
+
+# Concurrency removed as per user request for immediate execution
 
 env:
   TERRAFORM_VERSION: "1.9.0"

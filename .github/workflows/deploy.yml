@@ -35,9 +35,9 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: terraform-${{ github.event.inputs.environment || github.ref_name }}
-  cancel-in-progress: false
+
+# Concurrency removed as per user request for immediate execution
+# WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
 
 env:
   TERRAFORM_VERSION: "1.9.0"
