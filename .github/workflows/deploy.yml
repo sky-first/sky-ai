@@ -1134,9 +1134,6 @@ jobs:
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt || echo "")
-          set -e  # Reabilitar exit on error
-
-          fi
 
           # Tratar exit codes
           if [ $PLAN_EXIT_CODE -eq 1 ]; then

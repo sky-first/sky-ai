@@ -452,9 +452,6 @@ jobs:
           
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt)
-          set -e
-
-          fi
 
           # Verificar se o arquivo do plan foi gerado
           if [ -f "tfplan-preview" ]; then
