@@ -2746,96 +2746,6 @@ jobs:
             echo "ℹ️ Cluster não existe ainda. Safe to proceed."
           fi
 
-      - name: Configure Key Vault Firewall
-        run: |
-          set -euo pipefail  # Falhar em erro - não mascarar problemas
-          echo "=========================================="
-          echo "🔐 Configuring Key Vault Firewall"
-          echo "Runner IP: ${RUNNER_IP:-<não definido>}"
-          echo "=========================================="
-          
-          # Validar variáveis obrigatórias
-          if [ -z "${RUNNER_IP:-}" ]; then
-            echo "ERRO: RUNNER_IP não definido"
-            exit 1
-          fi
-
-          # Get all Key Vaults in the resource group
-          KV_LIST="${KV_OVERRIDE_LIST:-}"
-          if [ -z "$KV_LIST" ]; then
-            echo "  ℹ️  No Key Vault override list, discovering from resource group..."
-            KV_LIST=$(az keyvault list \
-              --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
-              --query "[].name" -o tsv | tr '\n' ' ' || echo "")
-          fi
-
-          if [ -n "$KV_LIST" ]; then
-            CONFIGURATION_FAILURES=0
-            
-            for KV_NAME in $KV_LIST; do
-              echo ""
-              echo "  🔧 Configuring: $KV_NAME"
-              
-              # Add runner IP to firewall (idempotent)
-              if az keyvault network-rule add \
-                --name "$KV_NAME" \
-                --ip-address "${RUNNER_IP}/32" \
-                --only-show-errors >/dev/null 2>&1; then
-                echo "    ✅ Runner IP whitelisted"
-              else
-                echo "    ℹ️  IP already whitelisted or firewall disabled"
-              fi
-              
-              # Ensure AzureServices bypass is enabled
-              az keyvault update \
-                --name "$KV_NAME" \
-                --resource-group "${{ needs.detect-environment.outputs.resource_group }}" \
-                --bypass AzureServices \
-                --only-show-errors >/dev/null 2>&1 || {
-                echo "    ⚠️  Não foi possível habilitar AzureServices bypass"
-              }
-                
-              # Validar acesso REAL (apenas secret list)
-              echo "    🔍 Validando acesso efetivo..."
-              MAX_VALIDATION_ATTEMPTS=12
-              VALIDATION_DELAY=5
-              ACCESS_CONFIRMED=false
-              
-              for ((i=1; i<=MAX_VALIDATION_ATTEMPTS; i++)); do
-                if az keyvault secret list --vault-name "$KV_NAME" --maxresults 1 >/dev/null 2>&1; then
-                  echo "    ✅ Acesso confirmado para $KV_NAME!"
-                  ACCESS_CONFIRMED=true
-                  break
-                fi
-                
-                if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
-                  echo "    ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
-                  sleep $VALIDATION_DELAY
-                fi
-              done
-              
-              # FALHAR se não conseguir validar acesso
-              if [ "$ACCESS_CONFIRMED" == "false" ]; then
-                echo "    ❌ ERRO: Key Vault $KV_NAME não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
-                CONFIGURATION_FAILURES=$((CONFIGURATION_FAILURES + 1))
-              fi
-            done
-            
-            # FALHAR se houver falhas na configuração
-            if [ $CONFIGURATION_FAILURES -gt 0 ]; then
-              echo ""
-              echo "❌ ERRO: Falha ao configurar $CONFIGURATION_FAILURES Key Vault(s)"
-              echo "Terraform Apply pode falhar devido a Key Vaults inacessíveis"
-              exit 1
-            fi
-          else
-            echo "  ℹ️  No Key Vaults found (will be created during apply)"
-          fi
-
-          echo ""
-          echo "✅ Key Vault firewall configuration complete"
-          echo "=========================================="
-
       - name: Terraform Apply
         id: apply
         run: |
@@ -2941,6 +2851,7 @@ jobs:
 
       - name: Close Key Vault Firewall
         id: close-firewall
+        if: always()  # Always close firewall, even if secret population fails
         working-directory: infra/aks
         run: |
           set -euo pipefail
