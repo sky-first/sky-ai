@@ -74,7 +74,12 @@ class DatasetProfiler:
             DatasetProfile instance
         """
         table_name = table_metadata.get("name", "unknown")
-        row_count = int(table_metadata.get("row_count", 0))
+        # Safely handle None or missing row_count
+        row_count_raw = table_metadata.get("row_count") or table_metadata.get("stats", {}).get("row_count")
+        try:
+            row_count = int(row_count_raw) if row_count_raw is not None else 0
+        except (ValueError, TypeError):
+            row_count = 0
         
         # Handle missing or zero row counts
         if row_count == 0:
