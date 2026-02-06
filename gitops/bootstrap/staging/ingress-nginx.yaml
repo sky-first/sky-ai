@@ -23,7 +23,7 @@ spec:
             enable-modsecurity: "true"
             enable-owasp-modsecurity-crs: "true"
             modsecurity-snippet: |
-              SecRuleEngine DetectionOnly
+              SecRuleEngine On
           resources:
             requests:
               cpu: 100m

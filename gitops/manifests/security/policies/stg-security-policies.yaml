@@ -1,0 +1,79 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: staging-security-best-practices
+  annotations:
+    policies.kyverno.io/title: Staging Security Hardening
+    policies.kyverno.io/category: Pod Security Standards (Baseline)
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Garante que os pods no Staging sigam as diretrizes de segurança da Fase 2.
+      Modo: AUDIT (Não bloqueia, apenas gera relatórios).
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: disallow-privileged-containers
+      match:
+        any:
+        - resources:
+            namespaces:
+            - staging
+            kinds:
+            - Pod
+      validate:
+        message: "Containers privilegiados não são permitidos no Staging."
+        pattern:
+          spec:
+            containers:
+            - securityContext:
+                privileged: false
+
+    - name: require-non-root-user
+      match:
+        any:
+        - resources:
+            namespaces:
+            - staging
+            kinds:
+            - Pod
+      validate:
+        message: "Pods devem rodar como usuário não-root."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+
+    - name: disallow-root-filesystem-write
+      match:
+        any:
+        - resources:
+            namespaces:
+            - staging
+            kinds:
+            - Pod
+      validate:
+        message: "O sistema de arquivos do container deve ser Read-Only."
+        pattern:
+          spec:
+            containers:
+            - securityContext:
+                readOnlyRootFilesystem: true
+
+    - name: check-resource-limits
+      match:
+        any:
+        - resources:
+            namespaces:
+            - staging
+            kinds:
+            - Pod
+      validate:
+        message: "Defina limites de CPU e Memória para evitar instabilidade (OOM)."
+        pattern:
+          spec:
+            containers:
+            - resources:
+                limits:
+                  cpu: "?*"
+                  memory: "?*"

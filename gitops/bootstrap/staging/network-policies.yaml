@@ -1,0 +1,159 @@
+# Network Policy para Staging - Hardening Fase 1
+# Padrão: Deny-all por padrão, whitelist apenas necessário
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-stg-network-policy
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: sky-be-stg
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # INGRESS: Apenas nginx-ingress pode enviar para backend
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  
+  # EGRESS: Backend pode sair apenas para:
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Postgres (internal)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  
+  # Redis (internal)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+      
+  # AI Service (internal)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-ai-stg
+    ports:
+    - protocol: TCP
+      port: 8001
+  
+  # External HTTPS (OpenAI, etc)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-stg-network-policy
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: sky-fe-stg
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # INGRESS: Apenas nginx-ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  
+  # EGRESS: Frontend pode sair para:
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Backend API (ingress ou service IP)
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-be-stg
+    ports:
+    - protocol: TCP
+      port: 8000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-stg-network-policy
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: sky-ai-stg
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # INGRESS: Apenas backend
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-be-stg
+    ports:
+    - protocol: TCP
+      port: 8001
+  
+  # EGRESS: AI pode sair para:
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Redis (celery)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  
+  # External HTTPS (OpenAI)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
