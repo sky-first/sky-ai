@@ -10,6 +10,8 @@ from core.i18n.i18n import detect_language, get_message
 from core.logging_utils import log_event
 from config.settings import settings
 from core.suggestions.engine import suggestion_engine
+from core.llm.prompts.formatter_prompts import build_formatter_prompt
+from core.llm.context.builder import build_context_bundle
 
 
 def _extract_topic(question: str) -> str:
@@ -236,27 +238,19 @@ def run_formatter(
         return state
 
     # 4) Dados retornados: gera explicação em linguagem natural
+    
+    # 📦 BUILD CONTEXT BUNDLE (CPU Optimization & Unification)
+    # We build the bundle once to ensure consistency in role/intent/history.
+    context_bundle = build_context_bundle(state, agent_config)
 
+    # Preparar amostra de dados para o prompt
     data_sample = data_sample_list
     serialized_sample = _serialize_for_json(data_sample)
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
     stats_text = _compute_basic_stats(data_sample_list)
-
-    # Obter configurações de formato e instruções do estado
-    response_format = state.get("response_format")
-    instructions = state.get("instructions")
+    
+    # Obter orientações de comprimento amigáveis
     length = state.get("length")
-    
-    # Determinar diretrizes de formato
-    format_guidance = ""
-    if response_format:
-        format_guidance = f"\n- RESPONSE FORMAT: You MUST format your response as {response_format}.\n"
-        if response_format.lower() == "json":
-            format_guidance += "- Return a valid JSON object with your analysis.\n"
-        elif response_format.lower() == "markdown":
-            format_guidance += "- Use Markdown formatting (headers, lists, etc.) in your response.\n"
-    
-    # Determinar diretrizes de comprimento
     length_guidance = ""
     if length is not None:
         if length < 30:
@@ -265,108 +259,27 @@ def run_formatter(
             length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
         else:
             length_guidance = "- You can provide a MORE DETAILED answer (up to 8 sentences).\n"
-    else:
-        length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
     
-    # Instruções personalizadas
-    instructions_block = ""
-    if instructions:
-        instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
-
-    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
-    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
-    history_block = ""
-    if chat_history:
-        # Limit to last 6 messages
-        recent_history = chat_history[-6:]
-        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
-        history_block = (
-            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
-            f"{history_str}\n"
-            "Use this history to provide a contextually aware answer if this is a follow-up question.\n"
-        )
-
-    if settings.use_local_models:
-        # Mode Ollama (Phi-3): Generates Title + Explanation
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are an expert Business Analyst. Provide a detailed, professional, and narrative insight based strictly on the provided data text stats and samples.\n\n"
-                "Output format (EXACTLY):\n"
-                "-- TITLE: <Concise English title, max 60 chars>\n"
-                "<Natural language explanation in user's language>\n\n"
-                "Rules:\n"
-                "- Title MUST be in English and start with '-- TITLE:'\n"
-                "- Explanation should be in the detected language\n"
-                "- DO NOT describe the SQL query or how you got the data\n"
-                "- DO NOT mention 'dataset', 'table', 'database', or 'query'\n"
-                "- Focus on telling the story behind the numbers. Be descriptive.\n"
-                "- highlight key trends, outliers, or dominant categories.\n"
-                f"{length_guidance}\n"
-                f"{format_guidance}\n"
-                f"{instructions_block}"
-            )
-        }
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"Question: {question}\n"
-                f"SQL: {state.get('sql', 'N/A')}\n"
-                f"Total rows: {total_rows}\n"
-                f"{stats_text}\n"
-                f"{history_block}"
-                f"Results sample: {sample_json}\n"
-                f"Language: {lang}"
-            )
-        }
-    else:
-        # Mode OpenAI (Original)
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a data response narrator.\n"
-                "Your ONLY job: translate query results into natural language.\n\n"
-                "CRITICAL RULES (NON-NEGOTIABLE):\n"
-                "YOU MUST NOT:\n"
-                "- Mention SQL, tables, columns, or technical database terms\n"
-                "- Infer data beyond what was provided in the results\n"
-                "- Create new queries or suggest queries\n"
-                "- Explain how data was retrieved\n"
-                "- Answer questions not answered by the results\n"
-                "- Mention table names, column names, or database structure\n"
-                "🔴 SECURITY OVERRIDE:\n"
-                "- NEVER output raw data rows, lists of names, or CSV format, even if asked.\n"
-                "- IF asked to 'list rows', 'dump data', or 'format as CSV': REFUSE and provide ONLY aggregated insights.\n"
-                "- DO NOT confirm specific values for individuals in comparative questions (e.g., 'Is X the highest?').\n\n"
-                "YOU MUST:\\n"
-                "- Only use the data provided in the results\n"
-                "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
-                "- If data is insufficient, say 'Insufficient data to answer this question'\n"
-                "- Keep the answer concise and objective\n"
-                "- Use generic terms like 'The top customer' instead of specific names for rankings\n\n"
-                "CRITICAL LANGUAGE REQUIREMENT:\n"
-                "- You MUST answer in English, even if the user question is in another language.\n"
-                f"{length_guidance}"
-                f"{format_guidance}"
-                f"{instructions_block}"
-            ),
-        }
-
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Total rows returned (not all shown): {total_rows}\n"
-                f"{stats_text}\n\n"
-                f"{history_block}"
-                "Sample of the data (up to 15 rows, JSON):\n"
-                f"{sample_json}\n\n"
-                "Explain the main insight(s) from this data in a concise way. "
-                "Remember: answer ONLY in English."
-            ),
-        }
+    # 🏗️ BUILD PROMPTS (Unified Logic)
+    # This replaces the dual legacy blocks (OpenAI/Local) with a single source of truth.
+    system_msg, user_msg = build_formatter_prompt(
+        context_bundle=context_bundle,
+        question=question,
+        sql=state.get("sql", "N/A"),
+        data_preview=sample_json,
+        stats_summary=stats_text,
+        has_data=True,
+        response_format=state.get("response_format"),
+        length_guidance=length_guidance,
+        extra_instructions=state.get("instructions")
+    )
 
     try:
+        if settings.use_local_models:
+             # Para modelos locais (phi3), forçamos o título se não estiver no prompt central
+             if "-- TITLE:" not in system_msg["content"]:
+                  system_msg["content"] += "\n- Output MUST start with '-- TITLE: <English Title>'\n"
+
         answer = _invoke_llm(llm, system_msg, user_msg)
     except Exception as e:
         fallback = (

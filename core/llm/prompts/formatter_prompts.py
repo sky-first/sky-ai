@@ -16,64 +16,97 @@ def build_formatter_prompt(
     question: str,
     sql: str,
     data_preview: str,
+    stats_summary: Optional[str] = None,
     has_data: bool = True,
     is_impossible: bool = False,
-    impossible_reason: str = ""
+    impossible_reason: str = "",
+    response_format: Optional[str] = None,
+    length_guidance: Optional[str] = None,
+    extra_instructions: Optional[str] = None
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
-    Build formatter prompt optimized for phi3:mini on CPU.
+    Build formatter prompt optimized for both OpenAI and local models.
     
     Goal: Convert SQL results into conversational natural language.
     
-    Optimizations for small models:
-    - Clear tone guidance
-    - Structured output expectations
-    - Minimal context (data speaks for itself)
-    
     Args:
-        context_bundle: Structured context (minimal for formatter)
+        context_bundle: Structured context
         question: User's original question
         sql: SQL query that was executed
         data_preview: Preview of query results
         has_data: Whether query returned data
         is_impossible: Whether query was impossible
         impossible_reason: Reason if impossible
+        response_format: Optional forced format (e.g., 'markdown', 'json')
+        length_guidance: Optional guidance on response length
+        extra_instructions: Optional additional instructions
         
     Returns:
         Tuple of (system_msg, user_msg) dicts
     """
     
-    # Serialize minimal context (formatter doesn't need full context)
+    # Serialize context
     context_text = serialize_for_prompt(context_bundle, "formatter")
     
-    # Detect intent for tone guidance
-    intent = context_bundle.query.intent
-    tone_guidance = ""
-    if intent == "analytical":
-        tone_guidance = "Provide insights and highlight trends."
-    elif intent == "comparative":
-        tone_guidance = "Emphasize comparisons and differences."
-    elif intent == "operational":
-        tone_guidance = "Be concise and focus on current status."
-    else:
-        tone_guidance = "Be clear and conversational."
+    # Role-Based Style Guidance
+    platform_role = context_bundle.user.platform_role
+    crew_role = context_bundle.user.crew_role
+    role_label = context_bundle.user.role_label
     
+    # Custom Tone & Focus based on role
+    role_style = "Be clear and conversational."
+    if platform_role == "cfo" or (role_label and "CFO" in role_label.upper()):
+        role_style = "Apply strict financial audit logic (Platinum Auditor). Focus on accuracy and net impact."
+    elif platform_role == "admin":
+        role_style = "Provide executive summaries with key financial metrics and strategic insights."
+    elif crew_role == "commander":
+        role_style = "Focus on team metrics, performance indicators, and management insights."
+    elif crew_role == "guest":
+        role_style = "Provide minimal necessary information."
+    
+    # Format Guidance
+    format_guidance = ""
+    if response_format:
+        format_guidance = f"\n- RESPONSE FORMAT: You MUST format your response as {response_format}.\n"
+    
+    # Length Guidance
+    if not length_guidance:
+        length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+
+    # Extra Instructions
+    instructions_block = ""
+    if extra_instructions:
+        instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{extra_instructions}\n"
+
+    # 💎 PLATINUM AUDITOR RULES (FINANCIAL RECONCILIATION)
+    financial_guidance = ""
+    financial_keywords = ["invoice", "payment", "refund", "credit", "revenue", "billing", "amount", "fee"]
+    is_financial = any(kw in question.lower() for kw in financial_keywords)
+    if is_financial:
+        financial_guidance = (
+            "\n\n💎 PLATINUM AUDITOR RULES:\n"
+            "- Emphasize reconciliations and net values.\n"
+            "- Clearly distinguish between gross volume and net settlement.\n"
+        )
+
     # SYSTEM PROMPT: Behavior definition
     system_msg = {
         "role": "system",
         "content": (
-            "RESPONSE FORMATTER (phi3:mini)\n\n"
-            "TASK: Convert SQL results into natural language.\n\n"
-            "RULES:\n"
-            "1. Answer in English (always)\n"
-            "2. Be conversational but professional\n"
-            "3. Reference actual numbers from data\n"
-            "4. DO NOT hallucinate (only use provided data)\n"
-            "5. If no data: explain why (don't apologize excessively)\n"
-            "6. Keep response concise (2-4 sentences)\n\n"
-            f"TONE: {tone_guidance}\n\n"
-            "OUTPUT FORMAT:\n"
-            "Natural language response\n"
+            "You are a data response narrator.\n"
+            "Your ONLY job: translate query results into natural language.\n\n"
+            "CRITICAL RULES (NON-NEGOTIABLE):\n"
+            "1. Answer ONLY in English (Strict Requirement).\n"
+            "2. DO NOT mention SQL, tables, columns, or technical database terms.\n"
+            "3. DO NOT hallucinate beyond provided data.\n"
+            "4. NEVER output raw data rows, lists of names, or CSV format.\n"
+            "5. IF asked to 'list rows' or 'dump data': REFUSE and provide ONLY aggregated insights.\n"
+            "6. DO NOT confirm specific values for individuals in comparative questions.\n\n"
+            f"ROLE STYLE: {role_style}\n"
+            f"{length_guidance}"
+            f"{format_guidance}"
+            f"{financial_guidance}"
+            f"{instructions_block}"
         )
     }
     
@@ -84,10 +117,9 @@ def build_formatter_prompt(
             "content": (
                 f"{context_text}\n\n"
                 f"QUESTION: {question}\n\n"
-                f"STATUS: Query was not possible\n"
+                f"STATUS: This request cannot be fulfilled as stated.\n"
                 f"REASON: {impossible_reason}\n\n"
-                "Explain to the user why this cannot be answered "
-                "(in friendly language, without technical jargon)."
+                "Explain to the user why this cannot be answered concisely."
             )
         }
     elif not has_data:
@@ -96,10 +128,8 @@ def build_formatter_prompt(
             "content": (
                 f"{context_text}\n\n"
                 f"QUESTION: {question}\n\n"
-                f"SQL: {sql}\n\n"
                 f"RESULT: No data found\n\n"
-                "Explain that no data matches the query criteria. "
-                "Suggest the user try a broader search or different time range."
+                "Explain that no data matches the query criteria."
             )
         }
     else:
@@ -108,10 +138,9 @@ def build_formatter_prompt(
             "content": (
                 f"{context_text}\n\n"
                 f"QUESTION: {question}\n\n"
-                f"SQL: {sql}\n\n"
-                f"DATA:\n{data_preview}\n\n"
-                "Answer the question using the data above. "
-                "Reference specific numbers and be conversational."
+                f"DATA PREVIEW:\n{data_preview}\n\n"
+                f"{stats_summary if stats_summary else ''}\n\n"
+                "Explain the main insight(s) from this data. Answer ONLY in English."
             )
         }
     
