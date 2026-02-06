@@ -33,6 +33,7 @@ import json
 import asyncio
 import time
 import hashlib
+from collections import defaultdict
 from typing import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -1681,21 +1682,22 @@ async def dashboards_plan(
         context_tables=getattr(body, "context_tables", None),
     )
     
-    cached_response = _get_cached_dashboard_plan(cache_key)
-    if cached_response:
-        log_event(
-            "dashboard_plan_cache_hit",
-            {
-                "connection_id": connection_id,
-                "space_id": body.space_id,
-                "cache_key": cache_key,
-                "num_widgets": len(cached_response.widgets),
-            },
-        )
-        # Atualizar meta para indicar que veio do cache
-        if cached_response.meta:
-            cached_response.meta["cached"] = True
-        return cached_response
+    # CACHE DISABLED per user request to ensure fresh generation and avoid stale errors.
+    # cached_response = _get_cached_dashboard_plan(cache_key)
+    # if cached_response:
+    #     log_event(
+    #         "dashboard_plan_cache_hit",
+    #         {
+    #             "connection_id": connection_id,
+    #             "space_id": body.space_id,
+    #             "cache_key": cache_key,
+    #             "num_widgets": len(cached_response.widgets),
+    #         },
+    #     )
+    #     # Atualizar meta para indicar que veio do cache
+    #     if cached_response.meta:
+    #         cached_response.meta["cached"] = True
+    #     return cached_response
     
     log_event(
         "dashboard_plan_cache_miss",
@@ -1845,7 +1847,8 @@ async def dashboards_plan(
         )
         
         # ✅ NOVA: Armazenar no cache após gerar
-        _set_cached_dashboard_plan(cache_key, response)
+        # CACHE DISABLED per user request
+        # _set_cached_dashboard_plan(cache_key, response)
         log_event(
             "dashboard_plan_cache_set",
             {
@@ -2431,6 +2434,127 @@ async def query_connection(
     escalation_score = esc_info.get("score", 0.0)
     escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION" or security_report.security_status == "FLAGGED"
     escalation_reason = esc_info.get("reason")
+    
+    # ✅ DASHBOARD INTENT DETECTION (Step 1.2)
+    # Check if user wants direct dashboard generation instead of text answer
+    from core.intent.detector import DashboardIntentDetector
+    
+    intent_detector = DashboardIntentDetector()
+    is_dashboard_request = intent_detector.detect(body.question)
+    
+    if is_dashboard_request:
+        # Log intent detection
+        log_event(
+            "dashboard_intent_detected",
+            {
+                "connection_id": connection_id,
+                "user_id": body.user_id,
+                "question": body.question[:200],
+                "thread_id": thread_id,
+            }
+        )
+        
+        # ✅ DASHBOARD DIRECT GENERATION (Step 1.3)
+        # Route to dashboard generation instead of normal query flow
+        try:
+            # Load table metadata for dashboard generation
+            tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
+            tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
+            
+            # Resolve crew_ids
+            resolved_crew_ids = []
+            if body.user_id:
+                try:
+                    from uuid import UUID
+                    resolved = await resolve_crew_ids_for_context(
+                        db=db,
+                        user_id=UUID(body.user_id),
+                        space_id=UUID(body.space_id) if body.space_id else None,
+                        request_crew_ids=body.crew_ids,
+                        is_personal=False
+                    )
+                    resolved_crew_ids = [str(x) for x in (resolved or [])]
+                except Exception as e:
+                    log_event("dashboard_direct_resolve_crew_error", {"error": str(e)})
+            
+            # Generate schema summary
+            max_tables_in_prompt = min(30, len(tables))
+            logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
+            
+            # Create LLM for Davinci
+            llm = create_llm_specialist(creativity=10, length=35)
+            
+            # Generate dashboard plan using Davinci
+            plan = await asyncio.to_thread(
+                generate_dashboard_plan,
+                llm=llm,
+                goal=body.question,  # Use question as goal
+                language="en",
+                max_widgets=8,  # Default to 8 widgets for direct requests
+                logical_tables=logical_tables,
+                schema_summary=schema_summary,
+                original_question=None,  # No prior question
+                initial_ai_response=None,  # Direct request, no prior answer
+                context_spaces=None,
+                context_crews=None,
+                context_tables=None,
+                table_metadata=tables,
+                analysis_context=None,
+            )
+            
+            # Return dashboard plan as QueryResponse with special meta
+            log_event(
+                "dashboard_direct_generation_success",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "num_widgets": len(plan.widgets),
+                    "dashboard_name": plan.dashboard_name,
+                }
+            )
+            
+            # Format dashboard plan as answer (frontend will handle rendering)
+            widgets_summary = "\n".join([
+                f"{i+1}. {w['title']}" for i, w in enumerate(plan.widgets[:5])
+            ])
+            if len(plan.widgets) > 5:
+                widgets_summary += f"\n... and {len(plan.widgets) - 5} more widgets"
+            
+            return QueryResponse(
+                answer=f"# {plan.dashboard_name}\n\n{plan.description}\n\n## Widgets:\n{widgets_summary}",
+                data_sample=[],
+                meta=QueryResultMeta(
+                    detected_language="en",
+                    chosen_table=None,
+                    chosen_datasets=None,
+                    sql=None,
+                    num_rows=0,
+                    error=None,
+                    # ✅ NEW: Dashboard metadata for frontend
+                    dashboard_plan={
+                        "dashboard_name": plan.dashboard_name,
+                        "description": plan.description,
+                        "widgets": plan.widgets,
+                        "meta": plan.meta or {},
+                        "is_direct_generation": True,  # Flag for frontend
+                    }
+                ),
+            )
+        
+        except Exception as e:
+            log_event(
+                "dashboard_direct_generation_error",
+                {
+                    "connection_id": connection_id,
+                    "user_id": body.user_id,
+                    "error": str(e),
+                    "question": body.question[:200],
+                }
+            )
+            # Fall back to normal query flow on error
+            log_event("dashboard_direct_fallback_to_normal_query", {"reason": str(e)})
+    
+    # Continue with normal query flow if not dashboard request or if generation failed
     # Verificar se conexão existe
     result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
