@@ -7,6 +7,25 @@ set -euo pipefail
 
 echo "🔐 Populating Azure Key Vault with secrets..."
 
+# JIT Firewall Management Variables
+CURRENT_IP=""
+FIREWALL_ADDED=false
+
+# Function to cleanup JIT firewall rule
+cleanup_firewall() {
+    if [ "$FIREWALL_ADDED" = "true" ] && [ -n "$CURRENT_IP" ]; then
+        echo "🧹 Cleaning up JIT firewall rule for IP: $CURRENT_IP..."
+        az keyvault network-rule remove \
+            --name "$KEY_VAULT_NAME" \
+            --ip-address "$CURRENT_IP/32" \
+            --only-show-errors >/dev/null 2>&1 || true
+        echo "✅ Cleanup complete."
+    fi
+}
+
+# Register cleanup on exit
+trap cleanup_firewall EXIT
+
 # Get variables from Terraform outputs with fallback/validation
 echo "🔍 Fetching secrets from Terraform outputs..."
 KEY_VAULT_NAME=$(terraform output -raw key_vault_name 2>/dev/null || echo "")
@@ -21,9 +40,26 @@ if [ -z "$KEY_VAULT_NAME" ]; then
     exit 1
 fi
 
-# Construct connection strings
-DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_db"
-REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
+# Atomic IP Detection and Whitelisting
+echo "📍 Detecting current outbound IP..."
+CURRENT_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me)
+if [ -z "$CURRENT_IP" ]; then
+    echo "⚠️ Warning: Could not detect outbound IP. Proceeding with existing whitelist..."
+else
+    echo "✅ Current Outbound IP: $CURRENT_IP"
+    echo "🔓 Whitelisting IP in Key Vault $KEY_VAULT_NAME..."
+    if az keyvault network-rule add \
+        --name "$KEY_VAULT_NAME" \
+        --ip-address "$CURRENT_IP/32" \
+        --only-show-errors >/dev/null 2>&1; then
+        echo "✅ IP $CURRENT_IP added to whitelist."
+        FIREWALL_ADDED="true"
+        echo "⏳ Waiting 15s for rule propagation..."
+        sleep 15
+    else
+        echo "ℹ️  Could not add IP (maybe already whitelisted or internal access only)."
+    fi
+fi
 
 echo "📦 Target Key Vault: $KEY_VAULT_NAME"
 echo ""
@@ -75,6 +111,9 @@ echo ""
 echo "📝 Setting secrets in Key Vault..."
 
 # Set all secrets
+DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_db"
+REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
+
 set_secret "postgres-password" "$POSTGRES_PASSWORD"
 set_secret "redis-password" "$REDIS_PASSWORD"
 set_secret "database-url" "$DATABASE_URL"
