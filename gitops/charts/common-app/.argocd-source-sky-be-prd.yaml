@@ -1,0 +1,8 @@
+helm:
+  parameters:
+  - name: image.name
+    value: skyacrprodel5zpw.azurecr.io/sky-poc-backend
+    forcestring: true
+  - name: image.tag
+    value: sha-37802f1
+    forcestring: true
