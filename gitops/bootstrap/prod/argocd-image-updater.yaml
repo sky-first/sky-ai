@@ -19,7 +19,7 @@ spec:
               api_url: "https://skyacrprodel5zpw.azurecr.io"
               prefix: "skyacrprodel5zpw.azurecr.io"
               ping: yes
-              credentials: secret:argocd/acr-secret#password
+              credentials: pullsecret:argocd/acr-secret-prod-docker-std
               default: true
             - name: AzureContainerRegistryStaging
               api_url: "https://skyacrstagingj3minh.azurecr.io"
