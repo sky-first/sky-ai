@@ -26,7 +26,6 @@ spec:
               prefix: "skyacrstagingj3minh.azurecr.io"
               ping: yes
               credentials: secret:argocd/acr-secret-staging-v2#mytoken
-              username: skyacrstagingj3minh
               
           git:
             commitMessage: "chore(gitops): update image tag [skip ci]"
