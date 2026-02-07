@@ -25,7 +25,7 @@ spec:
               api_url: "https://skyacrstagingj3minh.azurecr.io"
               prefix: "skyacrstagingj3minh.azurecr.io"
               ping: yes
-              credentials: secret:argocd/acr-secret-staging#password
+              credentials: secret:argocd/acr-secret-staging-v2#mytoken
               
           git:
             commitMessage: "chore(gitops): update image tag [skip ci]"
