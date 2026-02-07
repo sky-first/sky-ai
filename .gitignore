@@ -64,4 +64,4 @@ keys/**/*.pem
 !keys/**/*.pub
 sky-poc-frontend/
 bastion_key*
-gitops/charts/common-app/.argocd-source-*.yaml
+
