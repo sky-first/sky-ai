@@ -1,8 +1,8 @@
 helm:
   parameters:
-  - name: image.tag
-    value: staging
-    forcestring: true
   - name: image.name
     value: skyacrstagingj3minh.azurecr.io/sky-poc-ai
+    forcestring: true
+  - name: image.tag
+    value: staging
     forcestring: true
