@@ -94,8 +94,7 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
-          - name: OLLAMA_BASE_URL
-            value: "http://ollama.ollama.svc.cluster.local:11434"
+
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app"
           - name: DATABASE_POOL_SIZE
