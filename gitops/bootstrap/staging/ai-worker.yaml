@@ -6,6 +6,7 @@ metadata:
   annotations:
     argocd-image-updater.argoproj.io/image-list: sky-poc-backend=skyacrstagingj3minh.azurecr.io/sky-poc-backend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
+    argocd-image-updater.argoproj.io/sky-poc-backend.pull-secret: secret:argocd/acr-secret-staging-docker-std
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
     argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-sky-ai-worker-stg.yaml
 spec:
