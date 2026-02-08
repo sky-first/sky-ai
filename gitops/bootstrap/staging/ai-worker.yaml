@@ -24,6 +24,8 @@ spec:
           rollout-trigger: "2026-01-30T08:42:40Z"
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
+        imagePullSecrets:
+          - name: regcred
         
         # O Worker não precisa de Ingress nem Service
         service:
