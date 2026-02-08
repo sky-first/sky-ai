@@ -38,8 +38,8 @@ on:
 
 # Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
 concurrency:
-  group: terraform-${{ github.ref_name }}
-  cancel-in-progress: false # Do not cancel a deploy in progress
+  group: terraform-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
 
 # Concurrency removed as per user request for immediate execution
 # WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
