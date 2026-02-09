@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -15,14 +16,14 @@ spec:
         tempo:
           # Minimal configuration for single-node setup
           auth_enabled: false
-          
+
         ingester:
           trace_idle_period: 10s
           max_block_duration: 10m
-        
+
         metrics_generator:
           enabled: true
-        
+
         storage:
           trace:
             backend: local
@@ -30,12 +31,12 @@ spec:
               path: /var/tempo/traces
             wal:
               path: /var/tempo/wal
-        
+
         # PVC for persistence
         persistence:
           enabled: true
           size: 50Gi
-        
+
         # Resource limits
         resources:
           requests:
@@ -44,16 +45,16 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-        
+
         # Security context
         securityContext:
           runAsNonRoot: true
           runAsUser: 472
-          fsGroup: 472  
+          fsGroup: 472
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-  
+
   syncPolicy:
     automated:
       prune: true

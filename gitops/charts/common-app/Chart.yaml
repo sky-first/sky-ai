@@ -1,3 +1,4 @@
+---
 apiVersion: v2
 name: common-app
 description: A universal Helm chart for Sky POC applications with built-in migration hooks

@@ -1,3 +1,4 @@
+---
 # =============================================================================
 # OBSERVABILITY CHART VALUES
 # Stack de observabilidade customizada para produção
@@ -181,7 +182,7 @@ prometheusRules:
           # CPU do container > 80%
           - alert: ContainerHighCPU
             expr: |
-              (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace, pod, container) 
+              (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace, pod, container)
               / sum(kube_pod_container_resource_limits{resource="cpu"}) by (namespace, pod, container)) * 100 > 80
             for: 10m
             labels:
@@ -194,7 +195,7 @@ prometheusRules:
           # Memória do container > 80%
           - alert: ContainerHighMemory
             expr: |
-              (sum(container_memory_working_set_bytes{container!=""}) by (namespace, pod, container) 
+              (sum(container_memory_working_set_bytes{container!=""}) by (namespace, pod, container)
               / sum(kube_pod_container_resource_limits{resource="memory"}) by (namespace, pod, container)) * 100 > 80
             for: 10m
             labels:
@@ -272,7 +273,7 @@ prometheusRules:
           # Disponibilidade < 99.9%
           - alert: ServiceAvailabilityLow
             expr: |
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service)
               / sum(rate(http_requests_total[1h])) by (service))) * 100 < 99.9
             for: 5m
             labels:
@@ -285,10 +286,10 @@ prometheusRules:
           # Error Budget queimando rápido
           - alert: ErrorBudgetBurning
             expr: |
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service)
               / sum(rate(http_requests_total[1h])) by (service))) < 0.999
               and
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) 
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
               / sum(rate(http_requests_total[5m])) by (service))) < 0.99
             for: 2m
             labels:
@@ -304,25 +305,25 @@ prometheusRules:
 # -----------------------------------------------------------------------------
 grafanaDashboards:
   enabled: true
-  
+
   # Labels para o ConfigMap (necessário para o sidecar do Grafana)
   labels:
     grafana_dashboard: "1"
-  
+
   # Dashboards a serem criados
   dashboards:
     - name: cluster-overview
       folder: Kubernetes
       file: cluster-overview.json
-    
+
     - name: pods-workloads
       folder: Kubernetes
       file: pods-workloads.json
-    
+
     - name: backend-logs
       folder: Applications
       file: backend-logs.json
-    
+
     - name: sre-golden-signals
       folder: SRE
       file: sre-golden-signals.json

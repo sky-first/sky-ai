@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -17,7 +18,7 @@ spec:
         # CRDs installed manually to avoid Helm annotation size limits
         crds:
           enabled: false
-        
+
         # Grafana Configuration
         grafana:
           enabled: true
@@ -54,7 +55,7 @@ spec:
                     matcherRegex: "traceID=(\\w+)"
                     name: TraceID
                     url: "$${__value.raw}"
-        
+
         # Prometheus Configuration
         prometheus:
           enabled: true
@@ -81,7 +82,7 @@ spec:
             serviceMonitorSelector: {}
             podMonitorSelectorNilUsesHelmValues: false
             podMonitorSelector: {}
-          
+
           # Ingress para Prometheus UI
           ingress:
             enabled: true
@@ -93,7 +94,7 @@ spec:
             paths:
               - /
             pathType: Prefix
-        
+
         # Alertmanager Configuration
         alertmanager:
           enabled: true
@@ -114,7 +115,7 @@ spec:
                   resources:
                     requests:
                       storage: 5Gi
-          
+
           # Ingress para Alertmanager UI
           ingress:
             enabled: true
@@ -126,15 +127,15 @@ spec:
             paths:
               - /
             pathType: Prefix
-        
+
         # Node Exporter (métricas de nodes)
         nodeExporter:
           enabled: true
-        
+
         # Kube State Metrics (métricas do cluster)
         kubeStateMetrics:
           enabled: true
-        
+
         # Default Rules (alertas pré-configurados)
         defaultRules:
           create: true
@@ -162,11 +163,11 @@ spec:
             nodeExporterRecording: true
             prometheus: true
             prometheusOperator: true
-  
+
   destination:
     server: "https://kubernetes.default.svc"
     namespace: monitoring
-  
+
   syncPolicy:
     automated:
       prune: true

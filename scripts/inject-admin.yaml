@@ -1,3 +1,4 @@
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -25,19 +26,19 @@ spec:
               db_url = os.getenv("DATABASE_URL")
               # Ensure driver
               db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
-              
+
               print(f"Connecting to DB...")
               engine = create_async_engine(db_url)
               async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-              
+
               ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-              
+
               async with async_session() as session:
                   email = "admin@skyfirstlabs.com"
                   stmt = select(User).where(User.email == email)
                   result = await session.execute(stmt)
                   existing = result.scalars().first()
-                  
+
                   if existing:
                       print(f"User {email} already exists. Updating password/role...")
                       existing.password_hash = ctx.hash("SkyFirst@2026!")

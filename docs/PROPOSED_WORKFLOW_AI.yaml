@@ -1,3 +1,4 @@
+---
 name: Build and Deploy AI (GitOps)
 
 # Trigger on push to main or staging branches
@@ -51,10 +52,10 @@ jobs:
       run: |
         FULL_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:${{ env.IMAGE_TAG }}"
         LATEST_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:latest"
-        
+
         docker build -t $FULL_IMAGE_NAME .
         docker tag $FULL_IMAGE_NAME $LATEST_IMAGE_NAME
-        
+
         docker push $FULL_IMAGE_NAME
         docker push $LATEST_IMAGE_NAME
 
@@ -70,7 +71,7 @@ jobs:
     - name: Update Kubernetes Manifests
       run: |
         cd infra-repo
-        
+
         # Define files to update based on environment
         if [[ "${{ env.ENV_NAME }}" == "prod" ]]; then
           AI_FILE="gitops/bootstrap/prod/ai.yaml"
@@ -79,14 +80,14 @@ jobs:
           AI_FILE="gitops/bootstrap/staging/ai.yaml"
           WORKER_FILE="gitops/bootstrap/staging/ai-worker.yaml"
         fi
-        
+
         echo "Updating manifests for ${{ env.ENV_NAME }}..."
-        
+
         # Use sed to replace the tag
         # Regex explanation: Look for 'tag: "..."' and replace with 'tag: "NEW_TAG"'
         sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $AI_FILE
         sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $WORKER_FILE
-        
+
         # Verify changes
         grep "tag:" $AI_FILE
         grep "tag:" $WORKER_FILE
@@ -94,7 +95,7 @@ jobs:
         # Commit and Push
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-        
+
         git add .
         if git diff --staged --quiet; then
           echo "No changes to commit. Manifests might already match."

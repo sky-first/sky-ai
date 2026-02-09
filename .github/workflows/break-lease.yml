@@ -1,3 +1,4 @@
+---
 name: Emergency Break Lease
 
 on:
@@ -35,22 +36,22 @@ jobs:
           ENV: ${{ inputs.environment }}
         run: |
           echo "🔍 Searching for state blobs for environment: $ENV..."
-          
+
           # List all blobs and try to find matches
           BLOBS=$(az storage blob list \
             --account-name "$STORAGE_ACCOUNT" \
             --container-name "$CONTAINER" \
             --auth-mode login \
             --query "[].name" -o tsv)
-            
+
           echo "Found blobs:"
           echo "$BLOBS"
-          
+
           # Match patterns:
           # 1. env:/staging/poc-deploy-staging.tfstate
           # 2. env:staging/poc-deploy-staging.tfstate
           # 3. poc-deploy-staging.tfstate
-          
+
           for blob in $BLOBS; do
             if [[ "$blob" == *"$ENV"* ]] && [[ "$blob" == *".tfstate"* ]]; then
               echo "🔓 Breaking lease for: $blob"
@@ -73,5 +74,5 @@ jobs:
                 --auth-mode login || echo "Failed to delete $blob"
             fi
           done
-          
+
           echo "✅ Lease break process complete!"

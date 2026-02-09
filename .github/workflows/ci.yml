@@ -1,3 +1,4 @@
+---
 name: CI - Terraform Validation & Security
 
 permissions:
@@ -7,7 +8,7 @@ permissions:
   id-token: write
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: { }
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -152,11 +153,11 @@ jobs:
           ARM_USE_OIDC: true
         run: |
           set -euo pipefail
-          
+
           # Limpar cache do Terraform para evitar tentar usar backend configurado
           echo "Limpando cache do Terraform..."
           rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup
-          
+
           # Inicializar SEM backend (apenas para validação)
           echo "Inicializando Terraform sem backend..."
           terraform init -backend=false -input=false -reconfigure 2>&1 | tee init-output.txt || {
@@ -164,7 +165,7 @@ jobs:
             cat init-output.txt
             exit 1
           }
-          
+
           echo "✅ Terraform init concluído (sem backend)"
 
       - name: Terraform Validate
@@ -215,16 +216,16 @@ jobs:
 
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT
-            
+
             # Verificar se há vulnerabilidades críticas
             CRITICAL_COUNT=$(cat tfsec-results.json | jq -r '[.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH")] | length' || echo "0")
-            
+
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
               echo "❌ ERRO: Encontradas $CRITICAL_COUNT vulnerabilidade(s) CRÍTICA(S) ou ALTA(S)"
               cat tfsec-results.json | jq -r '.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH") | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"'
               exit 1
             fi
-            
+
             cat tfsec-results.json | jq -r '.results[]? | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"' || true
           fi
 
@@ -260,20 +261,20 @@ jobs:
               echo "ERROR: terraform.tfvars.${env} not found"
               exit 1
             fi
-            
+
             echo "Checking terraform.tfvars.${env} exists and is readable..."
             # Verificar que o arquivo existe, não está vazio e é legível
             if [ ! -s "terraform.tfvars.${env}" ]; then
               echo "ERROR: terraform.tfvars.${env} is empty"
               exit 1
             fi
-            
+
             # Tentar fazer parse básico do HCL usando hclfmt (se disponível) ou pelo menos verificar estrutura básica
             # Validar que não há erros de sintaxe óbvios (chaves não fechadas, etc)
             if ! grep -q "=" "terraform.tfvars.${env}"; then
               echo "WARNING: terraform.tfvars.${env} might not contain valid key-value pairs"
             fi
-            
+
             echo "terraform.tfvars.${env} exists and appears valid"
           done
 
@@ -288,7 +289,7 @@ jobs:
             const securityTfsecStatus = '${{ steps.security-tfsec.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
             const lintTflintStatus = '${{ steps.lint-tflint.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
 
-            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' && 
+            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' &&
                                       '${{ steps.validate.outcome }}' === 'success' &&
                                       '${{ steps.validate-vars.outcome }}' === 'success';
 
@@ -469,7 +470,7 @@ jobs:
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -no-color \
             -out=tfplan-preview 2>&1 | tee plan-output.txt
-          
+
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt)
 

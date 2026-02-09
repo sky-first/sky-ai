@@ -1,3 +1,4 @@
+---
 name: Fix Terraform State
 
 on:
@@ -77,7 +78,7 @@ jobs:
                --container-name "$CONTAINER" \
                --account-name "$STORAGE_ACCOUNT" \
                --auth-mode login || echo "⚠️ Failed to break lease for $BLOB (maybe none) - continuing..."
-               
+
              # Check for lock.info associated with this blob (just in case)
              LOCK_BLOB="$BLOB.lock.info"
              # No harm in trying to break it blindly
@@ -87,7 +88,7 @@ jobs:
                --account-name "$STORAGE_ACCOUNT" \
                --auth-mode login 2>/dev/null || true
            done
-           
+
            # Also break the generic .terraform.tfstate.lock.info
            echo "🔨 Breaking generic lock info"
            az storage blob lease break \
@@ -186,18 +187,18 @@ jobs:
 
           # Minimal set of critical imports
           import_if_needed "azurerm_resource_group.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME" "Resource Group"
-          
+
           if az group show -n "$RG_NAME" >/dev/null 2>&1; then
             if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_kubernetes_cluster.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME" "AKS Cluster"
-               
+
                NODE_POOL_NAME="userapps"
                import_if_needed "azurerm_kubernetes_cluster_node_pool.user_pool" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" "AKS User Node Pool"
 
                AI_NODE_POOL_NAME="aicpu16"
                import_if_needed "azurerm_kubernetes_cluster_node_pool.ai_turbo" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$AI_NODE_POOL_NAME" "AKS AI Node Pool"
             fi
-            
+
             # CRITICAL: Import Role Assignment Conflict
             SP_ID="ac642806-ae70-4e1d-a800-c8ed0f43ecd0"
             SCOPE="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
@@ -205,13 +206,13 @@ jobs:
             if [ -n "$RA_ID" ]; then
                 import_if_needed "azurerm_role_assignment.gh_actions_contributor" "$RA_ID" "GH Actions Contributor Role"
             fi
-            
+
             # Bastion networking imports
              PIP_NAME="bastion-pip-${ENV}"
              if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_public_ip.bastion" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/publicIPAddresses/$PIP_NAME" "Bastion Public IP"
              fi
-             
+
              VNET_NAME="sky-aks-vnet-${ENV}"
              if az network vnet show -g "$RG_NAME" -n "$VNET_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_virtual_network.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME" "AKS VNet"

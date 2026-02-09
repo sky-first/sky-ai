@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -139,7 +140,7 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-be-stg-common-app-secrets
             key: celery_result_backend
-            
+
         extraEnv:
           - name: CORS_ORIGINS
             value: "https://workspace-stg.skyfirstlabs.com,https://workspace-stg-ollama.skyfirstlabs.com"

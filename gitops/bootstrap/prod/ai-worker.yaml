@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -17,7 +18,7 @@ spec:
         image:
           repository: skyacrprodel5zpw.azurecr.io/sky-poc-backend
           tag: "latest"
-        
+
         service:
           enabled: false
         ingress:
@@ -39,7 +40,7 @@ spec:
 
         command: ["celery"]
         args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
-        
+
         externalSecret:
           enabled: true
           secretStoreRef:
@@ -69,7 +70,7 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
-                
+
         envSecrets:
           openai-api-key:
             name: sky-ai-worker-prd-secrets
@@ -86,7 +87,7 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-ai-worker-prd-secrets
             key: celery_result_backend
-            
+
         extraEnv:
           - name: AI_SERVICE_URL
             value: "http://sky-ai-prd-common-app"

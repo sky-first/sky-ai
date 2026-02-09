@@ -1,3 +1,4 @@
+---
 # Network Policy para Staging - Hardening Fase 1
 # Padrão: Deny-all por padrão, whitelist apenas necessário
 
@@ -13,7 +14,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas nginx-ingress pode enviar para backend
   ingress:
   - from:
@@ -23,7 +24,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8000
-  
+
   # EGRESS: Backend pode sair apenas para:
   egress:
   # DNS
@@ -32,7 +33,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # Postgres (internal)
   - to:
     - podSelector:
@@ -41,7 +42,7 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
-  
+
   # Redis (internal)
   - to:
     - podSelector:
@@ -50,7 +51,7 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
-      
+
   # AI Service (internal)
   - to:
     - podSelector:
@@ -59,7 +60,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8001
-  
+
   # External HTTPS (OpenAI, BigQuery, etc)
   - to:
     - ipBlock:
@@ -85,7 +86,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas nginx-ingress
   ingress:
   - from:
@@ -95,7 +96,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
-  
+
   # EGRESS: Frontend pode sair para:
   egress:
   # DNS
@@ -104,7 +105,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # Backend API (ingress ou service IP)
   - to:
     - podSelector:
@@ -127,7 +128,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas backend
   ingress:
   - from:
@@ -137,7 +138,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8001
-  
+
   # EGRESS: AI pode sair para:
   egress:
   # DNS
@@ -146,7 +147,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # Redis (celery)
   - to:
     - podSelector:
@@ -155,7 +156,7 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
-  
+
   # External HTTPS (OpenAI)
   - to:
     - ipBlock:

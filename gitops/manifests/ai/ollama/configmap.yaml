@@ -1,3 +1,4 @@
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,33 +10,33 @@ data:
     set -e
     echo "🚀 Starting Ollama model setup..."
     echo "📅 $(date)"
-    
+
     # Wait for Ollama server to be ready using native command
     echo "⏳ Waiting for Ollama server to start..."
     MAX_WAIT=60
     COUNTER=0
-    
+
     while [ $COUNTER -lt $MAX_WAIT ]; do
       # Use ollama list command to check if server is ready
       if ollama list >/dev/null 2>&1; then
         echo "✅ Ollama server is ready!"
         break
       fi
-      
+
       echo "⏳ Waiting for Ollama API... ($COUNTER/$MAX_WAIT seconds)"
       sleep 2
       COUNTER=$((COUNTER + 2))
     done
-    
+
     if [ $COUNTER -ge $MAX_WAIT ]; then
       echo "❌ Timeout waiting for Ollama API after ${MAX_WAIT}s"
       exit 1
     fi
-    
+
     echo ""
     echo "📥 Downloading base models (this may take 10-20 minutes)..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
+
     # Download phi3:mini (~2.3GB)
     echo ""
     echo "📦 [1/3] Pulling phi3:mini (~2.3GB)..."
@@ -45,7 +46,7 @@ data:
       echo "❌ Failed to pull phi3:mini"
       exit 1
     fi
-    
+
     # Download sqlcoder:7b (~4GB)
     echo ""
     echo "📦 [2/3] Pulling sqlcoder:7b (~4GB)..."
@@ -55,7 +56,7 @@ data:
       echo "❌ Failed to pull sqlcoder:7b"
       exit 1
     fi
-    
+
     # Download nomic-embed-text (~274MB)
     echo ""
     echo "📦 [3/3] Pulling nomic-embed-text (~274MB)..."
@@ -65,12 +66,12 @@ data:
       echo "❌ Failed to pull nomic-embed-text"
       exit 1
     fi
-    
+
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "⚙️  Creating customized models with optimized parameters..."
     echo ""
-    
+
     # Create sqlcoder-sky (optimized for SQL generation)
     echo "🔧 Creating sqlcoder-sky (zero temperature for deterministic SQL)..."
     ollama create sqlcoder-sky -f - <<EOF
@@ -79,7 +80,7 @@ data:
     PARAMETER temperature 0
     EOF
     echo "✅ sqlcoder-sky created"
-    
+
     # Create phi3-sky (optimized for general tasks)
     echo ""
     echo "🔧 Creating phi3-sky (balanced temperature for reasoning)..."
@@ -89,7 +90,7 @@ data:
     PARAMETER temperature 0.3
     EOF
     echo "✅ phi3-sky created"
-    
+
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📋 Final model inventory:"

@@ -1,3 +1,4 @@
+---
 name: 'Azure Authentication'
 description: 'Authenticate to Azure via OIDC and set subscription'
 inputs:
