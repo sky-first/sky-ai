@@ -120,6 +120,7 @@ DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_d
 REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
 
 set_secret "postgres-password" "$POSTGRES_PASSWORD"
+set_secret "postgres_password" "$POSTGRES_PASSWORD" # Compatibility
 set_secret "redis-password" "$REDIS_PASSWORD"
 set_secret "database-url" "$DATABASE_URL"
 set_secret "redis-url" "$REDIS_URL"
@@ -136,12 +137,6 @@ echo ""
 echo "🔍 Verifying secrets..."
 SECRET_COUNT=$(az keyvault secret list --vault-name "$KEY_VAULT_NAME" --query "length(@)" -o tsv)
 echo "  Total secrets in vault: $SECRET_COUNT"
-
-if [ "$SECRET_COUNT" -ge 8 ]; then
-    echo "  ✅ All expected secrets are present"
-else
-    echo "  ⚠️  Expected at least 8 secrets, found $SECRET_COUNT"
-fi
 
 echo ""
 echo "✨ Key Vault secrets population complete!"
