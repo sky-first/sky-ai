@@ -28,7 +28,7 @@ trap cleanup_firewall EXIT
 
 # Get variables from Terraform outputs with fallback/validation
 echo "🔍 Fetching secrets from Terraform outputs..."
-KEY_VAULT_NAME=$(terraform output -raw key_vault_name 2>/dev/null || echo "")
+KEY_VAULT_NAME=${KEY_VAULT_NAME:-$(terraform output -raw key_vault_name 2>/dev/null || echo "")}
 POSTGRES_PASSWORD=$(terraform output -raw postgres_password 2>/dev/null || echo "")
 REDIS_PASSWORD=$(terraform output -raw redis_password 2>/dev/null || echo "")
 JWT_SECRET=$(terraform output -raw jwt_secret 2>/dev/null || echo "")
