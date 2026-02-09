@@ -339,13 +339,24 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Check for Infra Changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+
+
       - name: Setup Terraform
+        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/terraform-setup
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           working_directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Azure Login
+        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/azure-auth
         with:
           subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -354,6 +365,7 @@ jobs:
 
       - name: Get Runner IP
         id: ip
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 https://checkip.amazonaws.com || echo "")
@@ -368,6 +380,7 @@ jobs:
 
       - name: Detect Target Environment
         id: detect-env
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -388,6 +401,7 @@ jobs:
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
 
       - name: Validate Terraform Backend Secrets
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           echo "Validando secrets obrigatórios do backend Terraform..."
@@ -413,6 +427,7 @@ jobs:
           echo "OK: Secrets do backend presentes"
 
       - name: Write backend config
+        if: steps.changes.outputs.infra == 'true'
         run: |
           ENV="${{ steps.detect-env.outputs.env }}"
           cat > backend.hcl <<EOF
@@ -424,11 +439,13 @@ jobs:
           EOF
 
       - name: Terraform Init
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           terraform workspace select ${{ steps.detect-env.outputs.workspace }} || \
@@ -436,6 +453,7 @@ jobs:
 
       - name: Terraform Plan
         id: plan
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
 
@@ -477,7 +495,7 @@ jobs:
           allow_destroy: false
 
       - name: Comment PR with Plan
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.changes.outputs.infra == 'true'
         uses: actions/github-script@v7
         with:
           script: |
