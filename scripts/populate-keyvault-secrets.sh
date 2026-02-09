@@ -120,7 +120,6 @@ DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_d
 REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
 
 set_secret "postgres-password" "$POSTGRES_PASSWORD"
-set_secret "postgres_password" "$POSTGRES_PASSWORD" # Compatibility
 set_secret "redis-password" "$REDIS_PASSWORD"
 set_secret "database-url" "$DATABASE_URL"
 set_secret "redis-url" "$REDIS_URL"
