@@ -1,4 +1,3 @@
----
 helm:
   parameters:
   - name: image.name
