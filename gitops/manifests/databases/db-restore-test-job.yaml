@@ -20,23 +20,23 @@ spec:
         - |
           set -e
           echo "🧪 Iniciando Teste de Higiene de Backup (Automated Restore Validation)..."
-          
+
           # 1. Obter o backup mais recente do Azure
           STORAGE_ACCOUNT="skybkpprod8ooz9z"
           CONTAINER_NAME="sql-backups"
-          
+
           echo "📂 Buscando último backup..."
           LATEST_BACKUP=$(az storage blob list \
             --account-name $STORAGE_ACCOUNT \
             --container-name $CONTAINER_NAME \
             --auth-mode login \
             --query "sort_by([].{name:name, created:properties.creationTime}, &created)[-1].name" -o tsv)
-          
+
           if [ -z "$LATEST_BACKUP" ]; then
             echo "❌ Nenhum backup encontrado no storage!"
             exit 1
           fi
-          
+
           echo "📥 Baixando backup: $LATEST_BACKUP"
           az storage blob download \
             --account-name $STORAGE_ACCOUNT \
@@ -55,15 +55,15 @@ spec:
           # Inicia um banco local efêmero no próprio pod
           pg_ctl init -D /tmp/pgdata
           pg_ctl start -D /tmp/pgdata -o "-c listen_addresses='' -c unix_socket_directories='/tmp'"
-          
+
           echo "🔄 Executando pg_restore no Sandbox..."
           createdb -h /tmp restore_test
           pg_restore -h /tmp -d restore_test -j 2 /tmp/backup.dump.zst
-          
+
           echo "📊 Validando dados críticos..."
           USER_COUNT=$(psql -h /tmp -d restore_test -t -c "SELECT count(*) FROM users")
           echo "Contagem de usuários restaurados: $USER_COUNT"
-          
+
           if [ "$USER_COUNT" -gt 0 ]; then
             echo "🏆 TESTE DE RESTAURAÇÃO COMPLETADO COM SUCESSO!"
           else

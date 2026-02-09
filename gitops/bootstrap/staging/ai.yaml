@@ -93,7 +93,7 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
-                
+
         # Map the synced secrets to Env Vars in the container
         envSecrets:
           openai-api-key:
@@ -114,11 +114,11 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-ai-stg-common-app-secrets
             key: celery_result_backend
-            
+
         migration:
           enabled: true
           command: ["python3", "-c"]
-          args: 
+          args:
             - |
               import os, asyncio, asyncpg, glob
               from sqlalchemy import text
@@ -130,12 +130,12 @@ spec:
                   if not url:
                       print('DATABASE_URL not set')
                       return
-                  
+
                   # 1. Enable pgvector extension
                   pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
                   pure_url = pure_url.replace('postgresql+psycopg2://', 'postgresql://')
                   if 'psycopg2' in pure_url: pure_url = pure_url.replace('psycopg2', '')
-                  
+
                   try:
                       print('Enabling pgvector extension...')
                       conn_pg = await asyncpg.connect(pure_url)
@@ -167,9 +167,9 @@ spec:
                       await conn_pg.close()
                   except Exception as e:
                       print(f'Warning applying SQL migrations: {e}')
-                  
+
               asyncio.run(run())
-              
+
         extraEnv:
           - name: REDIS_PORT
             value: "6379"

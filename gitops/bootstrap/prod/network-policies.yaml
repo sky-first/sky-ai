@@ -13,7 +13,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas nginx-ingress pode enviar para backend
   ingress:
   - from:
@@ -23,7 +23,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8000
-  
+
   # EGRESS: Backend pode sair apenas para:
   # 1. PostgreSQL (10.2.x.x:5432)
   # 2. Redis (10.2.x.x:6379)
@@ -37,7 +37,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # PostgreSQL (internal)
   - to:
     - podSelector:
@@ -46,7 +46,7 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
-  
+
   # Redis (internal)
   - to:
     - podSelector:
@@ -55,7 +55,7 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
-  
+
   # Loki (monitoring)
   - to:
     - namespaceSelector:
@@ -67,7 +67,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3100
-  
+
   # External HTTPS (OpenAI, etc)
   - to:
     - namespaceSelector: {}
@@ -88,7 +88,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas nginx-ingress
   ingress:
   - from:
@@ -98,7 +98,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3000
-  
+
   # EGRESS: Frontend pode sair para:
   # 1. Backend API (10.3.x.x:80 ou 10.2.x.x:8000)
   # 2. DNS (53)
@@ -109,7 +109,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # Backend API
   - to:
     - podSelector:
@@ -132,7 +132,7 @@ spec:
   policyTypes:
   - Ingress
   - Egress
-  
+
   # INGRESS: Apenas nginx-ingress + backend (para async tasks)
   ingress:
   - from:
@@ -142,7 +142,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8001
-  
+
   - from:
     - podSelector:
         matchLabels:
@@ -150,7 +150,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8001
-  
+
   # EGRESS: AI pode sair para:
   # 1. OpenAI API (external, 443)
   # 2. Redis (celery broker, 10.2.x.x:6379)
@@ -163,7 +163,7 @@ spec:
     ports:
     - protocol: UDP
       port: 53
-  
+
   # Redis (celery)
   - to:
     - podSelector:
@@ -172,7 +172,7 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
-  
+
   # Loki
   - to:
     - namespaceSelector:
@@ -184,7 +184,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3100
-  
+
   # External HTTPS (OpenAI)
   - to:
     - namespaceSelector: {}

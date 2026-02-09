@@ -39,11 +39,11 @@ spec:
               DB_HOST="postgresql"
               DB_NAME="ai_saas_db"
               DB_USER="sky"
-              
+
               echo "🔍 Verificando Replication Lag..."
               LAG=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME -t -c "SELECT COALESCE(floor(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))), 0)" | xargs)
               echo "Current Lag: ${LAG}s"
-              
+
               if [ "$LAG" -gt 300 ]; then
                 echo "❌ ERRO: Replication Lag muito alto (${LAG}s). Abortando."
                 exit 1
@@ -74,14 +74,14 @@ spec:
               CONTAINER_NAME="sql-backups"
               DB_NAME="ai_saas_db"
               FILENAME="backup-${DB_NAME}-$(date +%Y%m%d-%H%M%S).dump"
-              
+
               echo "🔍 Debug: AZURE_CLIENT_ID=${AZURE_CLIENT_ID}"
               echo "🔍 Debug: Token exists: $(ls -l $AZURE_FEDERATED_TOKEN_FILE)"
-              
+
               echo "🔑 Autenticando na Azure via Workload Identity..."
               TOKEN=$(cat $AZURE_FEDERATED_TOKEN_FILE)
               az login --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" --federated-token "$TOKEN"
-              
+
               echo "🚀 Enviando backup para o Azure: ${FILENAME}"
               az storage blob upload \
                 --account-name "$STORAGE_ACCOUNT" \

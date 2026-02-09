@@ -104,7 +104,7 @@ envSecrets:
 migration:
   enabled: true
   command: ["python3", "-c"]
-  args: 
+  args:
     - |
       import os, asyncio, asyncpg, glob
       from sqlalchemy import text
@@ -116,12 +116,12 @@ migration:
           if not url:
               print('DATABASE_URL not set')
               return
-          
+
           # 1. Enable pgvector extension
           pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
           pure_url = pure_url.replace('postgresql+psycopg2://', 'postgresql://')
           if 'psycopg2' in pure_url: pure_url = pure_url.replace('psycopg2', '')
-          
+
           try:
               print('Enabling pgvector extension...')
               conn_pg = await asyncpg.connect(pure_url)
@@ -153,7 +153,7 @@ migration:
               await conn_pg.close()
           except Exception as e:
               print(f'Warning applying SQL migrations: {e}')
-          
+
       asyncio.run(run())
 
 extraEnv:

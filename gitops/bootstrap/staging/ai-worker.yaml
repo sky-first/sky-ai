@@ -26,7 +26,7 @@ spec:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
         imagePullSecrets:
           - name: regcred
-        
+
         # O Worker não precisa de Ingress nem Service
         service:
           enabled: false
@@ -40,7 +40,7 @@ spec:
 
         command: ["celery"]
         args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
-        
+
         # Reutilizar os segredos da IA
         externalSecret:
           enabled: true
@@ -71,7 +71,7 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
-                
+
         envSecrets:
           openai-api-key:
             name: sky-ai-worker-stg-secrets
@@ -88,7 +88,7 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-ai-worker-stg-secrets
             key: celery_result_backend
-            
+
         extraEnv:
           - name: REDIS_PORT
             value: "6379"

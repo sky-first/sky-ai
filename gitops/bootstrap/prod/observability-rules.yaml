@@ -80,62 +80,62 @@ spec:
       annotations:
         summary: "High error rate detected in {{ $labels.job }}"
         runbook_url: "https://wiki.example.com/runbooks/high-error-rate"
-        
+
     - alert: HighLatency
       expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 1.0
       for: 5m
       annotations:
         summary: "High latency detected: {{ $value }}s"
         runbook_url: "https://wiki.example.com/runbooks/high-latency"
-        
+
     - alert: PodCrashLooping
       expr: increase(kube_pod_container_status_restarts_total[15m]) > 5
       annotations:
         summary: "Pod {{ $labels.pod }} is crash looping"
         runbook_url: "https://wiki.example.com/runbooks/pod-crash-looping"
-        
+
     - alert: HighMemoryUsage
       expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.8
       for: 5m
       annotations:
         summary: "High memory usage in {{ $labels.pod }}: {{ $value | humanizePercentage }}"
         runbook_url: "https://wiki.example.com/runbooks/high-memory-usage"
-        
+
     - alert: HighCPUUsage
       expr: (rate(container_cpu_usage_seconds_total[5m]) * 100) > 80
       for: 5m
       annotations:
         summary: "High CPU usage in {{ $labels.pod }}: {{ $value }}%"
         runbook_url: "https://wiki.example.com/runbooks/high-cpu-usage"
-        
+
     - alert: DatabaseDown
       expr: pg_up == 0
       for: 2m
       annotations:
         summary: "PostgreSQL database is down"
         runbook_url: "https://wiki.example.com/runbooks/database-down"
-        
+
     - alert: RedisDown
       expr: redis_up == 0
       for: 2m
       annotations:
         summary: "Redis cache is down"
         runbook_url: "https://wiki.example.com/runbooks/redis-down"
-    
+
     - alert: CertificateExpiringSoon
       expr: certmanager_certificate_expiration_timestamp_seconds - time() < 7 * 24 * 60 * 60
       for: 1h
       annotations:
         summary: "Certificate {{ $labels.name }} expiring in less than 7 days"
         runbook_url: "https://wiki.example.com/runbooks/certificate-expiring"
-    
+
     - alert: PrometheusDown
       expr: up{job="prometheus"} == 0
       for: 2m
       annotations:
         summary: "Prometheus is down"
         runbook_url: "https://wiki.example.com/runbooks/prometheus-down"
-    
+
     - alert: AlertmanagerDown
       expr: up{job="alertmanager"} == 0
       for: 2m

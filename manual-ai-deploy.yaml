@@ -307,15 +307,15 @@ spec:
     - secretKey: openai_api_key
       remoteRef:
         key: openai-api-key
-        property: 
+        property:
     - secretKey: qdrant_url
       remoteRef:
         key: qdrant-url
-        property: 
+        property:
     - secretKey: database_url
       remoteRef:
         key: database-url
-        property: 
+        property:
     - secretKey: redis_url
       remoteRef:
         key: redis-url
