@@ -120,7 +120,7 @@ set_secret "database-url" "$DATABASE_URL"
 set_secret "redis-url" "$REDIS_URL"
 set_secret "jwt-secret-key" "$JWT_SECRET"
 set_secret "encryption-key" "$ENCRYPTION_KEY"
-set_secret "openai-api-key" "sk-placeholder-replace-me"
+set_secret "openai-api-key" "${OPENAI_API_KEY:-sk-placeholder-replace-me}"
 set_secret "qdrant-url" "http://qdrant:6333"
 
 echo ""
