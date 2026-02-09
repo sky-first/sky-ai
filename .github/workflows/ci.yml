@@ -1,3 +1,4 @@
+---
 name: CI - Terraform Validation & Security
 
 permissions:
@@ -7,7 +8,7 @@ permissions:
   id-token: write
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: { }
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:

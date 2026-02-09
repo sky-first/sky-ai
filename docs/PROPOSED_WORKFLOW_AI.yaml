@@ -1,3 +1,4 @@
+---
 name: Build and Deploy AI (GitOps)
 
 # Trigger on push to main or staging branches

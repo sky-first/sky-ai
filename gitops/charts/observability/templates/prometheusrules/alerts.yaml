@@ -1,3 +1,4 @@
+---
 {{- if .Values.prometheusRules.kubernetes.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1

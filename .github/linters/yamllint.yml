@@ -1,19 +1,32 @@
+---
 extends: default
 
 ignore: |
   gitops/charts/
   **.chart/
   **/templates/
-  .github/workflows/
 
 rules:
-  line-length: disable
-  document-start: disable
+  line-length:
+    max: 200
+    allow-non-breakable-words: true
+  document-start:
+    level: warning
   truthy: disable
-  braces: disable
-  brackets: disable
-  colons: disable
-  hyphens: disable
-  indentation: disable
-  key-duplicates: disable
-  empty-lines: disable
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  hyphens:
+    max-spaces-after: 1
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  key-duplicates: enable
+  empty-lines:
+    max: 2

@@ -1,3 +1,4 @@
+---
 # Default values for common-app.
 replicaCount: 1
 

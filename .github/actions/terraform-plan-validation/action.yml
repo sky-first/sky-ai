@@ -1,3 +1,4 @@
+---
 name: 'Terraform Plan Validation'
 description: 'Validate Terraform plan for destructive changes and security issues'
 inputs:

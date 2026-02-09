@@ -1,3 +1,4 @@
+---
 name: 'Post-Deploy Health Check'
 description: 'Perform health checks after deployment'
 inputs:

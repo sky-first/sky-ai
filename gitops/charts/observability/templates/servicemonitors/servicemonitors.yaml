@@ -1,3 +1,4 @@
+---
 {{- range $name, $config := .Values.serviceMonitors }}
 {{- if $config.enabled }}
 ---

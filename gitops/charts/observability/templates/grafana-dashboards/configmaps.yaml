@@ -1,3 +1,4 @@
+---
 {{- if .Values.grafanaDashboards.enabled }}
 {{- range .Values.grafanaDashboards.dashboards }}
 ---
