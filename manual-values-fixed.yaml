@@ -28,7 +28,6 @@ service:
   targetPort: 8001
 
 ingress:
-  enabled: false
   enabled: true
   className: "nginx"
   annotations:
