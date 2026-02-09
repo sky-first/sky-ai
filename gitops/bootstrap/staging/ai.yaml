@@ -127,6 +127,9 @@ spec:
 
         migration:
           enabled: true
+          annotations:
+            argocd.argoproj.io/hook: PreSync
+            argocd.argoproj.io/hook-delete-policy: before-hook-creation
           command: ["python3", "-c"]
           args:
             - |
