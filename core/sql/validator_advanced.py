@@ -95,7 +95,14 @@ class AdvancedSQLValidator:
         if not tables:
             return False, "No tables found in query"
         
+        # Extrair CTEs (Common Table Expressions) para ignorá-las na validação
+        ctes = self._extract_ctes(statement)
+        
         for raw_table in tables:
+            # Se for uma CTE definida na própria query, ignorar validação
+            if raw_table in ctes:
+                continue
+                
             variants = self._table_variants(raw_table)
             if not (variants & self.allowed_tables):
                 return False, f"Table '{raw_table}' is not allowed"
@@ -172,9 +179,15 @@ class AdvancedSQLValidator:
         return True, None
     
     def _is_select_statement(self, statement: Statement) -> bool:
-        """Verifica se é SELECT (rápido)"""
+        """Verifica se é SELECT (rápido) ou WITH (CTE)"""
         for token in statement.tokens:
             if token.ttype is DML and token.value.upper() == 'SELECT':
+                return True
+            # CTE starts with Keyword.CTE (WITH)
+            if token.ttype == Keyword.CTE or str(token.ttype) == "Token.Keyword.CTE":
+                return True
+            # Fallback: check string value for compatibility
+            if token.value.upper() == 'WITH':
                 return True
         return False
     
@@ -242,6 +255,37 @@ class AdvancedSQLValidator:
             tables.add(ident)
 
         return tables
+
+    def _extract_ctes(self, statement: Statement) -> Set[str]:
+        """
+        Extrai nomes de CTEs (Common Table Expressions) definidas na query.
+        Ex: WITH cte1 AS (...), cte2 AS (...) -> {cte1, cte2}
+        """
+        sql = str(statement)
+        ctes: Set[str] = set()
+        
+        # 1. Verificar se tem WITH
+        if "WITH" not in sql.upper():
+            return ctes
+            
+        # Regex robusto para capturar nomes de CTEs
+        # Padrão: 
+        # (?:WITH\s+(?:RECURSIVE\s+)?)?  -> WITH (e RECURSIVE) opcional (para o seguimento)
+        # [`]?                          -> Aspa/backtick opcional
+        # (?P<name>[A-Za-z0-9_]+)       -> Identificador
+        # [`]?                          -> Fechamento de aspa/backtick opcional
+        # \s+AS\s*\(                    -> AS (
+        pattern = re.compile(
+            r"(?:WITH|,\s+)?\s*[`]?(?P<name>[A-Za-z0-9_]+)[`]?\s+AS\s*\(",
+            re.IGNORECASE
+        )
+        
+        for m in pattern.finditer(sql):
+            name = m.group("name")
+            if name.upper() not in {"SELECT", "FROM", "WHERE", "JOIN", "UNION", "AND", "OR", "ON"}:
+                ctes.add(name)
+                
+        return ctes
 
     def _expand_allowed_tables(self, allowed_tables: List[str]) -> Set[str]:
         """

@@ -123,11 +123,10 @@ def _build_secure_system_prompt(
             "7. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
             "8. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
             "9. NEVER use subqueries that access unauthorized tables\n"
-            "10. 🔴 CRITICAL: NEVER use WHERE with DATE_SUB, INTERVAL, or temporal filters like 'last X days/weeks'\n"
-            "    - Data might not exist in recent ranges → EMPTY RESULTS\n"
-            "    - For 'recent' data, use ORDER BY date_column DESC LIMIT N\n"
-            "    - Example BAD: WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)\n"
-            "    - Example GOOD: ORDER BY date DESC LIMIT 15\n\n"
+            "10. TEMPORAL FILTERING RULES:\n"
+            "    - If the Schema Summary includes '[Data Range]', you MUST use it to constrain your query.\n"
+            "    - Avoid 'last 30 days' if the data range ends months ago; use the last available period instead.\n"
+            "    - You MAY use DATE_SUB, INTERVAL, or specific date filters if they align with the Data Range.\n\n"
             "🛡️ PRIVACY & COMPARISON RULES:\n"
             "- If user asks to compare specific individuals (e.g. 'Is Customer X the highest?'), DO NOT confirm specific values.\n"
             "- REFUSE to 'list names' of other entities in comparisons. Use 'The top customer' instead.\n"
@@ -758,7 +757,7 @@ def run_specialist(
     financial_guidance = ""
     financial_keywords = ["invoice", "payment", "refund", "credit", "revenue", "billing", "amount", "fee"]
     is_financial_context = any(
-        any(kw in t.logical_name.lower() or kw in t.description.lower() for kw in financial_keywords)
+        any(kw in t.logical_name.lower() or kw in (t.description or "").lower() for kw in financial_keywords)
         for t in tables
     ) if use_multiple_tables else (
         any(kw in table.logical_name.lower() or kw in (table.description or "").lower() for kw in financial_keywords)
@@ -778,11 +777,9 @@ def run_specialist(
         )
     
     # Identificar idioma - REMOVED, now defaulting to English
-    # detected_language detected_languages logic removed
     detected_language = "English"
 
     # Define the security rules string to pass to _build_secure_system_prompt
-    # This allows _build_secure_system_prompt to use it directly
     security_rules_str = (
         "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
         "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
@@ -820,15 +817,63 @@ def run_specialist(
         "- Examples:\n"
         "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
         "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
+        "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
+        "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
         "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
         "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
     )
 
+    # BigQuery table qualification guidance
+    table_qualification_guidance = ""
+    physical_names = [t.physical_name for t in tables] if use_multiple_tables else [primary_table.physical_name]
+    
+    if current_dialect == Dialect.BIGQUERY:
+        table_qualification_guidance = (
+            "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
+            "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
+            "- DO NOT use the short logical name.\n"
+            "- YOU MUST USE the full path provided in the Schema (e.g. 'project.dataset.table').\n"
+            f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
+        )
+
+    # 🏰 AGGREGATION FAN-OUT PREVENTION (RE-ADDED from Conversation a872a36b)
+    aggregation_fanout_guidance = (
+        "\n\n🚨 FAN-OUT AGGREGATION DEFENSE (MATH PRECISION):\n"
+        "- When summing values from a table that is a child in a 1:N relationship, "
+        "always use a CTE to aggregate the child table *before* joining to avoid Cartesian product inflation.\n"
+        "- BAD: SELECT t.id, SUM(c.value) FROM parent t JOIN child c ON t.id = c.p_id GROUP BY 1 (INFLATES SUM)\n"
+        "- GOOD: WITH aggregated_child AS (SELECT p_id, SUM(value) as total FROM child GROUP BY 1) "
+        "SELECT t.id, c.total FROM parent t JOIN aggregated_child c ON t.id = c.p_id\n"
+    )
+
+    # Robust string comparison
+    string_comparison_guidance = (
+        "\n\nCRITICAL: ROBUST STRING FILTERS:\n"
+        "- ALWAYS use UPPER() for string comparisons to avoid case-sensitivity issues.\n"
+        "- The database might store 'PAID', 'Paid', or 'paid'.\n"
+        "- BAD: WHERE status = 'paid' (Misses 'PAID')\n"
+        "- GOOD: WHERE UPPER(status) = 'PAID'\n"
+        "- Example: WHERE UPPER(name) LIKE '%JOHN%'\n"
+        "- Do not guess the capitalization of data values. Normalize both sides.\n"
+    )
+
     if use_multiple_tables:
-        # Modo JOIN: instruções para múltiplas tabelas
-        physical_names = [t.physical_name for t in tables]
+        system_msg = _build_secure_system_prompt(
+            physical_names=physical_names,
+            max_limit=150,
+            max_columns=50,
+            use_multiple_tables=True,
+            security_rules=security_rules_str.format(max_limit=150, max_columns=50),
+            dialect=current_dialect,
+            use_local_models=settings.use_local_models,
+        )
+        join_instruction = (
+            "- Use the JOIN relationships provided to connect the tables.\n"
+            if join_relationships 
+            else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n"
+        )
         
-        # Se não há join_relationships explícitos, adicionar instrução para o LLM inferir
+        # ✅ Restore join_guidance for user message
         join_guidance = ""
         if not join_relationships:
             join_guidance = (
@@ -837,139 +882,7 @@ def run_specialist(
                 "reference_id typically reference id columns in other tables). "
                 "Look for columns ending in '_id' that might reference other tables."
             )
-        
-        # Constrói prompt
-        system_msg = _build_secure_system_prompt(
-            physical_names=physical_names,
-            max_limit=150,  # Aumentei um pouco caso precise
-            max_columns=50, # Updated max_columns
-            use_multiple_tables=True,
-            security_rules=security_rules_str.format(max_limit=150, max_columns=50), # Pass formatted rules
-            dialect=current_dialect,
-            use_local_models=settings.use_local_models,
-        )
-        
-        # Adicionar instruções específicas de JOIN
-        join_instruction = (
-            "- Use the JOIN relationships provided to connect the tables.\n"
-            if join_relationships 
-            else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n"
-        )
-        
-        # Adicionar instruções de colunas
-        column_guidance = (
-            "- For status or category columns, prefer using columns containing human-readable labels "
-            "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
-        )
-        
-        # ✅ CRITICAL: Adicionar instruções sobre filtros temporais
-        temporal_filter_guidance = (
-            "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
-            "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
-            "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
-            "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
-            "- Examples:\n"
-            "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
-            "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
-            "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
-            "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
-            "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
-            "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
-        )
-        
-        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
-        table_qualification_guidance = ""
-        if current_dialect == Dialect.BIGQUERY:
-            table_qualification_guidance = (
-                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
-                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
-                "- DO NOT use the short logical name (e.g. 'invoices').\n"
-                "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
-                "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
-                "- Failure to use the full path will cause a 400 error.\n"
-                f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
-            )
-        
-        # Assemble final prompt for multi-table
-        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
-    
     else:
-        # Modo tabela única
-        system_msg = _build_secure_system_prompt(
-            physical_names=[table.physical_name],
-            max_limit=150,
-            max_columns=50,
-            use_multiple_tables=False,
-            security_rules=security_rules_str.format(max_limit=150, max_columns=50),
-            dialect=current_dialect,
-            use_local_models=settings.use_local_models,
-        )
-
-        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
-        table_qualification_guidance = ""
-        if current_dialect == Dialect.BIGQUERY:
-            table_qualification_guidance = (
-                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
-                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
-                "- DO NOT use the short logical name.\n"
-                f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
-            )
-        # Assemble final prompt for single-table
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
-        
-        # Define empty join_instruction for compatibility
-        join_instruction = ""
-
-
-
-        
-        # ✅ CRITICAL: Robust string comparison
-        string_comparison_guidance = (
-            "\n\nCRITICAL: ROBUST STRING FILTERS:\n"
-            "- ALWAYS use UPPER() for string comparisons to avoid case-sensitivity issues.\n"
-            "- The database might store 'PAID', 'Paid', or 'paid'.\n"
-            "- BAD: WHERE status = 'paid' (Misses 'PAID')\n"
-            "- GOOD: WHERE UPPER(status) = 'PAID'\n"
-            "- Example: WHERE UPPER(name) LIKE '%JOHN%'\n"
-            "- Do not guess the capitalization of data values. Normalize both sides.\n"
-        )
-        
-        # Atualizar content com instruções adicionais
-        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
-
-    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
-    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
-    history_block = ""
-    if chat_history:
-        # Limit to last 6 messages
-        recent_history = chat_history[-6:]
-        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
-        history_block = (
-            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
-            f"{history_str}\n"
-            "Use this history to understand the user's intent if the current question is a follow-up.\n"
-        )
-
-    if use_multiple_tables:
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Table schemas:\n{schema_text}\n"
-                f"{data_preview_block}"
-                f"{history_block}"
-                f"{context_block}"
-                f"{sql_instructions_block}"
-                f"{security_instructions_block}"
-                f"{join_guidance}"
-                f"{aggregation_guidance}"
-                "Generate only the SQL query with JOINs (or IMPOSSIBLE: <reason>)."
-                + ("\n\n### SQL Query" if settings.use_local_models else "")
-            ),
-        }
-    else:
-        # Modo tabela única (comportamento original)
-        physical_names = [primary_table.physical_name]
         system_msg = _build_secure_system_prompt(
             physical_names=physical_names,
             max_limit=100,
@@ -979,77 +892,50 @@ def run_specialist(
             dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
-        
-        # Adicionar instruções de agregação
-        aggregation_instruction = (
-                "- When the question asks for metrics, totals, performance, or temporal analysis, "
-                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
-        )
-        
-        # Adicionar instruções de colunas
-        column_guidance = (
-            "- For status or category columns, prefer using columns containing human-readable labels "
-            "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
-        )
-        
-        # ✅ CRITICAL: Adicionar instruções sobre filtros temporais
-        temporal_filter_guidance = (
-            "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
-            "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
-            "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
-            "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
-            "- Examples:\n"
-            "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
-            "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
-            "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
-            "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
-            "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
-            "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
-        )
-        
-        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
-        table_qualification_guidance = ""
-        if current_dialect == Dialect.BIGQUERY:
-            table_qualification_guidance = (
-                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
-                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
-                "- DO NOT use the short logical name (e.g. 'invoices').\n"
-                "- DO NOT use just the table name (e.g. 'silver_invoices_enriquecido').\n"
-                "- YOU MUST USE the full path provided in the Schema (e.g. 'data-mesh-gcp.billing_silver.silver_invoices_enriquecido').\n"
-                "- Failure to use the full path will cause a 400 error.\n"
-                f"- PHYSICAL NAMES TO USE: {primary_table.physical_name}\n"
-            )
-        
-        # ✅ CRITICAL: Robust string comparison
-        string_comparison_guidance = (
-            "\n\nCRITICAL: ROBUST STRING FILTERS:\n"
-            "- ALWAYS use UPPER() for string comparisons to avoid case-sensitivity issues.\n"
-            "- The database might store 'PAID', 'Paid', or 'paid'.\n"
-            "- BAD: WHERE status = 'paid' (Misses 'PAID')\n"
-            "- GOOD: WHERE UPPER(status) = 'PAID'\n"
-            "- Example: WHERE UPPER(name) LIKE '%JOHN%'\n"
-            "- Do not guess the capitalization of data values. Normalize both sides.\n"
+        join_instruction = ""
+
+    # Assemble final system prompt
+    system_msg["content"] += (
+        join_instruction + 
+        aggregation_instruction + 
+        column_guidance + 
+        temporal_filter_guidance + 
+        table_qualification_guidance + 
+        financial_guidance + 
+        aggregation_fanout_guidance + 
+        string_comparison_guidance
+    )
+
+    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
+    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
+    history_block = ""
+    if chat_history:
+        recent_history = chat_history[-6:]
+        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
+        history_block = (
+            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
+            f"{history_str}\n"
+            "Use this history to understand the user's intent if the current question is a follow-up.\n"
         )
 
-        # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance + aggregation_fanout_guidance
+    # Construct user message
+    user_msg = {
+        "role": "user",
+        "content": (
+            f"User question:\n{question}\n\n"
+            f"Table schema(s):\n{schema_text}\n"
+            f"{data_preview_block}"
+            f"{history_block}"
+            f"{context_block}"
+            f"{sql_instructions_block}"
+            f"{security_instructions_block}"
+            + (f"{join_guidance}" if use_multiple_tables else "") +
+            f"{aggregation_guidance}"
+            "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+            + ("\n\n### SQL Query" if settings.use_local_models else "")
+        ),
+    }
 
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Table schema:\n{schema_text}\n"
-                f"{data_preview_block}"
-                f"{history_block}"
-                f"{context_block}"
-                f"{sql_instructions_block}"
-                f"{security_instructions_block}"
-                f"{aggregation_guidance}"
-                "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
-                + ("\n\n### SQL Query" if settings.use_local_models else "")
-            ),
-        }
 
     # Identificar se é NoSQL antes de tudo
     current_dialect = getattr(data_source, "dialect", None)
@@ -1133,13 +1019,17 @@ def run_specialist(
         forbidden_tables = [p for p in all_physical_names if p.lower() not in allowed_lower]
         
         for bad_table in forbidden_tables:
-            # We check for the full name or just the table part to be aggressive
             bad_table_lower = bad_table.lower()
-            # Simple check: is the unauthorized table name in the SQL?
-            if bad_table_lower in sql_check:
+            
+            # ✅ FIX: Use regex with identifier boundaries to avoid partial matches (e.g. 'users' in 'users_enriched')
+            # Identifier chars: a-z, 0-9, _, $
+            pattern = rf"(?:^|[^a-z0-9_$]){re.escape(bad_table_lower)}(?:[^a-z0-9_$]|$)"
+            
+            if re.search(pattern, sql_check):
                  log_event("specialist_guardrail_blocked", {
                      "reason": f"Unauthorized table detected: {bad_table}",
-                     "allowed": list(allowed_lower)
+                     "allowed": list(allowed_lower),
+                     "pattern": pattern
                  })
                  state["impossible_reason"] = f"Security Guardrail: Attempted to access unauthorized data table ({bad_table})."
                  # Wipe SQL to be safe
