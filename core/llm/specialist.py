@@ -482,6 +482,28 @@ def run_specialist(
     - preenche state["sql"], state["data"] (ou state["impossible_reason"])
     """
     question = (state.get("question") or "").strip()
+
+    question = (state.get("question") or "").strip()
+
+    # 🎯 CENTRALIZED SCHEMA INJECTION (HALLUCINATION FIX)
+    # Physically hide unselected tables from the Specialist context.
+    # This prevents the LLM from "seeing" tables it shouldn't use.
+    chosen_physical = state.get("chosen_tables_physical")
+    all_physical_names = {t.physical_name for t in agent_config.tables}
+    effective_tables = list(agent_config.tables) # Use a local copy
+    
+    if chosen_physical:
+        allowed_physical = set(chosen_physical)
+        effective_tables = [
+            t for t in effective_tables 
+            if t.physical_name in allowed_physical
+        ]
+        
+        log_event("specialist_schema_injected_centralized", {
+            "original_count": len(agent_config.tables),
+            "filtered_count": len(effective_tables),
+            "allowed_physical": list(allowed_physical)
+        })
     
     # Log de entrada PRIMEIRO para debug
     log_event(
@@ -517,23 +539,27 @@ def run_specialist(
     bq_aggregation_guidance = ""
     if current_dialect == Dialect.BIGQUERY:
         bq_aggregation_guidance = (
-            "\n\nCRITICAL: BIGQUERY AGGREGATION RULES (STRICT):\n"
-            "- BIGQUERY IS VERY STRICT: You CANNOT mixing 'GROUP BY' and Window Functions ('OVER') arbitrarily.\n"
-            "- 🚫 FORBIDDEN: SELECT x, SUM(y) OVER(PARTITION BY x) FROM t GROUP BY x\n"
-            "  (Reason: 'x' is grouped, but 'SUM(y) OVER...' is a window function on the result, which causes granularity conflicts on non-aggregated columns)\n"
-            "- ✅ SOLUTION: USE A CTE (Common Table Expression) for the aggregations first.\n"
-            "  * Step 1 (CTE): Calculate the GROUP BY aggregations.\n"
-            "  * Step 2 (Main Query): specific Window Functions on the results of the CTE.\n"
-            "  * Example:\n"
-            "    WITH monthly_stats AS (\n"
-            "      SELECT invoice_year, invoice_month, customer_id, SUM(total_amount) as mth_total\n"
-            "      FROM `dataset.table`\n"
-            "      GROUP BY 1, 2, 3\n"
-            "    )\n"
-            "    SELECT *, SUM(mth_total) OVER(PARTITION BY customer_id) as customer_lifetime_value\n"
-            "    FROM monthly_stats\n"
             "- ERROR TO AVOID: 'SELECT list expression references column which is neither grouped nor aggregated'.\n"
         )
+
+    # 🌪️ ANTI-FANOUT / GRANULARITY ISOLATION (PLATINUM QUALITY)
+    aggregation_fanout_guidance = (
+        "\n\nCRITICAL: AGGREGATION FAN-OUT PREVENTION (NON-NEGOTIABLE):\n"
+        "- NEVER aggregate (SUM, AVG) across tables with different granularities in a single flat JOIN.\n"
+        "- PROBLEM: Joining 'Invoices' with 'Payments' or 'Refunds' causes line multiplication (Cartesian product), "
+        "inflating balances (e.g., summing the same invoice 5 times if it has 5 payments).\n"
+        "- ALWAYS use CTEs to pre-aggregate metrics at the target level (e.g., customer_id) BEFORE joining them.\n"
+        "- Example (CORRECT STRATEGY):\n"
+        "  WITH inv_sum AS (\n"
+        "    SELECT customer_id, SUM(total_amount) as total_inv FROM invoices GROUP BY 1\n"
+        "  ),\n"
+        "  pay_sum AS (\n"
+        "    SELECT customer_id, SUM(payment_amount) as total_pay FROM payments GROUP BY 1\n"
+        "  )\n"
+        "  SELECT i.customer_id, (i.total_inv - p.total_pay) as balance\n"
+        "  FROM inv_sum i LEFT JOIN pay_sum p ON i.customer_id = p.customer_id\n"
+        "- DO NOT use a single SELECT with multiple JOINs and SUMs unless you are 100% sure the relationship is 1:1.\n"
+    )
 
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata) ou marcou como impossível, não gerar SQL.
@@ -600,7 +626,7 @@ def run_specialist(
     if use_multiple_tables:
         # Modo JOIN: múltiplas tabelas
         tables = [
-            next((t for t in agent_config.tables if t.logical_name == name), None)
+            next((t for t in effective_tables if t.logical_name == name), None)
             for name in chosen_tables_logical
         ]
         
@@ -611,7 +637,7 @@ def run_specialist(
                 "agent_id": agent_config.id,
                 "requested_tables": chosen_tables_logical,
                 "found_tables": [t.logical_name if t else None for t in tables],
-                "available_tables": [t.logical_name for t in agent_config.tables],
+                "available_tables": [t.logical_name for t in effective_tables],
             },
         )
         
@@ -651,7 +677,7 @@ def run_specialist(
             return state
 
         table = next(
-            (t for t in agent_config.tables if t.logical_name == chosen_logical),
+            (t for t in effective_tables if t.logical_name == chosen_logical),
             None,
         )
         if table is None:
@@ -661,7 +687,7 @@ def run_specialist(
                 {
                     "agent_id": agent_config.id,
                     "chosen_logical": chosen_logical,
-                    "available_tables": [t.logical_name for t in agent_config.tables],
+                    "available_tables": [t.logical_name for t in effective_tables],
                 },
             )
             return state
@@ -725,8 +751,30 @@ def run_specialist(
             "asks for metrics, totals, or temporal analysis.\n"
             "- Examples:\n"
             "  * 'monthly performance' → GROUP BY month/year, aggregate amounts/counts\n"
-            "  * 'total by category' → GROUP BY category, SUM amounts\n"
             "  * 'distribution' → GROUP BY relevant dimension, COUNT or SUM\n"
+        )
+    
+    # 💎 PLATINUM AUDITOR GUIDANCE (FINANCIAL INTELLIGENCE)
+    financial_guidance = ""
+    financial_keywords = ["invoice", "payment", "refund", "credit", "revenue", "billing", "amount", "fee"]
+    is_financial_context = any(
+        any(kw in t.logical_name.lower() or kw in t.description.lower() for kw in financial_keywords)
+        for t in tables
+    ) if use_multiple_tables else (
+        any(kw in table.logical_name.lower() or kw in (table.description or "").lower() for kw in financial_keywords)
+    )
+
+    if is_financial_context:
+        financial_guidance = (
+            "\n\n💎 PLATINUM AUDITOR RULES (FINANCIAL RECONCILIATION):\n"
+            "- SIGNED NET IMPACT: When calculating totals/net amounts, correctly account for the impact of each record type.\n"
+            "  * Válido: Charges increase cash (+), Refunds/Dispute decrease cash (-).\n"
+            "  * Use SUM(CASE WHEN type='refund' THEN -amount ELSE amount END) or similar signed logic if a 'signed_amount' column is not available.\n"
+            "- DUAL DATE DIMENSION: Distinguish between 'Sale Date' (when the invoice was created) and 'Settlement Date' (when the payment/cash hit the account).\n"
+            "  * For 'Cash Flow' questions, use payment/settlement dates.\n"
+            "  * For 'Revenue Performance', use invoice/sale dates.\n"
+            "- FEE BREAKDOWN: Always consider net values (Amount - Fee) for profitability unless purely asking for gross volume.\n"
+            "- ORPHAN RECONCILIATION: When joining transactions, use LEFT JOINs to identify 'orphan' records (e.g., refunds without matching original sales).\n"
         )
     
     # Identificar idioma - REMOVED, now defaulting to English
@@ -750,6 +798,30 @@ def run_specialist(
         "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
         "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
         "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
+    )
+
+    # 💠 SHARED PROMPT INSTRUCTIONS
+    aggregation_instruction = (
+        "- When the question asks for metrics, totals, performance, or temporal analysis, "
+        "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
+        "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
+    )
+    
+    column_guidance = (
+        "- For status or category columns, prefer using columns containing human-readable labels "
+        "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
+    )
+    
+    temporal_filter_guidance = (
+        "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
+        "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
+        "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
+        "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
+        "- Examples:\n"
+        "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
+        "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
+        "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
+        "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
     )
 
     if use_multiple_tables:
@@ -782,13 +854,6 @@ def run_specialist(
             "- Use the JOIN relationships provided to connect the tables.\n"
             if join_relationships 
             else "- Infer JOIN relationships based on column names (e.g., *_id columns).\n"
-        )
-        
-        # Adicionar instruções de agregação
-        aggregation_instruction = (
-                "- When the question asks for metrics, totals, performance, or temporal analysis, "
-                "use aggregation functions (SUM, COUNT, AVG, MAX, MIN) and GROUP BY.\n"
-                "- DO NOT use SELECT * with LIMIT when the question requires aggregation.\n"
         )
         
         # Adicionar instruções de colunas
@@ -824,6 +889,36 @@ def run_specialist(
                 "- Failure to use the full path will cause a 400 error.\n"
                 f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
             )
+        
+        # Assemble final prompt for multi-table
+        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
+    
+    else:
+        # Modo tabela única
+        system_msg = _build_secure_system_prompt(
+            physical_names=[table.physical_name],
+            max_limit=150,
+            max_columns=50,
+            use_multiple_tables=False,
+            security_rules=security_rules_str.format(max_limit=150, max_columns=50),
+            dialect=current_dialect,
+            use_local_models=settings.use_local_models,
+        )
+
+        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
+        table_qualification_guidance = ""
+        if current_dialect == Dialect.BIGQUERY:
+            table_qualification_guidance = (
+                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
+                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
+                "- DO NOT use the short logical name.\n"
+                f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
+            )
+        # Assemble final prompt for single-table
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
+        
+        # Define empty join_instruction for compatibility
+        join_instruction = ""
 
 
 
@@ -874,8 +969,9 @@ def run_specialist(
         }
     else:
         # Modo tabela única (comportamento original)
+        physical_names = [primary_table.physical_name]
         system_msg = _build_secure_system_prompt(
-            physical_names=[primary_table.physical_name],
+            physical_names=physical_names,
             max_limit=100,
             max_columns=10,
             use_multiple_tables=False,
@@ -937,7 +1033,7 @@ def run_specialist(
         )
 
         # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance + aggregation_fanout_guidance
 
         user_msg = {
             "role": "user",
@@ -1025,6 +1121,30 @@ def run_specialist(
         )
         # deixa para o formatter transformar isso em mensagem amigável
         return state
+
+    # 🛡️ CODE GUARDRAIL (FORBIDDEN TABLE CHECK)
+    # Check if the generated SQL uses unauthorized tables from the FULL dataset.
+    # This is the ultimate safety net against model hallucinations.
+    if not is_nosql and "impossible" not in content_clean.lower() and chosen_physical:
+        sql_check = content_clean.lower()
+        allowed_lower = set(p.lower() for p in physical_names)
+        
+        # Identify forbidden tables: any table in the full dataset NOT in our allowed list
+        forbidden_tables = [p for p in all_physical_names if p.lower() not in allowed_lower]
+        
+        for bad_table in forbidden_tables:
+            # We check for the full name or just the table part to be aggressive
+            bad_table_lower = bad_table.lower()
+            # Simple check: is the unauthorized table name in the SQL?
+            if bad_table_lower in sql_check:
+                 log_event("specialist_guardrail_blocked", {
+                     "reason": f"Unauthorized table detected: {bad_table}",
+                     "allowed": list(allowed_lower)
+                 })
+                 state["impossible_reason"] = f"Security Guardrail: Attempted to access unauthorized data table ({bad_table})."
+                 # Wipe SQL to be safe
+                 state["sql"] = None
+                 return state
 
     # =========================================================================
     # 🌟 ARCHITECTURAL BRANCHING: SQL vs NoSQL

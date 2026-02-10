@@ -34,7 +34,9 @@ class DataSourceFactory:
         """
         cfg_dict = conn.config or {}
 
-        ds_type = (conn.type or "").lower()
+        # Handle variations: Model has connector_id, but some code expects .type
+        ds_type = getattr(conn, "type", None) or getattr(conn, "connector_id", None) or ""
+        ds_type = ds_type.lower()
 
         if ds_type == "bigquery":
             # Espera em config:

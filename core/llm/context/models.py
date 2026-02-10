@@ -23,6 +23,7 @@ class UserContext:
     user_id: str
     platform_role: str = "user"  # admin/user/viewer
     crew_role: str = "guest"     # commander/navigator/explorer/guest
+    role_label: Optional[str] = None # Display label like "CFO", "Lead Scientist"
     locale: str = "en"
     permissions: List[str] = field(default_factory=list)
     
@@ -32,6 +33,7 @@ class UserContext:
             "user_id": self.user_id,
             "platform_role": self.platform_role,
             "crew_role": self.crew_role,
+            "role_label": self.role_label,
             "locale": self.locale,
             "permissions": self.permissions,
         }

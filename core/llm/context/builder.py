@@ -55,6 +55,7 @@ def build_context_bundle(
         user_id=state.get("user_id", ""),
         platform_role=state.get("platform_role", "user"),
         crew_role=state.get("crew_role", "guest"),
+        role_label=state.get("role_label"), # New field for display roles like CFO
         locale=state.get("locale", "en"),
         permissions=state.get("permissions", [])
     )

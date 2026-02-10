@@ -77,5 +77,10 @@ class SimpleRateLimiter:
         return True, None
 
 # Instância global
-_rate_limiter = SimpleRateLimiter()
+# AUMENTO DE LIMITES PARA VALIDAÇÃO
+_rate_limiter = SimpleRateLimiter(
+    max_queries_per_minute=1000,
+    max_queries_per_hour=5000,
+    max_validate_per_minute=1000
+)
 

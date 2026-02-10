@@ -2514,14 +2514,14 @@ async def query_connection(
             )
             
             # Format dashboard plan as answer (frontend will handle rendering)
-            widgets_summary = "\n".join([
-                f"{i+1}. {w['title']}" for i, w in enumerate(plan.widgets[:5])
-            ])
-            if len(plan.widgets) > 5:
-                widgets_summary += f"\n... and {len(plan.widgets) - 5} more widgets"
+            # Option: Fluid & Modern (English)
+            loading_message = (
+                f"Your dashboard \"{plan.dashboard_name}\" is being created.\n\n"
+                f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
+            )
             
             return QueryResponse(
-                answer=f"# {plan.dashboard_name}\n\n{plan.description}\n\n## Widgets:\n{widgets_summary}",
+                answer=loading_message,
                 data_sample=[],
                 meta=QueryResultMeta(
                     detected_language="en",

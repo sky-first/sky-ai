@@ -24,11 +24,18 @@ from config.settings import settings
 ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
     # Platform roles (global level)
     "admin": {
-        "label": "Executive/CFO",
+        "label": "Administrator",
         "focus": ["revenue", "profit", "cost", "roi", "trend", "summary", "kpi"],
         "style": "Provide executive summaries with key financial metrics and strategic insights",
         "table_priority": ["invoices", "revenue", "sales", "payments", "customers"],
         "detail_level": "high_level",
+    },
+    "cfo": {
+        "label": "CFO",
+        "focus": ["reconciliation", "net settlement", "cash flow", "burn rate", "auditing"],
+        "style": "Apply strict financial audit logic (Platinum Auditor). Focus on accuracy and net impact.",
+        "table_priority": ["payments", "refunds", "credit_memos", "invoices"],
+        "detail_level": "analytical_deep",
     },
     "user": {
         "label": "Standard User",
@@ -76,20 +83,18 @@ ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _build_role_context(platform_role: str, crew_role: str) -> str:
+def _build_role_context(platform_role: str, crew_role: str, role_label: Optional[str] = None) -> str:
     """
     Build role-specific context for LLM prompt injection.
-
-
+    
     Crew role takes precedence over platform role for behavior,
-    but platform admin always gets financial priority.
-
-
+    but platform admin/cfo always gets financial priority.
+    
     Args:
-        platform_role: Platform-level role (admin/user/viewer)
+        platform_role: Platform-level role (admin/user/viewer/cfo)
         crew_role: Crew-level role (commander/navigator/explorer/guest)
-
-
+        role_label: Specific override label (e.g. "CFO Logic")
+        
     Returns:
         Role context string to inject into system prompt
     """
@@ -103,7 +108,7 @@ def _build_role_context(platform_role: str, crew_role: str) -> str:
 
     # Admin always gets financial table priority
     priority = []
-    if platform_role == "admin":
+    if platform_role in ["admin", "cfo"]:
         priority = platform_profile.get("table_priority", [])
 
     # Build context block
@@ -199,8 +204,6 @@ def _extract_multiple_table_choices(
     # Tentar separar por vírgula, "and", ou nova linha
     parts = re.split(r"[,;\n]|\sand\s", text)
 
-    parts = re.split(r"[,;\n]|\sand\s", text)
-
     for part in parts:
         part = part.strip()
         if not part:
@@ -212,9 +215,6 @@ def _extract_multiple_table_choices(
                 table_name = next(
                     t.logical_name for t in tables if t.logical_name.lower() == name
                 )
-                table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
-                )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
@@ -222,9 +222,6 @@ def _extract_multiple_table_choices(
         # Match parcial
         for name in logical_names:
             if name in part and name not in [t.lower() for t in found_tables]:
-                table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
-                )
                 table_name = next(
                     t.logical_name for t in tables if t.logical_name.lower() == name
                 )
@@ -403,7 +400,6 @@ def run_orchestrator(
             original_q = question
             question = last_suggestions[0]
             state["question"] = question  # Update state
-            state["question"] = question  # Update state
             log_event(
                 "orchestrator_context_recall",
                 {
@@ -412,6 +408,7 @@ def run_orchestrator(
                     "reason": "affirmation_match",
                 },
             )
+
     # 🔤 Detecção de idioma
     try:
         lang = detect_language(question)
@@ -424,12 +421,8 @@ def run_orchestrator(
         state["answer"] = (
             "I apologize, but currently I only support commands and questions in English."
         )
-        state["answer"] = (
-            "I apologize, but currently I only support commands and questions in English."
-        )
         log_event(
             "orchestrator_booted_language",
-            {"detected": lang, "question": question[:50]},
             {"detected": lang, "question": question[:50]},
         )
         return state
@@ -523,18 +516,12 @@ def run_orchestrator(
         warnings = [
             r for r in validation_results if r.severity == ValidationSeverity.WARNING
         ]
-        warnings = [
-            r for r in validation_results if r.severity == ValidationSeverity.WARNING
-        ]
         if warnings:
             log_event(
                 "orchestrator_validation_warnings",
                 {
                     "agent_id": agent_config.id,
                     "question": question[:200],
-                    "warnings": [
-                        {"code": w.code, "message": w.message} for w in warnings
-                    ],
                     "warnings": [
                         {"code": w.code, "message": w.message} for w in warnings
                     ],
@@ -586,14 +573,8 @@ def run_orchestrator(
                 table_obj = next(
                     (t for t in agent_config.tables if t.logical_name == tname), None
                 )
-                table_obj = next(
-                    (t for t in agent_config.tables if t.logical_name == tname), None
-                )
                 if not table_obj:
                     # fallback: listar tabelas
-                    state["answer"] = _format_catalog_list_access(
-                        agent_config.tables, lang
-                    )
                     state["answer"] = _format_catalog_list_access(
                         agent_config.tables, lang
                     )
@@ -767,9 +748,6 @@ def run_orchestrator(
         history_str = "\n".join(
             [f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history]
         )
-        history_str = "\n".join(
-            [f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history]
-        )
         context_block += (
             f"\n\nPREVIOUS CONVERSATION HISTORY:\n{history_str}\n"
             "Use this history to understand references like 'it', 'previous', 'add filter', etc.\n"
@@ -796,7 +774,8 @@ def run_orchestrator(
     # 🎭 ROLE-BASED REASONING: Build context based on user role
     platform_role = state.get("platform_role", "user")
     crew_role = state.get("crew_role", "guest")
-    role_context = _build_role_context(platform_role, crew_role)
+    role_label = state.get("role_label")
+    role_context = _build_role_context(platform_role, crew_role, role_label)
     role_context_block = ""
     if role_context:
         role_context_block = f"\n\n{role_context}\n"
@@ -1074,22 +1053,22 @@ def run_orchestrator(
                 agent_config.tables[0],
             )
 
-            state["chosen_table"] = chosen_table_obj.logical_name
-            state["chosen_table_physical"] = chosen_table_obj.physical_name
+    {role_context_block}
+    {user_profile_block}
+    {context_block}
+    {instructions_block}
+    {relationships_info}
 
             # For compatibility with specialist multi-table path
             state["chosen_tables"] = [chosen_table_obj.logical_name]
             state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
 
-            log_event(
-                "orchestrator_choice_single_in_multi_mode",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "chosen_logical": chosen_table_obj.logical_name,
-                    "detected_language": lang,
-                },
-            )
+    # Call LLM
+    try:
+        response = llm.invoke(prompt)
+        # Handle both string and object responses
+        if hasattr(response, "content"):
+             response_text = response.content
         else:
             # No tables found by extraction
             state["impossible_reason"] = (
