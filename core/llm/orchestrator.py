@@ -133,15 +133,9 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
     parts = []
     for t in tables:
         col_desc = ", ".join(
-            (
-                f"{c.get('name', c.get('name', ''))} ({c.get('type', c.get('type', ''))})"
-                if isinstance(c, dict)
-                else f"{c.name} ({c.type})"
-            )(
-                f"{c.get('name', c.get('name', ''))} ({c.get('type', c.get('type', ''))})"
-                if isinstance(c, dict)
-                else f"{c.name} ({c.type})"
-            )
+            f"{c.get('name')} ({c.get('type')})"
+            if isinstance(c, dict)
+            else f"{c.name} ({c.type})"
             for c in (t.columns or [])[:8]
         )
         parts.append(
@@ -758,8 +752,6 @@ def run_orchestrator(
         context_block += (
             "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
             f"{joined}\n"
-            "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
-            f"{joined}\n"
         )
 
     # Detectar relacionamentos entre tabelas
@@ -879,7 +871,6 @@ def run_orchestrator(
                 f"{context_block}"
                 f"{relationships_info}"
                 "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
-                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
                 "\nRespond with the logical table name(s) needed, separated by commas if multiple "
                 "(for example: 'table1' or 'table1, table2' or 'orders, products')."
             ),
@@ -916,13 +907,7 @@ def run_orchestrator(
         print(
             f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}"
         )
-        print(
-            f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}"
-        )
     except Exception as e:
-        state["answer"] = (
-            "Error consulting the AI orchestrator. Please try again later."
-        )
         state["answer"] = (
             "Error consulting the AI orchestrator. Please try again later."
         )
@@ -976,13 +961,7 @@ def run_orchestrator(
                         for t in agent_config.tables
                         if t.logical_name == chosen_logicals[0]
                     ),
-                    chosen_logicals[0],
-                    (
-                        t.physical_name
-                        for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
-                    ),
-                    chosen_logicals[0],
+                    chosen_logicals[0]
                 )
 
                 log_event(
@@ -1025,13 +1004,7 @@ def run_orchestrator(
                         for t in agent_config.tables
                         if t.logical_name == chosen_logicals[0]
                     ),
-                    chosen_logicals[0],
-                    (
-                        t.physical_name
-                        for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
-                    ),
-                    chosen_logicals[0],
+                    chosen_logicals[0]
                 )
 
                 log_event(
@@ -1053,48 +1026,19 @@ def run_orchestrator(
                 agent_config.tables[0],
             )
 
-    {role_context_block}
-    {user_profile_block}
-    {context_block}
-    {instructions_block}
-    {relationships_info}
+
 
             # For compatibility with specialist multi-table path
             state["chosen_tables"] = [chosen_table_obj.logical_name]
             state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
 
-    # Call LLM
-    try:
-        response = llm.invoke(prompt)
-        # Handle both string and object responses
-        if hasattr(response, "content"):
-             response_text = response.content
-        else:
-            # No tables found by extraction
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
-            log_event(
-                "orchestrator_no_tables_found",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "llm_response": str(raw)[:500],
-                },
-            )
-            return state
+
 
         # Multi-connection check on chosen logicals
         # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
         # This runs for all cases where len(chosen_logicals) > 1
         chosen_schemas_chk = []
         for name in chosen_logicals:
-            t = next(
-                (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
-            )
             t = next(
                 (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
             )
@@ -1131,9 +1075,6 @@ def run_orchestrator(
         chosen_logical = _extract_table_choice(raw, agent_config.tables)
 
         if not chosen_logical:
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
             state["impossible_reason"] = (
                 "I couldn't find any relevant tables to answer your question."
             )

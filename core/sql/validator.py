@@ -28,7 +28,7 @@ def validate_sql_strict(sql: str) -> Tuple[bool, Optional[str]]:
 
     lower = sql_clean.lower()
 
-    if not lower.startswith("select"):
+    if not lower.startswith("select") and not lower.startswith("with"):
         return False, "🚫 Only SELECT queries are allowed."
 
     # Só uma query por vez

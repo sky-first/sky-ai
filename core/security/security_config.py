@@ -369,11 +369,14 @@ def validate_sql_against_security(
         if not config.blocked_columns:
             continue
         
-        # Se a tabela está no SQL, verificar suas colunas bloqueadas
-        if re.search(rf"\b{re.escape(table_name)}\b", sql, re.IGNORECASE):
+        # Tentar detectar presença da tabela de forma robusta e exata
+        # Padrão: borda de palavra, opcionalmente aspas/backticks, nome exato, opcionalmente aspas/backticks, borda de palavra
+        # \b[`'"]?table_name[`'"]?\b
+        table_pattern = rf"\b[`'\" ]?{re.escape(table_name)}[`'\" ]?\b"
+        if re.search(table_pattern, sql, re.IGNORECASE):
             for col in config.blocked_columns:
-                pattern = rf"\b{re.escape(col)}\b"
-                if re.search(pattern, sql_clean, re.IGNORECASE):
+                col_pattern = rf"\b[`'\" ]?{re.escape(col)}[`'\" ]?\b"
+                if re.search(col_pattern, sql_clean, re.IGNORECASE):
                     return False, f"Column '{col}' from table '{table_name}' is blocked"
     
     # 4. Verificar LIMIT
