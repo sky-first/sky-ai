@@ -499,7 +499,6 @@ def run_orchestrator(
                 else:
                     error_msg += f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
 
-
             state["answer"] = error_msg
             state["error"] = critical_errors[0].code
             log_event(

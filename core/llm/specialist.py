@@ -539,23 +539,27 @@ def run_specialist(
     bq_aggregation_guidance = ""
     if current_dialect == Dialect.BIGQUERY:
         bq_aggregation_guidance = (
-            "\n\nCRITICAL: BIGQUERY AGGREGATION RULES (STRICT):\n"
-            "- BIGQUERY IS VERY STRICT: You CANNOT mixing 'GROUP BY' and Window Functions ('OVER') arbitrarily.\n"
-            "- 🚫 FORBIDDEN: SELECT x, SUM(y) OVER(PARTITION BY x) FROM t GROUP BY x\n"
-            "  (Reason: 'x' is grouped, but 'SUM(y) OVER...' is a window function on the result, which causes granularity conflicts on non-aggregated columns)\n"
-            "- ✅ SOLUTION: USE A CTE (Common Table Expression) for the aggregations first.\n"
-            "  * Step 1 (CTE): Calculate the GROUP BY aggregations.\n"
-            "  * Step 2 (Main Query): specific Window Functions on the results of the CTE.\n"
-            "  * Example:\n"
-            "    WITH monthly_stats AS (\n"
-            "      SELECT invoice_year, invoice_month, customer_id, SUM(total_amount) as mth_total\n"
-            "      FROM `dataset.table`\n"
-            "      GROUP BY 1, 2, 3\n"
-            "    )\n"
-            "    SELECT *, SUM(mth_total) OVER(PARTITION BY customer_id) as customer_lifetime_value\n"
-            "    FROM monthly_stats\n"
             "- ERROR TO AVOID: 'SELECT list expression references column which is neither grouped nor aggregated'.\n"
         )
+
+    # 🌪️ ANTI-FANOUT / GRANULARITY ISOLATION (PLATINUM QUALITY)
+    aggregation_fanout_guidance = (
+        "\n\nCRITICAL: AGGREGATION FAN-OUT PREVENTION (NON-NEGOTIABLE):\n"
+        "- NEVER aggregate (SUM, AVG) across tables with different granularities in a single flat JOIN.\n"
+        "- PROBLEM: Joining 'Invoices' with 'Payments' or 'Refunds' causes line multiplication (Cartesian product), "
+        "inflating balances (e.g., summing the same invoice 5 times if it has 5 payments).\n"
+        "- ALWAYS use CTEs to pre-aggregate metrics at the target level (e.g., customer_id) BEFORE joining them.\n"
+        "- Example (CORRECT STRATEGY):\n"
+        "  WITH inv_sum AS (\n"
+        "    SELECT customer_id, SUM(total_amount) as total_inv FROM invoices GROUP BY 1\n"
+        "  ),\n"
+        "  pay_sum AS (\n"
+        "    SELECT customer_id, SUM(payment_amount) as total_pay FROM payments GROUP BY 1\n"
+        "  )\n"
+        "  SELECT i.customer_id, (i.total_inv - p.total_pay) as balance\n"
+        "  FROM inv_sum i LEFT JOIN pay_sum p ON i.customer_id = p.customer_id\n"
+        "- DO NOT use a single SELECT with multiple JOINs and SUMs unless you are 100% sure the relationship is 1:1.\n"
+    )
 
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
     # Se o orchestrator já respondeu (ex: modo catálogo/metadata) ou marcou como impossível, não gerar SQL.
@@ -887,7 +891,7 @@ def run_specialist(
             )
         
         # Assemble final prompt for multi-table
-        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance
+        system_msg["content"] += join_instruction + aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
     
     else:
         # Modo tabela única
@@ -900,8 +904,21 @@ def run_specialist(
             dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
+
+        # ✅ CRITICAL: Force fully qualified table names (BigQuery only)
+        table_qualification_guidance = ""
+        if current_dialect == Dialect.BIGQUERY:
+            table_qualification_guidance = (
+                "\n\nCRITICAL: TABLE NAMING RULES (BigQuery):\n"
+                "- YOU MUST ALWAYS use the FULLY QUALIFIED table name in your FROM clause.\n"
+                "- DO NOT use the short logical name.\n"
+                f"- PHYSICAL NAMES TO USE: {', '.join(physical_names)}\n"
+            )
         # Assemble final prompt for single-table
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + financial_guidance + aggregation_fanout_guidance
+        
+        # Define empty join_instruction for compatibility
+        join_instruction = ""
 
 
 
@@ -1016,7 +1033,7 @@ def run_specialist(
         )
 
         # Atualizar content com instruções adicionais
-        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance
+        system_msg["content"] += aggregation_instruction + column_guidance + temporal_filter_guidance + table_qualification_guidance + bq_aggregation_guidance + string_comparison_guidance + aggregation_fanout_guidance
 
         user_msg = {
             "role": "user",
