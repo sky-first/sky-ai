@@ -19,7 +19,7 @@ resource "azurerm_key_vault" "main" {
   # access_policy {}
 
   # RBAC Authorization is recommended over Access Policies
-  enable_rbac_authorization = true
+  rbac_authorization_enabled = true
 
   network_acls {
     # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
