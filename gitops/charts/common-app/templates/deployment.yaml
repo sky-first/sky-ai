@@ -69,6 +69,7 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or .Values.envSecrets .Values.extraEnv }}
           env:
             {{- range $key, $val := .Values.envSecrets }}
             - name: {{ $key | replace "-" "_" | upper }}
@@ -86,3 +87,8 @@ spec:
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- end }}
+          {{- if .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml .Values.extraEnvFrom | nindent 12 }}
+          {{- end }}

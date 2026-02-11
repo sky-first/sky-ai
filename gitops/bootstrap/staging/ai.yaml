@@ -21,7 +21,7 @@ spec:
         - values-sky-ai-stg.yaml
       values: |
         podAnnotations:
-          rollout-trigger: "2026-02-02T14:51:12Z"
+          reloader.stakater.com/auto: "true"
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -71,58 +71,9 @@ spec:
           readiness:
             path: /docs
             initialDelaySeconds: 10
-        # Configure External Secret to fetch keys from Azure Key Vault
-        externalSecret:
-          enabled: true
-          secretStoreRef:
-            name: azure-keyvault
-            kind: ClusterSecretStore
-          target:
-            creationPolicy: Owner
-            template:
-              engineVersion: v2
-              data:
-                openai_api_key: "{{ .openai_api_key }}"
-                qdrant_url: "{{ .qdrant_url }}"
-                redis_url: "{{ .redis_url }}"
-                # Derivando URLs do Celery a partir da redis_url do segredo
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
-          data:
-            - secretKey: openai_api_key
-              remoteRef:
-                key: openai-api-key
-            - secretKey: qdrant_url
-              remoteRef:
-                key: qdrant-url
-            - secretKey: database_url
-              remoteRef:
-                key: database-url
-            - secretKey: redis_url
-              remoteRef:
-                key: redis-url
-
-        # Map the synced secrets to Env Vars in the container
-        envSecrets:
-          openai-api-key:
-            name: sky-ai-stg-common-app-secrets
-            key: openai_api_key
-          qdrant-url:
-            name: sky-ai-stg-common-app-secrets
-            key: qdrant_url
-          database-url:
-            name: sky-ai-stg-common-app-secrets
-            key: database_url
-          redis-url:
-            name: sky-ai-stg-common-app-secrets
-            key: redis_url
-          CELERY_BROKER_URL:
-            name: sky-ai-stg-common-app-secrets
-            key: celery_broker_url
-          CELERY_RESULT_BACKEND:
-            name: sky-ai-stg-common-app-secrets
-            key: celery_result_backend
+        extraEnvFrom:
+          - secretRef:
+              name: sky-ai-stg-secrets
 
         migration:
           enabled: true

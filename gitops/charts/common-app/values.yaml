@@ -102,3 +102,6 @@ externalSecret:
 
 # Extra Environment Variables
 extraEnv: []
+
+# Extra Environment Sources (SecretRef, ConfigMapRef)
+extraEnvFrom: []
