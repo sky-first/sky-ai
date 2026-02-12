@@ -187,6 +187,7 @@ spec:
     - protocol: TCP
       port: 6379
 
+
   # External HTTPS (OpenAI)
   - to:
     - ipBlock:
@@ -198,3 +199,53 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+
+---
+# Network Policy for PostgreSQL
+# Allow connections from backend, AI, and frontend services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-stg-network-policy
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+
+  ingress:
+  # Allow from backend
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-be-stg
+    ports:
+    - protocol: TCP
+      port: 5432
+  
+  # Allow from AI service
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-ai-stg
+    ports:
+    - protocol: TCP
+      port: 5432
+  
+  # Allow from frontend (if needed for migrations)
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-fe-stg
+    ports:
+    - protocol: TCP
+      port: 5432
+
+  # Allow health checks from same namespace
+  - from:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 5432
