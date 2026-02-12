@@ -28,9 +28,20 @@ spec:
       labels:
         app: redis
     spec:
+      # P0.1: Security Context - Non-Root Execution
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999  # Usuário padrão do redis
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: redis
           image: redis:7-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             [
               "redis-server",

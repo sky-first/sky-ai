@@ -1,3 +1,27 @@
 ---
 image:
   tag: "sha-638adc48433445f183d0d0bd2b3b35660b29f13d"
+
+# P0.1: Security Context - Non-Root Execution
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+
+# P0.1: Temporary directory for AI frameworks (TensorFlow, PyTorch, etc)
+extraVolumes:
+  - name: tmp-volume
+    emptyDir:
+      sizeLimit: 5Gi  # Limite para evitar disk pressure
+
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp
