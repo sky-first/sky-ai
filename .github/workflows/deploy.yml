@@ -726,41 +726,30 @@ jobs:
       - name: Check Terraform State Lock
         run: |
           set -euo pipefail
-          echo "Verificando lock do Terraform state..."
+          STATE_FILE="${TF_BACKEND_KEY_PREFIX:-poc-deploy}-${{ needs.detect-environment.outputs.environment }}.tfstate"
+          echo "Verificando lock do Terraform state para: $STATE_FILE"
 
-          # Verificar se há lock preso no backend
-          LOCK_INFO=$(az storage blob show \
+          # Verificar status do lease no blob (único método 100% confiável para Azure Backend)
+          LEASE_STATUS=$(az storage blob show \
             --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
             --container-name "${TF_BACKEND_CONTAINER}" \
-            --name ".terraform.tfstate.lock.info" \
+            --name "$STATE_FILE" \
             --auth-mode login \
-            --query "properties.lastModified" -o tsv 2>/dev/null || echo "")
+            --query "properties.lease.status" -o tsv 2>/dev/null || echo "unlocked")
 
-          if [ -n "$LOCK_INFO" ]; then
-            # Tentar calcular idade do lock (pode falhar em alguns sistemas)
-            LOCK_AGE=$(($(date +%s) - $(date -d "$LOCK_INFO" +%s 2>/dev/null || echo 0)))
-            # Aumentar threshold para 1 hora - workflows grandes podem levar mais tempo
-            # Não remover locks automaticamente para evitar race conditions
-            LOCK_AGE_THRESHOLD=3600  # 1 hora
-
-            if [ "$LOCK_AGE" -gt $LOCK_AGE_THRESHOLD ] 2>/dev/null; then
-              echo "⚠️  Lock muito antigo detectado (idade: ${LOCK_AGE}s, mais de $((LOCK_AGE_THRESHOLD / 60)) minutos)"
-              echo "ERRO: Lock provavelmente preso, mas NÃO removendo automaticamente por segurança"
-              echo "Por favor, verifique manualmente se há workflows ativos antes de remover:"
-              echo "  az storage blob delete \\"
-              echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
-              echo "    --container-name ${TF_BACKEND_CONTAINER} \\"
-              echo "    --name '.terraform.tfstate.lock.info' \\"
-              echo "    --auth-mode login"
-              exit 1
-            else
-              echo "INFO: Lock detectado (idade: ${LOCK_AGE}s) - pode ser de workflow ativo"
-              echo "INFO: Terraform tentará obter o lock - se falhar, aguarde ou remova manualmente"
-              # Não falhar aqui - deixar Terraform lidar com o lock
-            fi
-          else
-            echo "OK: Nenhum lock detectado"
+          if [ "$LEASE_STATUS" == "locked" ]; then
+            echo "❌ ERRO CRÍTICO: O arquivo de estado está BLOQUEADO (Lease Status: Locked)"
+            echo "Isso indica que outro deploy está em execução ou um lock ficou órfão."
+            echo ""
+            echo "Para resolver um lock órfão com segurança:"
+            echo "  az storage blob lease break \\"
+            echo "    --account-name ${TF_BACKEND_STORAGE_ACCOUNT} \\"
+            echo "    --container-name ${TF_BACKEND_CONTAINER} \\"
+            echo "    --name '$STATE_FILE' \\"
+            echo "    --auth-mode login"
+            exit 1
           fi
+          echo "✅ Arquivo de estado está livre (unlocked)."
 
       - name: Terraform Init
         run: |
@@ -1137,6 +1126,7 @@ jobs:
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -out=tfplan \
             -no-color \
+            -lock-timeout=15m \
             -detailed-exitcode 2>&1 | tee plan-output.txt
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
@@ -2796,7 +2786,7 @@ jobs:
           fi
 
           # Aplicar usando o plan file (mais seguro que -auto-approve)
-          terraform apply tfplan 2>&1 | tee apply-output.txt
+          terraform apply -lock-timeout=15m tfplan 2>&1 | tee apply-output.txt
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
 
           if [ $APPLY_EXIT_CODE -ne 0 ]; then
