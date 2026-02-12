@@ -10,7 +10,7 @@ resource "azurerm_key_vault" "main" {
   resource_group_name         = azurerm_resource_group.aks.name
   enabled_for_disk_encryption = true
   tenant_id                   = data.azurerm_client_config.current.tenant_id
-  soft_delete_retention_days  = 90
+  soft_delete_retention_days  = 7
   purge_protection_enabled    = true
 
   sku_name = "standard"
