@@ -157,3 +157,20 @@ resource "random_password" "encryption_key" {
 
 # Outputs are now in outputs.tf
 
+
+# 5. Diagnostic Settings for Audit Logs
+# Sends Key Vault logs to the storage account mentioned in the DevOps Questionnaire
+resource "azurerm_monitor_diagnostic_setting" "kv_logs" {
+  name               = "diag-akv-${var.environment}"
+  target_resource_id = azurerm_key_vault.main.id
+  storage_account_id = azurerm_storage_account.db_backup.id
+
+  enabled_log {
+    category = "AuditEvent"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = false
+  }
+}
