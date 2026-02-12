@@ -16,25 +16,14 @@ resource "azurerm_key_vault" "main" {
   sku_name = "standard"
 
   # Access Policies are managed via RBAC
-  # access_policy {}
-
-  # RBAC Authorization is recommended over Access Policies
   rbac_authorization_enabled = true
 
   network_acls {
-    # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
-    default_action             = "Deny"          # Always deny by default for security
-    bypass                     = "AzureServices" # Allows other Azure services
+    default_action             = "Deny"
+    bypass                     = "None" # Strict: Disable "AzureServices" bypass for Prod hardening
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-
-    # Temporarily allow runner IP during secret population
-    # This is removed after secrets are created via a second Terraform apply
-    # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
-    ip_rules = var.runner_ip != "" ? [var.runner_ip] : []
+    ip_rules                   = var.runner_ip != "" ? [var.runner_ip] : []
   }
-
-  # Allow Terraform to manage network rules
-  # No ignore_changes needed since we're not using dynamic IP rules
 
   tags = {
     Environment = var.environment
@@ -42,6 +31,39 @@ resource "azurerm_key_vault" "main" {
     ManagedBy   = "Terraform"
     Owner       = "DevOps-Team"
   }
+}
+
+# --- Private Link Hardening ---
+
+resource "azurerm_private_endpoint" "kv_pe" {
+  name                = "pe-akv-${var.environment}"
+  location            = azurerm_resource_group.aks.location
+  resource_group_name = azurerm_resource_group.aks.name
+  subnet_id           = azurerm_subnet.aks.id
+
+  private_service_connection {
+    name                           = "psc-akv-${var.environment}"
+    private_connection_resource_id = azurerm_key_vault.main.id
+    is_manual_connection           = false
+    subresource_names              = ["vault"]
+  }
+
+  private_dns_zone_group {
+    name                 = "pdzg-akv-${var.environment}"
+    private_dns_zone_ids = [azurerm_private_dns_zone.kv_dns.id]
+  }
+}
+
+resource "azurerm_private_dns_zone" "kv_dns" {
+  name                = "privatelink.vaultcore.azure.net"
+  resource_group_name = azurerm_resource_group.aks.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "kv_dns_link" {
+  name                  = "pdzvl-akv-${var.environment}"
+  resource_group_name   = azurerm_resource_group.aks.name
+  private_dns_zone_name = azurerm_private_dns_zone.kv_dns.name
+  virtual_network_id    = azurerm_virtual_network.aks.id
 }
 
 # 1. Grant Access to the Current User (Terraform Runner) via RBAC
