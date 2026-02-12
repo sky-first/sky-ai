@@ -20,7 +20,7 @@ resource "azurerm_key_vault" "main" {
 
   network_acls {
     default_action             = "Deny"
-    bypass                     = "None" # Strict: Disable "AzureServices" bypass for Prod hardening
+    bypass                     = "AzureServices" # Required when enabled_for_disk_encryption is true
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
     ip_rules                   = var.runner_ip != "" ? [var.runner_ip] : []
   }
