@@ -77,6 +77,8 @@ spec:
         extraEnv:
           - name: CORS_ORIGINS
             value: "https://workspace-stg.skyfirstlabs.com,https://workspace-stg-ollama.skyfirstlabs.com"
+          - name: REDIS_HOST
+            value: "redis"
           - name: REDIS_PORT
             value: "6379"
           - name: DEBUG
