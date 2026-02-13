@@ -93,6 +93,9 @@ spec:
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
           enabled: true
+          annotations:
+            argocd.argoproj.io/hook: PreSync
+            argocd.argoproj.io/hook-delete-policy: before-hook-creation
           command: ["/bin/sh", "-c"]
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:
