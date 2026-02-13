@@ -63,11 +63,11 @@ spec:
                 - workspace-stg.skyfirstlabs.com
         probes:
           liveness:
-            path: /
+            path: /health
             initialDelaySeconds: 60
             timeoutSeconds: 30
           readiness:
-            path: /
+            path: /health
             initialDelaySeconds: 30
             timeoutSeconds: 15
         # Disable chart-level ExternalSecret as we use standalone manifest
