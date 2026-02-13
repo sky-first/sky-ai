@@ -2248,8 +2248,10 @@ jobs:
           fi
           cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/tfplan" "./tfplan"
           cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/plan-output.txt" "./plan-output.txt" || true
-          echo "OK: tfplan copiado para $(pwd)/tfplan"
-          ls -la ./tfplan
+          cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/backend.hcl" "./backend.hcl" || true
+          cp -f "${GITHUB_WORKSPACE}/_tfplan_artifact/.terraform.lock.hcl" "./.terraform.lock.hcl" || true
+          echo "OK: tfplan e arquivos de configuração copiados para $(pwd)"
+          ls -la ./tfplan ./.terraform.lock.hcl ./backend.hcl || true
 
       - name: Verify Plan File Exists
         run: |
