@@ -56,7 +56,7 @@ spec:
           maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://workspace-stg.skyfirstlabs.com/api"
+            value: "https://workspace-stg-api.skyfirstlabs.com"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging
