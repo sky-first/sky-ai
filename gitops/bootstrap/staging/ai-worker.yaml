@@ -20,46 +20,10 @@ spec:
       valueFiles:
         - values-sky-ai-worker-stg.yaml
       values: |
+        # Configurações centralizadas em values-sky-ai-worker-stg.yaml
         nameOverride: "sky-ai-worker-stg"
-        podAnnotations:
-          rollout-trigger: "2026-01-30T08:42:40Z"
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
-        imagePullSecrets:
-          - name: regcred
-
-        # O Worker não precisa de Ingress nem Service
-        service:
-          enabled: false
-        ingress:
-          enabled: false
-        probes:
-          liveness:
-            enabled: false
-          readiness:
-            enabled: false
-
-        command: ["celery"]
-        args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
-
-        # Reutilizar os segredos da IA
-        podAnnotations:
-          reloader.stakater.com/auto: "true"
-
-        extraEnvFrom:
-          - secretRef:
-              name: sky-ai-worker-stg-secrets
-
-        extraEnv:
-          - name: REDIS_PORT
-            value: "6379"
-          - name: DEBUG
-            value: "false"
-
-          - name: AI_SERVICE_URL
-            value: "http://sky-ai-stg-common-app"
-          - name: DATABASE_POOL_SIZE
-            value: "10"
 
   destination:
     server: "https://kubernetes.default.svc"
