@@ -1,6 +1,6 @@
 ---
 image:
-  tag: "sha-7dfbf4c"
+  tag: "sha-9ebc449"
 
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:

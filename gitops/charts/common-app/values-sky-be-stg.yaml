@@ -22,14 +22,15 @@ ingress:
     nginx.ingress.kubernetes.io/enable-owasp-modsecurity-crs: "false"
     cert-manager.io/cluster-issuer: letsencrypt-prod
 
-# SRE Tuning: Probes more tolerantes para evitar 503 por cold start/db handshake
+# SRE Tuning: Probes pointing to public path to bypass Auth Middleware
 probes:
   liveness:
+    path: /health
     initialDelaySeconds: 45
     timeoutSeconds: 5
     failureThreshold: 5
   readiness:
-    initialDelaySeconds: 15
+    path: /health        # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
+    initialDelaySeconds: 20
     timeoutSeconds: 5
     failureThreshold: 5
-
