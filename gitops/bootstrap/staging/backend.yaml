@@ -39,7 +39,7 @@ spec:
             memory: "1Gi"
             cpu: "1000m"
         ingress:
-          enabled: true
+          enabled: false
           className: "nginx"
           annotations:
             nginx.ingress.kubernetes.io/enable-modsecurity: "false"
@@ -52,15 +52,10 @@ spec:
               paths:
                 - path: /
                   pathType: Prefix
-            - host: workspace-stg.skyfirstlabs.com
-              paths:
-                - path: /api
-                  pathType: Prefix
           tls:
             - secretName: sky-be-stg-tls
               hosts:
                 - workspace-stg-api.skyfirstlabs.com
-                - workspace-stg.skyfirstlabs.com
         probes:
           liveness:
             path: /health
