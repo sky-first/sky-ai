@@ -757,9 +757,8 @@ jobs:
 
           echo "Initializing Terraform with backend configuration..."
 
-          # Use -reconfigure to handle backend changes cleanly without prompts
-          # This ensures init completes before workspace selection
-          if terraform init -input=false -upgrade -reconfigure -backend-config=backend.hcl 2>&1 | tee init-output.txt; then
+          # -lockfile=readonly prevents any changes to providers during plan
+          if terraform init -input=false -lockfile=readonly -reconfigure -backend-config=backend.hcl 2>&1 | tee init-output.txt; then
             echo "✅ Terraform init completed successfully"
           else
             echo "❌ Terraform init failed"
@@ -2971,9 +2970,8 @@ jobs:
 
           echo "Initializing Terraform with backend configuration..."
 
-          # Use -reconfigure to handle backend changes cleanly without prompts
-          # This ensures init completes before workspace selection
-          if terraform init -input=false -upgrade -reconfigure -backend-config=backend.hcl 2>&1 | tee init-output.txt; then
+          # -lockfile=readonly prevents any changes to providers during rollback
+          if terraform init -input=false -lockfile=readonly -reconfigure -backend-config=backend.hcl 2>&1 | tee init-output.txt; then
             echo "✅ Terraform init completed successfully"
           else
             echo "❌ Terraform init failed"
