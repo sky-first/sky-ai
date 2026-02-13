@@ -17,12 +17,14 @@ spec:
 
   # INGRESS: nginx-ingress + kubelet health checks
   ingress:
-  # Kubelet health checks (readiness/liveness probes)
+  # Kubelet health checks (readiness/liveness probes) - Restrito ao CIDR da VNET do Cluster
   - from:
-    - podSelector: {}  # Allow from same namespace (kubelet runs in host network)
+    - ipBlock:
+        cidr: 10.1.0.0/16
     ports:
     - protocol: TCP
       port: 8000
+
   # Nginx Ingress Controller
   - from:
     - namespaceSelector:
