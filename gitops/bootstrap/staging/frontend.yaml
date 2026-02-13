@@ -30,19 +30,7 @@ spec:
           port: 80
           targetPort: 3000
         ingress:
-          enabled: true
-          className: "nginx"
-          annotations:
-            cert-manager.io/cluster-issuer: letsencrypt-prod
-          hosts:
-            - host: workspace-stg.skyfirstlabs.com
-              paths:
-                - path: /
-                  pathType: Prefix
-          tls:
-            - secretName: sky-fe-stg-tls
-              hosts:
-                - workspace-stg.skyfirstlabs.com
+          enabled: false
         probes:
           liveness:
             path: /
