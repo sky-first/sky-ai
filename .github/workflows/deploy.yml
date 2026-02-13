@@ -2298,7 +2298,8 @@ jobs:
 
           # Reusing Plan's backend.hcl - use -reconfigure to force acceptance
           # This ensures Apply uses the exact same backend config as Plan without migration prompts
-          if terraform init -input=false -reconfigure -backend-config=backend.hcl; then
+          # -lockfile=readonly prevents any changes to providers during init
+          if terraform init -input=false -reconfigure -lockfile=readonly -backend-config=backend.hcl; then
             echo "✅ Terraform init concluído com sucesso (reutilizando backend do Plan)"
           else
             echo "❌ ERRO: Terraform init falhou"
