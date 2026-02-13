@@ -1309,6 +1309,7 @@ jobs:
           cp -f tfplan "$ARTIFACT_DIR/tfplan"
           cp -f plan-output.txt "$ARTIFACT_DIR/plan-output.txt"
           cp -f backend.hcl "$ARTIFACT_DIR/backend.hcl"
+          cp -f .terraform.lock.hcl "$ARTIFACT_DIR/.terraform.lock.hcl"  # FIX: Include lock file for consistency
           cp -rf .terraform "$ARTIFACT_DIR/.terraform"
           echo "Artifact preparado em: $ARTIFACT_DIR"
           ls -la "$ARTIFACT_DIR"
@@ -1321,6 +1322,7 @@ jobs:
             _tfplan_artifact/tfplan
             _tfplan_artifact/plan-output.txt
             _tfplan_artifact/backend.hcl
+            _tfplan_artifact/.terraform.lock.hcl
             _tfplan_artifact/.terraform
           retention-days: 30
 
