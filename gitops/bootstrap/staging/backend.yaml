@@ -21,18 +21,7 @@ spec:
       values: |
         podAnnotations:
           reloader.stakater.com/auto: "true"
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          runAsGroup: 3000
-          fsGroup: 2000
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-            add:
-              - NET_BIND_SERVICE
+        securityContext: {} # Usar configurações do values-sky-be-stg.yaml
         replicaCount: 2
         imagePullSecrets:
           - name: regcred
