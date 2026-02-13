@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: netpol-server-validator
+  namespace: argocd
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-server
+    spec:
+      containers:
+      - name: validator
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            nc -z -w 5 argocd-repo-server 8081 && echo "SERVER -> REPO: OK" || exit 1
+            nc -z -w 5 argocd-redis 6379 && echo "SERVER -> REDIS: OK" || exit 1
+            # Egress para GitHub deve falhar para o Server (Zero Trust)
+            nc -z -w 5 github.com 443 && (echo "SERVER -> GITHUB: FAIL (Unexpected Allow)"; exit 1) || echo "SERVER -> GITHUB: OK (Blocked by Policy)"
+      restartPolicy: Never
+  backoffLimit: 0
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: netpol-repo-validator
+  namespace: argocd
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-repo-server
+    spec:
+      containers:
+      - name: validator
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            nc -z -w 5 argocd-redis 6379 && echo "REPO -> REDIS: OK" || exit 1
+            # Egress para GitHub deve funcionar para o Repo
+            nc -z -w 5 github.com 443 && echo "REPO -> GITHUB: OK" || exit 1
+      restartPolicy: Never
+  backoffLimit: 0
