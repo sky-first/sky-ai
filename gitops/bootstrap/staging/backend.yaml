@@ -64,10 +64,12 @@ spec:
         probes:
           liveness:
             path: /
-            initialDelaySeconds: 45
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
           readiness:
             path: /
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
+            timeoutSeconds: 15
         # Disable chart-level ExternalSecret as we use standalone manifest
         externalSecret:
           enabled: false
