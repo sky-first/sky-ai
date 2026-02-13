@@ -1,6 +1,8 @@
----
 image:
   tag: "sha-9ebc449"
+
+imagePullSecrets:
+  - name: regcred
 
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:

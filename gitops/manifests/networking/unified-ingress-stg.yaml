@@ -8,6 +8,8 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/modsecurity-snippet: |
+      SecRuleRemoveById 949110
 spec:
   ingressClassName: nginx
   tls:
