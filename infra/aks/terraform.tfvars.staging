@@ -11,6 +11,7 @@ authorized_ips = [
   "169.155.237.0/24",
   "20.97.244.91/32",
   "135.18.146.170/32",
+  "87.196.81.172/32",
 ]
 
 external_dns_identity_resource_group = "rg-core-infra-prd"
@@ -20,6 +21,7 @@ allowed_ssh_ips = [
   "169.155.237.0/24",
   "20.97.244.91/32",
   "135.18.146.170/32",
+  "87.196.81.172/32",
 ]
 
 # GitHub Actions Service Principal (for CI/CD Key Vault access)
