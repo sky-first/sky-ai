@@ -262,6 +262,21 @@ prometheusRules:
               summary: "Conexões de banco altas"
               description: "{{ $value | printf \"%.1f\" }}% das conexões em uso"
 
+      - name: argocd-system
+        rules:
+          # Alerta se uma aplicação do ArgoCD estiver fora de sincronia ou com erro
+          - alert: ArgoCDAppOutOfSync
+            expr: |
+              argocd_app_sync_status{sync_status!="Synced"} > 0
+            for: 15m
+            labels:
+              severity: critical
+              team: platform
+            annotations:
+              summary: "Aplicação ArgoCD {{ $labels.name }} fora de sincronia"
+              description: "A aplicação {{ $labels.name }} no namespace {{ $labels.dest_namespace }} falhou ao sincronizar nas últimas 15 horas."
+
+
   # ---------------------------------------------
   # SRE GOLDEN SIGNALS
   # ---------------------------------------------
