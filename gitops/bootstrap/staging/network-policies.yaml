@@ -17,12 +17,14 @@ spec:
 
   # INGRESS: nginx-ingress + kubelet health checks
   ingress:
-  # Kubelet health checks (readiness/liveness probes)
+  # Kubelet health checks (readiness/liveness probes) - Permitindo CIDR amplo para garantir handshake sob Azure CNI
   - from:
-    - podSelector: {}  # Allow from same namespace (kubelet runs in host network)
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: TCP
       port: 8000
+
   # Nginx Ingress Controller
   - from:
     - namespaceSelector:
