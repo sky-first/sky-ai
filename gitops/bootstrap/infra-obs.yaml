@@ -115,6 +115,11 @@ spec:
                   resources:
                     requests:
                       storage: 5Gi
+            # Habilitar descoberta de AlertmanagerConfigs
+            alertmanagerConfigSelector:
+              matchLabels:
+                release: kube-prometheus-stack
+            alertmanagerConfigNamespaceSelector: {}
 
           # Ingress para Alertmanager UI
           ingress:

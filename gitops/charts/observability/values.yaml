@@ -288,7 +288,7 @@ prometheusRules:
           # Falha no Backup de Banco de Dados
           - alert: DatabaseBackupFailed
             expr: |
-              kube_job_status_failed{job_name="postgres-backup"} > 0
+              kube_job_status_failed{job_name=~"postgres-backup.*"} > 0
             for: 1m
             labels:
               severity: critical
