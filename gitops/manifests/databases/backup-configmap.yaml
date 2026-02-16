@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-scripts
+  namespace: staging
+data:
+  backup.sh: |
+    #!/bin/sh
+    set -e
+    
+    echo "Starting backup at $(date)..."
+    
+    BACKUP_FILE="backup-$(date +%F-%H%M%S).sql.gz"
+    echo "Dumping database to /tmp/$BACKUP_FILE..."
+    
+    # Dump and gzip
+    PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h postgres -U postgres -d ai_saas_db | gzip > /tmp/$BACKUP_FILE
+    
+    echo "Uploading to Azure Storage..."
+    # Using 'az storage blob upload' which is available in mcr.microsoft.com/azure-cli
+    az storage blob upload \
+      --file /tmp/$BACKUP_FILE \
+      --container-name $CONTAINER_NAME \
+      --name $BACKUP_FILE \
+      --account-name $STORAGE_ACCOUNT \
+      --sas-token "$SAS_TOKEN" \
+      --auth-mode key \
+      --output table
+      
+    echo "Backup completed successfully!"
