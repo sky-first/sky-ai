@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: main-config
+  namespace: monitoring
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
+spec:
+  route:
+    groupBy: ['alertname', 'severity']
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 12h
+    receiver: 'email-receiver'
+    routes:
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: 'email-receiver'
+  receivers:
+    - name: 'email-receiver'
+      emailConfigs:
+        - to: 'gustavo.mendonca@skyfirstlabs.com'
+          from: 'alertmanager@skyfirstlabs.com'
+          smarthost: 'smtp.sendgrid.net:587' # Placeholder, needs real SMTP
+          authUsername: 'apikey'
+          authPassword:
+            name: alertmanager-smtp-secret
+            key: password
+          sendResolved: true

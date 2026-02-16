@@ -278,6 +278,26 @@ prometheusRules:
 
 
   # ---------------------------------------------
+  # ALERTAS DE BACKUP
+  # ---------------------------------------------
+  backup:
+    enabled: true
+    groups:
+      - name: database-backups
+        rules:
+          # Falha no Backup de Banco de Dados
+          - alert: DatabaseBackupFailed
+            expr: |
+              kube_job_status_failed{job_name=~"postgres-backup.*"} > 0
+            for: 1m
+            labels:
+              severity: critical
+              team: platform
+            annotations:
+              summary: "Falha Crítica: Backup do PostgreSQL no Staging falhou"
+              description: "O Job de backup 'postgres-backup' falhou. Verifique os logs imediatamente."
+
+  # ---------------------------------------------
   # SRE GOLDEN SIGNALS
   # ---------------------------------------------
   goldenSignals:
