@@ -1029,6 +1029,13 @@ def _fallback_plan(
         description=f"Auto-generated {domain} dashboard with intention-aware variety.",
         widgets=widgets[:max_widgets],
         meta={"fallback": True, "reason": "SMART_FALLBACK", "domain": domain, "has_original_question": original_question is not None},
+        full_results={
+            "verdict": f"Automated analysis for: {goal}",
+            "descriptive": {"charts": [], "kpis": []},
+            "diagnostic": "Analysis limited due to generation constraints.",
+            "predictive": "N/A",
+            "prescriptive": "N/A"
+        }
     )
 
 
