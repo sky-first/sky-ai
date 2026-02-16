@@ -5,11 +5,19 @@ metadata:
   namespace: staging
 data:
   backup.sh: |
-    #!/bin/sh
+    #!/bin/bash
     set -e
+    set -o pipefail
     
     echo "Starting backup at $(date)..."
     
+    # Install dependency (pg_dump)
+    # Microsoft Azure Linux 3.0 uses tdnf
+    if ! command -v pg_dump &> /dev/null; then
+        echo "Installing postgresql-client..."
+        tdnf install -y postgresql
+    fi
+
     BACKUP_FILE="backup-$(date +%F-%H%M%S).sql.gz"
     echo "Dumping database to /tmp/$BACKUP_FILE..."
     
