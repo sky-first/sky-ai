@@ -413,7 +413,8 @@ def run_orchestrator(
     # 🔒 GATEKEEPER: English Only
     if not lang.startswith("en"):
         state["answer"] = (
-            "I apologize, but currently I only support commands and questions in English."
+            "I'm sorry, but I currently only understand English. "
+            "Please rephrase your question in English so I can analyze your data accurately."
         )
         log_event(
             "orchestrator_booted_language",

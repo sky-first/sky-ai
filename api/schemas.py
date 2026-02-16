@@ -164,6 +164,12 @@ class DashboardPlanRequest(BaseModel):
         description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question."
     )
     
+    # ✅ NEW: Generation Mode
+    mode: Optional[str] = Field(
+        default="mix",
+        description="Dashboard generation mode: 'textual' (more text, fewer charts), 'visual' (max charts, min text), or 'mix' (balanced)."
+    )
+    
     # ✅ NEW: Rich context for better suggestions
     initial_ai_response: Optional[str] = Field(
         default=None,
@@ -211,6 +217,10 @@ class DashboardPlanResponse(BaseModel):
     description: Optional[str] = None
     widgets: List[DashboardPlanWidget]
     meta: Optional[Dict[str, Any]] = None
+    full_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw structured findings from Davinci (verdict, diagnostic, etc.)"
+    )
 
 
 # Schemas for DataConnections (used in other modules)

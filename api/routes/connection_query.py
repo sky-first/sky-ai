@@ -248,6 +248,7 @@ def _get_dashboard_plan_cache_key(
     context_spaces: Optional[List[str]] = None,
     context_crews: Optional[List[str]] = None,
     context_tables: Optional[List[str]] = None,
+    mode: str = "mix",
 ) -> str:
     """
     Gera chave única para o cache de planos de dashboard.
@@ -305,7 +306,9 @@ def _get_dashboard_plan_cache_key(
     else:
         initial_resp_norm = "no_context"
     
-    return f"dashboard_plan:{CACHE_VERSION}:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
+    # Ensure mode is normalized
+    mode_norm = mode.strip().lower()
+    return f"dashboard_plan:{CACHE_VERSION}:{mode_norm}:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
 
 
 def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
@@ -1595,6 +1598,44 @@ async def dashboards_plan(
 
     agent_config = None
     tables = []
+    
+    # 🔒 GLOBAL LANGUAGE GUARD (User Requirement: English Only)
+    # Applied at the API entry point to cover direct dashboard generation access.
+    from core.i18n.i18n import detect_language
+    detected_lang = detect_language(body.goal)
+    
+    if detected_lang != "en":
+        msg = (
+            "I'm sorry, but I currently only understand English. "
+            "Please rephrase your question in English so I can analyze your data accurately."
+        )
+        # Construct a "blocked" response manually to fit DashboardPlanResponse schema
+        return DashboardPlanResponse(
+            dashboard_name="English Only Support",
+            title="Language Not Supported", 
+            description="Please use English for your queries.",
+            widgets=[
+                DashboardPlanWidget(
+                    widget_key="lang_block_1",
+                    type="text",
+                    title="Language Not Supported",
+                    question="N/A",
+                    viz={"type": "text", "content": msg}
+                )
+            ],
+            meta={
+                "mode": "blocked",
+                "grounding": {},
+                "generated_at": datetime.utcnow().isoformat(),
+                "model": "system-guard",
+                "blocked_language": detected_lang
+            },
+            full_results={
+                "verdict": msg,
+                "diagnostic": f"Detected language: {detected_lang}. System requires English.",
+                "execution": "Please rephrase in English."
+            }
+        )
     logical_tables: list[str] = []
     schema_summary = ""
     max_tables_in_prompt = 0
@@ -1680,6 +1721,7 @@ async def dashboards_plan(
         context_spaces=getattr(body, "context_spaces", None),
         context_crews=getattr(body, "context_crews", None),
         context_tables=getattr(body, "context_tables", None),
+        mode=getattr(body, "mode", "mix"),
     )
     
     # CACHE DISABLED per user request to ensure fresh generation and avoid stale errors.
@@ -1818,7 +1860,7 @@ async def dashboards_plan(
             generate_dashboard_plan,
             llm=llm,
             goal=body.goal,
-            language=lang,
+            # language=lang,  <-- REMOVED per user request (English Only enforcement)
             max_widgets=body.max_widgets,
             logical_tables=logical_tables,
             schema_summary=schema_summary,
@@ -1829,6 +1871,7 @@ async def dashboards_plan(
             context_tables=context_tables,
             table_metadata=tables, # ✅ Pass full metadata for Schema Intelligence
             analysis_context=analysis_context, # 🔗 Pass the context bridge
+            mode=getattr(body, "mode", "mix"),
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
@@ -1844,6 +1887,7 @@ async def dashboards_plan(
                 "cached": False,
                 "has_original_question": original_question is not None,
             },
+            full_results=plan.full_results # ✅ Pass raw insights to frontend
         )
         
         # ✅ NOVA: Armazenar no cache após gerar
