@@ -33,3 +33,20 @@ The conflict between "Ready" (Previous) and "Not Ready" (Audit) was resolved by 
 *   **Previous:** Focused on Architectural Layout & Throughput (Valid).
 *   **Audit:** Focused on Day-2 Operations and Disaster Recovery (Valid).
 *   **Resolution:** By implementing Phase 0, we bridged the gap, making the platform ready in both dimensions.
+
+## 🛠️ Day 2 Operations (Missing Code / To-Do)
+To ensure long-term maintenance, the following *infrastructure code* should be added in Phase 1 (Post-MVP):
+1.  **Lifecycle Management:** No Terraform code exists to delete backups older than X days.
+    *   *Mitigation:* Manual cleanup or Azure Portal config until implemented.
+2.  **Alerting:** No Prometheus rules exist to alert if `postgres-backup` CronJob fails.
+    *   *Mitigation:* Weekly manual verification.
+
+## 🆘 Manual Restore Guide (Emergency)
+In case of disaster, execute:
+```bash
+# 1. Download Backup
+az storage blob download -c postgres-backups-staging -n backup-YYYY-MM-DD.sql.gz -f dump.sql.gz ...
+
+# 2. Restore to Postgres
+gunzip -c dump.sql.gz | kubectl exec -i postgres-0 -- psql -U postgres -d ai_saas_db
+```
