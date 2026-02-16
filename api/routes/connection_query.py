@@ -3253,6 +3253,7 @@ async def query_connection(
         chosen_table=chosen_table,
         chosen_datasets=chosen_datasets if chosen_datasets else None,
         sql=sql,
+        title=final_state.get("generated_title"), # Populate title from agent state
         num_rows=len(data),
         error=error,
     )
@@ -3740,6 +3741,7 @@ async def _stream_connection_query(
                 "chosen_table": chosen_table,
                 "chosen_datasets": chosen_datasets if chosen_datasets else None,
                 "sql": sql,
+                "title": final_state.get("generated_title"), # Populate title from agent state
                 "num_rows": len(data),
                 "error": None,
             }

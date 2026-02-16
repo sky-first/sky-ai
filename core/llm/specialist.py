@@ -401,9 +401,15 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
     # Estratégia 1: Procurar por linha que começa com SELECT (case-insensitive)
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if re.match(r"^\s*select\b", stripped, flags=re.IGNORECASE):
-            # Encontrou SELECT, retornar daqui até o fim
-            result = "\n".join(lines[i:]).strip()
+        if re.match(r"^\s*(select|with)\b", stripped, flags=re.IGNORECASE):
+            # Encontrou SELECT, verificar se há título nas linhas anteriores
+            start_index = i
+            # Look back for title comment
+            if i > 0 and re.match(r"^--\s*TITLE:", lines[i-1].strip(), flags=re.IGNORECASE):
+                start_index = i - 1
+            
+            # retornar daqui até o fim
+            result = "\n".join(lines[start_index:]).strip()
             # Remover trailing semicolon se existir (pode ter sido adicionado)
             if result.endswith(";"):
                 result = result[:-1].strip()
@@ -480,8 +486,6 @@ def run_specialist(
     - executa via data_source
     - preenche state["sql"], state["data"] (ou state["impossible_reason"])
     """
-    question = (state.get("question") or "").strip()
-
     question = (state.get("question") or "").strip()
 
     # 🎯 CENTRALIZED SCHEMA INJECTION (HALLUCINATION FIX)
@@ -788,7 +792,7 @@ def run_specialist(
         "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
         "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
         "4. NEVER use ; (semicolon) except at the very end - only one query\n"
-        "5. NEVER use comments -- or /* */\n"
+        "5. NEVER use comments -- or /* */ (EXCEPT for the required TITLE comment)\n"
         "6. NEVER use INFORMATION_SCHEMA, pg_catalog, sys, mysql, or system tables\n"
         "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
         "8. NEVER use subqueries that access unauthorized tables\n"
@@ -931,7 +935,7 @@ def run_specialist(
             f"{security_instructions_block}"
             + (f"{join_guidance}" if use_multiple_tables else "") +
             f"{aggregation_guidance}"
-            "Generate only the SQL query (or IMPOSSIBLE: <reason>)."
+            "Generate only the SQL query (starting with the TITLE comment) or IMPOSSIBLE: <reason>."
             + ("\n\n### SQL Query" if settings.use_local_models else "")
         ),
     }
