@@ -22,7 +22,7 @@ resource "azurerm_key_vault" "main" {
     default_action             = "Deny"
     bypass                     = "AzureServices" # Required when enabled_for_disk_encryption is true
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-    ip_rules                   = var.runner_ip != "" ? [var.runner_ip] : []
+    ip_rules                   = var.runner_ip != null && var.runner_ip != "" ? [var.runner_ip] : []
   }
 
   tags = {
