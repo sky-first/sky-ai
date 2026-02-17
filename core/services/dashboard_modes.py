@@ -10,8 +10,7 @@ MODE_CONFIG: Dict[str, Dict[str, Any]] = {
             "verdict": 300,
             "diagnostic": 800,
             "predictive": 500,
-            "prescriptive": 500,
-            "execution": 500
+            "prescriptive": 500
         },
         "llm": {
             "max_tokens": 1500,
@@ -36,13 +35,12 @@ MODE_CONFIG: Dict[str, Dict[str, Any]] = {
     "mix": {
         "max_charts": 6,
         "min_charts": 2,
-        "include_sections": ["verdict", "descriptive", "diagnostic", "predictive", "prescriptive", "execution"],
+        "include_sections": ["verdict", "descriptive", "diagnostic", "predictive", "prescriptive"],
         "max_text": {
             "verdict": 200,
             "diagnostic": 500,
             "predictive": 300,
-            "prescriptive": 300,
-            "execution": 300
+            "prescriptive": 300
         },
         "llm": {
             "max_tokens": 1500,

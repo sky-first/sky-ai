@@ -1120,18 +1120,17 @@ def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[Analysi
         # For now, let's assume the LLM plan is the source of truth for NEW widgets.
         pass
 
-    # 1. Verdict (Headline / Text Widget)
-    # In 'visual' mode, verdict is short, maybe a KPI title or subtitle? 
-    # Current frontend maps 'text' type to a text widget.
+    # 1. Title/Verdict (Headline / Text Widget)
+    # The 'verdict' field now acts as the main title/headline for the dashboard
     if "verdict" in plan and plan["verdict"]:
         widgets.append({
             "widget_key": next_key(),
             "type": "text",
-            "title": "Executive Verdict",
+            "title": "Analysis Title",
             "question": "N/A",
             "viz": {
                 "type": "text",
-                "content": f"**Verdict:** {plan['verdict']}"
+                "content": f"# {plan['verdict']}" # Markdown H1
             }
         })
 
@@ -1200,19 +1199,6 @@ def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[Analysi
                 "content": plan["prescriptive"]
             }
         })
-        
-    # 7. Execution (Narrative)
-    if "execution" in plan and plan["execution"]:
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "text",
-            "title": "Execution Plan",
-            "question": "N/A",
-            "viz": {
-                "type": "text",
-                "content": plan["execution"]
-            }
-        })
 
     return widgets
 
@@ -1231,18 +1217,17 @@ def generate_structured_insight(
     # Adjust prompt to enforce JSON structure
     json_schema = (
         "{\n"
-        "  \"verdict\": \"High-level executive summary (string)\",\n"
+        "  \"verdict\": \"A concise, engaging Title/Headline for this analysis (string)\",\n"
         "  \"descriptive\": {\n"
         "      \"charts\": [{ \"title\": \"...\", \"question\": \"...\", \"viz_type\": \"bar|line|pie|...\", \"x_axis\": \"...\", \"y_axis\": \"...\" }],\n"
         "      \"kpis\": [{ \"title\": \"...\", \"question\": \"...\" }]\n"
         "  },\n"
         "  \"diagnostic\": \"Why did this happen? (string)\",\n"
         "  \"predictive\": \"What will happen? (string)\",\n"
-        "  \"prescriptive\": \"What should we do? (string)\",\n"
-        "  \"execution\": \"Action plan (string)\"\n"
+        "  \"prescriptive\": \"What should we do? (string)\"\n"
         "}\n\n"
         "SPECIAL SYNTAX: Augmented Narratives (MANDATORY for Textual/Mix modes)\n"
-        "In narrative fields (diagnostic, predictive, prescriptive, execution), you MUST embed rich metrics derived from your analysis using this syntax:\n"
+        "In narrative fields (diagnostic, predictive, prescriptive), you MUST embed rich metrics derived from your analysis using this syntax:\n"
         "[[Metric: Label | Value | Status]]\n"
         "Example Diagnostic: 'The spike was driven by [[Metric: Summer Campaign | $2.5M | success]], while [[Metric: Churn | 12% | danger]] remained high.'\n"
         "Statuses: success (green/up), warning (orange/neutral), danger (red/down), info (blue/neutral)."
@@ -1252,6 +1237,7 @@ def generate_structured_insight(
         f"\n\nMODE: You are generating a {mode.upper()} dashboard.\n"
         f"OUTPUT FORMAT: You must return a SINGLE JSON object strictly following this schema:\n"
         f"{json_schema}\n"
+        "ORDER REQUIREMENT: Ensure the flow is Verdict (Headline) -> Charts/KPIs -> Diagnostic -> Predictive -> Prescriptive."
     )
     
     # Merge instruction into system prompt
