@@ -9,6 +9,8 @@ spec:
   ports:
     - port: 5432
       name: postgres
+    - port: 9187
+      name: metrics
   selector:
     app: postgres
   clusterIP: None
@@ -37,6 +39,30 @@ spec:
         runAsGroup: 999
         fsGroup: 999
       containers:
+        - name: postgres-exporter
+          image: prometheuscommunity/postgres-exporter:v0.12.0
+          securityContext:
+             allowPrivilegeEscalation: false
+          env:
+            - name: DATA_SOURCE_URI
+              value: "127.0.0.1:5432/ai_saas_db?sslmode=disable"
+            - name: DATA_SOURCE_USER
+              value: "postgres"
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+          ports:
+            - containerPort: 9187
+              name: metrics
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
         - name: postgres
           image: pgvector/pgvector:pg14
           imagePullPolicy: IfNotPresent

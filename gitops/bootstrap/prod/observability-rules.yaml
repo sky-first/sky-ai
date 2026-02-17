@@ -64,6 +64,20 @@ spec:
     path: /metrics
 ---
 apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sky-postgres-monitor
+  namespace: prod
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: sky-prod-alerts
