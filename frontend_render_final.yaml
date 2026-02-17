@@ -1,0 +1,127 @@
+---
+# Source: common-app/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sky-fe-stg-common-app
+  labels:
+    helm.sh/chart: common-app-0.1.3
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/instance: sky-fe-stg
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: common-app/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sky-fe-stg-common-app
+  labels:
+    helm.sh/chart: common-app-0.1.3
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/instance: sky-fe-stg
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/instance: sky-fe-stg
+---
+# Source: common-app/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sky-fe-stg-common-app
+  labels:
+    helm.sh/chart: common-app-0.1.3
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/instance: sky-fe-stg
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: common-app
+      app.kubernetes.io/instance: sky-fe-stg
+  template:
+    metadata:
+      annotations:
+        rollout-trigger: "2026-02-02T09:32:31Z"
+      labels:
+        app.kubernetes.io/name: common-app
+        app.kubernetes.io/instance: sky-fe-stg
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      serviceAccountName: sky-fe-stg-common-app
+      enableServiceLinks: false
+      securityContext:
+        {}
+      containers:
+        - name: common-app
+          securityContext:
+            {}
+          image: "skyacrstagingj3minh.azurecr.io/sky-poc-frontend:1.0.0"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: https://workspace-stg.skyfirstlabs.com/api
+---
+# Source: common-app/templates/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sky-fe-stg-common-app
+  labels:
+    helm.sh/chart: common-app-0.1.3
+    app.kubernetes.io/name: common-app
+    app.kubernetes.io/instance: sky-fe-stg
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sky-fe-stg-common-app
+  minReplicas: 20
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -2,6 +2,25 @@
 image:
   tag: "sha-8d9317ed349e54b58fbfa6f41cfb82f0eed0c743"
 
+replicaCount: 2
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - sky-fe-stg
+          topologyKey: kubernetes.io/hostname
+
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:
   runAsNonRoot: true

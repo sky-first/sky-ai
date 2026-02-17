@@ -1,0 +1,33 @@
+podAnnotations:
+  rollout-trigger: "2026-02-02T09:32:31Z"
+securityContext: {}
+imagePullSecrets:
+  - name: regcred
+image:
+  repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+service:
+  port: 80
+  targetPort: 3000
+ingress:
+  enabled: false
+probes:
+  liveness:
+    path: /
+    initialDelaySeconds: 15
+  readiness:
+    path: /
+    initialDelaySeconds: 5
+autoscaling:
+  enabled: true
+  minReplicas: 20
+  maxReplicas: 100
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+extraEnv:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://workspace-stg.skyfirstlabs.com/api"

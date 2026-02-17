@@ -62,15 +62,6 @@ spec:
             - secretName: sky-be-stg-tls
               hosts:
                 - workspace-stg-api.skyfirstlabs.com
-        probes:
-          liveness:
-            path: /health
-            initialDelaySeconds: 60
-            timeoutSeconds: 30
-          readiness:
-            path: /health
-            initialDelaySeconds: 30
-            timeoutSeconds: 15
         # Disable chart-level ExternalSecret as we use standalone manifest
         externalSecret:
           enabled: false

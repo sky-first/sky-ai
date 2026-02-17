@@ -1,0 +1,4 @@
+=== 1. HPA STATUS ===
+\n=== 2. BACKEND PODS ===
+\n=== 3. POSTGRES SIDECAR (Containers) ===
+\n\n=== 4. SERVICE MONITORS ===

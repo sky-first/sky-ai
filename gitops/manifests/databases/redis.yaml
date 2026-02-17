@@ -54,7 +54,7 @@ spec:
               "--save",
               "",
               "--appendonly",
-              "no",
+              "yes",
             ]
           env:
             - name: REDIS_PASSWORD
@@ -72,3 +72,23 @@ spec:
             requests:
               memory: "256Mi"
               cpu: "250m"
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  labels:
+    app: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

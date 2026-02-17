@@ -2,6 +2,25 @@
 image:
   tag: "sha-9ebc449"
 
+replicaCount: 2
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - sky-be-stg
+          topologyKey: kubernetes.io/hostname
+
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:
   runAsNonRoot: true
@@ -26,11 +45,13 @@ ingress:
 probes:
   liveness:
     path: /health
-    initialDelaySeconds: 45
+    initialDelaySeconds: 15
+    periodSeconds: 5
     timeoutSeconds: 5
-    failureThreshold: 5
+    failureThreshold: 3
   readiness:
     path: /health        # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
-    initialDelaySeconds: 20
+    initialDelaySeconds: 10
+    periodSeconds: 5
     timeoutSeconds: 5
-    failureThreshold: 5
+    failureThreshold: 3
