@@ -50,7 +50,7 @@ resource "azurerm_storage_management_policy" "backup_lifecycle" {
   storage_account_id = azurerm_storage_account.db_backup.id
 
   rule {
-    name    = "ArchiveOldBackups"
+    name    = "environment_aware_retention"
     enabled = true
     filters {
       prefix_match = ["sql-backups/"]
@@ -58,9 +58,8 @@ resource "azurerm_storage_management_policy" "backup_lifecycle" {
     }
     actions {
       base_blob {
-        tier_to_cool_after_days_since_modification_greater_than    = 30
-        tier_to_archive_after_days_since_modification_greater_than = 60
-        delete_after_days_since_modification_greater_than          = 90
+        # Dynamically selects 30 for staging, 365 for prod
+        delete_after_days_since_modification_greater_than = var.backup_retention_days[var.environment]
       }
       snapshot {
         delete_after_days_since_creation_greater_than = 30
