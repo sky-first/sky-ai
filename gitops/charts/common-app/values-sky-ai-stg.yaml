@@ -25,3 +25,18 @@ extraVolumes:
 extraVolumeMounts:
   - name: tmp-volume
     mountPath: /tmp
+
+# AI services start slower due to model loading
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5
