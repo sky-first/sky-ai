@@ -102,3 +102,13 @@ variable "github_actions_sp_object_id" {
   default     = null
   nullable    = true
 }
+
+variable "backup_retention_days" {
+  description = "Retention period for backups in days per environment"
+  type        = map(number)
+  default = {
+    dev     = 7
+    staging = 30
+    prod    = 365
+  }
+}
