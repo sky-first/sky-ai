@@ -316,37 +316,41 @@ def run_formatter(
     answer = answer.strip() or "No explanation available."
     
     # 🎯 FOLLOW-UP SUGGESTIONS: Generate smart suggestions based on available schema
-    followup_suggestions = []
-    try:
-        # Extract available tables from agent_config
-        available_tables = [t.logical_name for t in agent_config.tables]
-        
-        # Extract columns from the tables that were used
-        chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
-        available_columns = []
-        for table in agent_config.tables:
-            if table.logical_name in chosen_tables:
-                for col in (table.columns or []):
-                    col_name = col.get("name") if isinstance(col, dict) else getattr(col, "name", "")
-                    if col_name:
-                        available_columns.append(col_name)
-        
-        # Generate suggestions (only if we have data and answer)
-        if data and answer and len(answer) > 50:
-            # 🎯 ZERO-COST SUGGESTIONS: Use static engine
-            user_crew_role = state.get("crew_role", "guest")
-            
-            followup_suggestions = suggestion_engine.get_suggestions(
-                tables=chosen_tables, # Use the tables actually used in the query
-                role=user_crew_role,
-                max_suggestions=3
-            )
-    except Exception as e:
-        log_event(
-            "formatter_followup_error",
-            {"error": str(e)[:200]},
-        )
+    instructions = state.get("instructions") or ""
+    if "Do NOT include any 'Suggested Follow-up Questions'" in instructions:
         followup_suggestions = []
+    else:
+        followup_suggestions = []
+        try:
+            # Extract available tables from agent_config
+            available_tables = [t.logical_name for t in agent_config.tables]
+            
+            # Extract columns from the tables that were used
+            chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
+            available_columns = []
+            for table in agent_config.tables:
+                if table.logical_name in chosen_tables:
+                    for col in (table.columns or []):
+                        col_name = col.get("name") if isinstance(col, dict) else getattr(col, "name", "")
+                        if col_name:
+                            available_columns.append(col_name)
+            
+            # Generate suggestions (only if we have data and answer)
+            if data and answer and len(answer) > 50:
+                # 🎯 ZERO-COST SUGGESTIONS: Use static engine
+                user_crew_role = state.get("crew_role", "guest")
+                
+                followup_suggestions = suggestion_engine.get_suggestions(
+                    tables=chosen_tables, # Use the tables actually used in the query
+                    role=user_crew_role,
+                    max_suggestions=3
+                )
+        except Exception as e:
+            log_event(
+                "formatter_followup_error",
+                {"error": str(e)[:200]},
+            )
+            followup_suggestions = []
     
     # Append suggestions as markdown if we have any
     if followup_suggestions:

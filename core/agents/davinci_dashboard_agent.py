@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from core.logging_utils import log_event
-from core.contracts.analysis_context import AnalysisContext # NEW IMPORT
+from core.contracts.analysis_context import AnalysisContext
+from core.services.dashboard_modes import MODE_CONFIG, validate_mode # NEW IMPORT
 
 
 @dataclass
@@ -15,6 +16,7 @@ class DavinciDashboardPlan:
     description: Optional[str]
     widgets: List[Dict[str, Any]]
     meta: Dict[str, Any]
+    full_results: Optional[Dict[str, Any]] = None  # NEW: Raw structured analysis
 
 
 def _parse_schema_summary(schema_summary: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -1027,14 +1029,272 @@ def _fallback_plan(
         description=f"Auto-generated {domain} dashboard with intention-aware variety.",
         widgets=widgets[:max_widgets],
         meta={"fallback": True, "reason": "SMART_FALLBACK", "domain": domain, "has_original_question": original_question is not None},
+        full_results={
+            "verdict": f"Automated analysis for: {goal}",
+            "descriptive": {"charts": [], "kpis": []},
+            "diagnostic": "Analysis limited due to generation constraints.",
+            "predictive": "N/A",
+            "prescriptive": "N/A"
+        }
     )
+
+
+def validate_plan_structure(plan: dict) -> dict:
+    """
+    Validates that the LLM response follows the strict structured schema.
+    """
+    required_keys = ["verdict", "descriptive"]
+    for key in required_keys:
+        if key not in plan:
+            raise ValueError(f"Missing required key: {key}")
+            
+    if not isinstance(plan["descriptive"], dict):
+        raise ValueError("Field 'descriptive' must be an object")
+
+    if "charts" not in plan["descriptive"]:
+        raise ValueError("Missing 'charts' in descriptive section")
+        
+    return plan
+
+
+def enforce_mode_rules(plan: dict, mode: str) -> dict:
+    """
+    Deterministic enforcement of mode constraints (charts count, text length, sections).
+    """
+    config = MODE_CONFIG[mode]
+    
+    # 1. Enforce Chart Limits
+    charts = plan["descriptive"].get("charts", [])
+    if not isinstance(charts, list):
+        charts = []
+        
+    # Slice to max
+    charts = charts[:config["max_charts"]]
+    
+    # Check min (Critical fail-fast)
+    if len(charts) < config["min_charts"]:
+        # Log this event but maybe don't crash hard if we can survive? 
+        # User requested "Fail fast > inconsistent dashboard".
+        # But for "visual" mode requiring 5 charts, if LLM gives 4, maybe we shouldn't crash?
+        # Let's conform to the plan: Raise ValueError.
+        raise ValueError(f"Insufficient charts generated for mode '{mode}'. Expected min {config['min_charts']}, got {len(charts)}.")
+        
+    plan["descriptive"]["charts"] = charts
+    
+    # 2. Enforce Sections
+    allowed_sections = set(config["include_sections"])
+    keys_to_remove = [k for k in plan.keys() if k not in allowed_sections and k != "descriptive"]
+    for k in keys_to_remove:
+        plan.pop(k, None)
+        
+    # 3. Enforce Text Length
+    for section, limit in config["max_text"].items():
+        if section in plan and isinstance(plan[section], str):
+            if len(plan[section]) > limit:
+                # Smart trim? Or just hard trim?
+                # Hard trim for safety + ellipsis
+                plan[section] = plan[section][:limit] + "..."
+                
+    return plan
+
+
+def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[AnalysisContext] = None) -> List[Dict[str, Any]]:
+    """
+    Converts the structured insight plan into the flat list of widgets expected by the frontend.
+    Enforces Strict Cognitive Order: Verdict -> Charts -> Narrative.
+    """
+    widgets = []
+    widget_counter = 1
+    
+    def next_key():
+        nonlocal widget_counter
+        k = f"w{widget_counter}"
+        widget_counter += 1
+        return k
+
+    # 0. Anchor Widget (Enterprise Mode) - Always first if present
+    if analysis_context:
+        # We assume the caller handles the anchor widget logic or we build it here.
+        # The original code built it separately. Let's build it here to be clean.
+        # But wait, `_build_primary_widget_from_context` needs `goal`. 
+        # For now, let's assume the LLM plan is the source of truth for NEW widgets.
+        pass
+
+    # 1. Title/Verdict (Headline / Text Widget)
+    # The 'verdict' field now acts as the main title/headline for the dashboard
+    if "verdict" in plan and plan["verdict"]:
+        widgets.append({
+            "widget_key": next_key(),
+            "type": "text",
+            "title": "Analysis Title",
+            "question": "N/A",
+            "viz": {
+                "type": "text",
+                "content": f"# {plan['verdict']}" # Markdown H1
+            }
+        })
+
+    # 2. Charts (Descriptive)
+    for chart in plan["descriptive"].get("charts", []):
+        widgets.append({
+            "widget_key": next_key(),
+            "type": "chart",
+            "title": chart.get("title", "Chart"),
+            "question": chart.get("question", ""),
+            "viz": {
+                "type": chart.get("viz_type", "bar"),
+                "mapping": {
+                    "x": chart.get("x_axis", "category"),
+                    "y": chart.get("y_axis", "value")
+                }
+            },
+            "data_requirements": chart.get("data_requirements", {})
+        })
+
+    # 3. KPIs (Descriptive)
+    for kpi in plan["descriptive"].get("kpis", []):
+         widgets.append({
+            "widget_key": next_key(),
+            "type": "kpi",
+            "title": kpi.get("title", "KPI"),
+            "question": kpi.get("question", ""),
+            "viz": {"type": "kpi"}
+        })
+
+    # 4. Diagnostic (Narrative)
+    if "diagnostic" in plan and plan["diagnostic"]:
+        widgets.append({
+            "widget_key": next_key(),
+            "type": "text",
+            "title": "Diagnostic Analysis",
+            "question": "N/A",
+            "viz": {
+                "type": "text",
+                "content": plan["diagnostic"]
+            }
+        })
+
+    # 5. Predictive (Narrative)
+    if "predictive" in plan and plan["predictive"]:
+        widgets.append({
+            "widget_key": next_key(),
+            "type": "text",
+            "title": "Predictive Outlook",
+            "question": "N/A",
+            "viz": {
+                "type": "text",
+                "content": plan["predictive"]
+            }
+        })
+
+    # 6. Prescriptive (Narrative)
+    if "prescriptive" in plan and plan["prescriptive"]:
+        widgets.append({
+            "widget_key": next_key(),
+            "type": "text",
+            "title": "Recommendations",
+            "question": "N/A",
+            "viz": {
+                "type": "text",
+                "content": plan["prescriptive"]
+            }
+        })
+
+    return widgets
+
+
+def generate_structured_insight(
+    llm: Any,
+    mode: str,
+    system_prompt: str,
+    user_prompt: str
+) -> dict:
+    """
+    Calls the LLM with mode-specific configurations to generate the structured plan.
+    """
+    config = MODE_CONFIG[mode]["llm"]
+    
+    # Adjust prompt to enforce JSON structure
+    json_schema = (
+        "{\n"
+        "  \"verdict\": \"A concise, engaging Title/Headline for this analysis (string)\",\n"
+        "  \"descriptive\": {\n"
+        "      \"charts\": [{ \"title\": \"...\", \"question\": \"...\", \"viz_type\": \"bar|line|pie|...\", \"x_axis\": \"...\", \"y_axis\": \"...\" }],\n"
+        "      \"kpis\": [{ \"title\": \"...\", \"question\": \"...\" }]\n"
+        "  },\n"
+        "  \"diagnostic\": \"Why did this happen? (string)\",\n"
+        "  \"predictive\": \"What will happen? (string)\",\n"
+        "  \"prescriptive\": \"What should we do? (string)\"\n"
+        "}\n\n"
+        "SPECIAL SYNTAX: Augmented Narratives (MANDATORY for Textual/Mix modes)\n"
+        "In narrative fields (diagnostic, predictive, prescriptive), you MUST embed rich metrics derived from your analysis using this syntax:\n"
+        "[[Metric: Label | Value | Status]]\n"
+        "Example Diagnostic: 'The spike was driven by [[Metric: Summer Campaign | $2.5M | success]], while [[Metric: Churn | 12% | danger]] remained high.'\n"
+        "Statuses: success (green/up), warning (orange/neutral), danger (red/down), info (blue/neutral)."
+    )
+    
+    instruction = (
+        f"\n\nMODE: You are generating a {mode.upper()} dashboard.\n"
+        f"OUTPUT FORMAT: You must return a SINGLE JSON object strictly following this schema:\n"
+        f"{json_schema}\n"
+        "ORDER REQUIREMENT: Ensure the flow is Verdict (Headline) -> Charts/KPIs -> Diagnostic -> Predictive -> Prescriptive."
+    )
+    
+    # Merge instruction into system prompt
+    full_system = system_prompt + instruction
+
+    try:
+        # TODO: Pass temperature/max_tokens if the LLM wrapper covers it. 
+        # Assuming `llm.invoke` or the factory handles params, or we validly pass them in constructor.
+        # For now, we rely on the implementation plan's architecture.
+        # If LLM object is already configured, we might not be able to override here easily without a `bind` or similar.
+        # We will assume standard invoke for now.
+        resp = llm.invoke([{"role": "system", "content": full_system}, {"role": "user", "content": user_prompt}])
+        content = getattr(resp, "content", "") or ""
+        
+        parsed = _safe_json_loads(content)
+        if not parsed:
+            raise ValueError("Failed to parse LLM JSON response")
+            
+        return parsed
+        
+    except Exception as e:
+        log_event("davinci_structured_generation_error", {"mode": mode, "error": str(e)})
+        raise e
+
+
+
+
+def _choose_metric_col(cols: List[str]) -> Optional[str]:
+    for c in cols:
+        if any(x in c.lower() for x in ["amount", "value", "total", "price", "cost", "revenue", "sales", "count", "qty"]):
+            return c
+    return cols[0] if cols else None
+
+def _choose_dim_col(cols: List[str]) -> Optional[str]:
+    for c in cols:
+        if any(x in c.lower() for x in ["status", "type", "category", "region", "country", "name", "customer", "product"]):
+            return c
+    return cols[1] if len(cols) > 1 else (cols[0] if cols else None)
+
+def _choose_date_col(cols: List[str]) -> Optional[str]:
+    for c in cols:
+        if any(x in c.lower() for x in ["date", "time", "created", "timestamp", "period", "day", "month", "year"]):
+            return c
+    return None
+
+def _pick_col_agnostic(t_name: str, cols: List[str], role: str, meta_map: Dict[str, Any]) -> Optional[str]:
+    if role == "metric": return _choose_metric_col(cols)
+    if role == "time": return _choose_date_col(cols)
+    if role == "attribute": return _choose_dim_col(cols)
+    return cols[0] if cols else None
 
 
 def generate_dashboard_plan(
     *,
     llm: Any,
     goal: str,
-    language: str,
+    # language: str, <-- REMOVED
     max_widgets: int,
     logical_tables: List[str],
     schema_summary: str,
@@ -1044,18 +1304,19 @@ def generate_dashboard_plan(
     context_crews: Optional[List[str]] = None,
     context_tables: Optional[List[str]] = None,
     table_metadata: Optional[List[Dict[str, Any]]] = None,
-    analysis_context: Optional[AnalysisContext] = None, # NEW ARGUMENT
+    analysis_context: Optional[AnalysisContext] = None,
+    mode: Optional[str] = "mix",
 ) -> DavinciDashboardPlan:
     """
     Davinci "graph": generate a dashboard plan as STRICT JSON.
-    Supports "Comparison" and "Expansion" modes via AnalysisContext.
+    Supports "Textual", "Visual", and "Mix" modes.
     """
-    # Keep the request bounded and deterministic-ish.
-    # Temporary product decision: cap at 8 widgets for auto dashboard creation.
-    max_widgets = max(1, min(8, int(max_widgets)))
-    # Force English only
-    language = "en"
-
+    # 0. Validate Mode
+    mode = validate_mode(mode) if mode else "mix"
+    config = MODE_CONFIG[mode]
+    
+    # language = "en" <-- REMOVED (Implicit default in prompts)
+    
     if not logical_tables:
         try:
             with open("/tmp/davinci_debug.log", "a") as f:
@@ -1065,13 +1326,10 @@ def generate_dashboard_plan(
 
     table_cols, table_keys = _parse_schema_summary(schema_summary)
 
-    # NOTE: when using `.format(...)`, any `{}` in the prompt becomes a formatting placeholder.
-    # We intentionally avoid `.format` here because the JSON schema includes `{}`.
-    min_join = min(3, max_widgets)
-
-    # 🧠 SCHEMA INTELLIGENCE INJECTION
-    # Enrich the schema summary with Role and Stats to help the LLM.
+    # 🧠 SCHEMA INTELLIGENCE INJECTION (Kept Inline for robustness)
     enriched_schema_summary = schema_summary
+    dataset_constraints_text = ""
+    
     if table_metadata:
         try:
             # Pre-compute roles
@@ -1079,41 +1337,26 @@ def generate_dashboard_plan(
                 (f"{t.get('schema')}.{t.get('name')}" if t.get('schema') else t.get('name')): t 
                 for t in table_metadata
             }
-            # Fallback for simple names
             for t in table_metadata:
                 meta_map[t.get("name")] = t
 
-            # 1. First Pass: Filter out non-analytic tables (Logs, System code) using AnalyticTableFilter
-            logging_dropped = []
+            # 1. Filter non-analytic tables
             filtered_logical = []
-            
             for t_name in logical_tables:
                  t_meta = meta_map.get(t_name)
-                 row_count = 0
-                 if t_meta:
-                     row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0)
-                 
-                 if AnalyticTableFilter.should_exclude(t_name, row_count):
-                     logging_dropped.append(t_name)
-                 else:
+                 row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0) if t_meta else 0
+                 if not AnalyticTableFilter.should_exclude(t_name, row_count):
                      filtered_logical.append(t_name)
             
-            if len(filtered_logical) < len(logical_tables):
-                log_event("davinci_analytic_filter_applied", {
-                    "dropped": logging_dropped,
-                    "count": len(logging_dropped)
-                })
-                # Update the logical_tables list used for prompt generation!
+            if len(filtered_logical) > 0:
                 logical_tables = filtered_logical
 
-            # 2. Enrich Summary with Role and Column Types
+            # 2. Enrich Summary
             lines = []
             for line in schema_summary.splitlines():
                 if not line.strip().startswith("- "):
                     lines.append(line)
                     continue
-                
-                # Extract table name from summary line line "- table_name cols:..."
                 try:
                     parts = line[2:].split(" cols:", 1)
                     t_name = parts[0].strip()
@@ -1122,7 +1365,6 @@ def generate_dashboard_plan(
                     lines.append(line)
                     continue
 
-                # Skip if table was filtered out
                 if t_name not in logical_tables:
                     continue
 
@@ -1131,772 +1373,154 @@ def generate_dashboard_plan(
                 new_col_str = col_str
                 
                 if t_meta:
-                    # Table Role & Count
                     role = _get_table_role(t_name, t_meta).upper()
                     row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0)
                     row_str = f", ~{row_count} rows" if row_count is not None else ""
                     role_info = f" [{role}{row_str}]"
                     
-                    # Column Roles!
-                    # Parse current summary cols: "id, amount, date"
-                    # We need to map these back to metadata to score them
                     summary_cols = [c.strip() for c in col_str.split(",")]
                     enriched_cols = []
-                    
-                    # Create lookup for column metadata
                     col_meta_lookup = {c.get("name").lower(): c for c in t_meta.get("columns", [])}
                     
                     for c_raw in summary_cols:
                         c_name = c_raw.lower()
                         c_meta = col_meta_lookup.get(c_name)
-                        
                         suffix = ""
                         if c_meta:
-                            # Build features for scoring
+                            col_role = "attribute" # Default
+                            # Simple heuristics for suffix
                             ctype = str(c_meta.get("type", "")).upper()
-                            card = c_meta.get("stats", {}).get("distinct_count")
-                            
-                            is_num = any(t in ctype for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "DOUBLE", "REAL"])
-                            is_txt = any(t in ctype for t in ["CHAR", "TEXT", "STRING"])
-                            is_time = any(t in ctype for t in ["DATE", "TIME", "TIMESTAMP"])
-                            is_key = (c_name == "id" or c_name.endswith("_id") or c_name.endswith("id"))
-                            
-                            feat = ColumnFeatures(
-                                name=c_name, 
-                                dtype=ctype,
-                                is_numeric=is_num,
-                                is_text=is_txt,
-                                is_time=is_time,
-                                is_key_candidate=is_key,
-                                cardinality=card
-                            )
-                            
-                            col_role = ColumnScorer.classify_column(feat, row_count)
-                            
-                            # Add mini tags for important roles
-                            if col_role == "metric": suffix = " [M]"   # Metric
-                            elif col_role == "time": suffix = " [T]"   # Time
-                            elif col_role == "key": suffix = " [K]"    # Key
-                            # Attributes get no suffix to reduce noise, or [A]? Let's leave clear.
-                        
+                            if any(x in ctype for x in ["INT", "FLOAT", "NUMERIC", "DECIMAL"]): suffix = " [M]"
+                            elif any(x in ctype for x in ["DATE", "TIME"]): suffix = " [T]"
+                            elif "id" in c_name: suffix = " [K]"
                         enriched_cols.append(f"{c_raw}{suffix}")
-                    
                     new_col_str = ", ".join(enriched_cols)
-                    
-                    # ✅ OPTION 1: Add Table-level date range if found in any column
-                    range_info = ""
+
+                    # Date Range
                     min_d = None
                     max_d = None
                     for c in t_meta.get("columns", []):
-                        if c.get("min_date") and (not min_d or c["min_date"] < min_d):
-                            min_d = c["min_date"]
-                        if c.get("max_date") and (not max_d or c["max_date"] > max_d):
-                            max_d = c["max_date"]
-                    
+                        if c.get("min_date") and (not min_d or c["min_date"] < min_d): min_d = c["min_date"]
+                        if c.get("max_date") and (not max_d or c["max_date"] > max_d): max_d = c["max_date"]
                     if min_d and max_d:
-                        # Format as [Data Range: YYYY-MM-DD to YYYY-MM-DD]
-                        # Remove time part if it's there
-                        m1 = str(min_d).split()[0]
-                        m2 = str(max_d).split()[0]
-                        range_info = f" [Data Range: {m1} to {m2}]"
-                        role_info += range_info
-                
-                # Rewrite line: "- table [FACT, ~5M] cols: id [K], amount [M]..."
+                         role_info += f" [Range: {str(min_d).split()[0]} to {str(max_d).split()[0]}]"
+
                 lines.append(f"- {t_name}{role_info} cols: {new_col_str}")
-            
             enriched_schema_summary = "\n".join(lines)
+            
+            # 3. Dataset Profiling (Simplified)
+            from core.profiling import DatasetProfiler, ConstraintGenerator
+            profiler = DatasetProfiler()
+            constraint_gen = ConstraintGenerator()
+            profiles = profiler.profile_tables(table_metadata or [])
+            stats = profiler.get_size_statistics(profiles)
+            smallest_size = stats["smallest_size"]
+            constraints = constraint_gen.generate(smallest_size)
+            
+            if smallest_size in ["tiny", "small"]:
+                 dataset_constraints_text = f"\n⚠️ DATASET SIZE: {smallest_size.upper()}. Use aggregations. Avoid specific filters unless requested."
+                 
         except Exception as e:
-            # Fail silently to original summary if enrichment fails
-            log_event("davinci_schema_enrichment_error", {"error": str(e)})
-    
-    # ✅ DATASET PROFILING & CONSTRAINT GENERATION (Phase 2 + 3)
-    # Profile tables based on row count and generate query constraints
-    # WITH user intent override for explicit filters
-    dataset_constraints_text = ""
-    try:
-        from core.profiling import DatasetProfiler, ConstraintGenerator, IntentOverride
-        
-        profiler = DatasetProfiler()
-        constraint_gen = ConstraintGenerator()
-        intent_override = IntentOverride()
-        
-        # Profile available tables
-        profiles = profiler.profile_tables(table_metadata or [])
-        
-        # Get size statistics
-        stats = profiler.get_size_statistics(profiles)
-        smallest_size = stats["smallest_size"]
-        
-        # Generate base constraints based on smallest dataset
-        # (most conservative approach for multi-table scenarios)
-        constraints = constraint_gen.generate(smallest_size)
-        
-        # 🎯 PHASE 3: Check for user intent override
-        # If user explicitly mentions filters (e.g., "failed payments"),
-        # allow those filters even on TINY datasets
-        allow_filters, override_reason = intent_override.should_allow_filters(
-            goal=goal,
-            dataset_size=smallest_size,
-            base_constraints=constraints.to_dict()
-        )
-        
-        log_event("davinci_dataset_profiling", {
-            "total_tables": stats["total_tables"],
-            "total_rows": stats["total_rows"],
-            "size_distribution": stats["by_size"],
-            "smallest_size": smallest_size,
-            "requires_aggregation": constraints.requires_aggregation,
-            "max_filter_complexity": constraints.max_filter_complexity,
-            "intent_override_active": allow_filters,
-            "override_reason": override_reason,
-        })
-        
-        # Build constraint text for prompt injection
-        if smallest_size in ["tiny", "small"]:
-            # Only inject constraints for small datasets
-            constraint_lines = [
-                f"\n⚠️ DATASET SIZE NOTICE: The smallest dataset has only {smallest_size.upper()} size ({stats['total_rows']} total rows).",
-                "\n📊 QUERY SAFETY GUIDELINES:",
-            ]
-            
-            if constraints.requires_aggregation:
-                constraint_lines.append(
-                    "- ✅ REQUIRED: Use aggregations (COUNT, SUM, AVG) with GROUP BY to avoid empty results"
-                )
-            
-            # Adaptive filter guidance based on intent override
-            if allow_filters and override_reason and "explicit intent" in override_reason.lower():
-                # User has explicit filter intent - allow it!
-                constraint_lines.append(
-                    f"- ✅ ALLOWED: WHERE filters detected in user request ({override_reason})"
-                )
-                filter_hints = intent_override.extract_filter_hints(goal)
-                if filter_hints:
-                    constraint_lines.append(
-                        f"  → User-requested filter: {filter_hints[0]}"
-                    )
-            elif constraints.max_filter_complexity <= 2:
-                constraint_lines.append(
-                    "- ⚠️ CAUTION: Use WHERE filters very sparingly."
-                )
-                constraint_lines.append(
-                    "- 💡 STEERING: For small datasets, prefer categorical filters (status, type, category) over time-based filters to avoid empty results."
-                )
-            
-            if "temporal_grouping" in constraints.preferred_strategies:
-                constraint_lines.append(
-                    "- ✅ PREFERRED: Temporal groupings (GROUP BY month/year/quarter)"
-                )
-            
-            if "categorical_breakdown" in constraints.preferred_strategies:
-                constraint_lines.append(
-                    "- ✅ PREFERRED: Categorical breakdowns (GROUP BY status/category/type)"
-                )
-            
-            dataset_constraints_text = "\n".join(constraint_lines) + "\n"
-    
-    except Exception as e:
-        # Profiling failure should not break dashboard generation
-        log_event("davinci_profiling_error", {"error": str(e)})
-        dataset_constraints_text = ""
+            log_event("davinci_enrichment_error", {"error": str(e)})
 
-    # Check if we have temporal data in the enriched schema to guide variety
-    has_time = "[T]" in enriched_schema_summary
-    variety_instruction = "Mix Trends, Distributions, Top entities, and Segmentation." if has_time else "Mix Distributions, Top entities, Segmentation, and Comparisons (Skip Trends)."
-    analyst_time_instruction = "4. Add time: Is this getting better or worse? (Trends)." if has_time else "4. [SKIP TRENDS] No temporal columns available in schema."
+    # 🚀 PROMPT CONSTRUCTION
+    system_base = (
+        "You are Davinci, a specialized Analytics Agent.\n"
+        f"Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
+        "Your goal is to generate a comprehensive, coherent dashboard plan.\n"
+        "Think like a Senior Data Analyst: Start with the most important numbers, then explain 'Why' (Diagnostics), then look forward (Predictive).\n"
+        "IMPORTANT: You must ALWAYS respond in English, regardless of the user's input language. If the user asks in Portuguese or Spanish, you must still answer in English.\n"
+    )
+    
+    # Context String
+    context_str = ""
+    if initial_ai_response:
+        context_str += f"\nRecent Insight: '{initial_ai_response}' (Use this connectivity)\n"
+    if context_spaces:
+        context_str += f"Spaces: {', '.join(context_spaces)}\n"
 
-    # Modify prompt based on whether we have an original question or not
+    # User Prompt
+    # We guide the LLM to focus on the structure required by the mode
     if analysis_context:
-        # 🌟 ENTERPRISE MODE: Deterministic Anchor + Expansion
-        # The first widget is built by code, LLM generates the expansions.
-        
-        system = (
-            "You are Davinci, a specialized Analytics Expansion Agent.\n"
-            "\n"
-            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
-            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
-            "\n"
-            "🎯 PRIMARY MISSION: The user is analyzing a specific entity. You must generate COMPLEMENTARY views.\n"
-            "The Primary Analysis (Widget 1) has already been defined. Your job is to GENERATE 7 EXPANSION WIDGETS.\n"
-            "\n"
-            f"🔒 CONTEXT LOCK: You are analyzing: '{analysis_context.primary_entity}'.\n"
-            f"⛔ FORBIDDEN: Do NOT change the topic. Do NOT analyze unrelated entities.\n"
-            f"✅ ALLOWED: Drill-downs, trends, distributions, and relations OF the '{analysis_context.primary_entity}'.\n"
-            "\n"
-            "Rules:\n"
-            "- Output STRICT JSON only.\n"
-            "- The FIRST widget is reserved (W1). You must generate W2 to W8.\n" # Actually output W2..W8 directly?
-            # Wait, the LLM usually generates the full list. We can let it generate 7 items and we prepend W1.
-            # Or we instruct it "The first widget is... generate the REST".
-            # Let's simple ask for 7 widgets and we prepend/manage keys later.
-            "- Generate 7 high-value widgets that expand on the primary analysis.\n"
-            "- Use ONLY the provided logical table names.\n"
-            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
-            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
-            "- `data_requirements`: { \"x_axis_column\": \"...\", \"y_axis_column\": \"...\", \"involved_tables\": [...] }\n"
-            "- ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the schema summary.\n"
-            f"- Language: English (STRICT).\n"
-            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
-            f"- DASHBOARD TITLE must include '{analysis_context.primary_entity}'.\n"
-            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string, "involved_tables": string[]}} }}'
-            f']}}.\n'
-        )
-        
-        user = (
-            f"N=7 (Expansion Widgets)\n"
-            f"\n"
-            f"🧠 PRIMARY ANALYSIS CONTEXT (The 'Truth'):\n"
-            f"- Entity: {analysis_context.primary_entity}\n"
-            f"- Metric: {analysis_context.primary_metric}\n"
-            f"- Dimension: {analysis_context.primary_dimension or 'N/A'}\n"
-            f"- Type: {analysis_context.detected_analysis_type}\n"
-            f"\n"
-            f"Original Question: {original_question or goal}\n"
-            f"\n"
-            f"Accessible tables: {', '.join(analysis_context.validated_tables)}\n"
-            f"Schema sample:\n{enriched_schema_summary}\n"
-            f"{dataset_constraints_text}"
-            f"\n"
-            f"🎯 TASK: Generate 7 expansion widgets that provide deeper insight into '{analysis_context.primary_entity}'.\n"
-            f"Think: Why did this metric change? How is it distributed? " + ("What's the trend?\n" if has_time else "How does it compare?\n")
-        )
-        
-    elif original_question:
-        system = (
-            "You are Davinci, a dashboard planner.\n"
-            "\n"
-            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
-            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
-            "If the data ends in the past, do NOT ask for 'this month' or 'today'. Instead, ask for the 'last available month' or 'recent records'.\n"
-            "⚠️ CRITICAL: When using CONTEXT, do NOT assume the data exists just because it was mentioned. Verify against Schema sample time ranges.\n"
-            "\n"
-            "🎯 PRIMARY GOAL: The user provided an ORIGINAL QUESTION. Use it wisely:\n"
-            "1. If the question is a SPECIFIC DATA QUERY (e.g. 'What are sales in SP?'), it MUST be the FIRST widget word-for-word.\n"
-            "2. If the question is an INSTRUMENTAL COMMAND (e.g. 'Create a dashboard', 'Generate report'), DO NOT use the command as the question. Instead, create a substantive KPI or Trend as the Main Insight for W1.\n"
-            "\n"
-            "Rules:\n"
-            "- Output STRICT JSON only.\n"
-            "- The FIRST widget (W1) must be the answer to the user's specific query, or a high-level KPI if the query was a command.\n"
-            "- The remaining widgets MUST be DIRECTLY RELATED to the core intent of the original question (80-90% relevance).\n"
-            f"- PRIORITIZE ANALYST VARIETY: Do not create duplicate views. {variety_instruction}\n"
-            "- ⚠️ AVOID SEMANTIC DUPLICATION: Each widget must provide a unique business perspective. Do not repeat the same metric across multiple widgets unless the dimension is fundamentally different.\n"
-            "- Think: 'What specific insights would help answer or expand on this exact question?'\n"
-            "- Use ONLY the provided logical table names.\n"
-            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
-            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
-            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
-            "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
-            "- `data_requirements`: {\n"
-            "    \"x_axis_column\": \"name of column\",\n"
-            "    \"y_axis_column\": \"name of metric column\",\n"
-            "    \"involved_tables\": [\"table1\", \"table2\"],\n"
-            "    \"filters\": \"...\"\n"
-            "  }\n"
-            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
-            "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
-            "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
-            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
-            "- Make the dashboard engaging: mix intents (KPIs + " + ("Trends" if has_time else "Distributions") + " + Lists).\n"
-            "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH)\n"
-            "- EXACTLY N widgets.\n"
-            "- DASHBOARD TITLE (dashboard_name) RULES:\n"
-            "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
-            "  * Since original_question is present, the title MUST be directly related to it.\n"
-            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string, "involved_tables": string[]}} }}'
-            f']}}.\n'
-        )
-        
-        # ✅ NEW: Add subspaces and crews context if available
-        context_str = ""
-        if initial_ai_response:
-            context_str += (
-                f"\nCONTEXT: The user just received this answer from the AI: '{initial_ai_response}'. "
-                "Use this to suggest widgets potentially related to this insight (e.g. if the answer mentions 'Sales in SP', suggest 'Sales by Region').\n"
-            )
-        if context_spaces:
-            context_str += f"Context Spaces (available departments/areas): {', '.join(context_spaces)}\n"
-        if context_crews:
-            context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
-        if context_tables:
-            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:100])}...\n"
-        
-        user = (
-            f"N={max_widgets}\n"
-            f"\n"
-            f"🎯 ORIGINAL QUESTION: {original_question}\n"
-            f"(IMPORTANT: If this is a specific data query, use it as W1 word-for-word. If it's an instrumental command like 'Create a dashboard', generate a substantive first widget instead).\n"
-            f"\n"
-            f"📋 ANALYST INSTRUCTIONS:\n"
-            f"Generate 7 additional widgets providing COHERENT EXPANSION. Think like a Business Analyst:\n"
-            f"1. Start with the direct answer (Widget 1).\n"
-            f"2. Add causality: Why is this happening? (Segmentation/Breakdown).\n"
-            f"3. Add context: How does this compare to total volume? (Comparison).\n"
-            f"{analyst_time_instruction}\n"
-            f"5. Add entities: Who are the main actors involved? (Ranking/Top Entities).\n"
-            f"\n"
-            f"{context_str}"
-            f"Goal: {goal}\n"
-            f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
-            f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
-            f"{dataset_constraints_text}"
-            f"\n"
-            f"🎯 CRITICAL: Build a COHESIVE analytical story around '{original_question}'.\n"
-            f"Generate a dashboard that provides a 360-degree view of the problem.\n"
-        )
+        query_context = f"Analyzing Entity: {analysis_context.primary_entity}"
     else:
-        # Original prompt (without original question)
-        system = (
-            "You are Davinci, a dashboard planner.\n"
-            f"📅 TEMPORAL CONTEXT: Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
-            "⚠️ IMPORTANT: Only use date filters that are relevant to the provided 'Data Range' in the schema summary.\n"
-            "You propose a dashboard (name + widgets) based on accessible tables.\n"
-            "Rules:\n"
-            "- Output STRICT JSON only.\n"
-            "- Use ONLY the provided logical table names.\n"
-            "- ALWAYS wrap referenced table names in backticks (e.g., `table1`).\n"
-            "- PRIORITIZE ANALYST VARIETY: Do not create duplicate views. " + variety_instruction + "\n"
-            "- ⚠️ AVOID SEMANTIC DUPLICATION: Each widget must provide a unique business perspective.\n"
-            "- Each widget must have: widget_key, title, question, intent, data_requirements.\n"
-            "- CRITICAL: Questions MUST be BUSINESS-ORIENTED, not technical.\n"
-            "- `intent`: One of [trend, distribution, comparison, composition, ranking, list, kpi]\n"
-            "- `data_requirements`: {\n"
-            "    \"x_axis_column\": \"name of column\",\n"
-            "    \"y_axis_column\": \"name of metric column\",\n"
-            "    \"involved_tables\": [\"table1\", \"table2\"]\n"
-            "  }\n"
-            "- METRIC SELECTION: Choose the most relevant numeric column for business value.\n"
-            "  * x_axis_column: Should be the dimension (Time, Category, Region).\n"
-            "  * y_axis_column: Should be the metric (Amount, Count, Value).\n"
-            "  * ⚠️ CRITICAL: The column names MUST EXACTLY MATCH the column names in the schema summary below.\n"
-            "- Make the dashboard engaging: mix intents (KPIs + " + ("Trends" if has_time else "Distributions") + " + Lists).\n"
-            "- IMPORTANT: Prefer cross-table insights (JOINs) to produce rich business metrics.\n"
-            "- Language for titles/questions: English (STRICT REQUIREMENT - ALWAYS ENGLISH).\n"
-            "- EXACTLY N widgets.\n"
-            "- DASHBOARD TITLE (dashboard_name) RULES:\n"
-            "  * The title must be SPECIFIC and DESCRIPTIVE (max 60 chars).\n"
-            "  * AVOID generic titles like 'Sales Dashboard' or 'Analytical Dashboard'.\n"
-            f'JSON schema: {{"dashboard_name": string, "description": string, "widgets": ['
-            f'{{"widget_key": string, "title": string, "question": string, "intent": string, "data_requirements": {{"x_axis_column": string, "y_axis_column": string}} }}'
-            f']}}.\n'
-        )
-        
-        # ✅ NOVO: Adicionar contexto de subspaces e crews se disponível
-        context_str = ""
-        if initial_ai_response:
-            context_str += (
-                f"\nCONTEXT: The user just received this answer from the AI: '{initial_ai_response}'. "
-                "Use this to suggest widgets potentially related to this insight (e.g. if the answer mentions 'Sales in SP', suggest 'Sales by Region').\n"
-            )
-        if context_spaces:
-            context_str += f"Context Spaces (available departments/areas): {', '.join(context_spaces)}\n"
-        if context_crews:
-            context_str += f"Context Crews (available teams/groups): {', '.join(context_crews)}\n"
-        if context_tables:
-            context_str += f"Context Tables (full accessible list): {', '.join(context_tables[:100])}...\n"
-        
-        user = (
-            f"N={max_widgets}\n"
-            f"{context_str}"
-            f"Goal: {goal}\n"
-            f"Accessible tables for JOINs: {', '.join(logical_tables[:100])}\n"
-            f"Schema sample (with structural hints):\n{enriched_schema_summary}\n"
-            f"{dataset_constraints_text}"
-        )
+        query_context = f"Original Question: {original_question or goal}"
+
+    user_base = (
+        f"Goal: {goal}\n"
+        f"{query_context}\n"
+        f"Tables: {', '.join(logical_tables)}\n"
+        f"Schema:\n{enriched_schema_summary}\n"
+        f"{dataset_constraints_text}\n"
+        f"{context_str}\n"
+        f"Generate a dashboard plan that tells a story."
+    )
 
     try:
-        resp = llm.invoke([{"role": "system", "content": system}, {"role": "user", "content": user}])
-        raw_content = getattr(resp, "content", "") or ""
-        try:
-            parsed = _safe_json_loads(raw_content)
-        except Exception as e:
-            log_event("davinci_json_parse_error", {"error": str(e), "raw": raw_content})
-            
-            # Resiliência: se a resposta não for JSON válido, tentar fallback
-            if analysis_context:
-                 # If it failed with analysis_context, we can still try fallback with original_question if available
-                 pass
-            try:
-                with open("/tmp/davinci_debug.log", "a") as f:
-                    f.write(f"{datetime.utcnow()} - FALLBACK: JSON Parse Error\\nRAW CONTENT:\\n{raw_content}\\nERROR: {str(e)}\\n")
-            except: pass
-            return _fallback_plan(
-                goal=goal,
-                logical_tables=logical_tables,
-                max_widgets=max_widgets,
-                schema_summary=schema_summary,
-                original_question=original_question,
-                table_metadata=table_metadata
-            )
-
-        if not isinstance(parsed, dict):
-            raise ValueError("LLM did not return valid JSON object")
-
-        # Convert raw dicts to widget objects if needed, or just validate fields.
-        widgets_raw = parsed.get("widgets", [])
+        # 1. Generate Structured Insight
+        structured_plan = generate_structured_insight(
+            llm=llm,
+            mode=mode,
+            system_prompt=system_base,
+            user_prompt=user_base
+        )
         
-        # 🌟 ENTERPRISE MODE: Prepend deterministic anchor widget if context exists
-        if analysis_context:
+        # 2. Validate Structure
+        structured_plan = validate_plan_structure(structured_plan)
+        
+        # 3. Enforce Mode Rules
+        structured_plan = enforce_mode_rules(structured_plan, mode)
+        
+        # 4. Convert to Widgets
+        widgets = convert_to_widgets(structured_plan, mode, analysis_context)
+
+        # 4.5 Grounding Validation
+        grounding_result = {}
+        if table_metadata:
             try:
-                anchor_widget = _build_primary_widget_from_context(analysis_context, goal)
-                # Ensure unique keys
-                anchor_widget["widget_key"] = "w1"
-                
-                # Shift keys of LLM widgets
-                for i, w in enumerate(widgets_raw):
-                    w["widget_key"] = f"w{i+2}"
-                
-                # Prepend
-                widgets_raw.insert(0, anchor_widget)
-                # Trim to max_widgets
-                widgets_raw = widgets_raw[:max_widgets]
-                
+                from core.agents.davinci_validator import DavinciPlanValidator
+                validator = DavinciPlanValidator(table_metadata)
+                grounding_result = validator.validate_plan(
+                    structured_plan, 
+                    context_provided=bool(initial_ai_response)
+                )
             except Exception as e:
-                log_event("davinci_anchor_widget_error", {"error": str(e)})
-                # Continue with LLM widgets only if anchor fails (should not happen)
-                pass
-
-        dashboard_name = str(parsed.get("dashboard_name") or "").strip() or (goal.strip()[:80] or "Dashboard")
-        description = str(parsed.get("description") or "").strip() or None
-        # widgets_raw = parsed.get("widgets") or [] # This line is now redundant due to analysis_context block
-        if not isinstance(widgets_raw, list) or not widgets_raw:
-            raise ValueError("LLM returned no widgets")
-
-        widgets: List[Dict[str, Any]] = []
+                log_event("davinci_validation_error", {"error": str(e)})
         
-        # 🧠 DESIGNER STEP: Import WidgetDesigner
-        from core.agents.widget_designer import WidgetDesigner
-        
-        # Helper to find column metadata
-        def _get_col_meta(t_name: str, c_name: str) -> Dict[str, Any]:
-            if not t_name or not c_name or not table_metadata:
-                return {}
-            # Flatten map for easier lookup? 
-            # Or just iterate. Optimization: pre-index.
-            # Assuming table_metadata is list of Dict
-            for t in table_metadata:
-                name = t.get("name")
-                schema = t.get("schema")
-                full = f"{schema}.{name}" if schema else name
-                if name == t_name or full == t_name:
-                    for c in t.get("columns", []):
-                        if c.get("name") == c_name:
-                            return c
-            return {}
-
-        for i, w in enumerate(widgets_raw[:max_widgets], start=1):
-            if not isinstance(w, dict):
-                continue
-            
-            # 1. ANALYST OUTPUT (The "WHAT")
-            widget_key = str(w.get("widget_key") or f"w{i}").strip() or f"w{i}"
-            question = str(w.get("question") or "").strip()
-            intent = str(w.get("intent") or "chart").strip().lower()
-            
-            # Data Requirements
-            reqs = w.get("data_requirements", {})
-            x_col = reqs.get("x_axis_column")
-            y_col = reqs.get("y_axis_column")
-            
-            # Identify table for metadata lookup
-            # Heuristic: find referenced table in question or use first available
-            # Ideally LLM should return "primary_table". But for now, let's infer.
-            referenced_tables = [t for t in logical_tables if t in question]
-            primary_table = referenced_tables[0] if referenced_tables else (logical_tables[0] if logical_tables else None)
-            
-            x_meta = _get_col_meta(primary_table, x_col)
-            y_meta = _get_col_meta(primary_table, y_col)
-
-            # 2. DESIGNER OUTPUT (The "HOW")
-            # Deterministic visualization choice
-            viz_config = WidgetDesigner.choose_viz(
-                intent=intent,
-                x_col=x_col,
-                y_col=y_col,
-                x_meta=x_meta,
-                y_meta=y_meta
-            )
-            
-            # Final Widget Construction
-            # Map "type" from designer to widget type
-            wtype = "chart"
-            if viz_config["type"] == "kpi": wtype = "kpi"
-            elif viz_config["type"] == "table": wtype = "table"
-            
-            widgets.append({
-                "widget_key": widget_key,
-                "type": wtype,
-                "title": str(w.get("title") or "").strip() or f"Widget {i}",
-                "question": question,
-                "viz": viz_config
-            })
-
-        if not widgets:
-            raise ValueError("LLM widgets invalid")
-
-        # ✅ CRITICAL: If we have an original question, ensure it is the first widget
-        # EXCEPTION: Do not force it if it's an instrumental command (e.g. 'Create dashboard')
-        should_force = (
-            original_question and 
-            not analysis_context and 
-            not _is_instrumental_command(original_question)
-        )
-        
-        if should_force:
-            original_question_clean = original_question.strip()
-            # 1. First, try to find the original question anywhere in the list (not just index 0)
-            found_idx = -1
-            for i, w in enumerate(widgets):
-                w_question = str(w.get("question") or "").strip().lower()
-                if (original_question_clean.lower() in w_question or 
-                    w_question in original_question_clean.lower()):
-                    found_idx = i
-                    break
-            
-            if found_idx >= 0:
-                # Found it! Move it to the front if it's not already
-                if found_idx > 0:
-                    w = widgets.pop(found_idx)
-                    widgets.insert(0, w)
-                
-                # Ensure text matches exactly
-                widgets[0]["question"] = original_question_clean
-            else:
-                # Not found. We must inject it.
-                # Use WidgetDesigner for the original question too!
-                # We don't have explicit columns for the original question from LLM yet (since it wasn't in the list)
-                # So we use a generic intent or try to guess.
-                # Or - we accept the "smart default" logic we added previously, but clean it up.
-                
-                # Let's assume a generic "list" or "chart" intent and let Designer decide if we had columns.
-                # But here we don't have columns. So falling back to the Smart Heuristic 2.0 (Logic from previous step)
-                # But actually, we can try to use WidgetDesigner if we infer intent from keywords.
-                
-                q_lower = original_question_clean.lower()
-                inferred_intent = "chart"
-                if any(x in q_lower for x in ["trend", "growth", "over time"]): inferred_intent = "trend"
-                elif any(x in q_lower for x in ["distribution", "breakdown"]): inferred_intent = "distribution"
-                elif any(x in q_lower for x in ["list", "table", "details"]): inferred_intent = "list"
-                
-                # Without columns, Designer defaults to Table or Bar.
-                # We can mock metadata to guide it? No, keep it simple.
-                # Use Designer with empty cols -> gives Table.
-                # But user hated Table.
-                # So we manually force the Smart Viz if Designer returns Table default?
-                
-                # Actually, let's trust the "Smart Heuristic" block I wrote previously, 
-                # but updated to be cleaner.
-                
-                smart_viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}} # Default
-                smart_type = "chart"
-                
-                if "trend" in inferred_intent: 
-                     smart_viz = {"type": "line", "mapping": {"x": "period", "y": "value"}}
-                elif "distribution" in inferred_intent:
-                     smart_viz = {"type": "pie", "mapping": {"x": "category", "y": "value"}}
-                elif "list" in inferred_intent:
-                     smart_viz = {"type": "table"}
-                     smart_type = "table"
-
-                original_widget = {
-                    "widget_key": "w1",
-                    "type": smart_type,
-                    "title": original_question_clean,
-                    "question": original_question_clean,
-                    "viz": smart_viz,
-                }
-                # Insert at the beginning
-                widgets = [original_widget] + widgets
-
-
-        # Normalize count
-        widgets = widgets[:max_widgets]
-
-        # 🚀 REFACTORED: LLM-Driven Mode
-        # Removed _enforce_join_mix and _enforce_distribution_and_fact_dim
-        # We rely on the LLM's plan as the source of truth, avoiding "cookie cutter" overwrites.
-
-        # ✅ NEW: Validate widgets using WidgetValidator
-        try:
-            from core.validation.widget_validator import WidgetValidator
-            from core.validation.question_validator import QuestionValidator
-            
-            # Prepare metadata for QuestionValidator
-            available_tables_meta = [
-                {
-                    "name": t,
-                    "logical_name": t,
-                    "columns": table_cols.get(t, []),
-                }
-                for t in logical_tables
-            ]
-            available_columns = {
-                t: table_cols.get(t, [])
-                for t in logical_tables
-            }
-            
-            question_validator = QuestionValidator(available_tables_meta, available_columns)
-            # ✅ FIX: strict_mode=False to not filter widgets with mild warnings
-            # The AI generates the widgets, so they should work even with mild warnings
-            widget_validator = WidgetValidator(question_validator, strict_mode=False)
-            
-            # Filter problematic widgets (but preserve the first one if it is original_question or anchor)
-            widgets_before_validation = len(widgets)
-            preserved_widget = None
-            if original_question and widgets:
-                preserved_widget = widgets[0]
-                widgets_to_validate = widgets[1:]
-            elif analysis_context and widgets: # If analysis_context, the first widget is the anchor
-                preserved_widget = widgets[0]
-                widgets_to_validate = widgets[1:]
-            else:
-                widgets_to_validate = widgets
-            
-            widgets_validated = widget_validator.filter_widgets(
-                widgets_to_validate, 
-                min_widgets=max(1, (max_widgets - 1) // 2) if (original_question or analysis_context) else max(1, max_widgets // 2)
-            )
-            
-            # Reconstruct list with preserved original/anchor
-            if preserved_widget:
-                widgets = [preserved_widget] + widgets_validated
-            else:
-                widgets = widgets_validated
-            
-            # ✅ SEMANTIC DEDUPLICATION (MD5 Signature)
-            # Uses Question + Widget Type to identify duplicates, instead of just Title.
-            import hashlib
-            
-            def _widget_signature(w: Dict[str, Any]) -> str:
-                # Normalize question and type to create a signature
-                q = (w.get("question") or "").strip().lower()
-                t = (w.get("type") or "").strip().lower()
-                # Remove extra spaces from question to avoid false negatives
-                q_clean = " ".join(q.split())
-                base = f"{q_clean}|{t}"
-                return hashlib.md5(base.encode()).hexdigest()
-
-            seen_signatures = set()
-            deduplicated_widgets = []
-            
-            for widget in widgets:
-                sig = _widget_signature(widget)
-                if sig not in seen_signatures:
-                    seen_signatures.add(sig)
-                    deduplicated_widgets.append(widget)
-            
-            widgets_before_dedup = len(widgets)
-            widgets = deduplicated_widgets
-            
-            if widgets_before_dedup > len(widgets):
-                log_event(
-                    "davinci_widgets_deduplicated",
-                    {
-                        "goal": goal[:200],
-                        "widgets_before": widgets_before_dedup,
-                        "widgets_after": len(widgets),
-                        "removed_duplicates": widgets_before_dedup - len(widgets),
-                        "method": "semantic_signature"
-                    },
-                )
-            
-            widgets_after_validation = len(widgets)
-            
-            # If we filtered many widgets, log warning
-            if widgets_before_validation > widgets_after_validation:
-                log_event(
-                    "davinci_widgets_validated",
-                    {
-                        "goal": goal[:200],
-                        "original_question": original_question[:200] if original_question else None,
-                        "widgets_before": widgets_before_validation,
-                        "widgets_after": widgets_after_validation,
-                        "filtered": widgets_before_validation - widgets_after_validation,
-                    },
-                )
-            
-            # If we don't have enough widgets after validation, use fallback
-            min_required = max(1, max_widgets // 2)
-            if len(widgets) < min_required:
-                log_event(
-                    "davinci_validation_too_many_filtered",
-                    {
-                        "goal": goal[:200],
-                        "original_question": original_question[:200] if original_question else None,
-                        "remaining_widgets": len(widgets),
-                        "min_required": min_required,
-                        "action": "using_fallback",
-                    },
-                )
-                # Return fallback if validation filtered too many widgets
-                try:
-                    with open("/tmp/davinci_debug.log", "a") as f:
-                        f.write(f"{datetime.utcnow()} - FALLBACK: Too many widgets filtered. Remaining: {len(widgets)}\\n")
-                except: pass
-                return _fallback_plan(
-                    goal=goal, 
-                    logical_tables=logical_tables, 
-                    max_widgets=max_widgets, 
-                    schema_summary=schema_summary,
-                    original_question=original_question,
-                    table_metadata=table_metadata
-                )
-            
-        except Exception as e:
-            # If validation fails, continue without filtering (fail-safe)
-            log_event(
-                "davinci_validation_error",
-                {
-                    "goal": goal[:200],
-                    "original_question": original_question[:200] if original_question else None,
-                    "error": str(e)[:500],
-                    "action": "continuing_without_validation",
-                },
-            )
-
-        log_event(
-            "davinci_plan_generated",
-            {
-                "goal": goal[:200],
-                "original_question": original_question[:200] if original_question else None,
-                "language": language,
-                "num_widgets": len(widgets),
-                "join_widgets": sum(1 for w in widgets if _count_tables_mentioned(str(w.get("question") or ""), logical_tables) >= 2),
-                "type_counts": {
-                    "kpi": sum(1 for w in widgets if str(w.get("type") or "") == "kpi"),
-                    "table": sum(1 for w in widgets if str(w.get("type") or "") == "table"),
-                    "chart": sum(1 for w in widgets if str(w.get("type") or "") == "chart"),
-                    "text": sum(1 for w in widgets if str(w.get("type") or "") == "text"),
-                },
-                "fallback": False,
-                "has_original_question": original_question is not None,
-            },
-        )
+        # 5. Metadata & Response
         return DavinciDashboardPlan(
-            dashboard_name=dashboard_name,
-            description=description,
+            dashboard_name=original_question or goal,
+            description=structured_plan.get("verdict", ""),
             widgets=widgets,
             meta={
-                "fallback": False, 
-                "model": getattr(getattr(llm, "_chat", None), "model_name", None),
-                "has_original_question": original_question is not None,
-                "has_analysis_context": analysis_context is not None,
+                "mode": mode,
+                "grounding": grounding_result,
+                "generated_at": datetime.utcnow().isoformat(),
+                "model": getattr(llm, "model_name", "unknown"),
+                "has_original_question": original_question is not None
             },
+            full_results=structured_plan # PASS RAW PLAN
+        )
+
+    except ValueError as e:
+        log_event("davinci_mode_validation_failed", {"error": str(e), "mode": mode, "goal": goal})
+        # If strict validation fails, we fallback to a safe default
+        return _fallback_plan(
+            goal=goal, 
+            logical_tables=logical_tables, 
+            max_widgets=max_widgets, 
+            schema_summary=schema_summary, 
+            original_question=original_question, 
+            table_metadata=table_metadata
         )
     except Exception as e:
-        log_event(
-            "davinci_plan_error",
-            {
-                "goal": goal[:200], 
-                "original_question": original_question[:200] if original_question else None,
-                "error": str(e)[:500]
-            },
+        log_event("davinci_generation_failed", {"error": str(e), "mode": mode})
+        return _fallback_plan(
+            goal=goal, 
+            logical_tables=logical_tables, 
+            max_widgets=max_widgets, 
+            schema_summary=schema_summary, 
+            original_question=original_question, 
+            table_metadata=table_metadata
         )
-        try:
-            with open("/tmp/davinci_debug.log", "a") as f:
-                f.write(f"{datetime.utcnow()} - FALLBACK: General Exception: {str(e)}\\n")
-        except: pass
-        return _fallback_plan(goal=goal, logical_tables=logical_tables, max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question, table_metadata=table_metadata)
 

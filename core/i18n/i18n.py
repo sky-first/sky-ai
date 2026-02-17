@@ -51,7 +51,39 @@ logger = logging.getLogger("dataassistant.i18n")
 
 def detect_language(text: str) -> str:
     """
-    Detects language of user text.
-    ALWAYS returns 'en' as per strict project requirement.
+    Detects language using simple stopword heuristics.
+    Supports EN, PT, ES. Defaults to 'en' if uncertain or short.
     """
+    if not text or len(text) < 5:
+        return "en"
+        
+    text = text.lower()
+    
+    # Common stopwords
+    stops_pt = {" o ", " a ", " os ", " as ", " um ", " uma ", " de ", " da ", " do ", " em ", " que ", " é ", " com ", " para ", " por ", " qual ", " quem ", " como "}
+    stops_es = {" el ", " la ", " los ", " las ", " un ", " una ", " de ", " del ", " en ", " que ", " es ", " con ", " para ", " por ", " cual ", " quien ", " como "}
+    stops_en = {" the ", " a ", " an ", " of ", " in ", " on ", " and ", " is ", " are ", " with ", " for ", " to ", " from ", " what ", " who ", " how ", " which "}
+    
+    # Pad text to match word boundaries
+    padded = f" {text} "
+    
+    # Count matches
+    count_pt = sum(1 for w in stops_pt if w in padded)
+    count_es = sum(1 for w in stops_es if w in padded)
+    count_en = sum(1 for w in stops_en if w in padded)
+    
+    # If explicitly English words are found, favor English
+    if count_en > 0 and count_en >= count_pt and count_en >= count_es:
+        return "en"
+        
+    # Heuristic decision
+    if count_pt > count_en and count_pt > count_es:
+        return "pt"
+    if count_es > count_en and count_es > count_pt:
+        return "es"
+        
+    # If mixed or unsure, default to checking specific stronger signals
+    if any(x in padded for x in [" monthly ", " revenue ", " performance ", " dashboard ", " show ", " list ", " count "]):
+        return "en"
+        
     return "en"
