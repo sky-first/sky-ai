@@ -30,16 +30,10 @@ podSecurityContext:
 
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop:
       - ALL
-  # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
-
-ingress:
-  annotations:
-    nginx.ingress.kubernetes.io/enable-modsecurity: "false"
-    nginx.ingress.kubernetes.io/enable-owasp-modsecurity-crs: "false"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
 
 # SRE Tuning: Probes pointing to public path to bypass Auth Middleware
 probes:
@@ -55,3 +49,12 @@ probes:
     periodSeconds: 5
     timeoutSeconds: 5
     failureThreshold: 3
+
+# P0.1: Local temporary storage for Read-Only Root FS
+extraVolumes:
+  - name: tmp-volume
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp

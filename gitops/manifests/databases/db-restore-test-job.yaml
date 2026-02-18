@@ -2,8 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sky-db-restore-test
-  namespace: prod
+  name: db-restore-test-job-staging
 spec:
   template:
     metadata:
