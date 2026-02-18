@@ -46,9 +46,9 @@ spec:
           env:
             - name: DATA_SOURCE_URI
               value: "127.0.0.1:5432/ai_saas_db?sslmode=disable"
-            - name: DATA_SOURCE_USER
+            - name: PGUSER
               value: "postgres"
-            - name: DATA_SOURCE_PASS
+            - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
