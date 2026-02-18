@@ -23,7 +23,6 @@ graph TD
                 
                 subgraph "AI Infrastructure"
                     Ollama[🧠 Ollama Service]
-                    AIPool[🚀 Node Pool: AI Turbo (F16s_v2)]
                 end
                 
                 subgraph "Data Layer"
