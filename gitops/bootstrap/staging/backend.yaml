@@ -21,7 +21,6 @@ spec:
       values: |
         podAnnotations:
           reloader.stakater.com/auto: "true"
-        securityContext: {} # Usar configurações do values-sky-be-stg.yaml
         replicaCount: 2
         imagePullSecrets:
           - name: regcred
