@@ -13,6 +13,8 @@ spec:
     helm:
       values: |
         controller:
+          replicaCount: 5
+          minAvailable: 2
           service:
             annotations:
               service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /login
@@ -27,8 +29,11 @@ spec:
               SecRuleEngine On
           resources:
             requests:
-              cpu: 100m
-              memory: 90Mi
+              cpu: 1000m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
   destination:
     server: "https://kubernetes.default.svc"
     namespace: ingress-nginx
