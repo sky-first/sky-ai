@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from db.models import TableMetadata, EmbeddingRecord
 from core.logging_utils import log_event
+from core.rag.embedding_cache import get_cached_embedding, set_cached_embedding
 
 
 # ThreadPool para operações de embedding
@@ -23,14 +24,62 @@ _executor = ThreadPoolExecutor(max_workers=4)
 class EmbeddingProvider:
     """
     Interface simples: embed uma lista de textos -> lista de vetores.
+
+    O método `embed_with_cache` é a entrada recomendada: verifica o cache
+    Redis antes de chamar a API e armazena o resultado após a chamada.
+    O método `embed` (sem cache) deve ser implementado pelos subclasses.
     """
+
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        """Implementação pura (sem cache). Deve ser sobrescrito pelos subclasses."""
         raise NotImplementedError
-    
+
+    def embed_with_cache(self, texts: Sequence[str]) -> List[List[float]]:
+        """
+        Versão com cache Redis. Para cada texto:
+          1. Verifica cache → retorna imediatamente se encontrado (cache hit).
+          2. Agrupa textos sem cache → chama embed() em lote.
+          3. Armazena resultados no cache para futuras chamadas.
+        """
+        if not texts:
+            return []
+
+        texts_list = list(texts)
+        results: List[Optional[List[float]]] = [None] * len(texts_list)
+        uncached_indices: List[int] = []
+
+        # ── Fase 1: verificar cache ────────────────────────────────────────
+        for i, text in enumerate(texts_list):
+            cached = get_cached_embedding(text)
+            if cached is not None:
+                results[i] = cached
+            else:
+                uncached_indices.append(i)
+
+        # ── Fase 2: chamar API apenas para textos sem cache ────────────────
+        if uncached_indices:
+            uncached_texts = [texts_list[i] for i in uncached_indices]
+            try:
+                vectors = self.embed(uncached_texts)
+            except Exception:
+                # Se a API falhar, tenta retornar o que temos do cache
+                # (textos sem cache ficam como None → serão vetores vazios)
+                vectors = [[] for _ in uncached_texts]
+                raise
+
+            # ── Fase 3: armazenar no cache e preencher resultados ──────────
+            for idx, vector in zip(uncached_indices, vectors):
+                results[idx] = vector
+                if vector:  # não armazena vetores vazios
+                    set_cached_embedding(texts_list[idx], vector)
+
+        # Garante que não há None na lista final
+        return [r if r is not None else [] for r in results]
+
     async def embed_async(self, texts: Sequence[str]) -> List[List[float]]:
-        """Versão async do embed (usa ThreadPoolExecutor por padrão)."""
+        """Versão async do embed_with_cache (usa ThreadPoolExecutor por padrão)."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_executor, self.embed, texts)
+        return await loop.run_in_executor(_executor, self.embed_with_cache, texts)
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
@@ -50,10 +99,9 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         )
     
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        """Synchronous embedding via LangChain"""
+        """Chamada direta à API Ollama (sem cache). Use embed_with_cache() para cache."""
         if not texts:
             return []
-        
         # LangChain handles the API calls efficiently
         return self._client.embed_documents(list(texts))
 
@@ -81,6 +129,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         )
     
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        """Chamada direta à API OpenAI (sem cache). Use embed_with_cache() para cache."""
         if not texts:
             return []
         # LangChain usa embed_documents para listas

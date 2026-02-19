@@ -16,6 +16,7 @@ class DavinciDashboardPlan:
     description: Optional[str]
     widgets: List[Dict[str, Any]]
     meta: Dict[str, Any]
+    filters: Optional[List[Dict[str, Any]]] = None  # NEW: Global dashboard filters
     full_results: Optional[Dict[str, Any]] = None  # NEW: Raw structured analysis
 
 
@@ -1148,7 +1149,8 @@ def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[Analysi
                     "y": chart.get("y_axis", "value")
                 }
             },
-            "data_requirements": chart.get("data_requirements", {})
+            "data_requirements": chart.get("data_requirements", {}),
+            "layout": chart.get("layout") # NEW: Pass Grid Layout
         })
 
     # 3. KPIs (Descriptive)
@@ -1158,7 +1160,8 @@ def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[Analysi
             "type": "kpi",
             "title": kpi.get("title", "KPI"),
             "question": kpi.get("question", ""),
-            "viz": {"type": "kpi"}
+            "viz": {"type": "kpi"},
+            "layout": kpi.get("layout") # NEW: Pass Grid Layout
         })
 
     # 4. Diagnostic (Narrative)
@@ -1215,17 +1218,37 @@ def generate_structured_insight(
     config = MODE_CONFIG[mode]["llm"]
     
     # Adjust prompt to enforce JSON structure
+    # Adjust prompt to enforce JSON structure with Layout & Filters
     json_schema = (
         "{\n"
         "  \"verdict\": \"A concise, engaging Title/Headline for this analysis (string)\",\n"
+        "  \"filters\": [{ \"label\": \"Filter Label\", \"field\": \"column_name\", \"type\": \"text|date_range|select\" }],\n"
         "  \"descriptive\": {\n"
-        "      \"charts\": [{ \"title\": \"...\", \"question\": \"...\", \"viz_type\": \"bar|line|pie|...\", \"x_axis\": \"...\", \"y_axis\": \"...\" }],\n"
-        "      \"kpis\": [{ \"title\": \"...\", \"question\": \"...\" }]\n"
+        "      \"charts\": [{\n"
+        "          \"title\": \"...\",\n"
+        "          \"question\": \"...\",\n"
+        "          \"viz_type\": \"bar|line|pie|scatter|area|table\",\n"
+        "          \"x_axis\": \"...\",\n"
+        "          \"y_axis\": \"...\",\n"
+        "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (1-12), \"h\": int (min 4) }\n"
+        "      }],\n"
+        "      \"kpis\": [{\n"
+        "          \"title\": \"...\",\n"
+        "          \"question\": \"...\",\n"
+        "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (min 3), \"h\": int (min 2) }\n"
+        "      }]\n"
         "  },\n"
         "  \"diagnostic\": \"Why did this happen? (string)\",\n"
         "  \"predictive\": \"What will happen? (string)\",\n"
         "  \"prescriptive\": \"What should we do? (string)\"\n"
         "}\n\n"
+        "LAYOUT RULES (Important):\n"
+        "- Use a standard 12-column grid system.\n"
+        "- 'x' is the starting column (0-11).\n"
+        "- 'w' is the width in columns (1-12).\n"
+        "- 'y' is the row index. You can place multiple widgets on the same row (same y) if their widths sum <= 12.\n"
+        "- TIP: KPIs usually go on top (y=0) with w=3 or w=4. Charts usually follow (y=2, y=6) with w=6 or w=12.\n"
+        "\n"
         "SPECIAL SYNTAX: Augmented Narratives (MANDATORY for Textual/Mix modes)\n"
         "In narrative fields (diagnostic, predictive, prescriptive), you MUST embed rich metrics derived from your analysis using this syntax:\n"
         "[[Metric: Label | Value | Status]]\n"
@@ -1492,6 +1515,7 @@ def generate_dashboard_plan(
             dashboard_name=original_question or goal,
             description=structured_plan.get("verdict", ""),
             widgets=widgets,
+            filters=structured_plan.get("filters"), # NEW: Pass generated filters
             meta={
                 "mode": mode,
                 "grounding": grounding_result,

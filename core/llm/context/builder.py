@@ -85,60 +85,41 @@ def build_context_bundle(
         context_freshness="live"
     )
     
-    # 5. HISTORICAL CONTEXT (Multi-layer RAG)
+    # 5. HISTORICAL CONTEXT (Multi-layer RAG — execução PARALELA)
     try:
-        from core.rag.multi_layer import (
-            retrieve_schema_rag,
-            retrieve_metrics_rag,
-            retrieve_questions_rag,
-            retrieve_comments_rag,
-            retrieve_glossary_rag,
-        )
-        
+        from core.rag.multi_layer import retrieve_all_layers_sync
+
         # Get embedding provider from state if available
         embedding_provider = state.get("_embedding_provider")
         space_id = state.get("space_id")
-        
-        historical_ctx = HistoricalContext(
-            schema_rag=retrieve_schema_rag(
+
+        if embedding_provider:
+            # Executa as 5 camadas em paralelo via asyncio.gather
+            rag_results = retrieve_all_layers_sync(
                 question=question,
                 tables=agent_config.tables,
                 embedding_provider=embedding_provider,
                 db=db,
                 space_id=space_id,
-                top_k=3
-            ) if embedding_provider else [],
-            metrics_rag=retrieve_metrics_rag(
-                question=question,
-                embedding_provider=embedding_provider,
-                db=db,
-                space_id=space_id,
-                top_k=3
-            ) if embedding_provider else [],
-            questions_rag=retrieve_questions_rag(
-                question=question,
-                embedding_provider=embedding_provider,
-                db=db,
-                space_id=space_id,
-                top_k=3
-            ) if embedding_provider and db and space_id else [],
-            comments_rag=retrieve_comments_rag(
-                question=question,
-                embedding_provider=embedding_provider,
-                db=db,
-                space_id=space_id,
-                top_k=2
-            ) if embedding_provider and db and space_id else [],
-            glossary_rag=retrieve_glossary_rag(
-                question=question,
-                embedding_provider=embedding_provider,
-                db=db,
-                space_id=space_id,
-                top_k=2
-            ) if embedding_provider else [],
+            )
+        else:
+            rag_results = {
+                "schema_rag": [],
+                "metrics_rag": [],
+                "questions_rag": [],
+                "comments_rag": [],
+                "glossary_rag": [],
+            }
+
+        historical_ctx = HistoricalContext(
+            schema_rag=rag_results["schema_rag"],
+            metrics_rag=rag_results["metrics_rag"],
+            questions_rag=rag_results["questions_rag"],
+            comments_rag=rag_results["comments_rag"],
+            glossary_rag=rag_results["glossary_rag"],
             chat_history=state.get("chat_history", [])[-4:]  # Last 4 messages only
         )
-        
+
         log_event(
             "multi_layer_rag_retrieved",
             {
