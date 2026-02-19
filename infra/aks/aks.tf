@@ -73,7 +73,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   min_count                   = 2
   max_count                   = 10
   priority                    = "Regular"
-  temporary_name_for_rotation = "userappsrot12"
+  temporary_name_for_rotation = "userappsrot1"
 
   upgrade_settings {
     max_unavailable = "1"
