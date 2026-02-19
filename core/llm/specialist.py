@@ -98,6 +98,7 @@ def _build_secure_system_prompt(
                 "- Ensure all non-aggregated columns are in the GROUP BY clause.\n"
                 f"- Example: Use `{physical_names[0]}`\n"
                 "- DO NOT USE LOGICAL NAMES OR SHORT NAMES.\n"
+                "- DO NOT INVENT COLUMN PREFIXES (e.g. do not use 'invoice_status' if column is 'status'). Use EXACT column names from schema.\n"
                 "- YOUR QUERY WILL FAIL if you skip the project/dataset prefix.\n"
             )
         
@@ -317,6 +318,19 @@ def _build_schema_text(table: TableSchema, security_config: Optional[SecurityCon
                 lines.append(
                     f"  - {col_name} ({col_type}, {nullable}){extras_str}"
                 )
+
+    # 🛡️ ANTI-HALLUCINATION: Explicitly list allowed columns and forbid others
+    if getattr(table, "columns", None):
+        col_names = []
+        for col in table.columns:
+            if isinstance(col, dict):
+                col_names.append(col.get("name", ""))
+            else:
+                col_names.append(col.name)
+        
+        lines.append(f"\n-- 🚫 STRICT CONSTRAINT: You are FORBIDDEN from using any column not listed above.")
+        lines.append(f"-- 🚫 DO NOT HALLUCINATE COLUMNS from other tables (like 'payment_date' in invoices).")
+        lines.append(f"-- ✅ ALLOWED COLUMNS: {', '.join(col_names)}")
 
     return "\n".join(lines)
 

@@ -1233,7 +1233,7 @@ def generate_structured_insight(
         "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (1-12), \"h\": int (min 4) }\n"
         "      }],\n"
         "      \"kpis\": [{\n"
-        "          \"title\": \"...\",\n"
+        "          \"title\": \"...\",\n" 
         "          \"question\": \"...\",\n"
         "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (min 3), \"h\": int (min 2) }\n"
         "      }]\n"

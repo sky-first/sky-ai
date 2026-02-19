@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from db.session import get_db
-from core.rag.embeddings import OpenAIEmbeddingProvider, create_embeddings_for_table_metadata
+from core.rag.embeddings import create_embeddings_for_table_metadata
+from core.llm.factory import create_embedding_provider
 from core.logging_utils import log_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -29,7 +30,7 @@ async def setup_rag_endpoint(
     """
     try:
         # Step 1: Embed table metadata
-        embedding_provider = OpenAIEmbeddingProvider()
+        embedding_provider = create_embedding_provider()
         
         num_embeddings = await create_embeddings_for_table_metadata(
             db=db,
