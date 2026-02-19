@@ -66,13 +66,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # User Node Pool - Standard Instances
 resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
-  name                  = "userapps"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D2s_v3"
-  auto_scaling_enabled  = true
-  min_count             = 1
-  max_count             = 3
-  priority              = "Regular"
+  name                        = "userapps"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.aks.id
+  vm_size                     = "Standard_D4s_v3"
+  auto_scaling_enabled        = true
+  min_count                   = 2
+  max_count                   = 10
+  priority                    = "Regular"
+  temporary_name_for_rotation = "userappsrot12"
+
+  upgrade_settings {
+    max_unavailable = "1"
+  }
 
   node_labels = {
     "workload_type" = "application"
