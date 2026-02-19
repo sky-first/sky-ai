@@ -9,9 +9,14 @@ Provides 5 specialized retrieval layers to enrich context for small CPU-based mo
 5. Glossary RAG - Domain terminology
 
 Each layer uses pgvector embeddings for semantic search.
+
+Performance: All 5 layers are executed in PARALLEL via asyncio.gather,
+reducing total latency from ~sum(all layers) to ~max(single layer).
 """
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 import re
 
@@ -21,6 +26,10 @@ from sqlalchemy import text
 from core.rag.embeddings import EmbeddingProvider
 from core.agents.generic_sql_agent import TableSchema
 from core.logging_utils import log_event
+
+
+# ThreadPool dedicado para operações síncronas de DB dentro de contextos async
+_rag_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="rag_layer")
 
 
 # ============================================================================
@@ -81,7 +90,7 @@ def retrieve_schema_rag(
     if db and space_id:
         try:
             # Embed question
-            question_embedding = embedding_provider.embed(question)
+            question_embedding = embedding_provider.embed_with_cache(question)
             
             # Query embeddings table with similarity search
             # We search for chunks related to tables in the current space
@@ -226,7 +235,7 @@ def retrieve_questions_rag(
     
     try:
         # Embed question
-        question_embedding = embedding_provider.embed(question)
+        question_embedding = embedding_provider.embed_with_cache(question)
         
         # Query query_history with similarity search
         # Note: Assumes query_history has question_embedding column
@@ -393,3 +402,180 @@ def retrieve_glossary_rag(
     )
     
     return results
+
+
+# ============================================================================
+# Parallel Orchestrator — asyncio.gather over all 5 layers
+# ============================================================================
+
+async def retrieve_all_layers_async(
+    question: str,
+    tables: List[TableSchema],
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+) -> dict:
+    """
+    Execute all 5 RAG layers IN PARALLEL using asyncio.gather.
+
+    Instead of running layers sequentially (total_time = sum of all layers),
+    all layers are dispatched concurrently in a ThreadPoolExecutor, so
+    total_time ≈ max(single_layer_time).
+
+    Returns:
+        dict with keys: schema_rag, metrics_rag, questions_rag,
+                        comments_rag, glossary_rag
+    """
+    loop = asyncio.get_event_loop()
+
+    def _run(fn, *args, **kwargs):
+        """Wrap a sync function to run in the thread pool."""
+        return fn(*args, **kwargs)
+
+    # Dispatch all 5 layers concurrently
+    (
+        schema_results,
+        metrics_results,
+        questions_results,
+        comments_results,
+        glossary_results,
+    ) = await asyncio.gather(
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_schema_rag,
+                question=question,
+                tables=tables,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=3,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_metrics_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=3,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_questions_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=3,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_comments_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_glossary_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+    )
+
+    total_chunks = (
+        len(schema_results)
+        + len(metrics_results)
+        + len(questions_results)
+        + len(comments_results)
+        + len(glossary_results)
+    )
+
+    log_event(
+        "multi_layer_rag_parallel_done",
+        {
+            "schema_chunks": len(schema_results),
+            "metrics_chunks": len(metrics_results),
+            "questions_chunks": len(questions_results),
+            "comments_chunks": len(comments_results),
+            "glossary_chunks": len(glossary_results),
+            "total_chunks": total_chunks,
+        },
+    )
+
+    return {
+        "schema_rag": schema_results,
+        "metrics_rag": metrics_results,
+        "questions_rag": questions_results,
+        "comments_rag": comments_results,
+        "glossary_rag": glossary_results,
+    }
+
+
+def retrieve_all_layers_sync(
+    question: str,
+    tables: List[TableSchema],
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+) -> dict:
+    """
+    Synchronous wrapper for retrieve_all_layers_async.
+
+    Use this when calling from a synchronous context (e.g., build_context_bundle).
+    It safely runs the async orchestrator in the current or a new event loop.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Already inside an async context (e.g., FastAPI/Starlette).
+            # Schedule as a coroutine and block until done using a new thread.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    retrieve_all_layers_async(
+                        question=question,
+                        tables=tables,
+                        embedding_provider=embedding_provider,
+                        db=db,
+                        space_id=space_id,
+                    ),
+                )
+                return future.result()
+        else:
+            return loop.run_until_complete(
+                retrieve_all_layers_async(
+                    question=question,
+                    tables=tables,
+                    embedding_provider=embedding_provider,
+                    db=db,
+                    space_id=space_id,
+                )
+            )
+    except RuntimeError:
+        # No event loop at all — create one
+        return asyncio.run(
+            retrieve_all_layers_async(
+                question=question,
+                tables=tables,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+            )
+        )
