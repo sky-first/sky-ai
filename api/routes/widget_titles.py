@@ -1,6 +1,5 @@
-# api/routes/widget_titles.py
-from __future__ import annotations
-
+import logging
+import json as _json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -9,6 +8,8 @@ from pydantic import BaseModel, Field
 from core.llm.providers import LangChainChatOpenAIProvider
 from core.logging_utils import log_event
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/widgets", tags=["widgets"])
 
@@ -167,4 +168,148 @@ async def suggest_widget_title(request: SuggestTitleRequest):
         # Fallback: retornar título atual ou genérico
         fallback_title = request.current_title or "Widget"
         return SuggestTitleResponse(title=fallback_title)
+
+
+# ==========================
+# Infographic Generation
+# ==========================
+
+
+class GenerateInfographicRequest(BaseModel):
+    """Request for generating structured infographic data."""
+    question: str = Field(..., description="The original analytical question")
+    answer: str = Field(..., description="The AI's textual answer/analysis")
+    data_sample: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Data sample rows (max ~15)"
+    )
+    language: str = Field(default="en", description="Language (en, pt, es)")
+    style: str = Field(default="mix", description="Infographic style: textual, visual, mix")
+
+
+@router.post("/infographic")
+async def generate_infographic(request: GenerateInfographicRequest):
+    """
+    Generate structured data for an infographic widget.
+
+    Uses the LLM to transform a question + answer + data into a rich
+    structured JSON matching the frontend InfographicData interface.
+    """
+    logger.info(f"Generating infographic for question: {request.question[:100]}...")
+    try:
+        llm = LangChainChatOpenAIProvider(
+            model=settings.llm_model_formatter or "gpt-4o-mini",
+            temperature=0.4,
+            max_tokens=2000,
+        )
+
+        # Prepare data context
+        data_text = ""
+        if request.data_sample:
+            sample = request.data_sample[:10]
+            if sample:
+                data_text = "\nData sample:\n"
+                for i, row in enumerate(sample, 1):
+                    row_str = ", ".join([f"{k}: {v}" for k, v in row.items()])
+                    data_text += f"  Row {i}: {row_str}\n"
+
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a senior data analyst. Your goal is to generate a RICH, FULLY POPULATED infographic JSON.\n"
+                "The user hates empty white space. You MUST fill AS MANY fields as possible, even if you have to infer "
+                "or estimate reasonable labels/trends based on the context of the answer.\n\n"
+                "INPUTS:\n"
+                "- Question, Answer, Optional Data Rows.\n\n"
+                "OUTPUT FORMAT (JSON):\n"
+                "{\n"
+                '  "title": "Short headline (max 40 chars)",\n'
+                '  "subtitle": "Category badge (e.g. REVENUE, ANALYSIS)",\n'
+                '  "mainValue": "Primary metric (e.g. $1.2M, 45%)",\n'
+                '  "mainValueLabel": "Context (e.g. vs last month)",\n'
+                '  "summary": "3 sentences summarizing the key insight.",\n'
+                '  "highlightedValue": "A second important number or phrase",\n'
+                '  "marginLabel": "KPI 1 Label (e.g. Avg Order)",\n'
+                '  "marginValue": "KPI 1 Value (e.g. $150)",\n'
+                '  "cacLabel": "KPI 2 Label (e.g. Conversion)",\n'
+                '  "cacValue": "KPI 2 Value (e.g. 5%)",\n'
+                '  "trajectoryTitle": "Trend / Breakdown",\n'
+                '  "trajectoryData": [{"name": "Jan", "value": 100, "revenue": 100, "target": 90}, ...],\n'
+                '  "recordHighLabel": "Insight about the chart",\n'
+                '  "drivers": [\n'
+                '    {"name": "Driver", "impact": "High", "description": "Why?"}\n'
+                "  ],\n"
+                '  "whyTitle": "Why is this happening?",\n'
+                '  "whyContent": "Explanation of root causes.",\n'
+                '  "whyChartData": [{"x": "Reason", "y": 30}, ...],\n'
+                '  "strategicTitle": "Strategic Step",\n'
+                '  "strategicContent": "What should we do next?",\n'
+                '  "outlookTitle": "Forecast / Impact",\n'
+                '  "outlookContent": "Future projection.",\n'
+                '  "outlookChartData": [{"name": "Scenario A", "value": 60}, ...],\n'
+                '  "outlookChartCenterValue": "Summary",\n'
+                '  "outlookChartCenterLabel": "Label"\n'
+                "}\n\n"
+                "MANDATORY RULES:\n"
+                "1. DO NOT return nulls for 'margin', 'cac', 'drivers', 'why', or 'strategic' sections unless truly impossible.\n"
+                "2. If exact numbers for KPIs (margin/cac) are not in the data, try to extract secondary metrics from the text, or use qualitative labels (e.g. 'Trend: Up').\n"
+                "3. For 'trajectoryData', if no time series exists, show a category breakdown (bar chart data).\n"
+                "4. For 'drivers', ALWAYS generate at least 2 key factors based on the text.\n"
+                "5. For 'strategicContent', ALWAYS suggest a logical next step.\n"
+                "6. trajectoryData should have objects with 'name' (string) and 'value' (number). Optionally 'revenue' (number) and 'target' (number).\n"
+                "7. ALWAYS respond in English.\n"
+            ),
+        }
+
+        user_content = f"Question: {request.question}\n\n"
+        user_content += f"AI Analysis:\n{request.answer[:1500]}\n\n"
+        if data_text:
+            user_content += data_text + "\n"
+        user_content += f"Style preference: {request.style}\n"
+        user_content += "\nGenerate the infographic JSON:"
+
+        user_msg = {"role": "user", "content": user_content}
+
+        resp = llm.invoke([system_msg, user_msg])
+        raw = getattr(resp, "content", "").strip()
+
+        # Clean markdown fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            # Remove first and last lines (```json and ```)
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = _json.loads(raw)
+        logger.info(f"Successfully generated infographic JSON with {len(result)} fields.")
+
+        log_event(
+            "infographic_generated",
+            {
+                "question": request.question[:200],
+                "style": request.style,
+                "has_data": bool(request.data_sample),
+                "fields_returned": len(result),
+            },
+        )
+
+        return result
+
+    except Exception as e:
+        log_event(
+            "infographic_generation_error",
+            {
+                "question": request.question[:200],
+                "style": request.style,
+                "error": str(e),
+            },
+        )
+        logger.error(f"Infographic generation failed: {str(e)}", exc_info=True)
+        # Return a minimal fallback so the frontend doesn't crash
+        return {
+            "title": "Analysis",
+            "subtitle": request.style.upper(),
+            "summary": request.answer[:500] if request.answer else "Analysis could not be generated.",
+            "whyTitle": "Details",
+            "whyContent": request.answer[:300] if request.answer else "",
+        }
 
