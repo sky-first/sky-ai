@@ -56,6 +56,8 @@ spec:
                 secretKeyRef:
                   name: data-team-pg-secret
                   key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
           resources:
             requests:
               cpu: "500m"
@@ -68,6 +70,7 @@ spec:
           volumeMounts:
             - name: pg-data
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
   volumeClaimTemplates:
     - metadata:
         name: pg-data
