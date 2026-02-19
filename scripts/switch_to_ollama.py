@@ -56,15 +56,15 @@ async def test_ollama_connection():
                 print(f"  - {model['name']} ({model['size'] / 1e9:.1f}GB)")
             
             # Test 2: Try inference
-            print(f"\n🧠 Testing inference with phi3-sky...")
+            print(f"\n🧠 Testing inference with phi3:mini...")
             response = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
                 json={
-                    "model": "phi3-sky",
+                    "model": "phi3:mini",
                     "prompt": "Say 'Hello from Ollama!' in one sentence.",
                     "stream": False
                 },
-                timeout=30.0
+                timeout=300.0
             )
             response.raise_for_status()
             result = response.json()
@@ -75,7 +75,7 @@ async def test_ollama_connection():
             return True
             
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
+        print(f"❌ Connection failed: {repr(e)}")
         return False
 
 

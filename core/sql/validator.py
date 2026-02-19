@@ -47,7 +47,7 @@ def validate_sql_strict(sql: str) -> Tuple[bool, Optional[str]]:
             return False, f"🚫 Command '{keyword.upper()}' is not allowed."
 
     injection_patterns = [
-        r'--',
+        # r'--',  <-- REMOVED: Allow comments for better SQL explanation
         r'/\*',
         r'union\s+select',
         r'or\s+1\s*=\s*1',

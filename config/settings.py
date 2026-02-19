@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     
     # Ollama Models (RunPod)
     llm_model_orchestrator_local: str = "phi3:medium"     # Fast routing: 4096 ctx, temp 0.0
-    llm_model_specialist_local: str = "phi3:mini"       # Better instruction following for BigQuery
+    llm_model_specialist_local: str = "phi3:medium"       # Better instruction following for BigQuery
     llm_model_formatter_local: str = "phi3:medium"        # Text formatting (reuses orchestrator)
     llm_model_embedding_local: str = "nomic-embed-text"  # Local embeddings: 768 dims
     
