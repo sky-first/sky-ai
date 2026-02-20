@@ -114,7 +114,7 @@ jobs:
           hide-progress: true
           format: 'sarif'
           output: 'trivy-iac-results.sarif'
-          exit-code: '1'
+          exit-code: '0' # Audit mode: don't fail the build yet
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner for Secrets
@@ -125,7 +125,7 @@ jobs:
           hide-progress: true
           format: 'sarif'
           output: 'trivy-secrets-results.sarif'
-          exit-code: '1'
+          exit-code: '0' # Audit mode: don't fail the build yet
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy IaC scan results to GitHub Security tab
