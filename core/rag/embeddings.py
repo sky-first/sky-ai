@@ -210,21 +210,30 @@ async def create_embeddings_for_table_metadata(
 
     total_rows = len(rows)
     created = 0
+    all_data = [
+        {
+            "id": tm.id,
+            "data_connection_id": str(tm.data_connection_id),
+            "table_name": tm.table_name,
+            "column_name": tm.column_name,
+            "text": build_metadata_text(tm)
+        }
+        for tm in rows
+    ]
     
     # Processa em lotes
     for i in range(0, total_rows, batch_size):
-        batch = rows[i:i + batch_size]
+        batch = all_data[i:i + batch_size]
         batch_num = (i // batch_size) + 1
         total_batches = (total_rows + batch_size - 1) // batch_size
         
         print(f"Processando lote {batch_num}/{total_batches} ({len(batch)} itens)...")
         
         # Prepara textos do lote
-        texts = [build_metadata_text(tm) for tm in batch]
         
         # Gera embeddings do lote (async)
         try:
-            vectors = await embedding_provider.embed_async(texts)
+            vectors = await embedding_provider.embed_async([item["text"] for item in batch])
         except Exception as e:
             log_event(
                 "create_embeddings_batch_error",
@@ -239,20 +248,20 @@ async def create_embeddings_for_table_metadata(
         
         # Salva embeddings do lote
         batch_created = 0
-        for tm, vec in zip(batch, vectors):
+        for item, vec in zip(batch, vectors):
             rec = EmbeddingRecord(
                 space_id=space_id,
                 crew_id=crew_id,
                 user_id=None,
                 document_id=None,
-                table_metadata_id=tm.id,
+                table_metadata_id=item["id"],
                 embedding=vec,
-                text=build_metadata_text(tm),
+                text=item["text"],
                 extra_metadata={
                     "kind": "table_metadata",
-                    "data_connection_id": str(tm.data_connection_id),
-                    "table_name": tm.table_name,
-                    "column_name": tm.column_name,
+                    "data_connection_id": item["data_connection_id"],
+                    "table_name": item["table_name"],
+                    "column_name": item["column_name"],
                 },
             )
             db.add(rec)

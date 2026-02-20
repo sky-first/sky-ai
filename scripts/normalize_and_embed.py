@@ -14,7 +14,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from config.settings import settings
-from core.rag.embeddings import OllamaEmbeddingProvider, create_embeddings_for_table_metadata
+from core.rag.embeddings import create_embeddings_for_table_metadata
+from core.llm.factory import create_embedding_provider
 from db.models import TableMetadata
 import uuid
 
@@ -120,7 +121,7 @@ async def generate_embeddings(space_id: str):
     
     try:
         async with async_session() as db:
-            provider = OllamaEmbeddingProvider()
+            provider = create_embedding_provider()
             
             count = await create_embeddings_for_table_metadata(
                 db, provider,

@@ -1260,8 +1260,21 @@ def generate_structured_insight(
         f"\n\nMODE: You are generating a {mode.upper()} dashboard.\n"
         f"OUTPUT FORMAT: You must return a SINGLE JSON object strictly following this schema:\n"
         f"{json_schema}\n"
-        "ORDER REQUIREMENT: Ensure the flow is Verdict (Headline) -> Charts/KPIs -> Diagnostic -> Predictive -> Prescriptive."
     )
+    if mode == "visual":
+        instruction += (
+            "VISUAL MODE CRITICAL RULES:\n"
+            "- You MUST output EXACTLY 4 items in 'charts' (e.g. 1 area, 1 pie/donut, 1 horizontal bar, and 1 scatter or secondary bar for 'Why is this happening').\n"
+            "- You MUST output EXACTLY 3 items in 'kpis'.\n"
+            "This exact count is mandatory to match the application's grid layout.\n"
+            "ANTI-HALLUCINATION RULES:\n"
+            "- ALL questions, titles, x_axis, and y_axis MUST be derived STRICTLY from the provided 'Schema:'.\n"
+            "- NEVER invent columns, concepts, or titles (e.g. 'Spend vs Budget', 'Kubernetes', 'Serverless') if they do not exist in the schema.\n"
+            "- Every 'question' string must be answerable by the SQL agent using the real tables provided.\n"
+            "ORDER REQUIREMENT: Ensure the flow is Verdict -> Descriptive (KPIs/Charts) -> Diagnostic.\n"
+        )
+    else:
+        instruction += "ORDER REQUIREMENT: Ensure the flow is Verdict (Headline) -> Charts/KPIs -> Diagnostic -> Predictive -> Prescriptive.\n"
     
     # Merge instruction into system prompt
     full_system = system_prompt + instruction
@@ -1458,7 +1471,13 @@ def generate_dashboard_plan(
     # Context String
     context_str = ""
     if initial_ai_response:
-        context_str += f"\nRecent Insight: '{initial_ai_response}' (Use this connectivity)\n"
+        context_str += (
+            f"\n--- REAL PRE-FETCHED DATA FACT ---\n"
+            f"The backend has ALREADY computed the answer for the primary goal. You MUST use this EXACT data to write your narratives.\n"
+            f"DATA: '{initial_ai_response}'\n"
+            f"CRITICAL RULE: Set `verdict` to summarize this data. Any `[[Metric: Label | Value | Status]]` tags you generate MUST be derived from the REAL DATA above. DO NOT INVENT or HALLUCINATE numbers. If a number is not in the data, do not use a metric tag for it.\n"
+            f"----------------------------------\n"
+        )
     if context_spaces:
         context_str += f"Spaces: {', '.join(context_spaces)}\n"
 

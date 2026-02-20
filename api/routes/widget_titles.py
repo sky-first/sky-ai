@@ -241,6 +241,8 @@ async def generate_infographic(request: GenerateInfographicRequest):
                 '  "whyTitle": "Why is this happening?",\n'
                 '  "whyContent": "Explanation of root causes.",\n'
                 '  "whyChartData": [{"x": "Reason", "y": 30}, ...],\n'
+                '  "breakdownTitle": "Categorical Breakdown",\n'
+                '  "breakdownData": [{"label": "Category", "value": 45, "color": "bg-blue-500"}],\n'
                 '  "strategicTitle": "Strategic Step",\n'
                 '  "strategicContent": "What should we do next?",\n'
                 '  "outlookTitle": "Forecast / Impact",\n'
@@ -251,8 +253,10 @@ async def generate_infographic(request: GenerateInfographicRequest):
                 "}\n\n"
                 "MANDATORY RULES:\n"
                 "1. DO NOT return nulls for 'margin', 'cac', 'drivers', 'why', or 'strategic' sections unless truly impossible.\n"
-                "2. If exact numbers for KPIs (margin/cac) are not in the data, try to extract secondary metrics from the text, or use qualitative labels (e.g. 'Trend: Up').\n"
-                "3. For 'trajectoryData', if no time series exists, show a category breakdown (bar chart data).\n"
+                "2. If exact numbers for KPIs (margin/cac) are not in the data, try to extract secondary metrics from the text.\n"
+                "3. CHART POPULATION (CRITICAL): The user hates empty charts. ALWAYS POPULATE 'trajectoryData', 'whyChartData', 'outlookChartData', and 'breakdownData' with at least 3 items each. If exact data isn't in `data_sample`, you MUST INFER HIGHLY RELEVANT, PLAUSIBLE BUSINESS DATA based on the `question`. (e.g., if the question is about 'Refunds', break down by 'Product Defect, Shipping Delay, Change of Mind'. NEVER use generic IT placeholders like 'Kubernetes' or 'Serverless' unless the question is about IT infrastructure!).\n"
+                "   - 'whyChartData' items MUST have 'x' (string reason) and 'y' (number impact).\n"
+                "   - 'breakdownData' items MUST have 'label' (string category) and 'value' (number percentage 0-100).\n"
                 "4. For 'drivers', ALWAYS generate at least 2 key factors based on the text.\n"
                 "5. For 'strategicContent', ALWAYS suggest a logical next step.\n"
                 "6. trajectoryData should have objects with 'name' (string) and 'value' (number). Optionally 'revenue' (number) and 'target' (number).\n"
@@ -280,7 +284,7 @@ async def generate_infographic(request: GenerateInfographicRequest):
             raw = "\n".join(lines)
 
         result = _json.loads(raw)
-        logger.info(f"Successfully generated infographic JSON with {len(result)} fields.")
+        logger.info(f"Successfully generated infographic JSON with {len(result)} fields. RAW JSON: {raw}")
 
         log_event(
             "infographic_generated",
