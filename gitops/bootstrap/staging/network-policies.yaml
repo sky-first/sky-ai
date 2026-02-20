@@ -292,3 +292,32 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
+
+---
+# Network Policy for Data Team PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pg-data-team-network-policy
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app: pg-data-team
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow health checks from Kubelet (VNET IP)
+  - from:
+    - ipBlock:
+        cidr: 10.1.0.0/16
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow external access from Public Internet
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 5432
