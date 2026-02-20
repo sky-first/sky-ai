@@ -191,6 +191,7 @@ jobs:
           echo "INFO: Secrets do Azure não disponíveis (ex: PR de fork)."
           echo "Pulando terraform init/validate para evitar dependência de 'az login'."
 
+
       - name: Terraform Security Scan with tfsec
         id: security-tfsec
         run: |
