@@ -85,7 +85,7 @@ jobs:
             ${{ runner.os }}-trivy-
 
       - name: Scan Image (Trivy)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: "${{ inputs.acr_name }}.azurecr.io/${{ inputs.app_name }}:${{ github.sha }}"
           format: "sarif"
@@ -96,7 +96,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always() # Ensure report is uploaded even if scan fails
         with:
           sarif_file: "trivy-results.sarif"

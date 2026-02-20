@@ -107,7 +107,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner in IaC mode
-        uses: aquasecurity/trivy-action@v0.20.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           security-checks: 'config'
@@ -118,7 +118,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner for Secrets
-        uses: aquasecurity/trivy-action@v0.20.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           security-checks: 'secret'
