@@ -244,3 +244,25 @@ class PipelineJob(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+
+# ========== SEMANTIC CACHE ==========
+class SemanticCacheRecord(Base):
+    """
+    Stores semantic hits for incoming queries.
+    Prevents duplicate pipeline runs on questions that are semantically identical.
+    """
+    __tablename__ = "semantic_cache"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    connection_id = Column(String, nullable=False, index=True)
+    space_id = Column(String, nullable=True, index=True)
+
+    question = Column(Text, nullable=False)
+    # The dimension is typically 768 for nomic or forced OpenAI 768.
+    embedding = Column(Vector(768), nullable=False)
+
+    # Full serialized QueryResponse Dict
+    response_json = Column(JSON, nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+

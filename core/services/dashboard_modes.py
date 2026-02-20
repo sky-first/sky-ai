@@ -19,18 +19,18 @@ MODE_CONFIG: Dict[str, Dict[str, Any]] = {
         "description": "Unified Insight Widget: A complete narrative report with embedded metrics and essential charts."
     },
     "visual": {
-        "max_charts": 8,
-        "min_charts": 3,
-        "include_sections": ["verdict", "descriptive"],
+        "max_charts": 4,
+        "min_charts": 4,
+        "include_sections": ["verdict", "descriptive", "diagnostic"],
         "max_text": {
-            "verdict": 150,
-            "diagnostic": 200
+            "verdict": 250,
+            "diagnostic": 300
         },
         "llm": {
-            "max_tokens": 1200,
+            "max_tokens": 1500,
             "temperature": 0.1
         },
-        "description": "Chart-heavy dashboard with minimal text."
+        "description": "Chart-heavy dashboard matching the 4-chart + 3-KPI rigorous UI layout."
     },
     "mix": {
         "max_charts": 6,
