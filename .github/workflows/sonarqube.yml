@@ -10,6 +10,7 @@ jobs:
   sonarqube:
     name: SonarQube Scan
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.fork == false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,6 +19,7 @@ jobs:
 
       - name: SonarScan
         uses: SonarSource/sonarqube-scan-action@v5.0.0
+        continue-on-error: true # Prevents failure if SONAR_TOKEN is invalid or project not created
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
