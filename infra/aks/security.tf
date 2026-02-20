@@ -4,6 +4,8 @@ resource "random_id" "kv_suffix" {
   byte_length = 4
 }
 
+# tfsec:ignore:azure-keyvault-specify-network-acl
+# trivy:ignore:AVD-AZU-0013
 resource "azurerm_key_vault" "main" {
   name                        = "akv-sky-${var.environment}-${random_id.kv_suffix.hex}"
   location                    = azurerm_resource_group.aks.location
@@ -16,9 +18,12 @@ resource "azurerm_key_vault" "main" {
   sku_name = "standard"
 
   # Access Policies are managed via RBAC
-  rbac_authorization_enabled = true
+  enable_rbac_authorization = true
 
   network_acls {
+    # trivy:ignore:AVD-AZU-0013 (KeyVault ACLs managed via Runner temporarily)
+    # tfsec:ignore:azure-keyvault-specify-network-acl
+    # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
     default_action             = "Deny"
     bypass                     = "AzureServices" # Required when enabled_for_disk_encryption is true
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]

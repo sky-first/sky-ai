@@ -21,9 +21,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
     type = "SystemAssigned"
   }
 
+  # trivy:ignore:AVD-AZU-0042 (RBAC is enabled)
   role_based_access_control_enabled = true
 
   network_profile {
+    # trivy:ignore:AVD-AZU-0043 (Azure Network Policies are already configured)
     network_plugin    = "azure"
     network_policy    = "azure"
     load_balancer_sku = "standard"
@@ -39,6 +41,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # Option 2: If runner_ip is null, enable private cluster (cluster private, Bastion access only)
   # When authorized_ip_ranges is empty AND private_cluster_enabled = true, access is VNET-only (secure)
   api_server_access_profile {
+    # trivy:ignore:AVD-AZU-0041 (Authorized IP ranges handle API restriction dynamically)
     # tfsec:ignore:azure-aks-no-authorized-ip-ranges
     # Ignored because: When runner_ip is null, cluster becomes private (private_cluster_enabled = true)
     # Private clusters don't require authorized_ip_ranges (access is VNET-only via Bastion)
