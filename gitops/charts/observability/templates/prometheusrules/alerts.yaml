@@ -1,3 +1,4 @@
+---
 {{- if .Values.prometheusRules.kubernetes.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
@@ -42,4 +43,19 @@ metadata:
 spec:
   groups:
     {{- toYaml .Values.prometheusRules.goldenSignals.groups | nindent 4 }}
+{{- end }}
+---
+{{- if .Values.prometheusRules.backup.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup-alerts
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    prometheus: kube-prometheus-stack
+    role: alert-rules
+spec:
+  groups:
+    {{- toYaml .Values.prometheusRules.backup.groups | nindent 4 }}
 {{- end }}

@@ -13,32 +13,22 @@ resource "azurerm_key_vault" "main" {
   enabled_for_disk_encryption = true
   tenant_id                   = data.azurerm_client_config.current.tenant_id
   soft_delete_retention_days  = 7
-  purge_protection_enabled    = false
+  purge_protection_enabled    = true
 
   sku_name = "standard"
 
   # Access Policies are managed via RBAC
-  # access_policy {}
-
-  # RBAC Authorization is recommended over Access Policies
   enable_rbac_authorization = true
 
   network_acls {
     # trivy:ignore:AVD-AZU-0013 (KeyVault ACLs managed via Runner temporarily)
     # tfsec:ignore:azure-keyvault-specify-network-acl
     # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
-    default_action             = "deny"          # Always deny by default for security
-    bypass                     = "AzureServices" # Allows other Azure services
+    default_action             = "Deny"
+    bypass                     = "AzureServices" # Required when enabled_for_disk_encryption is true
     virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-
-    # Temporarily allow runner IP during secret population
-    # This is removed after secrets are created via a second Terraform apply
-    # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
-    ip_rules = var.runner_ip != "" ? [var.runner_ip] : []
+    ip_rules                   = var.runner_ip != null && var.runner_ip != "" ? [var.runner_ip] : []
   }
-
-  # Allow Terraform to manage network rules
-  # No ignore_changes needed since we're not using dynamic IP rules
 
   tags = {
     Environment = var.environment
@@ -46,6 +36,39 @@ resource "azurerm_key_vault" "main" {
     ManagedBy   = "Terraform"
     Owner       = "DevOps-Team"
   }
+}
+
+# --- Private Link Hardening ---
+
+resource "azurerm_private_endpoint" "kv_pe" {
+  name                = "pe-akv-${var.environment}"
+  location            = azurerm_resource_group.aks.location
+  resource_group_name = azurerm_resource_group.aks.name
+  subnet_id           = azurerm_subnet.aks.id
+
+  private_service_connection {
+    name                           = "psc-akv-${var.environment}"
+    private_connection_resource_id = azurerm_key_vault.main.id
+    is_manual_connection           = false
+    subresource_names              = ["vault"]
+  }
+
+  private_dns_zone_group {
+    name                 = "pdzg-akv-${var.environment}"
+    private_dns_zone_ids = [azurerm_private_dns_zone.kv_dns.id]
+  }
+}
+
+resource "azurerm_private_dns_zone" "kv_dns" {
+  name                = "privatelink.vaultcore.azure.net"
+  resource_group_name = azurerm_resource_group.aks.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "kv_dns_link" {
+  name                  = "pdzvl-akv-${var.environment}"
+  resource_group_name   = azurerm_resource_group.aks.name
+  private_dns_zone_name = azurerm_private_dns_zone.kv_dns.name
+  virtual_network_id    = azurerm_virtual_network.aks.id
 }
 
 # 1. Grant Access to the Current User (Terraform Runner) via RBAC
@@ -139,3 +162,20 @@ resource "random_password" "encryption_key" {
 
 # Outputs are now in outputs.tf
 
+
+# 5. Diagnostic Settings for Audit Logs
+# Sends Key Vault logs to the storage account mentioned in the DevOps Questionnaire
+resource "azurerm_monitor_diagnostic_setting" "kv_logs" {
+  name               = "diag-akv-${var.environment}"
+  target_resource_id = azurerm_key_vault.main.id
+  storage_account_id = azurerm_storage_account.db_backup.id
+
+  enabled_log {
+    category = "AuditEvent"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = false
+  }
+}

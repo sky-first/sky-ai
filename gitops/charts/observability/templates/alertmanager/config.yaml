@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: main-config
+  namespace: monitoring
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
+    receivers:
+    - name: 'email-receiver'
+      emailConfigs:
+      - to: 'gustavo.mendonca@skyfirstlabs.com'
+        from: 'alertmanager@skyfirstlabs.com'
+        smarthost: 'smtp.sendgrid.net:587'
+        authUsername: 'apikey'
+        authPassword:
+          name: 'alertmanager-smtp-secret'
+          key: 'password'
+        sendResolved: true
+    - name: 'slack-receiver'
+      slackConfigs:
+      - channel: '#alerts'
+        apiURL:
+          name: 'alertmanager-slack-webhook'
+          key: 'url'
+        sendResolved: true
+    route:
+      groupBy: ['alertname', 'severity']
+      groupWait: 30s
+      groupInterval: 5m
+      repeatInterval: 12h
+      receiver: 'slack-receiver'
+      routes:
+        - matchers:
+            - name: severity
+              value: critical
+          receiver: 'slack-receiver'
+    - name: 'email-receiver'
+      emailConfigs:
+        - to: 'gustavo.mendonca@skyfirstlabs.com'
+          from: 'alertmanager@skyfirstlabs.com'
+          smarthost: 'smtp.sendgrid.net:587' # Placeholder, needs real SMTP
+          authUsername: 'apikey'
+          authPassword:
+            name: alertmanager-smtp-secret
+            key: password
+          sendResolved: true

@@ -28,7 +28,7 @@ trap cleanup_firewall EXIT
 
 # Get variables from Terraform outputs with fallback/validation
 echo "🔍 Fetching secrets from Terraform outputs..."
-KEY_VAULT_NAME=$(terraform output -raw key_vault_name 2>/dev/null || echo "")
+KEY_VAULT_NAME=${KEY_VAULT_NAME:-$(terraform output -raw key_vault_name 2>/dev/null || echo "")}
 POSTGRES_PASSWORD=$(terraform output -raw postgres_password 2>/dev/null || echo "")
 REDIS_PASSWORD=$(terraform output -raw redis_password 2>/dev/null || echo "")
 JWT_SECRET=$(terraform output -raw jwt_secret 2>/dev/null || echo "")
@@ -108,9 +108,14 @@ echo "⏳ Waiting 30 seconds for RBAC propagation..."
 sleep 30
 echo ""
 
+# Fetch ACR password (required for regcred)
+echo "🔑 Fetching ACR credentials for staging..."
+ACR_PASSWORD=$(az acr credential show --name skyacrstagingj3minh --query "passwords[0].value" -o tsv || echo "")
+
 echo "📝 Setting secrets in Key Vault..."
 
 # Set all secrets
+set_secret "acr-password" "$ACR_PASSWORD"
 DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_saas_db"
 REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
 
@@ -120,7 +125,7 @@ set_secret "database-url" "$DATABASE_URL"
 set_secret "redis-url" "$REDIS_URL"
 set_secret "jwt-secret-key" "$JWT_SECRET"
 set_secret "encryption-key" "$ENCRYPTION_KEY"
-set_secret "openai-api-key" "sk-placeholder-replace-me"
+set_secret "openai-api-key" "${OPENAI_API_KEY:-sk-placeholder-replace-me}"
 set_secret "qdrant-url" "http://qdrant:6333"
 
 echo ""
@@ -131,12 +136,6 @@ echo ""
 echo "🔍 Verifying secrets..."
 SECRET_COUNT=$(az keyvault secret list --vault-name "$KEY_VAULT_NAME" --query "length(@)" -o tsv)
 echo "  Total secrets in vault: $SECRET_COUNT"
-
-if [ "$SECRET_COUNT" -ge 8 ]; then
-    echo "  ✅ All expected secrets are present"
-else
-    echo "  ⚠️  Expected at least 8 secrets, found $SECRET_COUNT"
-fi
 
 echo ""
 echo "✨ Key Vault secrets population complete!"

@@ -1,3 +1,4 @@
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -27,9 +28,20 @@ spec:
       labels:
         app: redis
     spec:
+      # P0.1: Security Context - Non-Root Execution
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999  # Usuário padrão do redis
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: redis
           image: redis:7-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             [
               "redis-server",
@@ -42,7 +54,7 @@ spec:
               "--save",
               "",
               "--appendonly",
-              "no",
+              "yes",
             ]
           env:
             - name: REDIS_PASSWORD
@@ -60,3 +72,23 @@ spec:
             requests:
               memory: "256Mi"
               cpu: "250m"
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  labels:
+    app: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

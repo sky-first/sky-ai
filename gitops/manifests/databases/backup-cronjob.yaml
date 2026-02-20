@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: staging
+spec:
+  schedule: "0 3 * * *" # Daily at 03:00 UTC
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: mcr.microsoft.com/azure-cli:latest
+            command: ["/bin/bash", "/scripts/backup.sh"]
+            env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: SAS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: SAS_TOKEN
+            - name: STORAGE_ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: STORAGE_ACCOUNT
+            - name: CONTAINER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: CONTAINER_NAME
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-scripts
+              defaultMode: 0755

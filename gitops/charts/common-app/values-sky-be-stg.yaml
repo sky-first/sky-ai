@@ -1,9 +1,60 @@
+---
 image:
-  tag: "staging"
+  tag: "sha-9ebc449"
 
-ingress:
-  annotations:
-    nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
-    nginx.ingress.kubernetes.io/enable-modsecurity: "false"
-    nginx.ingress.kubernetes.io/enable-owasp-modsecurity-crs: "false"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+replicaCount: 2
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - sky-be-stg
+          topologyKey: kubernetes.io/hostname
+
+# P0.1: Security Context - Non-Root Execution
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# SRE Tuning: Probes pointing to public path to bypass Auth Middleware
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health        # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# P0.1: Local temporary storage for Read-Only Root FS
+extraVolumes:
+  - name: tmp-volume
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp

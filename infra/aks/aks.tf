@@ -69,13 +69,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # User Node Pool - Standard Instances
 resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
-  name                  = "userapps"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D2s_v3"
-  enable_auto_scaling   = true
-  min_count             = 1
-  max_count             = 3
-  priority              = "Regular"
+  name                        = "userapps"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.aks.id
+  vm_size                     = "Standard_D2s_v3"
+  auto_scaling_enabled        = true
+  min_count                   = 1
+  max_count                   = 3
+  priority                    = "Regular"
+  temporary_name_for_rotation = "userappsrot1"
+
+  upgrade_settings {
+    max_unavailable = "1"
+  }
 
   node_labels = {
     "workload_type" = "application"
@@ -93,7 +98,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "ai_turbo" {
   name                  = "aicpu16"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
   vm_size               = "Standard_F16s_v2" # 16 vCPUs, 32GB RAM (Compute Optimized)
-  enable_auto_scaling   = true
+  auto_scaling_enabled  = true
   min_count             = 0 # Scale to zero when not in use to save cost
   max_count             = 1
   priority              = "Regular" # Using Regular to guarantee availability for critical workload

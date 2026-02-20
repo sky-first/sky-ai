@@ -1,3 +1,4 @@
+---
 name: CI - Terraform Validation & Security
 
 permissions:
@@ -5,9 +6,10 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+  security-events: write
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: { }
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -96,11 +98,57 @@ jobs:
           FILTER_REGEX_EXCLUDE: ".*gitops/charts/.*"
           # Super-linter will auto-detect .github/linters/yamllint.yml
 
+  security-scan:
+    name: Security Scan (IaC & Secrets)
+    runs-on: ubuntu-latest
+    needs: [yaml-lint, workflow-lint]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner in IaC mode
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scanners: 'config'
+          hide-progress: true
+          format: 'sarif'
+          output: 'trivy-iac-results.sarif'
+          exit-code: '0' # Audit mode: don't fail the build yet
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner for Secrets
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scanners: 'secret'
+          hide-progress: true
+          format: 'sarif'
+          output: 'trivy-secrets-results.sarif'
+          exit-code: '0' # Audit mode: don't fail the build yet
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy IaC scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true # Prevents failure if GAS is not enabled
+        with:
+          sarif_file: 'trivy-iac-results.sarif'
+          category: 'trivy-iac'
+
+      - name: Upload Trivy Secrets scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true # Prevents failure if GAS is not enabled
+        with:
+          sarif_file: 'trivy-secrets-results.sarif'
+          category: 'trivy-secrets'
+
   terraform-validation:
     name: Terraform Validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [yaml-lint, workflow-lint]
+    needs: [yaml-lint, workflow-lint, security-scan]
     permissions:
       contents: read
       id-token: write
@@ -152,11 +200,11 @@ jobs:
           ARM_USE_OIDC: true
         run: |
           set -euo pipefail
-          
+
           # Limpar cache do Terraform para evitar tentar usar backend configurado
           echo "Limpando cache do Terraform..."
           rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup
-          
+
           # Inicializar SEM backend (apenas para validação)
           echo "Inicializando Terraform sem backend..."
           terraform init -backend=false -input=false -reconfigure 2>&1 | tee init-output.txt || {
@@ -164,7 +212,7 @@ jobs:
             cat init-output.txt
             exit 1
           }
-          
+
           echo "✅ Terraform init concluído (sem backend)"
 
       - name: Terraform Validate
@@ -216,16 +264,16 @@ jobs:
 
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT
-            
+
             # Verificar se há vulnerabilidades críticas
             CRITICAL_COUNT=$(cat tfsec-results.json | jq -r '[.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH")] | length' || echo "0")
-            
+
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
               echo "❌ ERRO: Encontradas $CRITICAL_COUNT vulnerabilidade(s) CRÍTICA(S) ou ALTA(S)"
               cat tfsec-results.json | jq -r '.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH") | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"'
               exit 1
             fi
-            
+
             cat tfsec-results.json | jq -r '.results[]? | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"' || true
           fi
 
@@ -261,20 +309,20 @@ jobs:
               echo "ERROR: terraform.tfvars.${env} not found"
               exit 1
             fi
-            
+
             echo "Checking terraform.tfvars.${env} exists and is readable..."
             # Verificar que o arquivo existe, não está vazio e é legível
             if [ ! -s "terraform.tfvars.${env}" ]; then
               echo "ERROR: terraform.tfvars.${env} is empty"
               exit 1
             fi
-            
+
             # Tentar fazer parse básico do HCL usando hclfmt (se disponível) ou pelo menos verificar estrutura básica
             # Validar que não há erros de sintaxe óbvios (chaves não fechadas, etc)
             if ! grep -q "=" "terraform.tfvars.${env}"; then
               echo "WARNING: terraform.tfvars.${env} might not contain valid key-value pairs"
             fi
-            
+
             echo "terraform.tfvars.${env} exists and appears valid"
           done
 
@@ -289,7 +337,7 @@ jobs:
             const securityTfsecStatus = '${{ steps.security-tfsec.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
             const lintTflintStatus = '${{ steps.lint-tflint.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
 
-            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' && 
+            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' &&
                                       '${{ steps.validate.outcome }}' === 'success' &&
                                       '${{ steps.validate-vars.outcome }}' === 'success';
 
@@ -340,13 +388,24 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Check for Infra Changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+
+
       - name: Setup Terraform
+        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/terraform-setup
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           working_directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Azure Login
+        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/azure-auth
         with:
           subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -355,6 +414,7 @@ jobs:
 
       - name: Get Runner IP
         id: ip
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 https://checkip.amazonaws.com || echo "")
@@ -369,6 +429,7 @@ jobs:
 
       - name: Detect Target Environment
         id: detect-env
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -389,6 +450,7 @@ jobs:
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
 
       - name: Validate Terraform Backend Secrets
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           echo "Validando secrets obrigatórios do backend Terraform..."
@@ -414,6 +476,7 @@ jobs:
           echo "OK: Secrets do backend presentes"
 
       - name: Write backend config
+        if: steps.changes.outputs.infra == 'true'
         run: |
           ENV="${{ steps.detect-env.outputs.env }}"
           cat > backend.hcl <<EOF
@@ -425,11 +488,13 @@ jobs:
           EOF
 
       - name: Terraform Init
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           terraform workspace select ${{ steps.detect-env.outputs.workspace }} || \
@@ -437,6 +502,7 @@ jobs:
 
       - name: Terraform Plan
         id: plan
+        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
 
@@ -452,7 +518,7 @@ jobs:
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -no-color \
             -out=tfplan-preview 2>&1 | tee plan-output.txt
-          
+
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt)
 
@@ -478,7 +544,7 @@ jobs:
           allow_destroy: false
 
       - name: Comment PR with Plan
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.changes.outputs.infra == 'true'
         uses: actions/github-script@v7
         with:
           script: |

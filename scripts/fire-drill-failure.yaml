@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fire-drill-alert-test
+  namespace: staging
+spec:
+  template:
+    spec:
+      containers:
+      - name: fail
+        image: busybox
+        command: ["/bin/sh", "-c", "echo 'Simulating Failure...'; exit 1"]
+      restartPolicy: Never
+  backoffLimit: 0 # Fail immediately

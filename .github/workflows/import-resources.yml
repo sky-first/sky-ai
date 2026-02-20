@@ -1,3 +1,4 @@
+---
 name: Import Existing Resources
 
 on:
@@ -21,34 +22,34 @@ jobs:
     name: Import Resources to Terraform State
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment == 'prod' && 'production' || 'staging' }}
-    
+
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       TF_WORKING_DIR: infra/aks
-    
+
     defaults:
       run:
         working-directory: infra/aks
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Azure Login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
-      
+
       - name: Generate Backend Config
         run: |
           ENV="${{ inputs.environment }}"
@@ -59,47 +60,47 @@ jobs:
           key                  = "${{ secrets.TF_BACKEND_KEY_PREFIX }}-${ENV}.tfstate"
           use_azuread_auth     = true
           EOF
-      
+
       - name: Terraform Init
         run: terraform init -reconfigure -backend-config=backend.hcl
-      
+
       - name: Select Workspace
         run: |
           WORKSPACE="${{ inputs.environment }}"
           terraform workspace select "$WORKSPACE" || terraform workspace new "$WORKSPACE"
-      
+
       - name: Import Resources
         run: |
           set +e  # Don't fail on import errors
           ENV="${{ inputs.environment }}"
           RG="sky-aks-${ENV}-rg"
           SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          
+
           echo "=========================================="
           echo "Importing Resources for Environment: $ENV"
           echo "=========================================="
-          
+
           # Function to import resource
           import_resource() {
             local tf_address="$1"
             local azure_id="$2"
             local name="$3"
-            
+
             echo ""
             echo "🔍 Checking: $name"
-            
+
             # Check if already in state
             if terraform state show "$tf_address" &>/dev/null; then
               echo "  ✅ Already in state"
               return 0
             fi
-            
+
             # Check if exists in Azure
             if ! az resource show --ids "$azure_id" &>/dev/null; then
               echo "  ℹ️  Doesn't exist in Azure (will be created by Terraform)"
               return 0
             fi
-            
+
             # Import
             echo "  📥 Importing..."
             if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
@@ -113,35 +114,35 @@ jobs:
               fi
             fi
           }
-          
+
           # Import Bastion Public IP (conditional)
           import_resource \
             'azurerm_public_ip.bastion[0]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Network/publicIPAddresses/bastion-pip-${ENV}" \
             "Bastion Public IP"
-          
+
           # Import ESO Identity
           import_resource \
             'azurerm_user_assigned_identity.eso' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-eso-${ENV}" \
             "ESO Identity"
-          
+
           # Import Federated Credentials
           import_resource \
             'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-infra"]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-infra-staging" \
             "Federated Credential: sky-poc-infra staging"
-          
+
           import_resource \
             'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-backend"]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-backend-staging" \
             "Federated Credential: sky-poc-backend staging"
-          
+
           import_resource \
             'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-frontend"]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-frontend-staging" \
             "Federated Credential: sky-poc-frontend staging"
-          
+
           import_resource \
             'azurerm_federated_identity_credential.gh_actions_staging["sky-poc-ai"]' \
             "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-gh-actions-${ENV}/federatedIdentityCredentials/gh-actions-sky-poc-ai-staging" \
@@ -154,39 +155,39 @@ jobs:
                "/subscriptions/e1070cf9-7790-4f2d-b449-d4bf4bc21906/resourceGroups/sky-aks-prod-rg/providers/Microsoft.Authorization/roleAssignments/19c320d4-16d0-8dd9-e13c-d784ec0ac454" \
                "GitHub Actions Contributor Role (Prod fix)"
           fi
-          
+
           echo ""
           echo "=========================================="
           echo "✅ Import process completed"
           echo "=========================================="
-          
+
           # Always exit 0 (imports are best-effort)
           exit 0
-      
+
       - name: Configure Key Vault Firewall
         run: |
           set +e
           ENV="${{ inputs.environment }}"
           RUNNER_IP=$(curl -s https://api.ipify.org)
-          
+
           echo "=========================================="
           echo "Configuring Key Vault Firewall"
           echo "Runner IP: $RUNNER_IP"
           echo "=========================================="
-          
+
           # Get all Key Vaults in RG
           RG="sky-aks-${ENV}-rg"
           KV_LIST=$(az keyvault list --resource-group "$RG" --query "[].name" -o tsv)
-          
+
           if [ -z "$KV_LIST" ]; then
             echo "ℹ️  No Key Vaults found"
             exit 0
           fi
-          
+
           for KV_NAME in $KV_LIST; do
             echo ""
             echo "🔧 Configuring: $KV_NAME"
-            
+
             # Add runner IP
             if az keyvault network-rule add \
               --name "$KV_NAME" \
@@ -196,7 +197,7 @@ jobs:
             else
               echo "  ℹ️  IP already whitelisted or firewall disabled"
             fi
-            
+
             # Enable Azure Services bypass
             az keyvault update \
               --name "$KV_NAME" \
@@ -204,11 +205,11 @@ jobs:
               --bypass AzureServices \
               --only-show-errors >/dev/null 2>&1 || true
           done
-          
+
           echo ""
           echo "✅ Key Vault configuration complete"
           exit 0
-      
+
       - name: Summary
         if: always()
         run: |

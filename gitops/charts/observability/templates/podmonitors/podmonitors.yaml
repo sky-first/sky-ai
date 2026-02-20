@@ -1,3 +1,4 @@
+---
 {{- range $name, $config := .Values.podMonitors }}
 {{- if $config.enabled }}
 ---
