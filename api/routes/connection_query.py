@@ -2319,8 +2319,82 @@ async def load_agent_config_from_connection(
     return agent
 
 
+
 @router.post("/{connection_id}/query", response_model=QueryResponse)
 async def query_connection(
+    connection_id: str,
+    body: QueryRequest,
+    db: AsyncSession = Depends(get_db),
+) -> QueryResponse:
+    # ✅ SEMANTIC CACHE LAYER (Lookup)
+    query_embedding = None
+    try:
+        from core.llm.factory import create_embedding_provider
+        from db.models import SemanticCacheRecord
+        from sqlalchemy import text
+        
+        # Só fazemos cache para requisições de resposta ou dashboard gerado,
+        # desconsiderando vazamentos se houver comandos curtos muito vagos.
+        if body.question and len(body.question.strip()) >= 10:
+            embed_provider = create_embedding_provider()
+            query_embedding = await embed_provider.embed_async([body.question])
+            query_embedding = query_embedding[0]
+            
+            sql_stmt = """
+                SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity 
+                FROM semantic_cache
+                WHERE connection_id = :conn_id
+                AND (space_id = :space_id OR space_id IS NULL)
+                AND (1 - (embedding <=> :query_emb)) >= 0.95
+                ORDER BY similarity DESC
+                LIMIT 1
+            """
+            
+            db_res = await db.execute(text(sql_stmt), {
+                "query_emb": str(query_embedding),
+                "conn_id": connection_id,
+                "space_id": body.space_id
+            })
+            cache_row = db_res.first()
+            
+            if cache_row:
+                cached_json, sim_score = cache_row
+                from core.logging_utils import log_event
+                log_event("semantic_cache_hit", {
+                    "connection_id": connection_id,
+                    "similarity_score": round(sim_score, 4),
+                    "original_question": body.question[:50],
+                })
+                return QueryResponse.model_validate(cached_json)
+    except Exception as sc_err:
+        from core.logging_utils import log_event
+        log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+
+    # ✅ EXECUTE INNER LLM PIPELINE
+    response = await _query_connection_inner(connection_id, body, db)
+
+    # ✅ SEMANTIC CACHE LAYER (Store)
+    try:
+        if query_embedding and response.meta and getattr(response.meta, 'error', None) is None:
+            # We don't cache errors from security/language blocks
+            if response.answer and not response.answer.startswith("I'm sorry, but I only support questions"):
+                cache_record = SemanticCacheRecord(
+                    connection_id=connection_id,
+                    space_id=body.space_id,
+                    question=body.question,
+                    embedding=query_embedding,
+                    response_json=response.model_dump()
+                )
+                db.add(cache_record)
+                await db.commit()
+    except Exception as sc_err:
+        from core.logging_utils import log_event
+        log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
+
+    return response
+
+async def _query_connection_inner(
+
     connection_id: str,
     body: QueryRequest,
     db: AsyncSession = Depends(get_db),
