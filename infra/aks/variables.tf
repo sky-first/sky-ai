@@ -77,11 +77,6 @@ variable "runner_ip" {
   default     = null
 }
 
-variable "key_vault_firewall_allow" {
-  description = "Temporarily allow all access to Key Vault (managed by pipeline during apply)"
-  type        = bool
-  default     = false
-}
 
 variable "authorized_ips" {
   description = "List of public IPs authorized to access the AKS API server"
