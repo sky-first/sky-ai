@@ -33,5 +33,6 @@ resource "azurerm_resource_group" "aks" {
     Environment = var.environment
     Project     = "AI-SaaS-AKS"
     ManagedBy   = "terraform"
+    CostCenter  = "Engineering"
   }
 }
