@@ -8,7 +8,7 @@ data:
   setup-models.sh: |
     #!/bin/bash
     set -e
-    echo "🚀 Starting Ollama model setup..."
+    echo " Starting Ollama model setup..."
     echo "📅 $(date)"
 
     # Wait for Ollama server to be ready using native command
@@ -19,7 +19,7 @@ data:
     while [ $COUNTER -lt $MAX_WAIT ]; do
       # Use ollama list command to check if server is ready
       if ollama list >/dev/null 2>&1; then
-        echo "✅ Ollama server is ready!"
+        echo "[OK] Ollama server is ready!"
         break
       fi
 
@@ -29,7 +29,7 @@ data:
     done
 
     if [ $COUNTER -ge $MAX_WAIT ]; then
-      echo "❌ Timeout waiting for Ollama API after ${MAX_WAIT}s"
+      echo "[ERROR] Timeout waiting for Ollama API after ${MAX_WAIT}s"
       exit 1
     fi
 
@@ -41,9 +41,9 @@ data:
     echo ""
     echo "📦 [1/3] Pulling phi3:mini (~2.3GB)..."
     if ollama pull phi3:mini; then
-      echo "✅ phi3:mini downloaded successfully"
+      echo "[OK] phi3:mini downloaded successfully"
     else
-      echo "❌ Failed to pull phi3:mini"
+      echo "[ERROR] Failed to pull phi3:mini"
       exit 1
     fi
 
@@ -51,9 +51,9 @@ data:
     echo ""
     echo "📦 [2/3] Pulling sqlcoder:7b (~4GB)..."
     if ollama pull sqlcoder:7b; then
-      echo "✅ sqlcoder:7b downloaded successfully"
+      echo "[OK] sqlcoder:7b downloaded successfully"
     else
-      echo "❌ Failed to pull sqlcoder:7b"
+      echo "[ERROR] Failed to pull sqlcoder:7b"
       exit 1
     fi
 
@@ -61,35 +61,35 @@ data:
     echo ""
     echo "📦 [3/3] Pulling nomic-embed-text (~274MB)..."
     if ollama pull nomic-embed-text; then
-      echo "✅ nomic-embed-text downloaded successfully"
+      echo "[OK] nomic-embed-text downloaded successfully"
     else
-      echo "❌ Failed to pull nomic-embed-text"
+      echo "[ERROR] Failed to pull nomic-embed-text"
       exit 1
     fi
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "⚙️  Creating customized models with optimized parameters..."
+    echo "  Creating customized models with optimized parameters..."
     echo ""
 
     # Create sqlcoder-sky (optimized for SQL generation)
-    echo "🔧 Creating sqlcoder-sky (zero temperature for deterministic SQL)..."
+    echo " Creating sqlcoder-sky (zero temperature for deterministic SQL)..."
     ollama create sqlcoder-sky -f - <<EOF
     FROM sqlcoder:7b
     PARAMETER num_ctx 4096
     PARAMETER temperature 0
     EOF
-    echo "✅ sqlcoder-sky created"
+    echo "[OK] sqlcoder-sky created"
 
     # Create phi3-sky (optimized for general tasks)
     echo ""
-    echo "🔧 Creating phi3-sky (balanced temperature for reasoning)..."
+    echo " Creating phi3-sky (balanced temperature for reasoning)..."
     ollama create phi3-sky -f - <<EOF
     FROM phi3:mini
     PARAMETER num_ctx 4096
     PARAMETER temperature 0.3
     EOF
-    echo "✅ phi3-sky created"
+    echo "[OK] phi3-sky created"
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -97,5 +97,5 @@ data:
     ollama list
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "✅ Setup complete! All models ready for inference."
+    echo "[OK] Setup complete! All models ready for inference."
     echo "📅 Completed at: $(date)"

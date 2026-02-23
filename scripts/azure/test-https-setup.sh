@@ -14,9 +14,9 @@ ERRORS=0
 WARNINGS=0
 
 log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_error() { echo -e "${RED}❌ $1${NC}"; ERRORS=$((ERRORS + 1)); }
-log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; WARNINGS=$((WARNINGS + 1)); }
+log_success() { echo -e "${GREEN}[OK] $1${NC}"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}"; ERRORS=$((ERRORS + 1)); }
+log_warning() { echo -e "${YELLOW}[WARNING] $1${NC}"; WARNINGS=$((WARNINGS + 1)); }
 
 echo "=========================================="
 echo "🧪 Teste de Validação - Configuração HTTPS"

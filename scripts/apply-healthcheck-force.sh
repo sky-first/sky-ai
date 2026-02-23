@@ -5,13 +5,13 @@ set -eu
 RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
-echo "🚀 Aplicando healthcheck (modo direto)..."
+echo " Aplicando healthcheck (modo direto)..."
 echo ""
 
 # Script muito simples e direto
 APPLY_SCRIPT='cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/projeto/poc-deploy 2>/dev/null || exit 1
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "✅ Healthcheck já existe"
+    echo "[OK] Healthcheck já existe"
 else
     echo "Aplicando healthcheck..."
     cp docker-compose.yml docker-compose.yml.backup
@@ -28,12 +28,12 @@ if "healthcheck:" not in content or "frontend:" in content[:content.find("health
     if new_content != content:
         with open("docker-compose.yml", "w") as f:
             f.write(new_content)
-        print("✅ Healthcheck aplicado")
+        print("[OK] Healthcheck aplicado")
     else:
-        print("❌ Erro ao aplicar")
+        print("[ERROR] Erro ao aplicar")
         exit(1)
 else:
-    print("✅ Healthcheck já existe")
+    print("[OK] Healthcheck já existe")
 PYEOF
 fi
 docker compose down
@@ -63,8 +63,8 @@ try:
 except json.JSONDecodeError:
     output = sys.stdin.read()
     if 'Conflict' in output:
-        print('⚠️  Comando anterior ainda em execução. O healthcheck será aplicado quando o comando anterior finalizar.')
-        print('💡 Aguarde 5-10 minutos e verifique manualmente via SSH ou execute novamente.')
+        print('[WARNING] Comando anterior ainda em execução. O healthcheck será aplicado quando o comando anterior finalizar.')
+        print('[INFO] Aguarde 5-10 minutos e verifique manualmente via SSH ou execute novamente.')
     else:
         print('Output bruto:', output)
 except Exception as e:
@@ -72,9 +72,9 @@ except Exception as e:
 " 2>/dev/null || echo "Comando executado"
 
 echo ""
-echo "✅ Script executado"
+echo "[OK] Script executado"
 echo ""
-echo "💡 Se houver conflito, aguarde alguns minutos e verifique:"
+echo "[INFO] Se houver conflito, aguarde alguns minutos e verifique:"
 echo "   ssh -i keys/azure/team/id_rsa_poc azureuser@20.185.60.67"
 echo "   cd /home/azureuser/projeto/sky-poc-infra"
 echo "   grep -A 10 'frontend:' docker-compose.yml | grep -A 5 'healthcheck:'"

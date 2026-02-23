@@ -45,14 +45,14 @@ spec:
                   echo "Current Lag: ${LAG}s"
 
                   if [ "$LAG" -gt 300 ]; then
-                    echo "❌ ERRO: Replication Lag muito alto (${LAG}s). Abortando."
+                    echo "[ERROR] ERRO: Replication Lag muito alto (${LAG}s). Abortando."
                     exit 1
                   fi
 
                   FILENAME="/data/backup-${DB_NAME}.dump"
                   echo "📦 Gerando dump em /data/backup..."
                   PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h $DB_HOST -U $DB_USER -d $DB_NAME -Fc -f $FILENAME
-                  echo "✅ Dump concluído localmente."
+                  echo "[OK] Dump concluído localmente."
               env:
                 - name: POSTGRES_PASSWORD
                   valueFrom:
@@ -82,7 +82,7 @@ spec:
                   TOKEN=$(cat $AZURE_FEDERATED_TOKEN_FILE)
                   az login --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" --federated-token "$TOKEN"
 
-                  echo "🚀 Enviando backup para o Azure: ${FILENAME}"
+                  echo " Enviando backup para o Azure: ${FILENAME}"
                   az storage blob upload \
                     --account-name "$STORAGE_ACCOUNT" \
                     --container-name "$CONTAINER_NAME" \
@@ -90,7 +90,7 @@ spec:
                     --auth-mode login \
                     --file "/data/backup-${DB_NAME}.dump"
 
-                  echo "✅ Backup finalizado com sucesso na Azure!"
+                  echo "[OK] Backup finalizado com sucesso na Azure!"
               volumeMounts:
                 - name: backup-data
                   mountPath: /data

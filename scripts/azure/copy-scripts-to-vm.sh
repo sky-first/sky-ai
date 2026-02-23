@@ -16,8 +16,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_error() { echo -e "${RED}❌ $1${NC}"; }
+log_success() { echo -e "${GREEN}[OK] $1${NC}"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
 echo "=========================================="
 echo "📦 Copiando Scripts para VM"
@@ -101,7 +101,7 @@ done
 
 echo ""
 echo "=========================================="
-echo "✅ Scripts Copiados com Sucesso"
+echo "[OK] Scripts Copiados com Sucesso"
 echo "=========================================="
 echo ""
 echo "Agora você pode executar na VM:"

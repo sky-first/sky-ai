@@ -37,25 +37,25 @@ runs:
         # Tentar 1: Caminho relativo (diretório atual - deve ser working-directory)
         if [ -f "$PLAN_FILE" ]; then
           FOUND_FILE="$PLAN_FILE"
-          echo "✅ Plan file found (relative path): $FOUND_FILE"
+          echo "[OK] Plan file found (relative path): $FOUND_FILE"
 
         # Tentar 2: Workspace root + caminho
         elif [ -f "${GITHUB_WORKSPACE}/${PLAN_FILE}" ]; then
           FOUND_FILE="${GITHUB_WORKSPACE}/${PLAN_FILE}"
-          echo "✅ Plan file found in workspace root: $FOUND_FILE"
+          echo "[OK] Plan file found in workspace root: $FOUND_FILE"
 
         # Tentar 3: infra/azure + caminho (working-directory padrão)
         elif [ -f "${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}" ]; then
           FOUND_FILE="${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}"
-          echo "✅ Plan file found in infra/azure: $FOUND_FILE"
+          echo "[OK] Plan file found in infra/azure: $FOUND_FILE"
 
         # Tentar 4: Buscar recursivamente (fallback)
         else
           FOUND_FILE=$(find ${GITHUB_WORKSPACE} -name "$(basename ${PLAN_FILE})" -type f 2>/dev/null | head -1)
           if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
-            echo "✅ Plan file found (searched): $FOUND_FILE"
+            echo "[OK] Plan file found (searched): $FOUND_FILE"
           else
-            echo "❌ Plan file not found: ${{ inputs.plan_file }}"
+            echo "[ERROR] Plan file not found: ${{ inputs.plan_file }}"
             echo "Current directory: $(pwd)"
             echo "Workspace: ${GITHUB_WORKSPACE}"
             echo ""

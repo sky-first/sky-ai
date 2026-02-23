@@ -25,13 +25,13 @@ log_critical() {
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  AVISO: $1${NC}"
+    echo -e "${YELLOW}[WARNING] AVISO: $1${NC}"
     WARNINGS=$((WARNINGS + 1))
     ISSUES_FOUND=$((ISSUES_FOUND + 1))
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 log_info() {
@@ -313,8 +313,8 @@ echo "📊 RESUMO DA ANÁLISE"
 echo "=========================================="
 echo ""
 echo "🔴 Problemas Críticos: $CRITICAL_ISSUES"
-echo "⚠️  Avisos: $WARNINGS"
-echo "✅ Total de Itens Analisados: $ISSUES_FOUND"
+echo "[WARNING] Avisos: $WARNINGS"
+echo "[OK] Total de Itens Analisados: $ISSUES_FOUND"
 echo ""
 
 if [ $CRITICAL_ISSUES -eq 0 ]; then
@@ -323,12 +323,12 @@ if [ $CRITICAL_ISSUES -eq 0 ]; then
         echo "O workflow está preparado para re-deploy após deploy parcial"
         exit 0
     else
-        echo -e "${YELLOW}⚠️  WORKFLOW FUNCIONAL COM AVISOS${NC}"
+        echo -e "${YELLOW}[WARNING] WORKFLOW FUNCIONAL COM AVISOS${NC}"
         echo "Recomenda-se revisar os avisos acima para garantir robustez"
         exit 0
     fi
 else
-    echo -e "${RED}❌ PROBLEMAS CRÍTICOS ENCONTRADOS${NC}"
+    echo -e "${RED}[ERROR] PROBLEMAS CRÍTICOS ENCONTRADOS${NC}"
     echo "Correções obrigatórias antes de re-deploy"
     exit 1
 fi

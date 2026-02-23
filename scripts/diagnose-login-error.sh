@@ -31,18 +31,18 @@ print_section() {
 
 # Função para imprimir sucesso
 print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 # Função para imprimir erro
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}[ERROR] $1${NC}"
     ((ERRORS++))
 }
 
 # Função para imprimir aviso
 print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
     ((WARNINGS++))
 }
 

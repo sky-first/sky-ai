@@ -5,14 +5,14 @@
 set -eu
 
 cd ~/projeto/sky-poc-infra 2>/dev/null || cd ~/projeto/poc-deploy || {
-    echo "❌ Diretório do projeto não encontrado"
+    echo "[ERROR] Diretório do projeto não encontrado"
     exit 1
 }
 
 ENV_FILE=".env"
 
 echo "=========================================="
-echo "🔧 Correção de .env (com sudo se necessário)"
+echo " Correção de .env (com sudo se necessário)"
 echo "=========================================="
 echo ""
 
@@ -35,7 +35,7 @@ echo ""
 # Criar arquivo temporário com correção
 TMP_FILE="/tmp/env_fixed_$$"
 grep -v "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" > "$TMP_FILE" 2>/dev/null || {
-    echo "❌ Erro ao ler .env"
+    echo "[ERROR] Erro ao ler .env"
     exit 1
 }
 
@@ -46,19 +46,19 @@ echo "NEXT_PUBLIC_API_URL=/api/v1" >> "$TMP_FILE"
 if [ -w "$ENV_FILE" ]; then
     cp "$TMP_FILE" "$ENV_FILE"
     chmod 600 "$ENV_FILE"
-    echo "✅ Arquivo atualizado (sem sudo)"
+    echo "[OK] Arquivo atualizado (sem sudo)"
 else
     sudo cp "$TMP_FILE" "$ENV_FILE"
     sudo chmod 600 "$ENV_FILE"
     sudo chown $(whoami):$(whoami) "$ENV_FILE" 2>/dev/null || true
-    echo "✅ Arquivo atualizado (com sudo)"
+    echo "[OK] Arquivo atualizado (com sudo)"
 fi
 
 # Limpar arquivo temporário
 rm -f "$TMP_FILE"
 
 echo ""
-echo "✅ Correção aplicada!"
+echo "[OK] Correção aplicada!"
 echo ""
 echo "Novo valor:"
 grep "^NEXT_PUBLIC_API_URL=" "$ENV_FILE"

@@ -8,19 +8,19 @@ set -e
 
 NAMESPACE="prod"
 
-echo "✅ Validando Aplicações em Produção"
+echo "[OK] Validando Aplicações em Produção"
 echo ""
 
 # 1. Verificar Pods Status
-echo "1️⃣  Status dos Pods em $NAMESPACE..."
+echo "1.  Status dos Pods em $NAMESPACE..."
 echo ""
 kubectl get pods -n $NAMESPACE -o wide || {
-    echo "❌ Nenhum pod encontrado em $NAMESPACE"
+    echo "[ERROR] Nenhum pod encontrado em $NAMESPACE"
     exit 1
 }
 
 echo ""
-echo "2️⃣  Verificar replicas e readiness..."
+echo "2.  Verificar replicas e readiness..."
 echo ""
 echo "Backend Deployment:"
 kubectl get deployment -n $NAMESPACE -l app=backend -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.replicas}/{.status.readyReplicas}{"\n"}{end}'
@@ -35,7 +35,7 @@ kubectl get deployment -n $NAMESPACE -l app=ai -o jsonpath='{range .items[*]}{.m
 
 # 3. Verificar Database StatefulSets
 echo ""
-echo "3️⃣  Verificar Databases..."
+echo "3.  Verificar Databases..."
 echo ""
 echo "PostgreSQL StatefulSet:"
 kubectl get statefulset -n $NAMESPACE -l app=postgresql -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.replicas}/{.status.readyReplicas}{"\n"}{end}'
@@ -46,15 +46,15 @@ kubectl get statefulset -n $NAMESPACE -l app=redis -o jsonpath='{range .items[*]
 
 # 4. Verificar PVCs (Persistent Volumes)
 echo ""
-echo "4️⃣  Verificar Persistent Volumes..."
+echo "4.  Verificar Persistent Volumes..."
 echo ""
 kubectl get pvc -n $NAMESPACE
 
 # 5. Verificar Secrets sincronizados
 echo ""
-echo "5️⃣  Verificar ExternalSecrets..."
+echo "5.  Verificar ExternalSecrets..."
 echo ""
-kubectl get externalsecrets -n $NAMESPACE || echo "⚠️  Nenhum ExternalSecret encontrado"
+kubectl get externalsecrets -n $NAMESPACE || echo "[WARNING] Nenhum ExternalSecret encontrado"
 
 echo ""
 echo "Secrets criados:"
@@ -63,26 +63,26 @@ echo "secrets encontrados"
 
 # 6. Verificar Services
 echo ""
-echo "6️⃣  Verificar Services..."
+echo "6.  Verificar Services..."
 echo ""
 kubectl get svc -n $NAMESPACE
 
 # 7. Verificar ConfigMaps
 echo ""
-echo "7️⃣  Verificar ConfigMaps..."
+echo "7.  Verificar ConfigMaps..."
 echo ""
 kubectl get configmap -n $NAMESPACE
 
 # 8. Verificar Health dos Pods
 echo ""
-echo "8️⃣  Verificar logs dos pods para erros..."
+echo "8.  Verificar logs dos pods para erros..."
 echo ""
 echo "Últimos erros encontrados (últimos 5 min):"
-kubectl logs -n $NAMESPACE --all-containers=true --timestamps=true --since=5m | grep -i error | tail -5 || echo "✅ Nenhum erro encontrado"
+kubectl logs -n $NAMESPACE --all-containers=true --timestamps=true --since=5m | grep -i error | tail -5 || echo "[OK] Nenhum erro encontrado"
 
 # 9. Test básico Backend
 echo ""
-echo "9️⃣  Testar conectividade Backend (port-forward)..."
+echo "9.  Testar conectividade Backend (port-forward)..."
 echo ""
 echo "Você pode testar com:"
 echo "  kubectl port-forward svc/sky-backend-prod-common-app 8000:80 -n $NAMESPACE &"
@@ -91,7 +91,7 @@ echo "  curl http://localhost:8000/api/v1/health"
 # 10. Resumo
 echo ""
 echo "========================================="
-echo "✅ Validação de Aplicações Completa!"
+echo "[OK] Validação de Aplicações Completa!"
 echo "========================================="
 echo ""
 echo "Próximos passos:"

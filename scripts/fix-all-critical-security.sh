@@ -36,22 +36,22 @@ echo ""
 
 # Verificar se está sendo rastreado
 if git ls-files --error-unmatch .env &>/dev/null 2>&1; then
-    echo -e "${RED}❌ .env está sendo rastreado pelo git!${NC}"
+    echo -e "${RED}[ERROR] .env está sendo rastreado pelo git!${NC}"
     echo -e "${YELLOW}Removendo do índice...${NC}"
     git rm --cached .env 2>/dev/null || true
-    echo -e "${GREEN}✅ .env removido do índice${NC}"
+    echo -e "${GREEN}[OK] .env removido do índice${NC}"
 else
-    echo -e "${GREEN}✅ .env não está sendo rastreado${NC}"
+    echo -e "${GREEN}[OK] .env não está sendo rastreado${NC}"
 fi
 
 # Verificar histórico
 HISTORY=$(git log --all --full-history --oneline -- .env 2>/dev/null | head -5)
 
 if [ -z "$HISTORY" ]; then
-    echo -e "${GREEN}✅ .env NÃO está no histórico do git${NC}"
-    echo -e "${GREEN}✅ Tudo seguro!${NC}"
+    echo -e "${GREEN}[OK] .env NÃO está no histórico do git${NC}"
+    echo -e "${GREEN}[OK] Tudo seguro!${NC}"
 else
-    echo -e "${RED}❌ .env ENCONTRADO no histórico do git!${NC}"
+    echo -e "${RED}[ERROR] .env ENCONTRADO no histórico do git!${NC}"
     echo ""
     echo -e "${YELLOW}Commits encontrados:${NC}"
     echo "$HISTORY"
@@ -83,7 +83,7 @@ else
         CURRENT_PERMS=$(stat -c "%a" "$ENV_FILE" 2>/dev/null || stat -f "%OLp" "$ENV_FILE" 2>/dev/null || echo "000")
         
         if [ "$CURRENT_PERMS" = "600" ] || [ "$CURRENT_PERMS" = "400" ]; then
-            echo -e "${GREEN}✅ Permissões corretas: $CURRENT_PERMS${NC}"
+            echo -e "${GREEN}[OK] Permissões corretas: $CURRENT_PERMS${NC}"
         else
             echo -e "${YELLOW}Permissões atuais: $CURRENT_PERMS${NC}"
             echo -e "${BLUE}Corrigindo para 600...${NC}"
@@ -91,9 +91,9 @@ else
             
             NEW_PERMS=$(stat -c "%a" "$ENV_FILE" 2>/dev/null || stat -f "%OLp" "$ENV_FILE" 2>/dev/null || echo "000")
             if [ "$NEW_PERMS" = "600" ]; then
-                echo -e "${GREEN}✅ Permissões corrigidas: $NEW_PERMS${NC}"
+                echo -e "${GREEN}[OK] Permissões corrigidas: $NEW_PERMS${NC}"
             else
-                echo -e "${RED}❌ Erro ao corrigir permissões${NC}"
+                echo -e "${RED}[ERROR] Erro ao corrigir permissões${NC}"
             fi
         fi
     else
@@ -112,12 +112,12 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if grep -q "^\.env$" "$PROJECT_DIR/.gitignore" 2>/dev/null; then
-    echo -e "${GREEN}✅ .env está no .gitignore${NC}"
+    echo -e "${GREEN}[OK] .env está no .gitignore${NC}"
 else
-    echo -e "${YELLOW}⚠️  .env não está no .gitignore${NC}"
+    echo -e "${YELLOW}[WARNING] .env não está no .gitignore${NC}"
     echo -e "${BLUE}Adicionando...${NC}"
     echo ".env" >> "$PROJECT_DIR/.gitignore"
-    echo -e "${GREEN}✅ .env adicionado ao .gitignore${NC}"
+    echo -e "${GREEN}[OK] .env adicionado ao .gitignore${NC}"
 fi
 
 # ============================================
@@ -125,17 +125,17 @@ fi
 # ============================================
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}✅ Verificação Completa Concluída${NC}"
+echo -e "${CYAN}[OK] Verificação Completa Concluída${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
 if [ -n "$HISTORY" ]; then
-    echo -e "${YELLOW}⚠️  AÇÃO NECESSÁRIA:${NC}"
+    echo -e "${YELLOW}[WARNING] AÇÃO NECESSÁRIA:${NC}"
     echo -e "${YELLOW}   .env encontrado no histórico. Execute:${NC}"
     echo -e "${BLUE}   ./scripts/check-env-in-git.sh${NC}"
     echo ""
 fi
 
-echo -e "${GREEN}✅ Todos os outros problemas foram corrigidos!${NC}"
+echo -e "${GREEN}[OK] Todos os outros problemas foram corrigidos!${NC}"
 echo ""
 

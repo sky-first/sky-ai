@@ -12,11 +12,11 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_error() { echo -e "${RED}❌ $1${NC}"; }
+log_success() { echo -e "${GREEN}[OK] $1${NC}"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
 echo "=========================================="
-echo "🔧 Correção Rápida: NEXT_PUBLIC_API_URL"
+echo " Correção Rápida: NEXT_PUBLIC_API_URL"
 echo "=========================================="
 echo ""
 

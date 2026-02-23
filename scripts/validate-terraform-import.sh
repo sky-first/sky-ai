@@ -22,10 +22,10 @@ check_pattern() {
     local description="$3"
     
     if grep -q "$pattern" "$file"; then
-        echo -e "${GREEN}✅${NC} $description"
+        echo -e "${GREEN}[OK]${NC} $description"
         return 0
     else
-        echo -e "${RED}❌${NC} $description"
+        echo -e "${RED}[ERROR]${NC} $description"
         ERRORS=$((ERRORS + 1))
         return 1
     fi
@@ -38,10 +38,10 @@ check_no_pattern() {
     local description="$3"
     
     if ! grep -q "$pattern" "$file"; then
-        echo -e "${GREEN}✅${NC} $description"
+        echo -e "${GREEN}[OK]${NC} $description"
         return 0
     else
-        echo -e "${RED}❌${NC} $description"
+        echo -e "${RED}[ERROR]${NC} $description"
         ERRORS=$((ERRORS + 1))
         return 1
     fi
@@ -76,10 +76,10 @@ check_pattern "$WORKFLOW_FILE" "VAR_ARGS\+=" "Variáveis estão sendo adicionada
 check_pattern "$WORKFLOW_FILE" "terraform import" "Comando terraform import existe"
 # Verificar que não há set +e imediatamente antes do import
 if grep -A 5 "terraform import" "$WORKFLOW_FILE" | grep -B 2 "terraform import" | grep -q "set +e"; then
-    echo -e "${RED}❌${NC} set +e encontrado antes do terraform import (deve falhar explicitamente)"
+    echo -e "${RED}[ERROR]${NC} set +e encontrado antes do terraform import (deve falhar explicitamente)"
     ERRORS=$((ERRORS + 1))
 else
-    echo -e "${GREEN}✅${NC} Não há set +e antes do terraform import (fail-fast correto)"
+    echo -e "${GREEN}[OK]${NC} Não há set +e antes do terraform import (fail-fast correto)"
 fi
 
 # Verificar validação pós-import
@@ -104,9 +104,9 @@ check_pattern "$WORKFLOW_FILE" "ERRO CRÍTICO: Resource Group existe no Azure ma
 
 # Verificar fail explícito se inconsistência detectada
 if grep -A 10 "ERRO CRÍTICO: Resource Group existe no Azure mas NÃO está no estado" "$WORKFLOW_FILE" | grep -q "exit 1"; then
-    echo -e "${GREEN}✅${NC} Falha explícita se inconsistência detectada no plan"
+    echo -e "${GREEN}[OK]${NC} Falha explícita se inconsistência detectada no plan"
 else
-    echo -e "${RED}❌${NC} Falta exit 1 após detectar inconsistência no plan"
+    echo -e "${RED}[ERROR]${NC} Falta exit 1 após detectar inconsistência no plan"
     ERRORS=$((ERRORS + 1))
 fi
 
@@ -129,9 +129,9 @@ check_pattern "$WORKFLOW_FILE" "grep -q.*will be created" "Fallback com grep imp
 
 # Verificar fail explícito se plan tentar criar existente
 if grep -A 10 "ERRO CRÍTICO: Plan tenta criar Resource Group que JÁ EXISTE" "$WORKFLOW_FILE" | grep -q "exit 1"; then
-    echo -e "${GREEN}✅${NC} Falha explícita se plan tentar criar recurso existente"
+    echo -e "${GREEN}[OK]${NC} Falha explícita se plan tentar criar recurso existente"
 else
-    echo -e "${RED}❌${NC} Falta exit 1 após detectar plan incorreto"
+    echo -e "${RED}[ERROR]${NC} Falta exit 1 após detectar plan incorreto"
     ERRORS=$((ERRORS + 1))
 fi
 
@@ -144,8 +144,8 @@ echo "=== Resumo da Validação ==="
 echo ""
 
 if [ $ERRORS -eq 0 ]; then
-    echo -e "${GREEN}✅ Todas as validações passaram!${NC}"
-    echo -e "${GREEN}✅ Correções estão implementadas corretamente${NC}"
+    echo -e "${GREEN}[OK] Todas as validações passaram!${NC}"
+    echo -e "${GREEN}[OK] Correções estão implementadas corretamente${NC}"
     echo ""
     echo "Próximos passos:"
     echo "  1. Testar o workflow em um ambiente de staging"
@@ -154,7 +154,7 @@ if [ $ERRORS -eq 0 ]; then
     echo "  4. Validar que verificações falham corretamente quando necessário"
     exit 0
 else
-    echo -e "${RED}❌ Encontrados $ERRORS erro(s)${NC}"
+    echo -e "${RED}[ERROR] Encontrados $ERRORS erro(s)${NC}"
     echo ""
     echo "Corrija os erros acima antes de considerar as correções validadas."
     exit 1

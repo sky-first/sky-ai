@@ -55,14 +55,14 @@ echo "Subject: $SUBJECT"
 PARAMETERS="{\"name\":\"$CREDENTIAL_NAME\",\"issuer\":\"https://token.actions.githubusercontent.com\",\"subject\":\"$SUBJECT\",\"audiences\":[\"api://AzureADTokenExchange\"],\"description\":\"Access for backend staging branch\"}"
 
 if az ad app federated-credential create --id "$CLIENT_ID" --parameters "$PARAMETERS" 2>/dev/null; then
-    echo -e "${GREEN}✅ Sucesso! Credencial criada.${NC}"
+    echo -e "${GREEN}[OK] Sucesso! Credencial criada.${NC}"
 else
     # Check execution
     EXISTING=$(az ad app federated-credential list --id "$CLIENT_ID" --query "[?name=='$CREDENTIAL_NAME'].name" -o tsv 2>/dev/null || echo "")
     if [ -n "$EXISTING" ]; then
-        echo -e "${GREEN}✅ Credencial já existe, nada a fazer.${NC}"
+        echo -e "${GREEN}[OK] Credencial já existe, nada a fazer.${NC}"
     else
-        echo -e "${RED}❌ Falha ao criar a credencial. Verifique se você tem permissões de Admin/Owner na App Registration.${NC}"
+        echo -e "${RED}[ERROR] Falha ao criar a credencial. Verifique se você tem permissões de Admin/Owner na App Registration.${NC}"
         # Show verbose error specifically
         az ad app federated-credential create --id "$CLIENT_ID" --parameters "$PARAMETERS"
     fi

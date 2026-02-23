@@ -130,7 +130,7 @@ jobs:
           fi
 
           RG_ID=$(az group show --name "$RG_NAME" --query id -o tsv)
-          echo "✅ Resource Group encontrado: $RG_NAME"
+          echo "[OK] Resource Group encontrado: $RG_NAME"
           echo "   ID: $RG_ID"
 
       - name: Check if Already in State
@@ -140,11 +140,11 @@ jobs:
 
           if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
             echo "already_imported=true" >> $GITHUB_OUTPUT
-            echo "⚠️  Resource Group já está no estado do Terraform"
+            echo "[WARNING] Resource Group já está no estado do Terraform"
             terraform state show azurerm_resource_group.main
           else
             echo "already_imported=false" >> $GITHUB_OUTPUT
-            echo "✅ Resource Group não está no estado (precisa importar)"
+            echo "[OK] Resource Group não está no estado (precisa importar)"
           fi
 
       - name: Import Resource Group
@@ -209,12 +209,12 @@ jobs:
           IMPORT_EXIT_CODE=$?
 
           if [ $IMPORT_EXIT_CODE -ne 0 ]; then
-            echo "❌ ERRO: Falha ao importar Resource Group (exit code: $IMPORT_EXIT_CODE)"
+            echo "[ERROR] ERRO: Falha ao importar Resource Group (exit code: $IMPORT_EXIT_CODE)"
             exit 1
           fi
 
           echo ""
-          echo "✅ Import realizado com sucesso!"
+          echo "[OK] Import realizado com sucesso!"
 
       - name: Verify Import
         run: |
@@ -225,12 +225,12 @@ jobs:
 
           echo "Verificando se Resource Group está no estado..."
           if terraform state show azurerm_resource_group.main > /dev/null 2>&1; then
-            echo "✅ Resource Group está no estado do Terraform"
+            echo "[OK] Resource Group está no estado do Terraform"
             echo ""
             echo "Estado do Resource Group:"
             terraform state show azurerm_resource_group.main
           else
-            echo "❌ ERRO: Resource Group não está no estado após import"
+            echo "[ERROR] ERRO: Resource Group não está no estado após import"
             exit 1
           fi
 
@@ -239,7 +239,7 @@ jobs:
           terraform plan \
             -var-file="$TFVARS_FILE" \
             -var="subscription_id=${SUBSCRIPTION_ID}" \
-            -no-color | grep -A 5 -B 5 "azurerm_resource_group.main" || echo "✅ Plan não tenta criar Resource Group (correto)"
+            -no-color | grep -A 5 -B 5 "azurerm_resource_group.main" || echo "[OK] Plan não tenta criar Resource Group (correto)"
 
       - name: Summary
         if: always()
@@ -251,11 +251,11 @@ jobs:
           echo ""
           echo "========================================"
           if [ "${{ steps.check-state.outputs.already_imported }}" = "true" ]; then
-            echo "✅ Resource Group já estava importado"
+            echo "[OK] Resource Group já estava importado"
           elif [ "${{ job.status }}" = "success" ]; then
-            echo "✅ Import concluído com sucesso!"
+            echo "[OK] Import concluído com sucesso!"
           else
-            echo "❌ Import falhou"
+            echo "[ERROR] Import falhou"
           fi
           echo "========================================"
           echo ""

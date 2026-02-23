@@ -68,7 +68,7 @@ jobs:
              --query "[].name" -o tsv)
 
            if [ -z "$BLOBS" ]; then
-             echo "⚠️ No blobs found in container '$CONTAINER'"
+             echo "[WARNING]No blobs found in container '$CONTAINER'"
            fi
 
            for BLOB in $BLOBS; do
@@ -77,7 +77,7 @@ jobs:
                --blob-name "$BLOB" \
                --container-name "$CONTAINER" \
                --account-name "$STORAGE_ACCOUNT" \
-               --auth-mode login || echo "⚠️ Failed to break lease for $BLOB (maybe none) - continuing..."
+               --auth-mode login || echo "[WARNING]Failed to break lease for $BLOB (maybe none) - continuing..."
 
              # Check for lock.info associated with this blob (just in case)
              LOCK_BLOB="$BLOB.lock.info"
@@ -106,14 +106,14 @@ jobs:
           ROLES=$(az role assignment list --assignee "$CLIENT_ID" --resource-group "$RG_NAME" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
 
           if echo "$ROLES" | grep -qE "Owner|User Access Administrator"; then
-            echo "✅ Permission Verified."
+            echo "[OK] Permission Verified."
           else
-            echo "⚠️  WARNING: 'Owner' or 'User Access Administrator' role NOT found."
+            echo "[WARNING] WARNING: 'Owner' or 'User Access Administrator' role NOT found."
             SUB_ROLES=$(az role assignment list --assignee "$CLIENT_ID" --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
             if echo "$SUB_ROLES" | grep -qE "Owner|User Access Administrator"; then
-               echo "✅ Permission Verified (Inherited)."
+               echo "[OK] Permission Verified (Inherited)."
             else
-               echo "❌ CRITICAL ERROR: Pipeline Identity lacks management permissions."
+               echo "[ERROR] CRITICAL ERROR: Pipeline Identity lacks management permissions."
             fi
           fi
 
@@ -167,18 +167,18 @@ jobs:
             local AZURE_ID="$2"
             local RESOURCE_NAME="$3"
             if terraform state show "$TF_ADDRESS" >/dev/null 2>&1; then
-              echo "  ✅ Already in state"
+              echo "  [OK] Already in state"
               return 0
             fi
             if terraform import -var-file="$TFVARS" "$TF_ADDRESS" "$AZURE_ID" 2>&1 | tee import-temp.log; then
-              echo "  ✅ Import successful"
+              echo "  [OK] Import successful"
               return 0
             else
               if grep -q "Cannot import non-existent" import-temp.log || grep -q "does not exist" import-temp.log || grep -q "was not found" import-temp.log; then
                 echo "  ℹ️  Resource doesn't exist in Azure"
                 return 0
               else
-                echo "  ❌ Import failed"
+                echo "  [ERROR] Import failed"
                 cat import-temp.log
                 return 1
               fi
@@ -225,7 +225,7 @@ jobs:
           TFVARS="terraform.tfvars.${ENV}"
           echo "Refreshing Terraform state to sync with Azure..."
           terraform refresh -var-file="$TFVARS"
-          echo "✅ State refreshed successfully"
+          echo "[OK] State refreshed successfully"
 
       - name: Show State List
         run: |

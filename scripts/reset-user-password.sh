@@ -31,19 +31,19 @@ echo ""
 
 # Verificar Azure CLI
 if ! command -v az >/dev/null 2>&1; then
-    echo -e "${RED}❌ Azure CLI não encontrado${NC}"
+    echo -e "${RED}[ERROR] Azure CLI não encontrado${NC}"
     echo "   Instale: https://docs.microsoft.com/cli/azure/install-azure-cli"
     exit 1
 fi
 
 # Verificar login
 if ! az account show >/dev/null 2>&1; then
-    echo -e "${RED}❌ Não está logado no Azure CLI${NC}"
+    echo -e "${RED}[ERROR] Não está logado no Azure CLI${NC}"
     echo "   Execute: az login"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Azure CLI configurado${NC}"
+echo -e "${GREEN}[OK] Azure CLI configurado${NC}"
 echo ""
 
 echo -e "${BLUE}🔄 Executando reset de senha...${NC}"
@@ -86,12 +86,12 @@ except:
 " 2>/dev/null || echo "")
 
 if [ -z "$NEW_HASH" ] || [ ${#NEW_HASH} -lt 20 ]; then
-    echo -e "${RED}❌ Erro ao gerar hash da senha${NC}"
+    echo -e "${RED}[ERROR] Erro ao gerar hash da senha${NC}"
     echo "$HASH_RESULT"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Hash gerado (${#NEW_HASH} caracteres)${NC}"
+echo -e "${GREEN}[OK] Hash gerado (${#NEW_HASH} caracteres)${NC}"
 echo ""
 
 # Atualizar senha diretamente no banco via SQL
@@ -110,7 +110,7 @@ print(get_password_hash('$ESCAPED_PASSWORD'))
 \" 2>&1 | grep -o '\$2[abxy]\$[0-9]\+\$[A-Za-z0-9./]\{53\}')
     
     if [ -z \"\$HASH\" ] || [ \${#HASH} -lt 50 ]; then
-      echo '❌ Erro ao gerar hash'
+      echo '[ERROR] Erro ao gerar hash'
       exit 1
     fi
     
@@ -123,8 +123,8 @@ print(get_password_hash('$ESCAPED_PASSWORD'))
       SELECT 
         email,
         CASE 
-          WHEN LENGTH(password_hash) = 60 AND password_hash LIKE '\\\$2%' THEN '✅ Senha atualizada com sucesso'
-          ELSE '❌ Erro ao atualizar senha'
+          WHEN LENGTH(password_hash) = 60 AND password_hash LIKE '\\\$2%' THEN '[OK] Senha atualizada com sucesso'
+          ELSE '[ERROR] Erro ao atualizar senha'
         END as status,
         LENGTH(password_hash) as hash_tamanho,
         LEFT(password_hash, 20) as hash_inicio
@@ -150,8 +150,8 @@ except:
 CLEAN_OUTPUT=$(echo "$OUTPUT" | sed 's/\[stdout\]//g' | sed 's/\[stderr\]//g' | grep -v "^$" | tail -20)
 
 # Verificar se foi bem-sucedido
-if echo "$CLEAN_OUTPUT" | grep -q "✅\|sucesso\|successfully\|Password updated\|Senha resetada"; then
-    echo -e "${GREEN}✅ Senha resetada com sucesso!${NC}"
+if echo "$CLEAN_OUTPUT" | grep -q "[OK]\|sucesso\|successfully\|Password updated\|Senha resetada"; then
+    echo -e "${GREEN}[OK] Senha resetada com sucesso!${NC}"
     echo ""
     echo "$CLEAN_OUTPUT"
     echo ""
@@ -161,7 +161,7 @@ if echo "$CLEAN_OUTPUT" | grep -q "✅\|sucesso\|successfully\|Password updated\
     echo -e "${CYAN}Email:${NC} $EMAIL"
     echo -e "${CYAN}Senha:${NC} $PASSWORD"
     echo ""
-    echo -e "${GREEN}✅ Agora você pode fazer login normalmente!${NC}"
+    echo -e "${GREEN}[OK] Agora você pode fazer login normalmente!${NC}"
     echo ""
     
     # Validar hash no banco (opcional)
@@ -174,8 +174,8 @@ if echo "$CLEAN_OUTPUT" | grep -q "✅\|sucesso\|successfully\|Password updated\
         docker exec ai_saas_postgres_prod psql -U postgres -d ai_saas_db -t -c \"
           SELECT 
             CASE 
-              WHEN LENGTH(password_hash) >= 20 AND password_hash LIKE '\\\$2%' THEN '✅ Hash válido'
-              ELSE '❌ Hash ainda inválido'
+              WHEN LENGTH(password_hash) >= 20 AND password_hash LIKE '\\\$2%' THEN '[OK] Hash válido'
+              ELSE '[ERROR] Hash ainda inválido'
             END as status,
             LENGTH(password_hash) as tamanho,
             LEFT(password_hash, 20) as inicio
@@ -191,14 +191,14 @@ if echo "$CLEAN_OUTPUT" | grep -q "✅\|sucesso\|successfully\|Password updated\
     fi
     
 else
-    echo -e "${RED}❌ Erro ao resetar senha${NC}"
+    echo -e "${RED}[ERROR] Erro ao resetar senha${NC}"
     echo ""
     echo "$CLEAN_OUTPUT"
     echo ""
     echo -e "${YELLOW}Output completo (debug):${NC}"
     echo "$OUTPUT" | head -30
     echo ""
-    echo -e "${YELLOW}💡 Possíveis causas:${NC}"
+    echo -e "${YELLOW}[INFO] Possíveis causas:${NC}"
     echo "   1. Container backend não está rodando"
     echo "   2. Usuário não existe no banco"
     echo "   3. Problema de conexão com banco de dados"
@@ -209,7 +209,7 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}✅ Processo concluído!${NC}"
+echo -e "${GREEN}[OK] Processo concluído!${NC}"
 echo ""
 echo -e "${BLUE}Próximos passos:${NC}"
 echo "   1. Tente fazer login com as credenciais acima"

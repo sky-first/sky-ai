@@ -181,7 +181,7 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
     set -eu
     
     BASE=~/projeto
-    mkdir -p \"\$BASE\" || { echo '❌ Erro ao criar ~/projeto'; exit 1; }
+    mkdir -p \"\$BASE\" || { echo '[ERROR] Erro ao criar ~/projeto'; exit 1; }
     
     # Criar diretórios necessários
     mkdir -p \"\$BASE/sky-poc-infra\"
@@ -189,7 +189,7 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
     mkdir -p \"\$BASE/sky-poc-frontend\"
     mkdir -p \"\$BASE/sky-poc-ai\"
     
-    echo '✅ Estrutura de diretórios criada'
+    echo '[OK] Estrutura de diretórios criada'
     echo 'Diretórios:'
     ls -la \"\$BASE\" | grep -E 'sky-poc|poc-deploy' || true
 " || {
@@ -209,7 +209,7 @@ if [ -n "${GH_PAT:-}" ]; then
     ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_USER@$VM_IP" "
         set -eu
         git config --global url.\"https://x-access-token:${GH_PAT}@github.com/\".insteadOf \"https://github.com/\"
-        echo '✅ Autenticação Git configurada (PAT)'
+        echo '[OK] Autenticação Git configurada (PAT)'
     " || {
         log_error "Falha ao configurar autenticação Git"
         exit 1
@@ -261,20 +261,20 @@ for repo_info in "${REPOS[@]}"; do
             
             # Verificar se é repositório git válido
             if [ ! -d .git ]; then
-                echo '⚠️  Diretório existe mas não é repositório Git, removendo...'
+                echo '[WARNING] Diretório existe mas não é repositório Git, removendo...'
                 cd ..
                 rm -rf \"$DIR_NAME\"
                 echo 'Clonando repositório...'
                 # Remover token da URL para ls-remote (segurança)
                 REPO_URL_CLEAN=\"\$(echo '$REPO_URL' | sed 's|https://x-access-token:[^@]*@|https://|')\"
                 if git ls-remote --heads \"\$REPO_URL_CLEAN\" $BRANCH 2>/dev/null | grep -q $BRANCH; then
-                    git clone -b $BRANCH \"$REPO_URL\" \"$DIR_NAME\" || { echo '❌ Erro ao clonar'; exit 1; }
-                    echo '✅ Repositório clonado'
+                    git clone -b $BRANCH \"$REPO_URL\" \"$DIR_NAME\" || { echo '[ERROR] Erro ao clonar'; exit 1; }
+                    echo '[OK] Repositório clonado'
                 else
-                    echo \"⚠️  Branch $BRANCH não encontrada, tentando main...\"
+                    echo \"[WARNING] Branch $BRANCH não encontrada, tentando main...\"
                     if git ls-remote --heads \"\$REPO_URL_CLEAN\" main 2>/dev/null | grep -q main; then
-                        git clone -b main \"$REPO_URL\" \"$DIR_NAME\" || { echo '❌ Erro ao clonar'; exit 1; }
-                        echo '✅ Repositório clonado (branch main)'
+                        git clone -b main \"$REPO_URL\" \"$DIR_NAME\" || { echo '[ERROR] Erro ao clonar'; exit 1; }
+                        echo '[OK] Repositório clonado (branch main)'
                     else
                         echo \"ERRO: Branches $BRANCH e main não encontradas\"
                         echo \"Branches disponíveis:\"
@@ -283,12 +283,12 @@ for repo_info in "${REPOS[@]}"; do
                     fi
                 fi
             else
-                git fetch origin || { echo '❌ Erro ao fazer fetch'; exit 1; }
+                git fetch origin || { echo '[ERROR] Erro ao fazer fetch'; exit 1; }
                 
                 if git ls-remote --heads origin $BRANCH | grep -q $BRANCH; then
-                    git checkout $BRANCH || { echo '❌ Erro ao fazer checkout'; exit 1; }
-                    git pull origin $BRANCH || { echo '❌ Erro ao fazer pull'; exit 1; }
-                    echo '✅ Repositório atualizado'
+                    git checkout $BRANCH || { echo '[ERROR] Erro ao fazer checkout'; exit 1; }
+                    git pull origin $BRANCH || { echo '[ERROR] Erro ao fazer pull'; exit 1; }
+                    echo '[OK] Repositório atualizado'
                 else
                     echo \"ERRO: Branch $BRANCH não encontrada\"
                     echo \"Branches disponíveis:\"
@@ -301,13 +301,13 @@ for repo_info in "${REPOS[@]}"; do
             # Remover token da URL para ls-remote (segurança)
             REPO_URL_CLEAN=\"\$(echo '$REPO_URL' | sed 's|https://x-access-token:[^@]*@|https://|')\"
             if git ls-remote --heads \"\$REPO_URL_CLEAN\" $BRANCH 2>/dev/null | grep -q $BRANCH; then
-                git clone -b $BRANCH \"$REPO_URL\" \"$DIR_NAME\" || { echo '❌ Erro ao clonar'; exit 1; }
-                echo '✅ Repositório clonado (branch $BRANCH)'
+                git clone -b $BRANCH \"$REPO_URL\" \"$DIR_NAME\" || { echo '[ERROR] Erro ao clonar'; exit 1; }
+                echo '[OK] Repositório clonado (branch $BRANCH)'
             else
-                echo \"⚠️  Branch $BRANCH não encontrada, tentando main...\"
+                echo \"[WARNING] Branch $BRANCH não encontrada, tentando main...\"
                 if git ls-remote --heads \"\$REPO_URL_CLEAN\" main 2>/dev/null | grep -q main; then
-                    git clone -b main \"$REPO_URL\" \"$DIR_NAME\" || { echo '❌ Erro ao clonar'; exit 1; }
-                    echo '✅ Repositório clonado (branch main)'
+                    git clone -b main \"$REPO_URL\" \"$DIR_NAME\" || { echo '[ERROR] Erro ao clonar'; exit 1; }
+                    echo '[OK] Repositório clonado (branch main)'
                 else
                     echo \"ERRO: Branches $BRANCH e main não encontradas\"
                     echo \"Branches disponíveis:\"
@@ -346,11 +346,11 @@ ENV_B64=$(base64 -i "$PROJECT_DIR/.env" 2>/dev/null || base64 "$PROJECT_DIR/.env
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_USER@$VM_IP" "
     set -eu
     BASE=~/projeto/sky-poc-infra
-    mkdir -p \"\$BASE\" || { echo '❌ Erro ao criar diretório'; exit 1; }
+    mkdir -p \"\$BASE\" || { echo '[ERROR] Erro ao criar diretório'; exit 1; }
     
-    echo '$ENV_B64' | base64 -d > \"\$BASE/.env\" || { echo '❌ Erro ao escrever .env'; exit 1; }
-    chmod 600 \"\$BASE/.env\" || { echo '❌ Erro ao definir permissões'; exit 1; }
-    echo '✅ Arquivo .env criado'
+    echo '$ENV_B64' | base64 -d > \"\$BASE/.env\" || { echo '[ERROR] Erro ao escrever .env'; exit 1; }
+    chmod 600 \"\$BASE/.env\" || { echo '[ERROR] Erro ao definir permissões'; exit 1; }
+    echo '[OK] Arquivo .env criado'
     
     # Validar variáveis obrigatórias
     MISSING=''
@@ -365,7 +365,7 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
         exit 1
     fi
     
-    echo '✅ Variáveis obrigatórias validadas'
+    echo '[OK] Variáveis obrigatórias validadas'
 " || {
     log_error "Falha ao escrever .env na VM"
     exit 1
@@ -383,27 +383,27 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
     cd ~/projeto/sky-poc-infra
     
     if [ ! -f docker-compose.yml ]; then
-        echo '❌ ERRO: docker-compose.yml não encontrado'
+        echo '[ERROR] ERRO: docker-compose.yml não encontrado'
         exit 1
     fi
     
     # Validar contexts
     if [ ! -d ../sky-poc-backend ]; then
-        echo '❌ ERRO: ../sky-poc-backend não encontrado'
+        echo '[ERROR] ERRO: ../sky-poc-backend não encontrado'
         exit 1
     fi
     
     if [ ! -d ../sky-poc-frontend ]; then
-        echo '❌ ERRO: ../sky-poc-frontend não encontrado'
+        echo '[ERROR] ERRO: ../sky-poc-frontend não encontrado'
         exit 1
     fi
     
     if [ ! -d ../sky-poc-ai ]; then
-        echo '❌ ERRO: ../sky-poc-ai não encontrado'
+        echo '[ERROR] ERRO: ../sky-poc-ai não encontrado'
         exit 1
     fi
     
-    echo '✅ Todos os caminhos validados'
+    echo '[OK] Todos os caminhos validados'
 " || {
     log_error "Validação de paths falhou"
     exit 1
@@ -426,7 +426,7 @@ if ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$
         echo 'Executando build...'
         npm run build 2>&1
     else
-        echo '⚠️  npm não disponível ou package.json não encontrado'
+        echo '[WARNING] npm não disponível ou package.json não encontrado'
         exit 0
     fi
 " 2>&1 | tee /tmp/frontend-build-validate.log; then
@@ -458,13 +458,13 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
     
     echo 'Construindo e iniciando containers...'
     sudo docker compose up -d --build || {
-        echo '❌ ERRO: Falha ao iniciar containers'
+        echo '[ERROR] ERRO: Falha ao iniciar containers'
         echo 'Logs dos containers:'
         sudo docker compose logs --tail=50
         exit 1
     }
     
-    echo '✅ Containers iniciados'
+    echo '[OK] Containers iniciados'
     echo ''
     echo 'Status dos containers:'
     sudo docker compose ps
@@ -490,13 +490,13 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
     POSTGRES_CONTAINER=\$(sudo docker ps --format '{{.Names}}' | grep postgres | head -1)
     if [ -n \"\$POSTGRES_CONTAINER\" ]; then
         if sudo docker exec \"\$POSTGRES_CONTAINER\" pg_isready -U postgres &>/dev/null; then
-            echo '✅ Postgres: OK'
+            echo '[OK] Postgres: OK'
         else
-            echo '❌ Postgres: Não responde'
+            echo '[ERROR] Postgres: Não responde'
             exit 1
         fi
     else
-        echo '⚠️  Postgres: Container não encontrado'
+        echo '[WARNING] Postgres: Container não encontrado'
     fi
     
     echo 'Verificando Redis...'
@@ -505,16 +505,16 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
         REDIS_PASS=\$(grep REDIS_PASSWORD ~/projeto/sky-poc-infra/.env | cut -d'=' -f2 || echo '')
         if [ -n \"\$REDIS_PASS\" ]; then
             if sudo docker exec \"\$REDIS_CONTAINER\" redis-cli -a \"\$REDIS_PASS\" ping | grep -q PONG; then
-                echo '✅ Redis: OK'
+                echo '[OK] Redis: OK'
             else
-                echo '❌ Redis: Não responde'
+                echo '[ERROR] Redis: Não responde'
                 exit 1
             fi
         else
-            echo '⚠️  Redis: Senha não encontrada no .env'
+            echo '[WARNING] Redis: Senha não encontrada no .env'
         fi
     else
-        echo '⚠️  Redis: Container não encontrado'
+        echo '[WARNING] Redis: Container não encontrado'
     fi
     
     echo 'Verificando Backend...'
@@ -524,37 +524,37 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
         if curl -f http://localhost:8000/health &>/dev/null || \
            curl -f http://localhost:8000/api/health &>/dev/null || \
            curl -f http://localhost:8000/ &>/dev/null; then
-            echo '✅ Backend: OK'
+            echo '[OK] Backend: OK'
         else
-            echo '⚠️  Backend: Pode estar iniciando ainda'
+            echo '[WARNING] Backend: Pode estar iniciando ainda'
             echo 'Logs do backend:'
             sudo docker logs \"\$BACKEND_CONTAINER\" --tail=20 || true
         fi
     else
-        echo '⚠️  Backend: Container não encontrado'
+        echo '[WARNING] Backend: Container não encontrado'
     fi
     
     echo 'Verificando Frontend...'
     FRONTEND_CONTAINER=\$(sudo docker ps --format '{{.Names}}' | grep frontend | head -1)
     if [ -n \"\$FRONTEND_CONTAINER\" ]; then
-        echo '✅ Frontend: Container rodando'
+        echo '[OK] Frontend: Container rodando'
     else
-        echo '⚠️  Frontend: Container não encontrado'
+        echo '[WARNING] Frontend: Container não encontrado'
     fi
     
     echo 'Verificando Proxy/Nginx...'
     PROXY_CONTAINER=\$(sudo docker ps --format '{{.Names}}' | grep -E 'proxy|nginx' | head -1)
     if [ -n \"\$PROXY_CONTAINER\" ]; then
         if curl -f http://localhost/health &>/dev/null || curl -f http://localhost/ &>/dev/null; then
-            echo '✅ Proxy: OK'
+            echo '[OK] Proxy: OK'
         else
-            echo '⚠️  Proxy: Pode estar iniciando ainda'
+            echo '[WARNING] Proxy: Pode estar iniciando ainda'
         fi
     else
-        echo '⚠️  Proxy: Container não encontrado'
+        echo '[WARNING] Proxy: Container não encontrado'
     fi
     
-    echo '✅ Health check concluído'
+    echo '[OK] Health check concluído'
 " || {
     log_error "Alguns health checks falharam"
     log_info "Containers podem estar ainda iniciando. Verifique os logs."
@@ -566,7 +566,7 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "$VM_
 log_section "Deploy Concluído"
 
 if [ $ERRORS -eq 0 ]; then
-    echo -e "${GREEN}✅✅✅ Deploy local para VM concluído com sucesso!${NC}"
+    echo -e "${GREEN}[OK][OK][OK] Deploy local para VM concluído com sucesso!${NC}"
     echo ""
     echo -e "${CYAN}Informações:${NC}"
     echo "  VM IP: $VM_IP"
@@ -588,7 +588,7 @@ if [ $ERRORS -eq 0 ]; then
     echo "  Se tudo OK, configure GitHub Actions para deploy automático (Fase 3)"
     exit 0
 else
-    echo -e "${RED}❌ Deploy concluído com $ERRORS erro(s)${NC}"
+    echo -e "${RED}[ERROR] Deploy concluído com $ERRORS erro(s)${NC}"
     echo -e "${RED}Verifique os logs acima para mais detalhes${NC}"
     exit 1
 fi

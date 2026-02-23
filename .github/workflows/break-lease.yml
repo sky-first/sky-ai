@@ -75,4 +75,4 @@ jobs:
             fi
           done
 
-          echo "✅ Lease break process complete!"
+          echo "[OK] Lease break process complete!"

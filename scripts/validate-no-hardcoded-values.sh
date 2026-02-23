@@ -14,15 +14,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 log_error() {
-    echo -e "${RED}❌ $1${NC}" >&2
+    echo -e "${RED}[ERROR] $1${NC}" >&2
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 log_info() {
@@ -151,7 +151,7 @@ elif [ $ERRORS -eq 0 ]; then
 else
     log_error "Encontrados $ERRORS erros e $WARNINGS avisos"
     echo ""
-    echo "💡 Para corrigir:"
+    echo "[INFO] Para corrigir:"
     echo "   1. Remova valores hardcoded de localhost:8000"
     echo "   2. Use apenas variáveis de ambiente do .env do sky-poc-infra"
     echo "   3. Adicione validação para configurações críticas"

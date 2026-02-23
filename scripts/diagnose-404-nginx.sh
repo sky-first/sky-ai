@@ -34,21 +34,21 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}[ERROR] $1${NC}"
     ((ERRORS++))
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
     ((WARNINGS++))
 }
 
 echo "=========================================="
-echo "1️⃣  Verificando Ingress"
+echo "1.  Verificando Ingress"
 echo "=========================================="
 echo ""
 
@@ -111,7 +111,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "2️⃣  Verificando Service"
+echo "2.  Verificando Service"
 echo "=========================================="
 echo ""
 
@@ -142,7 +142,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "3️⃣  Verificando Pods"
+echo "3.  Verificando Pods"
 echo "=========================================="
 echo ""
 
@@ -186,7 +186,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "4️⃣  Verificando Roteamento do Ingress"
+echo "4.  Verificando Roteamento do Ingress"
 echo "=========================================="
 echo ""
 
@@ -210,7 +210,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "5️⃣  Teste de Conectividade"
+echo "5.  Teste de Conectividade"
 echo "=========================================="
 echo ""
 
@@ -256,7 +256,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "🔧 COMANDOS ÚTEIS"
+echo " COMANDOS ÚTEIS"
 echo "=========================================="
 echo ""
 echo "Ver logs do frontend:"

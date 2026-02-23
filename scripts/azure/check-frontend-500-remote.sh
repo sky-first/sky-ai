@@ -26,19 +26,19 @@ echo "=========================================="
 echo ""
 
 cd ~/projeto/sky-poc-infra 2>/dev/null || cd ~/projeto/poc-deploy 2>/dev/null || {
-    echo "❌ ERRO: Diretório do projeto não encontrado"
+    echo "[ERROR] ERRO: Diretório do projeto não encontrado"
     echo "Procurando em:"
     ls -la ~/projeto/ 2>/dev/null || echo "Diretório ~/projeto não existe"
     exit 1
 }
 
-echo "✅ Diretório encontrado: $(pwd)"
+echo "[OK] Diretório encontrado: $(pwd)"
 echo ""
 
-echo "1️⃣  Status dos containers:"
+echo "1.  Status dos containers:"
 echo "----------------------------------------"
 sudo docker compose ps 2>/dev/null || docker compose ps 2>/dev/null || {
-    echo "⚠️  docker compose não encontrado, tentando docker ps..."
+    echo "[WARNING] docker compose não encontrado, tentando docker ps..."
     sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | head -20
 }
 
@@ -51,13 +51,13 @@ echo ""
 FRONTEND_CONTAINER=$(sudo docker ps --format "{{.Names}}" | grep -E "frontend" | head -1)
 
 if [ -n "$FRONTEND_CONTAINER" ]; then
-    echo "✅ Container frontend encontrado: $FRONTEND_CONTAINER"
+    echo "[OK] Container frontend encontrado: $FRONTEND_CONTAINER"
     echo ""
     echo "Logs recentes:"
     echo "----------------------------------------"
     sudo docker logs --tail=100 "$FRONTEND_CONTAINER" 2>&1 | tail -100
 else
-    echo "❌ Container frontend não encontrado"
+    echo "[ERROR] Container frontend não encontrado"
     echo "Containers disponíveis:"
     sudo docker ps --format "{{.Names}}" | head -10
 fi
@@ -71,13 +71,13 @@ echo ""
 PROXY_CONTAINER=$(sudo docker ps --format "{{.Names}}" | grep -E "proxy|nginx" | head -1)
 
 if [ -n "$PROXY_CONTAINER" ]; then
-    echo "✅ Container proxy encontrado: $PROXY_CONTAINER"
+    echo "[OK] Container proxy encontrado: $PROXY_CONTAINER"
     echo ""
     echo "Logs recentes:"
     echo "----------------------------------------"
     sudo docker logs --tail=50 "$PROXY_CONTAINER" 2>&1 | tail -50
 else
-    echo "⚠️  Container proxy não encontrado"
+    echo "[WARNING] Container proxy não encontrado"
 fi
 
 echo ""
@@ -89,13 +89,13 @@ echo ""
 BACKEND_CONTAINER=$(sudo docker ps --format "{{.Names}}" | grep -E "backend" | head -1)
 
 if [ -n "$BACKEND_CONTAINER" ]; then
-    echo "✅ Container backend encontrado: $BACKEND_CONTAINER"
+    echo "[OK] Container backend encontrado: $BACKEND_CONTAINER"
     echo ""
     echo "Logs recentes:"
     echo "----------------------------------------"
     sudo docker logs --tail=30 "$BACKEND_CONTAINER" 2>&1 | tail -30
 else
-    echo "⚠️  Container backend não encontrado"
+    echo "[WARNING] Container backend não encontrado"
 fi
 
 echo ""
@@ -105,15 +105,15 @@ echo "=========================================="
 echo ""
 
 if [ -f .env ]; then
-    echo "✅ Arquivo .env encontrado"
+    echo "[OK] Arquivo .env encontrado"
     echo ""
     echo "NEXT_PUBLIC_API_URL:"
-    grep "NEXT_PUBLIC_API_URL" .env | head -1 || echo "❌ NEXT_PUBLIC_API_URL não encontrado"
+    grep "NEXT_PUBLIC_API_URL" .env | head -1 || echo "[ERROR] NEXT_PUBLIC_API_URL não encontrado"
     echo ""
     echo "DATABASE_URL (primeiros caracteres):"
     grep "DATABASE_URL" .env | head -1 | sed 's/\(.*:\)\(.*\)\(@.*\)/\1***\3/' || echo "DATABASE_URL não encontrado"
 else
-    echo "❌ Arquivo .env não encontrado"
+    echo "[ERROR] Arquivo .env não encontrado"
     echo "Arquivos no diretório:"
     ls -la | head -10
 fi
@@ -126,19 +126,19 @@ echo ""
 
 echo "Testando backend via proxy (localhost)..."
 if curl -s --max-time 5 http://localhost/health > /dev/null 2>&1; then
-    echo "✅ Backend responde via proxy (localhost/health)"
+    echo "[OK] Backend responde via proxy (localhost/health)"
     curl -s --max-time 5 http://localhost/health | head -3
 else
-    echo "❌ Backend não responde via proxy (localhost/health)"
+    echo "[ERROR] Backend não responde via proxy (localhost/health)"
 fi
 
 echo ""
 echo "Testando frontend via proxy (localhost)..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost 2>/dev/null || echo "000")
 if [ "$HTTP_CODE" != "000" ]; then
-    echo "✅ Frontend responde via proxy (HTTP $HTTP_CODE)"
+    echo "[OK] Frontend responde via proxy (HTTP $HTTP_CODE)"
 else
-    echo "❌ Frontend não responde via proxy (localhost)"
+    echo "[ERROR] Frontend não responde via proxy (localhost)"
 fi
 
 echo ""
@@ -150,25 +150,25 @@ echo ""
 # Verificar se frontend está rodando
 if sudo docker ps --format "{{.Names}}" | grep -qE "frontend"; then
     FRONTEND_STATUS=$(sudo docker ps --format "{{.Status}}" --filter "name=frontend" | head -1)
-    echo "✅ Frontend container: $FRONTEND_STATUS"
+    echo "[OK] Frontend container: $FRONTEND_STATUS"
 else
-    echo "❌ Frontend container NÃO está rodando"
+    echo "[ERROR] Frontend container NÃO está rodando"
 fi
 
 # Verificar se backend está rodando
 if sudo docker ps --format "{{.Names}}" | grep -qE "backend"; then
     BACKEND_STATUS=$(sudo docker ps --format "{{.Status}}" --filter "name=backend" | head -1)
-    echo "✅ Backend container: $BACKEND_STATUS"
+    echo "[OK] Backend container: $BACKEND_STATUS"
 else
-    echo "❌ Backend container NÃO está rodando"
+    echo "[ERROR] Backend container NÃO está rodando"
 fi
 
 # Verificar se proxy está rodando
 if sudo docker ps --format "{{.Names}}" | grep -qE "proxy|nginx"; then
     PROXY_STATUS=$(sudo docker ps --format "{{.Status}}" --filter "name=proxy" --filter "name=nginx" | head -1)
-    echo "✅ Proxy/Nginx container: $PROXY_STATUS"
+    echo "[OK] Proxy/Nginx container: $PROXY_STATUS"
 else
-    echo "❌ Proxy/Nginx container NÃO está rodando"
+    echo "[ERROR] Proxy/Nginx container NÃO está rodando"
 fi
 
 echo ""
@@ -186,7 +186,7 @@ az vm run-command invoke \
     --command-id RunShellScript \
     --scripts "$DIAGNOSTIC_SCRIPT" \
     --output table 2>&1 || {
-    echo "❌ ERRO: Não foi possível executar diagnóstico via Azure CLI"
+    echo "[ERROR] ERRO: Não foi possível executar diagnóstico via Azure CLI"
     echo ""
     echo "Possíveis causas:"
     echo "  - Azure CLI não está autenticado (execute: az login)"
@@ -202,6 +202,6 @@ az vm run-command invoke \
 
 echo ""
 echo "=========================================="
-echo "✅ Diagnóstico concluído"
+echo "[OK] Diagnóstico concluído"
 echo "=========================================="
 

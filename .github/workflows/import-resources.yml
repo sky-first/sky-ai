@@ -91,7 +91,7 @@ jobs:
 
             # Check if already in state
             if terraform state show "$tf_address" &>/dev/null; then
-              echo "  ✅ Already in state"
+              echo "  [OK] Already in state"
               return 0
             fi
 
@@ -104,12 +104,12 @@ jobs:
             # Import
             echo "  📥 Importing..."
             if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
-              echo "  ✅ Import successful"
+              echo "  [OK] Import successful"
             else
               if grep -q "already managed" /tmp/import.log; then
-                echo "  ✅ Already managed"
+                echo "  [OK] Already managed"
               else
-                echo "  ⚠️  Import failed (may not be critical)"
+                echo "  [WARNING] Import failed (may not be critical)"
                 cat /tmp/import.log
               fi
             fi
@@ -158,7 +158,7 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "✅ Import process completed"
+          echo "[OK] Import process completed"
           echo "=========================================="
 
           # Always exit 0 (imports are best-effort)
@@ -186,14 +186,14 @@ jobs:
 
           for KV_NAME in $KV_LIST; do
             echo ""
-            echo "🔧 Configuring: $KV_NAME"
+            echo " Configuring: $KV_NAME"
 
             # Add runner IP
             if az keyvault network-rule add \
               --name "$KV_NAME" \
               --ip-address "${RUNNER_IP}/32" \
               --only-show-errors 2>/dev/null; then
-              echo "  ✅ IP whitelisted"
+              echo "  [OK] IP whitelisted"
             else
               echo "  ℹ️  IP already whitelisted or firewall disabled"
             fi
@@ -207,7 +207,7 @@ jobs:
           done
 
           echo ""
-          echo "✅ Key Vault configuration complete"
+          echo "[OK] Key Vault configuration complete"
           exit 0
 
       - name: Summary
