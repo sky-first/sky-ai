@@ -11,5 +11,4 @@ spec:
     pods: "30"             # Máximo absoluto de Pods simultâneos
     requests.cpu: "8"      # Máximo absoluto (8 vCPUs)
     requests.memory: 16Gi  # Máximo absoluto (16 GB RAM)
-    limits.cpu: "12"       # Permite burst de CPU até 12 vCPUs suportados pelo node pool
     limits.memory: 16Gi    # Hard Cap idêntico aos requests
