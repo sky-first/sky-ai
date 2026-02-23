@@ -930,20 +930,10 @@ jobs:
                  # Try dynamic ID first
                  if [ -n "$OBJECT_ID" ]; then
                      echo "   Resolved Object ID: $OBJECT_ID"
-                     import_resource \
-                       "azurerm_key_vault_access_policy.current" \
-                       "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.KeyVault/vaults/${KV_NAME}/objectId/${OBJECT_ID}" \
-                       "Key Vault Access Policy (Current Runner)"
                  fi
              fi
 
-             # ALWAYS try to import the known ID that is causing failures
-             # This handles the case where the runner's ID might be different from what we resolve or previously created
-             echo "   Running fallback import for known existing Object ID: $KNOWN_ERROR_ID"
-             import_resource \
-               "azurerm_key_vault_access_policy.current" \
-               "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.KeyVault/vaults/${KV_NAME}/objectId/${KNOWN_ERROR_ID}" \
-               "Key Vault Access Policy (Known Conflict ID)"
+             # Key vault access policy import step removed in favor of RBAC.
 
           else
              echo "⚠️  No 'akv-sky-*' Key Vault found in RG $RG. Skipping policy import."
@@ -1363,7 +1353,6 @@ jobs:
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
-      TF_VAR_key_vault_firewall_allow: "true"
       TF_VAR_runner_ip: ${{ needs.terraform-plan.outputs.runner_ip }}
     steps:
       - name: Checkout code
@@ -2902,7 +2891,7 @@ jobs:
         with:
           name: terraform-state-backup-${{ needs.detect-environment.outputs.environment }}-${{ github.run_id }}
           path: |
-            terraform-state-backup-*.json
+            ${{ env.TF_WORKING_DIR }}/terraform-state-backup-*.json
           retention-days: 90
 
       - name: Restrict Key Vault Internal Firewalls

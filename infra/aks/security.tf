@@ -18,7 +18,7 @@ resource "azurerm_key_vault" "main" {
   sku_name = "standard"
 
   # Access Policies are managed via RBAC
-  enable_rbac_authorization = true
+  rbac_authorization_enabled = true
 
   network_acls {
     # trivy:ignore:AVD-AZU-0013 (KeyVault ACLs managed via Runner temporarily)
