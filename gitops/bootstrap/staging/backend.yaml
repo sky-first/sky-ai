@@ -39,8 +39,8 @@ spec:
             cpu: "1000m"
         autoscaling:
           enabled: true
-          minReplicas: 5
-          maxReplicas: 50
+          minReplicas: 3
+          maxReplicas: 15
           behavior:
             scaleUp:
               stabilizationWindowSeconds: 0
