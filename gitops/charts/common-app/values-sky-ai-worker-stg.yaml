@@ -4,6 +4,15 @@ image:
 imagePullSecrets:
   - name: regcred
 
+# QoS: Guaranteed (Noisy Neighbor Isolation Cage)
+resources:
+  requests:
+    cpu: 500m
+    memory: 1024Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:
   runAsNonRoot: true
@@ -22,7 +31,7 @@ securityContext:
 extraVolumes:
   - name: tmp-volume
     emptyDir:
-      sizeLimit: 2Gi  # Workers processam arquivos temporários
+      sizeLimit: 2Gi # Workers processam arquivos temporários
 
 extraVolumeMounts:
   - name: tmp-volume
