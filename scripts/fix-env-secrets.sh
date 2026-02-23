@@ -15,7 +15,7 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-echo "🔐 Gerando senhas seguras e atualizando .env..."
+echo " Gerando senhas seguras e atualizando .env..."
 
 # Gerar senhas
 POSTGRES_PASS=$(openssl rand -base64 32)
@@ -56,6 +56,6 @@ chmod 600 "$ENV_FILE"
 
 echo ""
 echo "[OK] .env atualizado com senhas seguras!"
-echo "📝 Permissões ajustadas para 600"
+echo " Permissões ajustadas para 600"
 
 

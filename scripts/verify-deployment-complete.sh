@@ -17,7 +17,7 @@ VM_STAGING="skyfirstlabs-staging"
 VM_PROD="skyfirstlabs-prod"
 
 echo "=========================================="
-echo -e "${CYAN}🔍 VERIFICAÇÃO COMPLETA DO DEPLOY${NC}"
+echo -e "${CYAN} VERIFICAÇÃO COMPLETA DO DEPLOY${NC}"
 echo "=========================================="
 echo ""
 
@@ -220,7 +220,7 @@ fi
 # 5. Resumo
 echo ""
 echo "=========================================="
-echo -e "${CYAN}📊 RESUMO${NC}"
+echo -e "${CYAN} RESUMO${NC}"
 echo "=========================================="
 echo ""
 

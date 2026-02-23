@@ -87,7 +87,7 @@ jobs:
             local name="$3"
 
             echo ""
-            echo "🔍 Checking: $name"
+            echo " Checking: $name"
 
             # Check if already in state
             if terraform state show "$tf_address" &>/dev/null; then
@@ -97,12 +97,12 @@ jobs:
 
             # Check if exists in Azure
             if ! az resource show --ids "$azure_id" &>/dev/null; then
-              echo "  ℹ️  Doesn't exist in Azure (will be created by Terraform)"
+              echo "  ℹ  Doesn't exist in Azure (will be created by Terraform)"
               return 0
             fi
 
             # Import
-            echo "  📥 Importing..."
+            echo "   Importing..."
             if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
               echo "  [OK] Import successful"
             else
@@ -180,7 +180,7 @@ jobs:
           KV_LIST=$(az keyvault list --resource-group "$RG" --query "[].name" -o tsv)
 
           if [ -z "$KV_LIST" ]; then
-            echo "ℹ️  No Key Vaults found"
+            echo "ℹ  No Key Vaults found"
             exit 0
           fi
 
@@ -195,7 +195,7 @@ jobs:
               --only-show-errors 2>/dev/null; then
               echo "  [OK] IP whitelisted"
             else
-              echo "  ℹ️  IP already whitelisted or firewall disabled"
+              echo "  ℹ  IP already whitelisted or firewall disabled"
             fi
 
             # Enable Azure Services bypass
@@ -213,7 +213,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## 🎯 Import Resources - Summary" >> $GITHUB_STEP_SUMMARY
+          echo "##  Import Resources - Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Environment: **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

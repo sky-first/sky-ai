@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo "=========================================="
-echo -e "${CYAN}🔍 DIAGNÓSTICO DE PROBLEMAS NO DEPLOY${NC}"
+echo -e "${CYAN} DIAGNÓSTICO DE PROBLEMAS NO DEPLOY${NC}"
 echo "=========================================="
 echo ""
 
@@ -161,7 +161,7 @@ echo ""
 
 # 5. Resumo e recomendações
 echo "=========================================="
-echo -e "${CYAN}📊 RESUMO${NC}"
+echo -e "${CYAN} RESUMO${NC}"
 echo "=========================================="
 echo ""
 

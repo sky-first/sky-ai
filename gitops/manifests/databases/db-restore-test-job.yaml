@@ -19,13 +19,13 @@ spec:
         - -c
         - |
           set -e
-          echo "🧪 Iniciando Teste de Higiene de Backup (Automated Restore Validation)..."
+          echo " Iniciando Teste de Higiene de Backup (Automated Restore Validation)..."
 
           # 1. Obter o backup mais recente do Azure
           STORAGE_ACCOUNT="skybkpprod8ooz9z"
           CONTAINER_NAME="sql-backups"
 
-          echo "📂 Buscando último backup..."
+          echo " Buscando último backup..."
           LATEST_BACKUP=$(az storage blob list \
             --account-name $STORAGE_ACCOUNT \
             --container-name $CONTAINER_NAME \
@@ -37,7 +37,7 @@ spec:
             exit 1
           fi
 
-          echo "📥 Baixando backup: $LATEST_BACKUP"
+          echo " Baixando backup: $LATEST_BACKUP"
           az storage blob download \
             --account-name $STORAGE_ACCOUNT \
             --container-name $CONTAINER_NAME \
@@ -46,21 +46,21 @@ spec:
             --auth-mode login
 
           # 2. Validar Estrutura (pg_restore --list)
-          echo "🔍 Validando integridade estrutural do arquivo dump..."
+          echo " Validando integridade estrutural do arquivo dump..."
           pg_restore -l /tmp/backup.dump.zst > /dev/null
           echo "[OK] Estrutura de catálogo válida."
 
           # 3. Teste de Restauração Lógica (Sandboxing)
-          echo "🏗️  Criando sandbox de banco de dados temporário..."
+          echo "  Criando sandbox de banco de dados temporário..."
           # Inicia um banco local efêmero no próprio pod
           pg_ctl init -D /tmp/pgdata
           pg_ctl start -D /tmp/pgdata -o "-c listen_addresses='' -c unix_socket_directories='/tmp'"
 
-          echo "🔄 Executando pg_restore no Sandbox..."
+          echo " Executando pg_restore no Sandbox..."
           createdb -h /tmp restore_test
           pg_restore -h /tmp -d restore_test -j 2 /tmp/backup.dump.zst
 
-          echo "📊 Validando dados críticos..."
+          echo " Validando dados críticos..."
           USER_COUNT=$(psql -h /tmp -d restore_test -t -c "SELECT count(*) FROM users")
           echo "Contagem de usuários restaurados: $USER_COUNT"
 

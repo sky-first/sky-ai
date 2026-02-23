@@ -36,7 +36,7 @@ log_error() {
 }
 
 log_info() {
-    echo -e "${BLUE}ℹ️  ${NC} $1"
+    echo -e "${BLUE}ℹ  ${NC} $1"
 }
 
 test_http() {
@@ -85,7 +85,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 echo "=========================================="
-echo -e "${CYAN}🔍 VERIFICAÇÃO COMPLETA - ENTRAR E LOGAR${NC}"
+echo -e "${CYAN} VERIFICAÇÃO COMPLETA - ENTRAR E LOGAR${NC}"
 echo "=========================================="
 echo ""
 echo "VM IP: $VM_IP"
@@ -248,7 +248,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "📊 RESUMO FINAL"
+echo " RESUMO FINAL"
 echo "=========================================="
 echo ""
 echo "Verificações passadas: $CHECKS_PASSED"
@@ -258,7 +258,7 @@ echo ""
 
 # Conclusão
 echo "=========================================="
-echo "🎯 CONCLUSÃO"
+echo " CONCLUSÃO"
 echo "=========================================="
 echo ""
 

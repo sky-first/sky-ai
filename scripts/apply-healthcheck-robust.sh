@@ -20,7 +20,7 @@ cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/proje
     exit 1
 }
 
-echo "📁 Diretório: $(pwd)"
+echo " Diretório: $(pwd)"
 echo ""
 
 # Verificar se healthcheck já existe
@@ -109,7 +109,7 @@ fi
 
 # Aplicar correções
 echo ""
-echo "🔄 Aplicando correções (docker compose down/up)..."
+echo " Aplicando correções (docker compose down/up)..."
 echo "Parando containers..."
 docker compose down
 echo ""
@@ -120,15 +120,15 @@ echo "[OK] Containers reiniciados"
 
 # Aguardar e validar
 echo ""
-echo "⏳ Aguardando 30 segundos para containers iniciarem..."
+echo " Aguardando 30 segundos para containers iniciarem..."
 sleep 30
 
 echo ""
-echo "📊 Status dos containers:"
+echo " Status dos containers:"
 docker ps --filter "name=frontend\|proxy" --format "table {{.Names}}\t{{.Status}}"
 
 echo ""
-echo "🧪 Testes de conectividade:"
+echo " Testes de conectividade:"
 echo -n "  localhost:80: "
 HTTP_LOCAL=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "000")
 if echo "$HTTP_LOCAL" | grep -qE "200|301|302|307"; then
@@ -146,7 +146,7 @@ else
 fi
 
 echo ""
-echo "📋 Verificando logs do nginx (últimas 10 linhas):"
+echo " Verificando logs do nginx (últimas 10 linhas):"
 docker logs ai_saas_proxy --tail 10 2>&1 | tail -5
 
 echo ""
@@ -215,6 +215,6 @@ echo "════════════════════════�
 echo "[OK] PROCESSO FINALIZADO"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-echo "🌐 Teste acessando: http://20.185.60.67"
+echo " Teste acessando: http://20.185.60.67"
 echo ""
 

@@ -11,7 +11,7 @@ HOST="${2:-workspace-stg.skyfirstlabs.com}"
 SERVICE_NAME="sky-fe-stg-common-app"
 
 echo "=========================================="
-echo "🔍 DIAGNÓSTICO: 404 Not Found - Nginx"
+echo " DIAGNÓSTICO: 404 Not Found - Nginx"
 echo "=========================================="
 echo ""
 echo "Namespace: $NAMESPACE"
@@ -30,7 +30,7 @@ WARNINGS=0
 
 # Função para log
 log_info() {
-    echo -e "${YELLOW}ℹ️  $1${NC}"
+    echo -e "${YELLOW}ℹ  $1${NC}"
 }
 
 log_success() {
@@ -229,7 +229,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📊 RESUMO"
+echo " RESUMO"
 echo "=========================================="
 echo ""
 echo "Erros encontrados: $ERRORS"

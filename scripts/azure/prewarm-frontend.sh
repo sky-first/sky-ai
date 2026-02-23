@@ -8,7 +8,7 @@ BASE_URL="${1:-http://127.0.0.1}"
 PATHS=("/login" "/dashboard")
 
 echo "=========================================="
-echo "🔥 Prewarm Frontend (Next.js via Nginx)"
+echo " Prewarm Frontend (Next.js via Nginx)"
 echo "Base URL: $BASE_URL"
 echo "=========================================="
 

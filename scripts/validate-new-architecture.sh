@@ -12,7 +12,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 echo "=========================================="
-echo -e "${CYAN}🔍 VALIDAÇÃO DA NOVA ARQUITETURA${NC}"
+echo -e "${CYAN} VALIDAÇÃO DA NOVA ARQUITETURA${NC}"
 echo "=========================================="
 echo ""
 
@@ -175,7 +175,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo -e "${CYAN}📊 RESUMO${NC}"
+echo -e "${CYAN} RESUMO${NC}"
 echo "=========================================="
 echo ""
 

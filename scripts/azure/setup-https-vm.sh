@@ -18,7 +18,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================="
-echo "🔐 Configurando HTTPS na VM"
+echo " Configurando HTTPS na VM"
 echo "==========================================${NC}"
 echo ""
 echo "VM: $VM_USER@$VM_IP"

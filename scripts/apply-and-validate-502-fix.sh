@@ -268,7 +268,7 @@ FINAL_TEST=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1)
 # CONCLUSÃO PROFISSIONAL
 # ============================================================================
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 CONCLUSÃO PROFISSIONAL${NC}"
+echo -e "${CYAN}    CONCLUSÃO PROFISSIONAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -343,7 +343,7 @@ if [ $CRITERIA_MET -eq $TOTAL_CRITERIA ]; then
     echo -e "${BLUE}[INFO] A plataforma está acessível: http://20.185.60.67${NC}"
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}🎉 INCIDENTE ENCERRADO COM SUCESSO${NC}"
+    echo -e "${GREEN} INCIDENTE ENCERRADO COM SUCESSO${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     exit 0
 elif [ $CRITERIA_MET -ge 3 ]; then

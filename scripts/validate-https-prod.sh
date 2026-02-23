@@ -8,7 +8,7 @@ set -e
 
 NAMESPACE="prod"
 
-echo "🔐 Validando HTTPS e TLS para ambiente de produção"
+echo " Validando HTTPS e TLS para ambiente de produção"
 echo ""
 
 # 1. Verificar Cert-Manager
@@ -58,7 +58,7 @@ if [ "$LB_IP" != "PENDING" ] && [ -n "$LB_IP" ]; then
     echo "  api-workspace-prd.skyfirstlabs.com      -> $LB_IP"
     echo "  workspace-prd-ai.skyfirstlabs.com       -> $LB_IP"
 else
-    echo "⏳ Load Balancer IP ainda não atribuído (aguardando Azure)"
+    echo " Load Balancer IP ainda não atribuído (aguardando Azure)"
     echo "   Este é normal - pode levar alguns minutos"
     echo "   Verifique novamente em 2-3 minutos"
 fi

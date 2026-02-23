@@ -18,7 +18,7 @@ if [ -z "$KV_NAME" ]; then
   exit 1
 fi
 
-echo "🔐 Validando secrets no Key Vault: $KV_NAME"
+echo " Validando secrets no Key Vault: $KV_NAME"
 echo ""
 
 FAILED=0

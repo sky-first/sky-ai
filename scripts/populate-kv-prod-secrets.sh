@@ -16,8 +16,8 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-echo "🔐 Populando Key Vault: $KEYVAULT_NAME"
-echo "📝 Lendo variáveis de: $ENV_FILE"
+echo " Populando Key Vault: $KEYVAULT_NAME"
+echo " Lendo variáveis de: $ENV_FILE"
 echo ""
 
 # Função para adicionar secret
@@ -30,7 +30,7 @@ add_secret() {
         return
     fi
     
-    echo "➕ Adicionando $key..."
+    echo " Adicionando $key..."
     az keyvault secret set \
         --vault-name "$KEYVAULT_NAME" \
         --name "$key" \

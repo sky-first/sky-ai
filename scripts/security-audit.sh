@@ -30,7 +30,7 @@ log_low() { echo -e "${BLUE}[LOW]${NC} $1"; LOW=$((LOW + 1)); }
 log_pass() { echo -e "${GREEN}[PASS]${NC} $1"; PASSED=$((PASSED + 1)); }
 log_section() { 
     echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; 
-    echo -e "${CYAN}▶ $1${NC}"; 
+    echo -e "${CYAN} $1${NC}"; 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; 
 }
 

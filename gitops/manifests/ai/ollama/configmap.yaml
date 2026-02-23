@@ -9,10 +9,10 @@ data:
     #!/bin/bash
     set -e
     echo " Starting Ollama model setup..."
-    echo "📅 $(date)"
+    echo " $(date)"
 
     # Wait for Ollama server to be ready using native command
-    echo "⏳ Waiting for Ollama server to start..."
+    echo " Waiting for Ollama server to start..."
     MAX_WAIT=60
     COUNTER=0
 
@@ -23,7 +23,7 @@ data:
         break
       fi
 
-      echo "⏳ Waiting for Ollama API... ($COUNTER/$MAX_WAIT seconds)"
+      echo " Waiting for Ollama API... ($COUNTER/$MAX_WAIT seconds)"
       sleep 2
       COUNTER=$((COUNTER + 2))
     done
@@ -34,12 +34,12 @@ data:
     fi
 
     echo ""
-    echo "📥 Downloading base models (this may take 10-20 minutes)..."
+    echo " Downloading base models (this may take 10-20 minutes)..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     # Download phi3:mini (~2.3GB)
     echo ""
-    echo "📦 [1/3] Pulling phi3:mini (~2.3GB)..."
+    echo " [1/3] Pulling phi3:mini (~2.3GB)..."
     if ollama pull phi3:mini; then
       echo "[OK] phi3:mini downloaded successfully"
     else
@@ -49,7 +49,7 @@ data:
 
     # Download sqlcoder:7b (~4GB)
     echo ""
-    echo "📦 [2/3] Pulling sqlcoder:7b (~4GB)..."
+    echo " [2/3] Pulling sqlcoder:7b (~4GB)..."
     if ollama pull sqlcoder:7b; then
       echo "[OK] sqlcoder:7b downloaded successfully"
     else
@@ -59,7 +59,7 @@ data:
 
     # Download nomic-embed-text (~274MB)
     echo ""
-    echo "📦 [3/3] Pulling nomic-embed-text (~274MB)..."
+    echo " [3/3] Pulling nomic-embed-text (~274MB)..."
     if ollama pull nomic-embed-text; then
       echo "[OK] nomic-embed-text downloaded successfully"
     else
@@ -93,9 +93,9 @@ data:
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📋 Final model inventory:"
+    echo " Final model inventory:"
     ollama list
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "[OK] Setup complete! All models ready for inference."
-    echo "📅 Completed at: $(date)"
+    echo " Completed at: $(date)"

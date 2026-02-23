@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔍 Verificação Completa dos Containers${NC}"
+echo -e "${CYAN}    Verificação Completa dos Containers${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -49,7 +49,7 @@ echo -e "${BLUE}2. CONTAINERS CRÍTICOS (verificação detalhada):${NC}"
 echo ""
 
 # PostgreSQL
-echo -n "  📊 PostgreSQL (ai_saas_postgres_prod): "
+echo -n "   PostgreSQL (ai_saas_postgres_prod): "
 PG_STATUS=$(run_vm_command 'docker ps --filter "name=ai_saas_postgres_prod" --format "{{.Status}}"')
 if [ -n "$PG_STATUS" ]; then
     echo -e "${GREEN}[OK] $PG_STATUS${NC}"
@@ -58,7 +58,7 @@ else
 fi
 
 # Redis
-echo -n "  📊 Redis (ai_saas_redis_prod): "
+echo -n "   Redis (ai_saas_redis_prod): "
 REDIS_STATUS=$(run_vm_command 'docker ps --filter "name=ai_saas_redis_prod" --format "{{.Status}}"')
 if [ -n "$REDIS_STATUS" ]; then
     echo -e "${GREEN}[OK] $REDIS_STATUS${NC}"
@@ -67,7 +67,7 @@ else
 fi
 
 # Backend
-echo -n "  📊 Backend (ai_saas_backend_prod): "
+echo -n "   Backend (ai_saas_backend_prod): "
 BACKEND_STATUS=$(run_vm_command 'docker ps --filter "name=ai_saas_backend_prod" --format "{{.Status}}"')
 if [ -n "$BACKEND_STATUS" ]; then
     echo -e "${GREEN}[OK] $BACKEND_STATUS${NC}"
@@ -76,7 +76,7 @@ else
 fi
 
 # Frontend
-echo -n "  📊 Frontend (ai_saas_frontend_prod): "
+echo -n "   Frontend (ai_saas_frontend_prod): "
 FRONTEND_STATUS=$(run_vm_command 'docker ps --filter "name=ai_saas_frontend_prod" --format "{{.Status}}"')
 if [ -n "$FRONTEND_STATUS" ]; then
     echo -e "${GREEN}[OK] $FRONTEND_STATUS${NC}"
@@ -85,7 +85,7 @@ else
 fi
 
 # Nginx/Proxy (CRÍTICO - expõe porta 80)
-echo -n "  📊 Nginx/Proxy (ai_saas_proxy): "
+echo -n "   Nginx/Proxy (ai_saas_proxy): "
 PROXY_STATUS=$(run_vm_command 'docker ps --filter "name=ai_saas_proxy" --format "{{.Status}}"')
 if [ -n "$PROXY_STATUS" ]; then
     echo -e "${GREEN}[OK] $PROXY_STATUS${NC}"
@@ -193,7 +193,7 @@ fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO${NC}"
+echo -e "${CYAN}    RESUMO${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

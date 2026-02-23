@@ -125,7 +125,7 @@ echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:85\",\
 # #endregion
 if [ ! -f "$ENV_FILE" ]; then
     if [ -f "$ENV_EXAMPLE" ]; then
-        echo "📋 Criando .env a partir de $ENV_EXAMPLE..."
+        echo " Criando .env a partir de $ENV_EXAMPLE..."
         # #region agent log
         echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:88\",\"message\":\"Copiando env.example para .env\",\"data\":{\"ENV_EXAMPLE\":\"$ENV_EXAMPLE\",\"ENV_FILE\":\"$ENV_FILE\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
         # #endregion
@@ -158,7 +158,7 @@ if [ ! -r "$ENV_FILE" ]; then
     # Tentar verificar se somos o proprietário
     if [ -O "$ENV_FILE" ] 2>/dev/null; then
         # Somos o proprietário, então podemos ler mesmo com 600
-        echo "ℹ️  Arquivo $ENV_FILE tem permissões restritivas, mas você é o proprietário (OK)"
+        echo "ℹ  Arquivo $ENV_FILE tem permissões restritivas, mas você é o proprietário (OK)"
     else
         echo "[WARNING] AVISO: Arquivo $ENV_FILE não é legível. Tentando corrigir permissões..."
         # Tentar corrigir permissões

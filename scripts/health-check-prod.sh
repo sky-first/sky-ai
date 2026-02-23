@@ -6,7 +6,7 @@
 
 set -e
 
-echo "🏥 Health Check Completo - Ambiente de Produção"
+echo " Health Check Completo - Ambiente de Produção"
 echo "================================================="
 echo ""
 
@@ -112,7 +112,7 @@ if [ "$LB_IP" != "PENDING" ] && [ -n "$LB_IP" ]; then
     echo "   - api-workspace-prd.skyfirstlabs.com -> $LB_IP"
     echo "   - workspace-prd-ai.skyfirstlabs.com -> $LB_IP"
 else
-    echo "⏳ LoadBalancer IP pendente (aguardando Azure)"
+    echo " LoadBalancer IP pendente (aguardando Azure)"
 fi
 
 # 9. Erros recentes

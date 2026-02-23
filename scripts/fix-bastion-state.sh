@@ -31,5 +31,5 @@ if az vm show --resource-group "$RESOURCE_GROUP" --name "$BASTION_VM_NAME" &>/de
   fi
   popd > /dev/null
 else
-  echo "ℹ️  VM does not exist in Azure. Terraform will create it."
+  echo "ℹ  VM does not exist in Azure. Terraform will create it."
 fi

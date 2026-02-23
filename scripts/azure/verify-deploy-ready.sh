@@ -26,7 +26,7 @@ ERRORS=0
 WARNINGS=0
 
 echo -e "${BLUE}=========================================="
-echo "🔍 Verificação Pré-Deploy"
+echo " Verificação Pré-Deploy"
 echo "==========================================${NC}"
 echo ""
 
@@ -135,7 +135,7 @@ echo ""
 
 # Resumo
 echo -e "${BLUE}=========================================="
-echo "📋 Resumo"
+echo " Resumo"
 echo "==========================================${NC}"
 echo ""
 

@@ -7,7 +7,7 @@ set -eu
 RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
-echo "🔄 Reiniciando frontend..."
+echo " Reiniciando frontend..."
 az vm run-command invoke \
   --resource-group "$RESOURCE_GROUP" \
   --name "$VM_NAME" \

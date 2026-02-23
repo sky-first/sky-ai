@@ -33,15 +33,15 @@ if [ ! -d "$AKS_DIR" ]; then
 fi
 
 cd "$AKS_DIR"
-echo -e "${YELLOW}📂 Entrando em infra/aks...${NC}"
+echo -e "${YELLOW} Entrando em infra/aks...${NC}"
 
-echo -e "${YELLOW}🔄 Inicializando Terraform para configurar o backend...${NC}"
+echo -e "${YELLOW} Inicializando Terraform para configurar o backend...${NC}"
 # Usamos -reconfigure e passamos o arquivo de config explicitamente
 terraform init -reconfigure -backend-config=backend.hcl
 
 LOCK_ID="b7d79bba-7d81-e259-1b59-a733049884b9"
 
-echo -e "${YELLOW}🔓 Tentando remover o lock ID: ${LOCK_ID}...${NC}"
+echo -e "${YELLOW} Tentando remover o lock ID: ${LOCK_ID}...${NC}"
 terraform force-unlock -force "$LOCK_ID"
 
 echo -e "${GREEN}[OK] Lock removido com sucesso!${NC}"

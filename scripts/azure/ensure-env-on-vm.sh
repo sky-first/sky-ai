@@ -21,7 +21,7 @@ else
 fi
 
 cd "$INFRA_DIR"
-echo "📁 Diretório: $INFRA_DIR"
+echo " Diretório: $INFRA_DIR"
 echo ""
 
 # Verificar se .env existe
@@ -29,7 +29,7 @@ if [ -f .env ]; then
     echo "[OK] Arquivo .env existe"
     ls -lh .env
     echo ""
-    echo "📋 Primeiras linhas do .env (valores sensíveis ocultos):"
+    echo " Primeiras linhas do .env (valores sensíveis ocultos):"
     head -20 .env | sed 's/=.*/=***/' || true
     echo ""
     exit 0
@@ -46,13 +46,13 @@ if [ ! -f env.example ]; then
     exit 1
 fi
 
-echo "📝 Criando .env a partir de env.example..."
+echo " Criando .env a partir de env.example..."
 cp env.example .env
 chmod 600 .env
 
 echo "[OK] .env criado com sucesso!"
 echo ""
-echo "📋 Verificando conteúdo:"
+echo " Verificando conteúdo:"
 ls -lh .env
 echo ""
 echo "[WARNING] IMPORTANTE: Configure as variáveis sensíveis no .env:"

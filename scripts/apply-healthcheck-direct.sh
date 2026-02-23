@@ -17,7 +17,7 @@ cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/proje
     exit 1
 }
 
-echo "📁 Diretório: $(pwd)"
+echo " Diretório: $(pwd)"
 echo ""
 
 # Verificar se healthcheck já existe
@@ -60,21 +60,21 @@ else
 fi
 
 echo ""
-echo "🔄 Aplicando correções (docker compose down/up)..."
+echo " Aplicando correções (docker compose down/up)..."
 docker compose down
 echo ""
 docker compose up -d
 echo ""
 
-echo "⏳ Aguardando 20 segundos para containers iniciarem..."
+echo " Aguardando 20 segundos para containers iniciarem..."
 sleep 20
 
 echo ""
-echo "📊 Status dos containers:"
+echo " Status dos containers:"
 docker ps --filter "name=ai_saas_frontend_prod\|ai_saas_proxy" --format "table {{.Names}}\t{{.Status}}"
 
 echo ""
-echo "🧪 Teste de conectividade:"
+echo " Teste de conectividade:"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "000")
 echo "  HTTP Status: $HTTP_CODE"
 
@@ -85,11 +85,11 @@ else
 fi
 
 echo ""
-echo "📋 Logs do frontend (últimas 5 linhas):"
+echo " Logs do frontend (últimas 5 linhas):"
 docker logs ai_saas_frontend_prod --tail 5 2>&1 | tail -3
 
 echo ""
-echo "📋 Logs do nginx (últimas 5 linhas):"
+echo " Logs do nginx (últimas 5 linhas):"
 docker logs ai_saas_proxy --tail 5 2>&1 | tail -3
 
 echo ""

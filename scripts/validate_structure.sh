@@ -24,7 +24,7 @@ if [ ! -f "$PROJECT_DIR/docker-compose.yml" ]; then
   exit 1
 fi
 
-echo -e "${GREEN}✓ docker-compose.yml encontrado${NC}"
+echo -e "${GREEN} docker-compose.yml encontrado${NC}"
 
 # Verificar repositórios necessários
 REQUIRED_DIRS=(
@@ -40,10 +40,10 @@ for dir in "${REQUIRED_DIRS[@]}"; do
   full_path="$PROJECT_DIR/$dir"
   if [ ! -d "$full_path" ]; then
     MISSING_DIRS+=("$dir")
-    echo -e "${RED}✗ $dir não encontrado${NC}"
+    echo -e "${RED} $dir não encontrado${NC}"
   else
     FOUND_DIRS+=("$dir")
-    echo -e "${GREEN}✓ $dir encontrado${NC}"
+    echo -e "${GREEN} $dir encontrado${NC}"
   fi
 done
 
@@ -84,11 +84,11 @@ fi
 
 # Verificar se os caminhos corretos estão presentes
 if grep -q "context: ../sky-poc-backend" "$PROJECT_DIR/docker-compose.yml"; then
-  echo -e "${GREEN}✓ Caminhos corretos para sky-poc-backend encontrados${NC}"
+  echo -e "${GREEN} Caminhos corretos para sky-poc-backend encontrados${NC}"
 fi
 
 if grep -q "context: ../sky-poc-frontend" "$PROJECT_DIR/docker-compose.yml"; then
-  echo -e "${GREEN}✓ Caminhos corretos para sky-poc-frontend encontrados${NC}"
+  echo -e "${GREEN} Caminhos corretos para sky-poc-frontend encontrados${NC}"
 fi
 
 # Verificar se .env existe (não obrigatório, mas recomendado)
@@ -96,7 +96,7 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
   echo -e "${YELLOW}[WARNING] WARNING: Arquivo .env não encontrado${NC}"
   echo -e "${YELLOW}   Crie um arquivo .env baseado em env.example${NC}"
 else
-  echo -e "${GREEN}✓ Arquivo .env encontrado${NC}"
+  echo -e "${GREEN} Arquivo .env encontrado${NC}"
 fi
 
 echo ""

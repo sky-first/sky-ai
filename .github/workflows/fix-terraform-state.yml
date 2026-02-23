@@ -59,7 +59,7 @@ jobs:
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
           ENV_SUFFIX: "${{ inputs.environment }}.tfstate"
         run: |
-           echo "☢️ NUCLEAR OPTION: Breaking leases for ALL blobs in container '$CONTAINER'..."
+           echo " NUCLEAR OPTION: Breaking leases for ALL blobs in container '$CONTAINER'..."
            # List ALL blobs. No filters. We need to unblock production.
            BLOBS=$(az storage blob list \
              --container-name "$CONTAINER" \
@@ -72,7 +72,7 @@ jobs:
            fi
 
            for BLOB in $BLOBS; do
-             echo "🔨 Breaking lease for blob: $BLOB"
+             echo " Breaking lease for blob: $BLOB"
              az storage blob lease break \
                --blob-name "$BLOB" \
                --container-name "$CONTAINER" \
@@ -90,7 +90,7 @@ jobs:
            done
 
            # Also break the generic .terraform.tfstate.lock.info
-           echo "🔨 Breaking generic lock info"
+           echo " Breaking generic lock info"
            az storage blob lease break \
              --blob-name ".terraform.tfstate.lock.info" \
              --container-name "$CONTAINER" \
@@ -175,7 +175,7 @@ jobs:
               return 0
             else
               if grep -q "Cannot import non-existent" import-temp.log || grep -q "does not exist" import-temp.log || grep -q "was not found" import-temp.log; then
-                echo "  ℹ️  Resource doesn't exist in Azure"
+                echo "  ℹ  Resource doesn't exist in Azure"
                 return 0
               else
                 echo "  [ERROR] Import failed"

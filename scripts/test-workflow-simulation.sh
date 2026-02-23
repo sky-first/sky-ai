@@ -19,7 +19,7 @@ WARNINGS=0
 
 # Função auxiliar para logging
 log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}ℹ  $1${NC}"
 }
 
 log_success() {
@@ -38,7 +38,7 @@ log_warning() {
 }
 
 echo "=========================================="
-echo "🧪 SIMULAÇÃO DE WORKFLOW GITHUB ACTIONS"
+echo " SIMULAÇÃO DE WORKFLOW GITHUB ACTIONS"
 echo "=========================================="
 echo ""
 
@@ -275,7 +275,7 @@ echo ""
 # RESUMO FINAL
 # ============================================
 echo "=========================================="
-echo "📊 RESUMO DOS TESTES"
+echo " RESUMO DOS TESTES"
 echo "=========================================="
 echo ""
 echo "[OK] Testes Passados: $TESTS_PASSED"
@@ -287,7 +287,7 @@ TOTAL_TESTS=$((TESTS_PASSED + TESTS_FAILED + WARNINGS))
 
 if [ $TESTS_FAILED -eq 0 ]; then
     if [ $WARNINGS -eq 0 ]; then
-        echo -e "${GREEN}🎉 TODOS OS TESTES PASSARAM!${NC}"
+        echo -e "${GREEN} TODOS OS TESTES PASSARAM!${NC}"
         echo ""
         echo "[OK] O workflow está pronto para produção"
         exit 0
@@ -300,7 +300,7 @@ if [ $TESTS_FAILED -eq 0 ]; then
 else
     echo -e "${RED}[ERROR] ALGUNS TESTES FALHARAM${NC}"
     echo ""
-    echo "🔴 CORREÇÕES NECESSÁRIAS antes de fazer deploy para produção"
+    echo " CORREÇÕES NECESSÁRIAS antes de fazer deploy para produção"
     echo ""
     exit 1
 fi

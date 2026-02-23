@@ -10,7 +10,7 @@ CERTS_DIR="${PROJECT_DIR}/certs"
 DOMAIN="${2:-localhost}"
 
 echo "=========================================="
-echo "🔐 Gerando Certificados SSL Auto-assinados"
+echo " Gerando Certificados SSL Auto-assinados"
 echo "=========================================="
 echo ""
 
@@ -26,7 +26,7 @@ if [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
         echo "[OK] Mantendo certificados existentes"
         exit 0
     fi
-    echo "🔄 Regenerando certificados..."
+    echo " Regenerando certificados..."
 fi
 
 # Gerar certificado auto-assinado válido por 365 dias

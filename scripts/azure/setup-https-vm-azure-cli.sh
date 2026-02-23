@@ -16,7 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================="
-echo "🔐 Configurando HTTPS na VM (Azure CLI)"
+echo " Configurando HTTPS na VM (Azure CLI)"
 echo "==========================================${NC}"
 echo ""
 echo "VM: $VM_NAME"

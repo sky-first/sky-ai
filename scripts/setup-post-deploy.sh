@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🌐 Configurando acesso público após deploy...${NC}"
+echo -e "${BLUE} Configurando acesso público após deploy...${NC}"
 echo ""
 
 # 1. Obter IP público
@@ -86,7 +86,7 @@ echo -e "  Frontend: ${YELLOW}http://$VM_IP${NC}"
 echo -e "  API: ${YELLOW}http://$VM_IP/api/${NC}"
 echo -e "  Health: ${YELLOW}http://$VM_IP/api/health${NC}"
 echo ""
-echo -e "${BLUE}📋 Compartilhe com o time:${NC}"
+echo -e "${BLUE} Compartilhe com o time:${NC}"
 echo -e "   ${YELLOW}Aplicação disponível em: http://$VM_IP${NC}"
 echo ""
 

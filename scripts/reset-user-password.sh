@@ -20,7 +20,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔐 Resetar Senha de Usuário${NC}"
+echo -e "${CYAN}    Resetar Senha de Usuário${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${BLUE}VM IP:${NC} $VM_IP"
@@ -46,14 +46,14 @@ fi
 echo -e "${GREEN}[OK] Azure CLI configurado${NC}"
 echo ""
 
-echo -e "${BLUE}🔄 Executando reset de senha...${NC}"
+echo -e "${BLUE} Executando reset de senha...${NC}"
 
 # Escapar senha para uso em Python (substituir ' por \' e " por \")
 ESCAPED_PASSWORD=$(echo "$PASSWORD" | sed "s/'/\\\\'/g" | sed 's/"/\\"/g')
 ESCAPED_EMAIL=$(echo "$EMAIL" | sed "s/'/\\\\'/g" | sed 's/"/\\"/g')
 
 # Gerar hash da senha primeiro
-echo -e "${BLUE}🔐 Gerando hash da senha...${NC}"
+echo -e "${BLUE} Gerando hash da senha...${NC}"
 HASH_RESULT=$(az vm run-command invoke \
   --resource-group "$RESOURCE_GROUP" \
   --name "$VM_NAME" \
@@ -95,7 +95,7 @@ echo -e "${GREEN}[OK] Hash gerado (${#NEW_HASH} caracteres)${NC}"
 echo ""
 
 # Atualizar senha diretamente no banco via SQL
-echo -e "${BLUE}🔄 Atualizando senha no banco de dados...${NC}"
+echo -e "${BLUE} Atualizando senha no banco de dados...${NC}"
 RESULT=$(az vm run-command invoke \
   --resource-group "$RESOURCE_GROUP" \
   --name "$VM_NAME" \
@@ -156,7 +156,7 @@ if echo "$CLEAN_OUTPUT" | grep -q "[OK]\|sucesso\|successfully\|Password updated
     echo "$CLEAN_OUTPUT"
     echo ""
     echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}   📋 Credenciais Atualizadas${NC}"
+    echo -e "${YELLOW}    Credenciais Atualizadas${NC}"
     echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}Email:${NC} $EMAIL"
     echo -e "${CYAN}Senha:${NC} $PASSWORD"
@@ -165,7 +165,7 @@ if echo "$CLEAN_OUTPUT" | grep -q "[OK]\|sucesso\|successfully\|Password updated
     echo ""
     
     # Validar hash no banco (opcional)
-    echo -e "${BLUE}🔍 Validando hash no banco...${NC}"
+    echo -e "${BLUE} Validando hash no banco...${NC}"
     VALIDATION=$(az vm run-command invoke \
       --resource-group "$RESOURCE_GROUP" \
       --name "$VM_NAME" \

@@ -16,7 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo "=========================================="
-echo "🔐 Setup Terraform Local"
+echo " Setup Terraform Local"
 echo "=========================================="
 echo ""
 

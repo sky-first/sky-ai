@@ -15,7 +15,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "🔑 Testando chaves SSH para $VM_USER@$VM_IP"
+echo " Testando chaves SSH para $VM_USER@$VM_IP"
 echo ""
 
 # Lista de chaves para testar

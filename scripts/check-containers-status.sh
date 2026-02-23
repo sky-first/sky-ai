@@ -18,7 +18,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔍 Verificando Status dos Containers${NC}"
+echo -e "${CYAN}    Verificando Status dos Containers${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${BLUE}Resource Group:${NC} $RESOURCE_GROUP"
@@ -116,7 +116,7 @@ if [ -n "$STOPPED_CONTAINERS" ] && ! echo "$STOPPED_CONTAINERS" | grep -qE "(Can
         for container in $CONTAINER_NAMES; do
             if [ -n "$container" ]; then
                 echo ""
-                echo -e "${YELLOW}📋 Logs de $container (últimas 20 linhas):${NC}"
+                echo -e "${YELLOW} Logs de $container (últimas 20 linhas):${NC}"
                 LOGS=$(run_vm_command "sudo docker logs $container --tail=20 2>&1")
                 echo "$LOGS" | grep -v "^$" | grep -v "\[stdout\]" | grep -v "\[stderr\]" | tail -20
             fi
@@ -208,7 +208,7 @@ echo ""
 
 # Resumo final
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 Resumo${NC}"
+echo -e "${CYAN}    Resumo${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

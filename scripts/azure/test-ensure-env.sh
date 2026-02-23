@@ -2,7 +2,7 @@
 # Script de teste rápido para ensure-complete-env.sh
 # Testa se o script não trava
 
-echo "🧪 Testando ensure-complete-env.sh..."
+echo " Testando ensure-complete-env.sh..."
 echo ""
 
 # Executar script em background com timeout manual

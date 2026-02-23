@@ -18,7 +18,7 @@ cd "$PROJECT_DIR" || {
 }
 
 echo "=========================================="
-echo "🔍 DIAGNÓSTICO: Conexão Recusada"
+echo " DIAGNÓSTICO: Conexão Recusada"
 echo "=========================================="
 echo ""
 
@@ -103,7 +103,7 @@ if [ -f "$NGINX_CONF" ]; then
                 # Reiniciar proxy
                 if [ -n "$PROXY_CONTAINER" ]; then
                     echo ""
-                    echo "🔄 Reiniciando container proxy..."
+                    echo " Reiniciando container proxy..."
                     sudo docker compose restart proxy || sudo docker restart "$PROXY_CONTAINER"
                     echo "[OK] Proxy reiniciado"
                     sleep 5
@@ -162,7 +162,7 @@ echo ""
 
 # 8. Resumo e recomendações
 echo "=========================================="
-echo "📋 RESUMO E RECOMENDAÇÕES"
+echo " RESUMO E RECOMENDAÇÕES"
 echo "=========================================="
 echo ""
 

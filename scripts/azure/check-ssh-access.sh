@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================="
-echo "🔍 Verificando Acesso SSH à VM"
+echo " Verificando Acesso SSH à VM"
 echo "==========================================${NC}"
 echo ""
 
@@ -117,7 +117,7 @@ echo ""
 
 # 5. Resumo e recomendações
 echo -e "${BLUE}=========================================="
-echo "📋 Resumo e Recomendações"
+echo " Resumo e Recomendações"
 echo "==========================================${NC}"
 echo ""
 

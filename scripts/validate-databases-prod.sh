@@ -8,7 +8,7 @@ set -e
 
 NAMESPACE="prod"
 
-echo "🗄️  Validando Databases em Produção"
+echo "  Validando Databases em Produção"
 echo ""
 
 # 1. Verificar PostgreSQL

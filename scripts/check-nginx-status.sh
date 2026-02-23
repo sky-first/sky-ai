@@ -16,7 +16,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔍 Verificação Completa do Nginx/Proxy${NC}"
+echo -e "${CYAN}    Verificação Completa do Nginx/Proxy${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -190,7 +190,7 @@ fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO E DIAGNÓSTICO${NC}"
+echo -e "${CYAN}    RESUMO E DIAGNÓSTICO${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

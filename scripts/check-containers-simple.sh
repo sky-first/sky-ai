@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔍 Verificando Status dos Containers (HTTP)${NC}"
+echo -e "${CYAN}    Verificando Status dos Containers (HTTP)${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${BLUE}VM IP:${NC} $VM_IP"
