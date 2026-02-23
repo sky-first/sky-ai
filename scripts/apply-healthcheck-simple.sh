@@ -13,7 +13,7 @@ cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/proje
 
 # Verificar se healthcheck já existe
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "✅ Healthcheck já existe"
+    echo "[OK] Healthcheck já existe"
 else
     echo "Aplicando healthcheck..."
     cp docker-compose.yml docker-compose.yml.backup
@@ -23,9 +23,9 @@ else
     mv docker-compose.yml.tmp docker-compose.yml
     
     if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-        echo "✅ Healthcheck aplicado"
+        echo "[OK] Healthcheck aplicado"
     else
-        echo "❌ Erro ao aplicar healthcheck"
+        echo "[ERROR] Erro ao aplicar healthcheck"
         exit 1
     fi
 fi
@@ -54,7 +54,7 @@ echo "Teste de conectividade:"
 curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost || echo "Erro ao conectar"
 
 echo ""
-echo "✅ Correção aplicada"
+echo "[OK] Correção aplicada"
 '
 
 # Converter para array

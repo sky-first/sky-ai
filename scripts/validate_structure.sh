@@ -71,13 +71,13 @@ echo -e "${BLUE}Verificando referências no docker-compose.yml...${NC}"
 WARNINGS=0
 
 if grep -q "context: ../backend" "$PROJECT_DIR/docker-compose.yml"; then
-  echo -e "${YELLOW}⚠️  WARNING: docker-compose.yml ainda usa 'context: ../backend'${NC}"
+  echo -e "${YELLOW}[WARNING] WARNING: docker-compose.yml ainda usa 'context: ../backend'${NC}"
   echo -e "${YELLOW}   Deve ser 'context: ../sky-poc-backend'${NC}"
   WARNINGS=$((WARNINGS + 1))
 fi
 
 if grep -q "context: ../frontend" "$PROJECT_DIR/docker-compose.yml"; then
-  echo -e "${YELLOW}⚠️  WARNING: docker-compose.yml ainda usa 'context: ../frontend'${NC}"
+  echo -e "${YELLOW}[WARNING] WARNING: docker-compose.yml ainda usa 'context: ../frontend'${NC}"
   echo -e "${YELLOW}   Deve ser 'context: ../sky-poc-frontend'${NC}"
   WARNINGS=$((WARNINGS + 1))
 fi
@@ -93,7 +93,7 @@ fi
 
 # Verificar se .env existe (não obrigatório, mas recomendado)
 if [ ! -f "$PROJECT_DIR/.env" ]; then
-  echo -e "${YELLOW}⚠️  WARNING: Arquivo .env não encontrado${NC}"
+  echo -e "${YELLOW}[WARNING] WARNING: Arquivo .env não encontrado${NC}"
   echo -e "${YELLOW}   Crie um arquivo .env baseado em env.example${NC}"
 else
   echo -e "${GREEN}✓ Arquivo .env encontrado${NC}"
@@ -101,10 +101,10 @@ fi
 
 echo ""
 if [ $WARNINGS -eq 0 ]; then
-  echo -e "${GREEN}✅ Estrutura validada com sucesso!${NC}"
+  echo -e "${GREEN}[OK] Estrutura validada com sucesso!${NC}"
   exit 0
 else
-  echo -e "${YELLOW}⚠️  Estrutura validada com $WARNINGS aviso(s)${NC}"
+  echo -e "${YELLOW}[WARNING] Estrutura validada com $WARNINGS aviso(s)${NC}"
   exit 0
 fi
 

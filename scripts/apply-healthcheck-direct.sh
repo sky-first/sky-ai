@@ -5,7 +5,7 @@ set -eu
 RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
-echo "🚀 Aplicando healthcheck na VM..."
+echo " Aplicando healthcheck na VM..."
 echo ""
 
 # Script completo em uma única chamada
@@ -13,7 +13,7 @@ APPLY_SCRIPT='#!/bin/bash
 set -eu
 
 cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/projeto/poc-deploy 2>/dev/null || {
-    echo "❌ Diretório não encontrado"
+    echo "[ERROR] Diretório não encontrado"
     exit 1
 }
 
@@ -22,9 +22,9 @@ echo ""
 
 # Verificar se healthcheck já existe
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "✅ Healthcheck já existe no docker-compose.yml"
+    echo "[OK] Healthcheck já existe no docker-compose.yml"
 else
-    echo "⚠️  Aplicando healthcheck..."
+    echo "[WARNING] Aplicando healthcheck..."
     
     # Fazer backup
     cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)
@@ -42,20 +42,20 @@ else
     
     # Verificar se foi aplicado
     if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-        echo "✅ Healthcheck aplicado com sucesso"
+        echo "[OK] Healthcheck aplicado com sucesso"
         grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | head -6
     else
-        echo "❌ Erro ao aplicar healthcheck"
+        echo "[ERROR] Erro ao aplicar healthcheck"
         exit 1
     fi
 fi
 
 echo ""
-echo "🔧 Verificando depends_on do proxy..."
+echo " Verificando depends_on do proxy..."
 if grep -A 5 "proxy:" docker-compose.yml | grep -A 3 "depends_on:" | grep -q "service_healthy"; then
-    echo "✅ depends_on já usa service_healthy"
+    echo "[OK] depends_on já usa service_healthy"
 else
-    echo "⚠️  Ajustando depends_on..."
+    echo "[WARNING] Ajustando depends_on..."
     sed -i "s/condition: service_started/condition: service_healthy/g" docker-compose.yml
 fi
 
@@ -79,9 +79,9 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo
 echo "  HTTP Status: $HTTP_CODE"
 
 if echo "$HTTP_CODE" | grep -qE "200|301|302|307"; then
-    echo "  ✅ Nginx respondendo corretamente"
+    echo "  [OK] Nginx respondendo corretamente"
 else
-    echo "  ⚠️  Nginx ainda não está respondendo (pode estar inicializando)"
+    echo "  [WARNING] Nginx ainda não está respondendo (pode estar inicializando)"
 fi
 
 echo ""
@@ -93,7 +93,7 @@ echo "📋 Logs do nginx (últimas 5 linhas):"
 docker logs ai_saas_proxy --tail 5 2>&1 | tail -3
 
 echo ""
-echo "✅ Correção aplicada e containers reiniciados"
+echo "[OK] Correção aplicada e containers reiniciados"
 '
 
 # Converter para array (cada linha é um elemento)
@@ -111,7 +111,7 @@ OUTPUT=$(az vm run-command invoke \
 
 # Processar output
 if echo "$OUTPUT" | grep -q "Conflict"; then
-    echo "⚠️  Comando anterior ainda em execução. Aguarde alguns minutos e tente novamente."
+    echo "[WARNING] Comando anterior ainda em execução. Aguarde alguns minutos e tente novamente."
     exit 1
 fi
 
@@ -134,5 +134,5 @@ except Exception as e:
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "✅ Deploy concluído"
+echo "[OK] Deploy concluído"
 echo "═══════════════════════════════════════════════════════════"

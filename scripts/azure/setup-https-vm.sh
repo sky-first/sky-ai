@@ -37,7 +37,7 @@ SSH_KEYS_TO_TRY=(
     "$HOME/.ssh/id_ed25519"
 )
 
-echo -e "${BLUE}1️⃣  Testando conexão SSH...${NC}"
+echo -e "${BLUE}1.  Testando conexão SSH...${NC}"
 for key in "${SSH_KEYS_TO_TRY[@]}"; do
     if [ ! -f "$key" ]; then
         continue
@@ -52,16 +52,16 @@ for key in "${SSH_KEYS_TO_TRY[@]}"; do
         -o BatchMode=yes \
         "$VM_USER@$VM_IP" "echo 'SSH OK'" >/dev/null 2>&1; then
         SSH_KEY_PATH="$key"
-        echo -e "${GREEN}✅ OK${NC}"
+        echo -e "${GREEN}[OK] OK${NC}"
         break
     else
-        echo -e "${RED}❌${NC}"
+        echo -e "${RED}[ERROR]${NC}"
     fi
 done
 
 if [ -z "$SSH_KEY_PATH" ]; then
     echo ""
-    echo -e "${RED}❌ Não foi possível conectar à VM via SSH com nenhuma chave${NC}"
+    echo -e "${RED}[ERROR] Não foi possível conectar à VM via SSH com nenhuma chave${NC}"
     echo ""
     echo "Verifique:"
     echo "  - IP da VM está correto? ($VM_IP)"
@@ -75,7 +75,7 @@ if [ -z "$SSH_KEY_PATH" ]; then
         fi
     done
     echo ""
-    echo "💡 Alternativa: Execute os comandos manualmente na VM:"
+    echo "[INFO] Alternativa: Execute os comandos manualmente na VM:"
     echo "   cd $PROJECT_DIR"
     echo "   bash scripts/azure/generate-self-signed-certs.sh . $VM_IP"
     echo "   bash scripts/azure/apply-nginx-config.sh ."
@@ -83,59 +83,59 @@ if [ -z "$SSH_KEY_PATH" ]; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ Conexão SSH OK${NC}"
+echo -e "${GREEN}[OK] Conexão SSH OK${NC}"
 echo ""
 
 # Passo 1: Gerar certificados
-echo -e "${BLUE}2️⃣  Gerando certificados SSL auto-assinados...${NC}"
+echo -e "${BLUE}2.  Gerando certificados SSL auto-assinados...${NC}"
 if ssh -i "$SSH_KEY_PATH" \
     -o ConnectTimeout=10 \
     -o StrictHostKeyChecking=accept-new \
     "$VM_USER@$VM_IP" "cd $PROJECT_DIR && bash scripts/azure/generate-self-signed-certs.sh . $VM_IP" 2>&1; then
-    echo -e "${GREEN}✅ Certificados gerados${NC}"
+    echo -e "${GREEN}[OK] Certificados gerados${NC}"
 else
-    echo -e "${RED}❌ Erro ao gerar certificados${NC}"
+    echo -e "${RED}[ERROR] Erro ao gerar certificados${NC}"
     exit 1
 fi
 
 echo ""
 
 # Passo 2: Aplicar configuração Nginx
-echo -e "${BLUE}3️⃣  Aplicando configuração Nginx (HTTPS)...${NC}"
+echo -e "${BLUE}3.  Aplicando configuração Nginx (HTTPS)...${NC}"
 if ssh -i "$SSH_KEY_PATH" \
     -o ConnectTimeout=10 \
     -o StrictHostKeyChecking=accept-new \
     "$VM_USER@$VM_IP" "cd $PROJECT_DIR && bash scripts/azure/apply-nginx-config.sh ." 2>&1; then
-    echo -e "${GREEN}✅ Configuração Nginx aplicada${NC}"
+    echo -e "${GREEN}[OK] Configuração Nginx aplicada${NC}"
 else
-    echo -e "${RED}❌ Erro ao aplicar configuração Nginx${NC}"
+    echo -e "${RED}[ERROR] Erro ao aplicar configuração Nginx${NC}"
     exit 1
 fi
 
 echo ""
 
 # Passo 3: Reiniciar proxy
-echo -e "${BLUE}4️⃣  Reiniciando proxy Nginx...${NC}"
+echo -e "${BLUE}4.  Reiniciando proxy Nginx...${NC}"
 if ssh -i "$SSH_KEY_PATH" \
     -o ConnectTimeout=10 \
     -o StrictHostKeyChecking=accept-new \
     "$VM_USER@$VM_IP" "cd $PROJECT_DIR && docker compose restart proxy" 2>&1; then
-    echo -e "${GREEN}✅ Proxy reiniciado${NC}"
+    echo -e "${GREEN}[OK] Proxy reiniciado${NC}"
 else
-    echo -e "${YELLOW}⚠️  Erro ao reiniciar proxy (pode ser que não esteja rodando)${NC}"
+    echo -e "${YELLOW}[WARNING] Erro ao reiniciar proxy (pode ser que não esteja rodando)${NC}"
     echo "Tente manualmente: docker compose restart proxy"
 fi
 
 echo ""
 echo -e "${GREEN}=========================================="
-echo "✅ HTTPS Configurado!"
+echo "[OK] HTTPS Configurado!"
 echo "==========================================${NC}"
 echo ""
 echo "Acesse:"
 echo "  - HTTP:  http://$VM_IP (redireciona para HTTPS)"
 echo "  - HTTPS: https://$VM_IP"
 echo ""
-echo -e "${YELLOW}⚠️  NOTA: Certificados auto-assinados gerarão aviso no navegador.${NC}"
+echo -e "${YELLOW}[WARNING] NOTA: Certificados auto-assinados gerarão aviso no navegador.${NC}"
 echo "   Para produção, use Let's Encrypt ou certificados válidos."
 echo ""
 

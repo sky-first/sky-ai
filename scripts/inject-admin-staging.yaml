@@ -47,7 +47,7 @@ spec:
                       existing.password_hash = hashed
                       existing.role = "admin"
                       await session.commit()
-                      print("✅ User updated.")
+                      print("[OK] User updated.")
                   else:
                       print(f"Creating new admin...")
                       user = User(
@@ -61,7 +61,7 @@ spec:
                       )
                       session.add(user)
                       await session.commit()
-                      print(f"✅ User created: {email}")
+                      print(f"[OK] User created: {email}")
 
           if __name__ == "__main__":
               asyncio.run(run())

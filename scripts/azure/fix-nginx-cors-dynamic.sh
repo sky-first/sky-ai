@@ -11,7 +11,7 @@ cd "$PROJECT_DIR" || {
     elif [ -d ~/projeto/poc-deploy ]; then
         cd ~/projeto/poc-deploy
     else
-        echo "❌ ERRO: Diretório do projeto não encontrado"
+        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
         exit 1
     fi
 }
@@ -22,7 +22,7 @@ NGINX_HTTP_ONLY="docker/nginx/nginx.conf.http-only"
 CORS_MAP_GENERATOR="docker/nginx/generate-cors-map.sh"
 
 echo "=========================================="
-echo "🔧 Configurando CORS Dinamicamente"
+echo " Configurando CORS Dinamicamente"
 echo "=========================================="
 echo ""
 
@@ -33,7 +33,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 if [ -z "$VM_IP" ]; then
-    echo "⚠️  Não foi possível obter IP da VM via Metadata API"
+    echo "[WARNING] Não foi possível obter IP da VM via Metadata API"
     echo "   Tentando obter do .env..."
     if [ -f "$ENV_FILE" ]; then
         VM_IP=$(grep -E "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" | sed 's|.*http://\([^/]*\).*|\1|' || echo "")
@@ -41,11 +41,11 @@ if [ -z "$VM_IP" ]; then
 fi
 
 if [ -z "$VM_IP" ]; then
-    echo "❌ ERRO: Não foi possível obter IP da VM"
+    echo "[ERROR] ERRO: Não foi possível obter IP da VM"
     exit 1
 fi
 
-echo "✅ IP da VM detectado: $VM_IP"
+echo "[OK] IP da VM detectado: $VM_IP"
 echo ""
 
 # Carregar CORS_ORIGINS do .env se existir
@@ -78,7 +78,7 @@ if [ -f "$CORS_MAP_GENERATOR" ]; then
     chmod +x "$CORS_MAP_GENERATOR"
     CORS_MAP=$(bash "$CORS_MAP_GENERATOR" "$ORIGINS_LIST")
 else
-    echo "⚠️  Script generate-cors-map.sh não encontrado, gerando map manualmente..."
+    echo "[WARNING] Script generate-cors-map.sh não encontrado, gerando map manualmente..."
     CORS_MAP="# Map gerado dinamicamente para validar origens CORS
 map \$http_origin \$cors_origin {
     default \"\";
@@ -144,13 +144,13 @@ for nginx_file in "$NGINX_CONF" "$NGINX_HTTP_ONLY"; do
         # Substituir arquivo original
         mv "$TEMP_FILE" "$nginx_file"
         
-        echo "✅ $nginx_file atualizado"
+        echo "[OK] $nginx_file atualizado"
     fi
 done
 
 echo ""
 echo "=========================================="
-echo "✅ CORS Configurado Dinamicamente"
+echo "[OK] CORS Configurado Dinamicamente"
 echo "=========================================="
 echo ""
 

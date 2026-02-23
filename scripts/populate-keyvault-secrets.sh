@@ -19,7 +19,7 @@ cleanup_firewall() {
             --name "$KEY_VAULT_NAME" \
             --ip-address "$CURRENT_IP/32" \
             --only-show-errors >/dev/null 2>&1 || true
-        echo "✅ Cleanup complete."
+        echo "[OK] Cleanup complete."
     fi
 }
 
@@ -35,7 +35,7 @@ JWT_SECRET=$(terraform output -raw jwt_secret 2>/dev/null || echo "")
 ENCRYPTION_KEY=$(terraform output -raw encryption_key 2>/dev/null || echo "")
 
 if [ -z "$KEY_VAULT_NAME" ]; then
-    echo "❌ ERROR: Could not get key_vault_name from Terraform outputs"
+    echo "[ERROR] ERROR: Could not get key_vault_name from Terraform outputs"
     terraform output
     exit 1
 fi
@@ -44,15 +44,15 @@ fi
 echo "📍 Detecting current outbound IP..."
 CURRENT_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me)
 if [ -z "$CURRENT_IP" ]; then
-    echo "⚠️ Warning: Could not detect outbound IP. Proceeding with existing whitelist..."
+    echo "[WARNING]Warning: Could not detect outbound IP. Proceeding with existing whitelist..."
 else
-    echo "✅ Current Outbound IP: $CURRENT_IP"
+    echo "[OK] Current Outbound IP: $CURRENT_IP"
     echo "🔓 Whitelisting IP in Key Vault $KEY_VAULT_NAME..."
     if az keyvault network-rule add \
         --name "$KEY_VAULT_NAME" \
         --ip-address "$CURRENT_IP/32" \
         --only-show-errors >/dev/null 2>&1; then
-        echo "✅ IP $CURRENT_IP added to whitelist."
+        echo "[OK] IP $CURRENT_IP added to whitelist."
         FIREWALL_ADDED="true"
         echo "⏳ Waiting 15s for rule propagation..."
         sleep 15
@@ -86,16 +86,16 @@ set_secret() {
         set -e
         
         if [ $EXIT_CODE -eq 0 ]; then
-            echo "  ✅ $secret_name set successfully"
+            echo "  [OK] $secret_name set successfully"
             return 0
         else
-            echo "  ⚠️  Failed to set $secret_name: $ERROR_OUTPUT"
+            echo "  [WARNING] Failed to set $secret_name: $ERROR_OUTPUT"
             retry_count=$((retry_count + 1))
             if [ $retry_count -lt $max_retries ]; then
                 echo "  ⏳ Retrying in 10s..."
                 sleep 10
             else
-                echo "  ❌ Final failure for $secret_name after $max_retries attempts"
+                echo "  [ERROR] Final failure for $secret_name after $max_retries attempts"
             fi
         fi
     done
@@ -138,4 +138,4 @@ SECRET_COUNT=$(az keyvault secret list --vault-name "$KEY_VAULT_NAME" --query "l
 echo "  Total secrets in vault: $SECRET_COUNT"
 
 echo ""
-echo "✨ Key Vault secrets population complete!"
+echo " Key Vault secrets population complete!"

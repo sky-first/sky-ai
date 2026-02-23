@@ -33,7 +33,7 @@ spec:
             --query "sort_by([].{name:name, created:properties.creationTime}, &created)[-1].name" -o tsv)
 
           if [ -z "$LATEST_BACKUP" ]; then
-            echo "❌ Nenhum backup encontrado no storage!"
+            echo "[ERROR] Nenhum backup encontrado no storage!"
             exit 1
           fi
 
@@ -48,7 +48,7 @@ spec:
           # 2. Validar Estrutura (pg_restore --list)
           echo "🔍 Validando integridade estrutural do arquivo dump..."
           pg_restore -l /tmp/backup.dump.zst > /dev/null
-          echo "✅ Estrutura de catálogo válida."
+          echo "[OK] Estrutura de catálogo válida."
 
           # 3. Teste de Restauração Lógica (Sandboxing)
           echo "🏗️  Criando sandbox de banco de dados temporário..."
@@ -65,9 +65,9 @@ spec:
           echo "Contagem de usuários restaurados: $USER_COUNT"
 
           if [ "$USER_COUNT" -gt 0 ]; then
-            echo "🏆 TESTE DE RESTAURAÇÃO COMPLETADO COM SUCESSO!"
+            echo " TESTE DE RESTAURAÇÃO COMPLETADO COM SUCESSO!"
           else
-            echo "⚠️  AVISO: Restore completou mas a tabela de usuários está vazia."
+            echo "[WARNING] AVISO: Restore completou mas a tabela de usuários está vazia."
             exit 1
           fi
 

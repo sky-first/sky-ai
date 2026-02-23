@@ -30,10 +30,10 @@ for RG in "${TARGET_RGS[@]}"; do
         VM_ID=$(az vm show --resource-group "$RG" --name "$VM_NAME" --query id -o tsv 2>/dev/null || echo "")
         
         if [ -n "$VM_ID" ]; then
-            echo "      ⚠️  LEGACY VM FOUND: $VM_ID"
+            echo "      [WARNING] LEGACY VM FOUND: $VM_ID"
             echo "      💣 Destroying Legacy VM..."
             az vm delete --resource-group "$RG" --name "$VM_NAME" --yes
-            echo "      ✅ VM destroyed successfully."
+            echo "      [OK] VM destroyed successfully."
             
             # Clean up associated resources (Disks, NICs)
             # Note: 'az vm delete' with flags can do this, but being explicit ensures cleanup
@@ -42,30 +42,30 @@ for RG in "${TARGET_RGS[@]}"; do
             DISK_ID=$(az disk list --resource-group "$RG" --query "[?contains(name, '${VM_NAME}')].id" -o tsv)
             if [ -n "$DISK_ID" ]; then
                 az disk delete --ids $DISK_ID --yes --no-wait
-                echo "      ✅ Deletion triggered for Disks."
+                echo "      [OK] Deletion triggered for Disks."
             fi
             
             echo "      🧹 Cleaning up Network Interfaces..."
             NIC_ID=$(az network nic list --resource-group "$RG" --query "[?contains(name, '${VM_NAME}')].id" -o tsv)
             if [ -n "$NIC_ID" ]; then
                 az network nic delete --ids $NIC_ID --yes --no-wait
-                echo "      ✅ Deletion triggered for NICs."
+                echo "      [OK] Deletion triggered for NICs."
             fi
             
             echo "      🧹 Cleaning up Public IPs..."
             PIP_ID=$(az network public-ip list --resource-group "$RG" --query "[?contains(name, '${VM_NAME}')].id" -o tsv)
             if [ -n "$PIP_ID" ]; then
                 az network public-ip delete --ids $PIP_ID --yes --no-wait
-                echo "      ✅ Deletion triggered for PIPs."
+                echo "      [OK] Deletion triggered for PIPs."
             fi
 
         else
-            echo "      ✅ No active legacy VM found with name '$VM_NAME'."
+            echo "      [OK] No active legacy VM found with name '$VM_NAME'."
         fi
     done
 done
 
 echo "----------------------------------------------------------------"
-echo "✨ CLEANUP CHECK COMPLETE."
+echo " CLEANUP CHECK COMPLETE."
 echo "If resources were found, they are being deleted in the background."
 echo "Your environment is now optimized for Kubernetes (AKS) workloads."

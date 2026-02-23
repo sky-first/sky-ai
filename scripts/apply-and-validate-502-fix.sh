@@ -14,14 +14,14 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   ✅ Aplicação e Validação - Healthcheck Frontend${NC}"
+echo -e "${CYAN}   [OK] Aplicação e Validação - Healthcheck Frontend${NC}"
 echo -e "${CYAN}   Objetivo: Eliminar 502 Bad Gateway estruturalmente${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
 # Navegar para diretório do projeto
 cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/projeto/poc-deploy 2>/dev/null || {
-    echo -e "${RED}❌ Diretório não encontrado${NC}"
+    echo -e "${RED}[ERROR] Diretório não encontrado${NC}"
     exit 1
 }
 
@@ -29,23 +29,23 @@ cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/proje
 # PASSO 1: VERIFICAR SE HEALTHCHECK FOI APLICADO
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   1️⃣ Verificando se healthcheck foi aplicado${NC}"
+echo -e "${MAGENTA}   1. Verificando se healthcheck foi aplicado${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
 if grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | grep -q "healthcheck:"; then
-    echo -e "${GREEN}✅ Healthcheck encontrado no docker-compose.yml${NC}"
+    echo -e "${GREEN}[OK] Healthcheck encontrado no docker-compose.yml${NC}"
     grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | head -6
     HEALTHCHECK_CONFIGURED=true
 else
-    echo -e "${RED}❌ Healthcheck NÃO encontrado no docker-compose.yml${NC}"
-    echo -e "${YELLOW}💡 A correção ainda não foi aplicada${NC}"
+    echo -e "${RED}[ERROR] Healthcheck NÃO encontrado no docker-compose.yml${NC}"
+    echo -e "${YELLOW}[INFO] A correção ainda não foi aplicada${NC}"
     HEALTHCHECK_CONFIGURED=false
 fi
 echo ""
 
 if [ "$HEALTHCHECK_CONFIGURED" = false ]; then
-    echo -e "${RED}❌ Correção não aplicada. Encerrando.${NC}"
+    echo -e "${RED}[ERROR] Correção não aplicada. Encerrando.${NC}"
     exit 1
 fi
 
@@ -53,15 +53,15 @@ fi
 # PASSO 2: APLICAR CORREÇÕES (DOCKER COMPOSE DOWN/UP)
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   2️⃣ Aplicando correções (docker compose down/up)${NC}"
+echo -e "${MAGENTA}   2. Aplicando correções (docker compose down/up)${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "${YELLOW}⚠️  Parando todos os containers...${NC}"
+echo -e "${YELLOW}[WARNING] Parando todos os containers...${NC}"
 docker compose down
 echo ""
 
-echo -e "${YELLOW}⚠️  Iniciando containers com nova configuração...${NC}"
+echo -e "${YELLOW}[WARNING] Iniciando containers com nova configuração...${NC}"
 docker compose up -d
 echo ""
 
@@ -73,7 +73,7 @@ echo ""
 # PASSO 3: VALIDAR HEALTHCHECK EM TEMPO REAL
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   3️⃣ Validar healthcheck em tempo real${NC}"
+echo -e "${MAGENTA}   3. Validar healthcheck em tempo real${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -101,20 +101,20 @@ for i in {1..18}; do
     # Detectar quando frontend fica healthy
     if echo "$FRONTEND_STATUS" | grep -q "healthy"; then
         if [ "$HEALTHY_DETECTED" = false ]; then
-            echo -e "${GREEN}  ✅ Frontend ficou healthy em $TIMESTAMP${NC}"
+            echo -e "${GREEN}  [OK] Frontend ficou healthy em $TIMESTAMP${NC}"
             HEALTHY_DETECTED=true
         fi
     fi
     
     # Detectar 502 durante startup
     if echo "$NGINX_TEST" | grep -q "502"; then
-        echo -e "${RED}  🚨 502 detectado em $TIMESTAMP!${NC}"
+        echo -e "${RED}   502 detectado em $TIMESTAMP!${NC}"
         NO_502_DURING_STARTUP=false
     fi
     
     # Se ambos estão healthy e nginx responde, sucesso
     if echo "$FRONTEND_STATUS" | grep -q "healthy" && echo "$PROXY_STATUS" | grep -q "Up\|healthy" && echo "$NGINX_TEST" | grep -qE "200|301|302|307"; then
-        echo -e "${GREEN}  ✅ Sistema totalmente operacional em $TIMESTAMP${NC}"
+        echo -e "${GREEN}  [OK] Sistema totalmente operacional em $TIMESTAMP${NC}"
         break
     fi
     
@@ -133,9 +133,9 @@ echo "  Proxy: $FINAL_PROXY_STATUS"
 echo ""
 
 if echo "$FINAL_FRONTEND_STATUS" | grep -q "healthy"; then
-    echo -e "${GREEN}✅ Frontend está healthy${NC}"
+    echo -e "${GREEN}[OK] Frontend está healthy${NC}"
 else
-    echo -e "${RED}❌ Frontend NÃO está healthy: $FINAL_FRONTEND_STATUS${NC}"
+    echo -e "${RED}[ERROR] Frontend NÃO está healthy: $FINAL_FRONTEND_STATUS${NC}"
 fi
 echo ""
 
@@ -143,7 +143,7 @@ echo ""
 # PASSO 4: VERIFICAR LOGS APÓS START
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   4️⃣ Verificar logs logo após start${NC}"
+echo -e "${MAGENTA}   4. Verificar logs logo após start${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -159,10 +159,10 @@ echo ""
 # Análise dos logs
 NO_502_IN_LOGS=true
 if echo "$NGINX_LOGS" | grep -q "502\|Connection refused.*frontend"; then
-    echo -e "${RED}🚨 Ainda há erros 502 nos logs do nginx${NC}"
+    echo -e "${RED} Ainda há erros 502 nos logs do nginx${NC}"
     NO_502_IN_LOGS=false
 else
-    echo -e "${GREEN}✅ Nenhum erro 502 encontrado nos logs do nginx${NC}"
+    echo -e "${GREEN}[OK] Nenhum erro 502 encontrado nos logs do nginx${NC}"
 fi
 echo ""
 
@@ -170,37 +170,37 @@ echo ""
 # PASSO 5: TESTES ATIVOS
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   5️⃣ Testes ativos (comprovam funcionamento)${NC}"
+echo -e "${MAGENTA}   5. Testes ativos (comprovam funcionamento)${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
 echo -n "  Teste 1 - localhost:80: "
 TEST_LOCAL=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1)
 if echo "$TEST_LOCAL" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_LOCAL${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_LOCAL${NC}"
     TEST_LOCAL_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_LOCAL${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_LOCAL${NC}"
     TEST_LOCAL_OK=false
 fi
 
 echo -n "  Teste 2 - nginx → frontend: "
 TEST_NGINX=$(docker exec ai_saas_proxy curl -s -o /dev/null -w "%{http_code}" http://frontend:3000 2>&1)
 if echo "$TEST_NGINX" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_NGINX${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_NGINX${NC}"
     TEST_NGINX_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_NGINX${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_NGINX${NC}"
     TEST_NGINX_OK=false
 fi
 
 echo -n "  Teste 3 - IP externo (20.185.60.67): "
 TEST_EXTERNAL=$(curl -s -o /dev/null -w "%{http_code}" http://20.185.60.67 2>&1)
 if echo "$TEST_EXTERNAL" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_EXTERNAL${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_EXTERNAL${NC}"
     TEST_EXTERNAL_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_EXTERNAL${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_EXTERNAL${NC}"
     TEST_EXTERNAL_OK=false
 fi
 echo ""
@@ -209,11 +209,11 @@ echo ""
 # PASSO 6: TESTE DE REGRESSÃO (O MAIS IMPORTANTE)
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   6️⃣ Teste de regressão (reiniciar frontend)${NC}"
+echo -e "${MAGENTA}   6. Teste de regressão (reiniciar frontend)${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "${YELLOW}⚠️  Reiniciando frontend para testar resiliência...${NC}"
+echo -e "${YELLOW}[WARNING] Reiniciando frontend para testar resiliência...${NC}"
 docker restart ai_saas_frontend_prod
 echo ""
 
@@ -234,7 +234,7 @@ for i in {1..12}; do
     
     # Verificar se nginx retornou 502 durante restart
     if echo "$NGINX_TEST" | grep -q "502"; then
-        echo -e "${RED}  🚨 502 detectado durante restart em $TIMESTAMP!${NC}"
+        echo -e "${RED}   502 detectado durante restart em $TIMESTAMP!${NC}"
         NO_502_DURING_RESTART=false
         REGRESSION_PASSED=false
     fi
@@ -253,7 +253,7 @@ for i in {1..12}; do
     
     # Se frontend está healthy e nginx responde, sucesso
     if echo "$FRONTEND_STATUS" | grep -q "healthy" && echo "$NGINX_TEST" | grep -qE "200|301|302|307"; then
-        echo -e "${GREEN}  ✅ Sistema totalmente recuperado em $TIMESTAMP${NC}"
+        echo -e "${GREEN}  [OK] Sistema totalmente recuperado em $TIMESTAMP${NC}"
         break
     fi
     
@@ -281,10 +281,10 @@ echo ""
 
 # Critério 1: Frontend só fica healthy quando responde HTTP
 if echo "$FINAL_FRONTEND_STATUS" | grep -q "healthy"; then
-    echo -e "${GREEN}✅ 1. Frontend só fica healthy quando responde HTTP${NC}"
+    echo -e "${GREEN}[OK] 1. Frontend só fica healthy quando responde HTTP${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 1. Frontend não está healthy${NC}"
+    echo -e "${RED}[ERROR] 1. Frontend não está healthy${NC}"
 fi
 
 # Critério 2: Nginx só inicia após frontend healthy
@@ -293,37 +293,37 @@ if echo "$FINAL_PROXY_STATUS" | grep -q "Up\|healthy"; then
     PROXY_START=$(docker inspect ai_saas_proxy --format "{{.State.StartedAt}}" 2>/dev/null)
     FRONTEND_START=$(docker inspect ai_saas_frontend_prod --format "{{.State.StartedAt}}" 2>/dev/null)
     if [ -n "$PROXY_START" ] && [ -n "$FRONTEND_START" ]; then
-        echo -e "${GREEN}✅ 2. Nginx só inicia após frontend healthy${NC}"
+        echo -e "${GREEN}[OK] 2. Nginx só inicia após frontend healthy${NC}"
         CRITERIA_MET=$((CRITERIA_MET + 1))
     else
-        echo -e "${YELLOW}⚠️  2. Não foi possível verificar ordem de inicialização${NC}"
+        echo -e "${YELLOW}[WARNING] 2. Não foi possível verificar ordem de inicialização${NC}"
     fi
 else
-    echo -e "${RED}❌ 2. Nginx não está rodando${NC}"
+    echo -e "${RED}[ERROR] 2. Nginx não está rodando${NC}"
 fi
 
 # Critério 3: Nenhum 502 nos logs após restart
 if [ "$NO_502_IN_LOGS" = true ] && [ "$NO_502_DURING_RESTART" = true ]; then
-    echo -e "${GREEN}✅ 3. Nenhum 502 nos logs após restart${NC}"
+    echo -e "${GREEN}[OK] 3. Nenhum 502 nos logs após restart${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 3. Ainda há 502 nos logs ou durante restart${NC}"
+    echo -e "${RED}[ERROR] 3. Ainda há 502 nos logs ou durante restart${NC}"
 fi
 
 # Critério 4: Sistema se recupera sozinho
 if [ "$HEALTHY_AFTER_RESTART" = true ] && echo "$FINAL_TEST" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ 4. Sistema se recupera sozinho após restart${NC}"
+    echo -e "${GREEN}[OK] 4. Sistema se recupera sozinho após restart${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 4. Sistema não se recuperou após restart${NC}"
+    echo -e "${RED}[ERROR] 4. Sistema não se recuperou após restart${NC}"
 fi
 
 # Critério 5: Evidência documentada
 if [ "$TEST_EXTERNAL_OK" = true ]; then
-    echo -e "${GREEN}✅ 5. Sistema acessível externamente (evidência documentada)${NC}"
+    echo -e "${GREEN}[OK] 5. Sistema acessível externamente (evidência documentada)${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 5. Sistema não acessível externamente${NC}"
+    echo -e "${RED}[ERROR] 5. Sistema não acessível externamente${NC}"
 fi
 
 echo ""
@@ -331,29 +331,29 @@ echo -e "${BLUE}Resultado: $CRITERIA_MET/$TOTAL_CRITERIA critérios atendidos${N
 echo ""
 
 if [ $CRITERIA_MET -eq $TOTAL_CRITERIA ]; then
-    echo -e "${GREEN}✅✅✅ INCIDENTE RESOLVIDO ESTRUTURALMENTE${NC}"
+    echo -e "${GREEN}[OK][OK][OK] INCIDENTE RESOLVIDO ESTRUTURALMENTE${NC}"
     echo ""
-    echo -e "${GREEN}✅ Root cause confirmado e corrigido${NC}"
-    echo -e "${GREEN}✅ Correções validadas${NC}"
-    echo -e "${GREEN}✅ Sem regressão detectada${NC}"
-    echo -e "${GREEN}✅ Sistema se auto-recupera${NC}"
+    echo -e "${GREEN}[OK] Root cause confirmado e corrigido${NC}"
+    echo -e "${GREEN}[OK] Correções validadas${NC}"
+    echo -e "${GREEN}[OK] Sem regressão detectada${NC}"
+    echo -e "${GREEN}[OK] Sistema se auto-recupera${NC}"
     echo ""
-    echo -e "${BLUE}💡 O problema 502 Bad Gateway está resolvido de forma estrutural${NC}"
-    echo -e "${BLUE}💡 O sistema agora tem readiness adequado${NC}"
-    echo -e "${BLUE}💡 A plataforma está acessível: http://20.185.60.67${NC}"
+    echo -e "${BLUE}[INFO] O problema 502 Bad Gateway está resolvido de forma estrutural${NC}"
+    echo -e "${BLUE}[INFO] O sistema agora tem readiness adequado${NC}"
+    echo -e "${BLUE}[INFO] A plataforma está acessível: http://20.185.60.67${NC}"
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}🎉 INCIDENTE ENCERRADO COM SUCESSO${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
     exit 0
 elif [ $CRITERIA_MET -ge 3 ]; then
-    echo -e "${YELLOW}⚠️  Correções aplicadas com sucesso parcial${NC}"
-    echo -e "${YELLOW}💡 $CRITERIA_MET de $TOTAL_CRITERIA critérios atendidos${NC}"
-    echo -e "${YELLOW}💡 Pode ser necessário aguardar mais tempo ou ajustar timeouts${NC}"
+    echo -e "${YELLOW}[WARNING] Correções aplicadas com sucesso parcial${NC}"
+    echo -e "${YELLOW}[INFO] $CRITERIA_MET de $TOTAL_CRITERIA critérios atendidos${NC}"
+    echo -e "${YELLOW}[INFO] Pode ser necessário aguardar mais tempo ou ajustar timeouts${NC}"
     exit 1
 else
-    echo -e "${RED}❌ Problema ainda persiste${NC}"
-    echo -e "${YELLOW}💡 Revisar correções aplicadas e logs${NC}"
+    echo -e "${RED}[ERROR] Problema ainda persiste${NC}"
+    echo -e "${YELLOW}[INFO] Revisar correções aplicadas e logs${NC}"
     exit 1
 fi
 

@@ -91,7 +91,7 @@ else
                 echo "Últimas linhas do erro:"
                 tail -30 /tmp/frontend-build.log | grep -A 20 -E "(error|Error|ERROR|failed|Failed)" || tail -30 /tmp/frontend-build.log
                 echo ""
-                log_info "⚠️  Build falhou localmente, mas validação completa será feita na VM durante deploy"
+                log_info "[WARNING] Build falhou localmente, mas validação completa será feita na VM durante deploy"
                 log_info "Se o build falhar na VM, o deploy será interrompido automaticamente"
             fi
         else
@@ -166,9 +166,9 @@ for dir in "${REQUIRED_DIRS[@]}"; do
 done
 
 if [ $CRITICAL_ERRORS -eq 0 ]; then
-    echo -e "${GREEN}✅ Validação básica OK!${NC}"
+    echo -e "${GREEN}[OK] Validação básica OK!${NC}"
     if [ $WARNINGS -gt 0 ]; then
-        echo -e "${YELLOW}⚠️  $WARNINGS aviso(s) encontrado(s)${NC}"
+        echo -e "${YELLOW}[WARNING] $WARNINGS aviso(s) encontrado(s)${NC}"
         echo -e "${YELLOW}Validação completa de build será feita na VM durante deploy${NC}"
     fi
     echo -e "${GREEN}Pronto para deploy!${NC}"
@@ -179,7 +179,7 @@ if [ $CRITICAL_ERRORS -eq 0 ]; then
     echo "  3. Mostrar logs detalhados de qualquer erro"
     exit 0
 else
-    echo -e "${RED}❌ Validação falhou com $CRITICAL_ERRORS erro(s) crítico(s)${NC}"
+    echo -e "${RED}[ERROR] Validação falhou com $CRITICAL_ERRORS erro(s) crítico(s)${NC}"
     echo -e "${RED}Corrija os erros antes de continuar${NC}"
     echo ""
     echo "Próximos passos:"

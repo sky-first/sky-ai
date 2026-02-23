@@ -8,7 +8,7 @@ echo ""
 # Executar script em background com timeout manual
 (
     ./scripts/azure/ensure-complete-env.sh . 2>&1
-    echo "✅ Script concluído"
+    echo "[OK] Script concluído"
 ) &
 SCRIPT_PID=$!
 
@@ -26,7 +26,7 @@ done
 # Se ainda estiver rodando, matar
 if kill -0 $SCRIPT_PID 2>/dev/null; then
     echo ""
-    echo "❌ Script travou após 10 segundos"
+    echo "[ERROR] Script travou após 10 segundos"
     kill $SCRIPT_PID 2>/dev/null
     exit 1
 fi

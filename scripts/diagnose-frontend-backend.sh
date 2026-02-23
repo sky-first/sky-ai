@@ -25,17 +25,17 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}✅${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
     ((CHECKS_PASSED++))
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  AVISO:${NC} $1"
+    echo -e "${YELLOW}[WARNING] AVISO:${NC} $1"
     ((WARNINGS++))
 }
 
 log_error() {
-    echo -e "${RED}❌ ERRO:${NC} $1" >&2
+    echo -e "${RED}[ERROR] ERRO:${NC} $1" >&2
     ((ERRORS++))
 }
 
@@ -87,7 +87,7 @@ echo ""
 # 1. VERIFICAÇÃO DE CONECTIVIDADE BÁSICA
 # ============================================
 echo "=========================================="
-echo "1️⃣  Conectividade Básica"
+echo "1.  Conectividade Básica"
 echo "=========================================="
 echo ""
 
@@ -108,7 +108,7 @@ echo ""
 # 2. VERIFICAÇÃO DO BACKEND
 # ============================================
 echo "=========================================="
-echo "2️⃣  Backend (FastAPI)"
+echo "2.  Backend (FastAPI)"
 echo "=========================================="
 echo ""
 
@@ -143,7 +143,7 @@ echo ""
 # 3. VERIFICAÇÃO DO FRONTEND
 # ============================================
 echo "=========================================="
-echo "3️⃣  Frontend (Next.js)"
+echo "3.  Frontend (Next.js)"
 echo "=========================================="
 echo ""
 
@@ -173,7 +173,7 @@ echo ""
 # 4. VERIFICAÇÃO DE CORS
 # ============================================
 echo "=========================================="
-echo "4️⃣  CORS (Cross-Origin Resource Sharing)"
+echo "4.  CORS (Cross-Origin Resource Sharing)"
 echo "=========================================="
 echo ""
 
@@ -210,7 +210,7 @@ echo ""
 # 5. VERIFICAÇÃO DE ROTEAMENTO NGINX
 # ============================================
 echo "=========================================="
-echo "5️⃣  Roteamento Nginx"
+echo "5.  Roteamento Nginx"
 echo "=========================================="
 echo ""
 
@@ -238,7 +238,7 @@ echo ""
 # 6. VERIFICAÇÃO DE CONFIGURAÇÃO
 # ============================================
 echo "=========================================="
-echo "6️⃣  Configuração"
+echo "6.  Configuração"
 echo "=========================================="
 echo ""
 
@@ -261,22 +261,22 @@ echo "📊 RESUMO DO DIAGNÓSTICO"
 echo "=========================================="
 echo ""
 
-echo "✅ Verificações passadas: $CHECKS_PASSED"
-echo "⚠️  Avisos: $WARNINGS"
-echo "❌ Erros: $ERRORS"
+echo "[OK] Verificações passadas: $CHECKS_PASSED"
+echo "[WARNING] Avisos: $WARNINGS"
+echo "[ERROR] Erros: $ERRORS"
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}✅ TUDO FUNCIONANDO PERFEITAMENTE!${NC}"
+    echo -e "${GREEN}[OK] TUDO FUNCIONANDO PERFEITAMENTE!${NC}"
     echo ""
     echo "Frontend e Backend estão conectados e funcionando corretamente."
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}⚠️  FUNCIONANDO COM AVISOS${NC}"
+    echo -e "${YELLOW}[WARNING] FUNCIONANDO COM AVISOS${NC}"
     echo ""
     echo "Frontend e Backend estão conectados, mas há alguns avisos."
     echo "Recomenda-se verificar os pontos mencionados acima."
 else
-    echo -e "${RED}❌ PROBLEMAS ENCONTRADOS${NC}"
+    echo -e "${RED}[ERROR] PROBLEMAS ENCONTRADOS${NC}"
     echo ""
     echo "Há problemas que precisam ser corrigidos."
     echo "Verifique os erros acima e corrija antes de continuar."
@@ -284,7 +284,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "🔧 PRÓXIMOS PASSOS (se houver problemas)"
+echo " PRÓXIMOS PASSOS (se houver problemas)"
 echo "=========================================="
 echo ""
 
@@ -308,7 +308,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "✅ Diagnóstico concluído"
+echo "[OK] Diagnóstico concluído"
 echo "=========================================="
 echo ""
 

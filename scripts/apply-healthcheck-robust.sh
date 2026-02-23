@@ -6,7 +6,7 @@ RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
 echo "═══════════════════════════════════════════════════════════"
-echo "🚀 APLICAÇÃO ROBUSTA DA CORREÇÃO 502"
+echo " APLICAÇÃO ROBUSTA DA CORREÇÃO 502"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -16,7 +16,7 @@ FULL_SCRIPT=$(cat <<'SCRIPT_EOF'
 set -eu
 
 cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/projeto/poc-deploy 2>/dev/null || {
-    echo "❌ Diretório não encontrado"
+    echo "[ERROR] Diretório não encontrado"
     exit 1
 }
 
@@ -25,17 +25,17 @@ echo ""
 
 # Verificar se healthcheck já existe
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "✅ Healthcheck já existe - validando..."
+    echo "[OK] Healthcheck já existe - validando..."
     grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | head -6
     HEALTHCHECK_EXISTS=true
 else
-    echo "⚠️  Healthcheck não encontrado - aplicando..."
+    echo "[WARNING] Healthcheck não encontrado - aplicando..."
     HEALTHCHECK_EXISTS=false
     
     # Fazer backup
     BACKUP_FILE="docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)"
     cp docker-compose.yml "$BACKUP_FILE"
-    echo "✅ Backup criado: $BACKUP_FILE"
+    echo "[OK] Backup criado: $BACKUP_FILE"
     
     # Método 1: Usar awk para inserir após networks
     awk '
@@ -62,9 +62,9 @@ else
     
     if [ $? -eq 0 ] && [ -f docker-compose.yml.tmp ]; then
         mv docker-compose.yml.tmp docker-compose.yml
-        echo "✅ Healthcheck aplicado usando awk"
+        echo "[OK] Healthcheck aplicado usando awk"
     else
-        echo "⚠️  Método awk falhou, tentando sed..."
+        echo "[WARNING] Método awk falhou, tentando sed..."
         # Método 2: Usar sed
         sed -i.bak '/- ai_saas_network/a\
     # Healthcheck para garantir que Next.js está pronto\
@@ -76,9 +76,9 @@ else
       start_period: 90s' docker-compose.yml
         
         if [ $? -eq 0 ]; then
-            echo "✅ Healthcheck aplicado usando sed"
+            echo "[OK] Healthcheck aplicado usando sed"
         else
-            echo "❌ Erro ao aplicar healthcheck - restaurando backup"
+            echo "[ERROR] Erro ao aplicar healthcheck - restaurando backup"
             mv "$BACKUP_FILE" docker-compose.yml
             exit 1
         fi
@@ -87,24 +87,24 @@ fi
 
 # Validar que foi aplicado
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "✅ Healthcheck confirmado no arquivo"
+    echo "[OK] Healthcheck confirmado no arquivo"
     echo ""
     echo "Conteúdo aplicado:"
     grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | head -6 | sed 's/^/  /'
 else
-    echo "❌ ERRO CRÍTICO: Healthcheck não foi aplicado"
+    echo "[ERROR] ERRO CRÍTICO: Healthcheck não foi aplicado"
     exit 1
 fi
 
 # Verificar depends_on
 echo ""
-echo "🔧 Verificando depends_on do proxy..."
+echo " Verificando depends_on do proxy..."
 if grep -A 5 "proxy:" docker-compose.yml | grep -A 3 "depends_on:" | grep -q "service_healthy"; then
-    echo "✅ depends_on já usa service_healthy"
+    echo "[OK] depends_on já usa service_healthy"
 else
-    echo "⚠️  Ajustando depends_on..."
+    echo "[WARNING] Ajustando depends_on..."
     sed -i 's/condition: service_started/condition: service_healthy/g' docker-compose.yml
-    echo "✅ depends_on ajustado"
+    echo "[OK] depends_on ajustado"
 fi
 
 # Aplicar correções
@@ -116,7 +116,7 @@ echo ""
 echo "Iniciando containers com nova configuração..."
 docker compose up -d
 echo ""
-echo "✅ Containers reiniciados"
+echo "[OK] Containers reiniciados"
 
 # Aguardar e validar
 echo ""
@@ -132,17 +132,17 @@ echo "🧪 Testes de conectividade:"
 echo -n "  localhost:80: "
 HTTP_LOCAL=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "000")
 if echo "$HTTP_LOCAL" | grep -qE "200|301|302|307"; then
-    echo "✅ HTTP $HTTP_LOCAL"
+    echo "[OK] HTTP $HTTP_LOCAL"
 else
-    echo "⚠️  HTTP $HTTP_LOCAL (pode estar inicializando)"
+    echo "[WARNING] HTTP $HTTP_LOCAL (pode estar inicializando)"
 fi
 
 echo -n "  nginx → frontend: "
 HTTP_NGINX=$(docker exec ai_saas_proxy curl -s -o /dev/null -w "%{http_code}" http://frontend:3000 2>&1 || echo "000")
 if echo "$HTTP_NGINX" | grep -qE "200|301|302|307"; then
-    echo "✅ HTTP $HTTP_NGINX"
+    echo "[OK] HTTP $HTTP_NGINX"
 else
-    echo "⚠️  HTTP $HTTP_NGINX"
+    echo "[WARNING] HTTP $HTTP_NGINX"
 fi
 
 echo ""
@@ -150,10 +150,10 @@ echo "📋 Verificando logs do nginx (últimas 10 linhas):"
 docker logs ai_saas_proxy --tail 10 2>&1 | tail -5
 
 echo ""
-echo "✅ CORREÇÃO APLICADA COM SUCESSO"
+echo "[OK] CORREÇÃO APLICADA COM SUCESSO"
 echo ""
-echo "💡 Se o frontend ainda não está healthy, aguarde mais 1-2 minutos"
-echo "💡 Next.js em modo dev pode levar até 90 segundos para compilar"
+echo "[INFO] Se o frontend ainda não está healthy, aguarde mais 1-2 minutos"
+echo "[INFO] Next.js em modo dev pode levar até 90 segundos para compilar"
 SCRIPT_EOF
 )
 
@@ -173,9 +173,9 @@ OUTPUT=$(az vm run-command invoke \
 
 # Processar output de forma robusta
 if echo "$OUTPUT" | grep -q "Conflict"; then
-    echo "⚠️  Comando anterior ainda em execução"
+    echo "[WARNING] Comando anterior ainda em execução"
     echo ""
-    echo "💡 O comando anterior pode estar finalizando. Opções:"
+    echo "[INFO] O comando anterior pode estar finalizando. Opções:"
     echo "   1. Aguarde 5-10 minutos e verifique manualmente via SSH"
     echo "   2. Execute novamente este script em alguns minutos"
     echo ""
@@ -196,14 +196,14 @@ try:
         print(msg)
     elif 'error' in data:
         error_msg = data.get('error', {}).get('message', 'Erro desconhecido')
-        print(f'❌ Erro do Azure: {error_msg}')
+        print(f'[ERROR] Erro do Azure: {error_msg}')
     else:
-        print('⚠️  Resposta inesperada do Azure CLI')
+        print('[WARNING] Resposta inesperada do Azure CLI')
         print(json.dumps(data, indent=2))
 except json.JSONDecodeError:
     output = sys.stdin.read()
     if 'Conflict' in output:
-        print('⚠️  Comando anterior ainda em execução')
+        print('[WARNING] Comando anterior ainda em execução')
     else:
         print('Output bruto:', output[:500])
 except Exception as e:
@@ -212,7 +212,7 @@ except Exception as e:
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "✅ PROCESSO FINALIZADO"
+echo "[OK] PROCESSO FINALIZADO"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "🌐 Teste acessando: http://20.185.60.67"

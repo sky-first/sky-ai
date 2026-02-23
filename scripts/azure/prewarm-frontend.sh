@@ -27,13 +27,13 @@ for p in "${PATHS[@]}"; do
   done
 
   if [ "$ok" = "true" ]; then
-    echo "✅ OK: $p"
+    echo "[OK] OK: $p"
   else
-    echo "⚠️  AVISO: $p não estabilizou em tempo (pode estar compilando ainda)."
+    echo "[WARNING] AVISO: $p não estabilizou em tempo (pode estar compilando ainda)."
   fi
 done
 
 echo ""
-echo "✅ Prewarm concluído"
+echo "[OK] Prewarm concluído"
 
 

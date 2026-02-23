@@ -43,21 +43,21 @@ runs:
           # Tentar ping primeiro
           if ping -c 1 -W 2 ${{ inputs.vm_ip }} > /dev/null 2>&1; then
             STATUS="healthy"
-            echo "✅ VM está respondendo (ping)"
+            echo "[OK] VM está respondendo (ping)"
             break
           fi
 
           # Se ping falhar, tentar HTTP (porta 80) como alternativa
           if curl -f -s --max-time 5 "http://${{ inputs.vm_ip }}" > /dev/null 2>&1; then
             STATUS="healthy"
-            echo "✅ VM está respondendo (HTTP)"
+            echo "[OK] VM está respondendo (HTTP)"
             break
           fi
 
           # Se ambos falharem, tentar HTTPS (porta 443)
           if curl -f -s --max-time 5 -k "https://${{ inputs.vm_ip }}" > /dev/null 2>&1; then
             STATUS="healthy"
-            echo "✅ VM está respondendo (HTTPS)"
+            echo "[OK] VM está respondendo (HTTPS)"
             break
           fi
 
@@ -69,7 +69,7 @@ runs:
 
         if [ "$STATUS" != "healthy" ]; then
           echo ""
-          echo "❌ ERRO: VM health check falhou após {{ inputs.timeout_minutes }} minutos"
+          echo "[ERROR] ERRO: VM health check falhou após {{ inputs.timeout_minutes }} minutos"
           echo ""
           echo "A VM não está respondendo a nenhum método de verificação:"
           echo "  - Ping (ICMP)"
@@ -95,7 +95,7 @@ runs:
       continue-on-error: true
       run: |
         if terraform output -json > /dev/null 2>&1; then
-          echo "✅ Terraform outputs verificados"
+          echo "[OK] Terraform outputs verificados"
         else
-          echo "⚠️  WARNING: Não foi possível verificar Terraform outputs (não crítico)"
+          echo "[WARNING] WARNING: Não foi possível verificar Terraform outputs (não crítico)"
         fi

@@ -16,7 +16,7 @@ az vm run-command invoke \
     echo "=== REINICIANDO FRONTEND ==="
     docker restart ai_saas_frontend_prod
     echo ""
-    echo "✅ Frontend reiniciado"
+    echo "[OK] Frontend reiniciado"
     echo ""
     echo "Aguardando 20 segundos para o Next.js iniciar..."
     sleep 20
@@ -38,9 +38,9 @@ az vm run-command invoke \
   ' 2>&1
 
 echo ""
-echo "✅ Verificação concluída!"
+echo "[OK] Verificação concluída!"
 echo ""
-echo "💡 Se o frontend ainda não estiver respondendo:"
+echo "[INFO] Se o frontend ainda não estiver respondendo:"
 echo "   1. Verifique os logs acima para erros"
 echo "   2. O Next.js pode estar compilando (pode demorar alguns minutos)"
 echo "   3. Verifique recursos: docker stats ai_saas_frontend_prod"

@@ -14,7 +14,7 @@ cd "$PROJECT_DIR" || {
     elif [ -d ~/projeto/poc-deploy ]; then
         cd ~/projeto/poc-deploy
     else
-        echo "❌ ERRO: Diretório do projeto não encontrado"
+        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
         exit 1
     fi
 }
@@ -33,19 +33,19 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}[ERROR] $1${NC}"
 }
 
 echo "=========================================="
-echo "🔧 Correção de NEXT_PUBLIC_API_URL"
+echo " Correção de NEXT_PUBLIC_API_URL"
 echo "=========================================="
 echo ""
 

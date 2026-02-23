@@ -46,7 +46,7 @@ fi
 #   -v ai_saas_postgres_prod_data:/data:ro \
 #   -v "$BACKUP_DIR":/backup \
 #   alpine tar czf /backup/postgres_volume_${TIMESTAMP}.tar.gz -C /data . || {
-#   echo -e "${YELLOW}⚠️  Aviso: Falha ao fazer backup do volume (pode ser normal se o volume não existir)${NC}"
+#   echo -e "${YELLOW}[WARNING] Aviso: Falha ao fazer backup do volume (pode ser normal se o volume não existir)${NC}"
 # }
 
 # Backup do Redis (opcional - apenas se necessário)
@@ -56,7 +56,7 @@ fi
 #   docker cp ai_saas_redis_prod:/data/dump.rdb "$BACKUP_DIR/redis_${TIMESTAMP}.rdb" || true
 # fi
 
-echo -e "${GREEN}✅ Backup concluído em: $BACKUP_DIR${NC}"
+echo -e "${GREEN}[OK] Backup concluído em: $BACKUP_DIR${NC}"
 
 # Limpar backups antigos (manter apenas últimos 7 dias)
 echo -e "${BLUE}Limpando backups antigos (mantendo últimos 7 dias)...${NC}"
@@ -64,7 +64,7 @@ find "$PROJECT_DIR/backups" -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || t
 find "$PROJECT_DIR/backups" -type f -name "*.sql.gz" -mtime +7 -delete 2>/dev/null || true
 find "$PROJECT_DIR/backups" -type f -name "*.tar.gz" -mtime +7 -delete 2>/dev/null || true
 
-echo -e "${GREEN}✅ Limpeza concluída${NC}"
+echo -e "${GREEN}[OK] Limpeza concluída${NC}"
 
 # Listar backups disponíveis
 echo ""

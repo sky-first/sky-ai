@@ -18,7 +18,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🚀 Deploy Correção 502 Bad Gateway${NC}"
+echo -e "${CYAN}    Deploy Correção 502 Bad Gateway${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo "Resource Group: $RESOURCE_GROUP"
@@ -28,17 +28,17 @@ echo ""
 
 # Verificar se docker-compose.yml local tem healthcheck
 if ! grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo -e "${RED}❌ Healthcheck não encontrado no docker-compose.yml local${NC}"
+    echo -e "${RED}[ERROR] Healthcheck não encontrado no docker-compose.yml local${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Healthcheck confirmado no docker-compose.yml local${NC}"
+echo -e "${GREEN}[OK] Healthcheck confirmado no docker-compose.yml local${NC}"
 echo ""
 
 # Verificar se chave SSH existe
 if [ ! -f "$SSH_KEY" ]; then
-    echo -e "${YELLOW}⚠️  Chave SSH não encontrada: $SSH_KEY${NC}"
-    echo -e "${YELLOW}💡 Tentando usar Azure CLI Run Command...${NC}"
+    echo -e "${YELLOW}[WARNING] Chave SSH não encontrada: $SSH_KEY${NC}"
+    echo -e "${YELLOW}[INFO] Tentando usar Azure CLI Run Command...${NC}"
     USE_AZURE_CLI=true
 else
     USE_AZURE_CLI=false
@@ -86,7 +86,7 @@ except:
 # ============================================================================
 # PASSO 1: COPIAR DOCKER-COMPOSE.YML PARA VM
 # ============================================================================
-echo -e "${BLUE}1️⃣ Copiando docker-compose.yml atualizado para VM...${NC}"
+echo -e "${BLUE}1. Copiando docker-compose.yml atualizado para VM...${NC}"
 
 if [ "$USE_AZURE_CLI" = false ]; then
     # Via SSH
@@ -105,9 +105,9 @@ echo "$DOCKER_COMPOSE_CONTENT" | base64 -d > docker-compose.yml.new
 if grep -A 10 "frontend:" docker-compose.yml.new | grep -q "healthcheck:"; then
     mv docker-compose.yml docker-compose.yml.backup
     mv docker-compose.yml.new docker-compose.yml
-    echo "✅ docker-compose.yml atualizado com healthcheck"
+    echo "[OK] docker-compose.yml atualizado com healthcheck"
 else
-    echo "❌ Healthcheck não encontrado no arquivo"
+    echo "[ERROR] Healthcheck não encontrado no arquivo"
     exit 1
 fi
 EOF
@@ -121,7 +121,7 @@ echo ""
 # ============================================================================
 # PASSO 2: COPIAR SCRIPT DE VALIDAÇÃO PARA VM
 # ============================================================================
-echo -e "${BLUE}2️⃣ Copiando script de validação para VM...${NC}"
+echo -e "${BLUE}2. Copiando script de validação para VM...${NC}"
 
 VALIDATION_SCRIPT=$(cat scripts/apply-and-validate-502-fix.sh | base64)
 
@@ -134,7 +134,7 @@ SCRIPT_EOF
 echo "echo '$VALIDATION_SCRIPT' | base64 -d > scripts/apply-and-validate-502-fix.sh"
 cat <<'SCRIPT_EOF'
 chmod +x scripts/apply-and-validate-502-fix.sh
-echo "✅ Script de validação copiado"
+echo "[OK] Script de validação copiado"
 SCRIPT_EOF
 )
 
@@ -147,8 +147,8 @@ echo ""
 # ============================================================================
 # PASSO 3: EXECUTAR VALIDAÇÃO COMPLETA
 # ============================================================================
-echo -e "${BLUE}3️⃣ Executando validação completa na VM...${NC}"
-echo -e "${YELLOW}⚠️  Isso pode levar alguns minutos...${NC}"
+echo -e "${BLUE}3. Executando validação completa na VM...${NC}"
+echo -e "${YELLOW}[WARNING] Isso pode levar alguns minutos...${NC}"
 echo ""
 
 EXECUTE_SCRIPT=$(cat <<'EOF'
@@ -162,10 +162,10 @@ run_azure_command "$EXECUTE_SCRIPT" 2>&1
 
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✅ Deploy concluído${NC}"
+echo -e "${GREEN}[OK] Deploy concluído${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "${BLUE}💡 Verifique o output acima para confirmar que todos os critérios foram atendidos${NC}"
-echo -e "${BLUE}💡 A plataforma deve estar acessível em: http://$VM_IP${NC}"
+echo -e "${BLUE}[INFO] Verifique o output acima para confirmar que todos os critérios foram atendidos${NC}"
+echo -e "${BLUE}[INFO] A plataforma deve estar acessível em: http://$VM_IP${NC}"
 echo ""
 

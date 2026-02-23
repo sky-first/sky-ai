@@ -27,19 +27,19 @@ echo -e "${BLUE}Descobrindo seu IP público...${NC}"
 IP=$(curl -s --max-time 5 https://api.ipify.org || curl -s --max-time 5 https://ifconfig.me/ip || curl -s --max-time 5 https://icanhazip.com)
 
 if [ -z "$IP" ] || ! echo "$IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
-    echo -e "${RED}❌ Erro: Não foi possível descobrir o IP público${NC}"
+    echo -e "${RED}[ERROR] Erro: Não foi possível descobrir o IP público${NC}"
     echo -e "${YELLOW}Tente manualmente: curl https://api.ipify.org${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ IP encontrado: $IP${NC}"
+echo -e "${GREEN}[OK] IP encontrado: $IP${NC}"
 echo ""
 
 # Verificar IP atual no arquivo
 CURRENT_IP=$(grep -E '^\s*"81\.84\.211\.111/32"|^\s*"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/32"' "$TFVARS_FILE" | head -1 | sed 's/.*"\([^"]*\)".*/\1/' | cut -d'/' -f1)
 
 if [ -n "$CURRENT_IP" ] && [ "$CURRENT_IP" = "$IP" ]; then
-    echo -e "${GREEN}✅ IP já está atualizado: $IP/32${NC}"
+    echo -e "${GREEN}[OK] IP já está atualizado: $IP/32${NC}"
     exit 0
 fi
 
@@ -70,12 +70,12 @@ elif grep -qE '"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/32"' "$TFVARS_FIL
     sed -i.bak "s/\"[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\/32\"/\"$IP\/32\"/" "$TFVARS_FILE"
     rm -f "${TFVARS_FILE}.bak"
 else
-    echo -e "${RED}❌ Erro: Não foi possível encontrar IP no arquivo${NC}"
+    echo -e "${RED}[ERROR] Erro: Não foi possível encontrar IP no arquivo${NC}"
     echo -e "${YELLOW}Atualize manualmente o arquivo: $TFVARS_FILE${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ IP atualizado para: $IP/32${NC}"
+echo -e "${GREEN}[OK] IP atualizado para: $IP/32${NC}"
 echo ""
 echo -e "${CYAN}Próximos passos:${NC}"
 echo -e "  1. Revisar mudanças: ${YELLOW}git diff $TFVARS_FILE${NC}"

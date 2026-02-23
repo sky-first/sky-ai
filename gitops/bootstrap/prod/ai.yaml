@@ -138,7 +138,7 @@ spec:
                       conn_pg = await asyncpg.connect(pure_url)
                       await conn_pg.execute('CREATE EXTENSION IF NOT EXISTS vector;')
                       await conn_pg.close()
-                      print('✅ extension vector enabled')
+                      print('[OK] extension vector enabled')
                   except Exception as e:
                       print(f'Warning enabling vector extension: {e}')
 
@@ -147,7 +147,7 @@ spec:
                       print('Syncing SQLAlchemy models...')
                       async with engine.begin() as conn:
                           await conn.run_sync(Base.metadata.create_all)
-                      print('✅ models synced')
+                      print('[OK] models synced')
                   except Exception as e:
                       print(f'Warning syncing models: {e}')
 

@@ -25,10 +25,10 @@ check_file() {
     local description=$2
     
     if [ -f "$file" ]; then
-        echo -e "${GREEN}✅${NC} $description: $file"
+        echo -e "${GREEN}[OK]${NC} $description: $file"
         return 0
     else
-        echo -e "${RED}❌${NC} $description não encontrado: $file"
+        echo -e "${RED}[ERROR]${NC} $description não encontrado: $file"
         ((ERRORS++))
         return 1
     fi
@@ -41,16 +41,16 @@ check_content() {
     local description=$3
     
     if grep -q "$pattern" "$file" 2>/dev/null; then
-        echo -e "${GREEN}✅${NC} $description"
+        echo -e "${GREEN}[OK]${NC} $description"
         return 0
     else
-        echo -e "${RED}❌${NC} $description não encontrado em $file"
+        echo -e "${RED}[ERROR]${NC} $description não encontrado em $file"
         ((ERRORS++))
         return 1
     fi
 }
 
-echo "1️⃣ Verificando arquivos de configuração..."
+echo "1. Verificando arquivos de configuração..."
 echo ""
 
 # Verificar arquivos principais
@@ -60,7 +60,7 @@ check_file "infra/azure/main.tf" "main.tf"
 check_file "docs/PROXIMOS-PASSOS-NOVA-ARQUITETURA.md" "Documentação"
 
 echo ""
-echo "2️⃣ Verificando configurações..."
+echo "2. Verificando configurações..."
 echo ""
 
 # Verificar resource_group_name em staging
@@ -88,14 +88,14 @@ STAGING_LOC=$(grep "^location" infra/azure/terraform.tfvars.staging | sed 's/.*=
 PROD_LOC=$(grep "^location" infra/azure/terraform.tfvars.prod | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ')
 
 if [ "$STAGING_LOC" = "$PROD_LOC" ] && [ -n "$STAGING_LOC" ]; then
-    echo -e "${GREEN}✅${NC} Location igual em ambos: $STAGING_LOC"
+    echo -e "${GREEN}[OK]${NC} Location igual em ambos: $STAGING_LOC"
 else
-    echo -e "${RED}❌${NC} Location diferente ou vazio! Staging: $STAGING_LOC, Prod: $PROD_LOC"
+    echo -e "${RED}[ERROR]${NC} Location diferente ou vazio! Staging: $STAGING_LOC, Prod: $PROD_LOC"
     ((ERRORS++))
 fi
 
 echo ""
-echo "3️⃣ Verificando main.tf..."
+echo "3. Verificando main.tf..."
 echo ""
 
 # Verificar lifecycle ignore_changes no Resource Group
@@ -109,52 +109,52 @@ if check_content "infra/azure/main.tf" "compartilhado entre múltiplos ambientes
 fi
 
 echo ""
-echo "4️⃣ Verificando Azure CLI (se disponível)..."
+echo "4. Verificando Azure CLI (se disponível)..."
 echo ""
 
 if command -v az &> /dev/null; then
-    echo -e "${GREEN}✅${NC} Azure CLI instalado"
+    echo -e "${GREEN}[OK]${NC} Azure CLI instalado"
     
     # Verificar login
     if az account show &> /dev/null; then
-        echo -e "${GREEN}✅${NC} Logado no Azure"
+        echo -e "${GREEN}[OK]${NC} Logado no Azure"
         
         SUBSCRIPTION=$(az account show --query "{name:name, id:id}" -o json 2>/dev/null || echo "{}")
         echo -e "${CYAN}   Subscription:${NC} $(echo $SUBSCRIPTION | jq -r '.name // "N/A"')"
         
         echo ""
-        echo "5️⃣ Verificando estado atual no Azure..."
+        echo "5. Verificando estado atual no Azure..."
         echo ""
         
         # Verificar Resource Group
         if az group show --name skyfirstlabs-poc --query id -o tsv &> /dev/null; then
-            echo -e "${YELLOW}⚠️${NC} Resource Group 'skyfirstlabs-poc' já existe no Azure"
+            echo -e "${YELLOW}[WARNING]${NC} Resource Group 'skyfirstlabs-poc' já existe no Azure"
             LOC=$(az group show --name skyfirstlabs-poc --query location -o tsv)
             echo -e "${CYAN}   Location:${NC} $LOC"
             ((WARNINGS++))
         else
-            echo -e "${GREEN}✅${NC} Resource Group 'skyfirstlabs-poc' não existe (será criado no primeiro deploy)"
+            echo -e "${GREEN}[OK]${NC} Resource Group 'skyfirstlabs-poc' não existe (será criado no primeiro deploy)"
         fi
         
         # Verificar VMs
         VMS=$(az vm list --resource-group skyfirstlabs-poc --query "[].{Name:name, Status:powerState}" -o table 2>/dev/null || echo "")
         if [ -n "$VMS" ] && [ "$VMS" != "[]" ]; then
-            echo -e "${YELLOW}⚠️${NC} VMs encontradas no Resource Group skyfirstlabs-poc:"
+            echo -e "${YELLOW}[WARNING]${NC} VMs encontradas no Resource Group skyfirstlabs-poc:"
             echo "$VMS" | sed 's/^/   /'
             ((WARNINGS++))
         else
-            echo -e "${GREEN}✅${NC} Nenhuma VM encontrada no Resource Group skyfirstlabs-poc (serão criadas no deploy)"
+            echo -e "${GREEN}[OK]${NC} Nenhuma VM encontrada no Resource Group skyfirstlabs-poc (serão criadas no deploy)"
         fi
         
         # Verificar Resource Groups antigos
         echo ""
-        echo "6️⃣ Verificando Resource Groups antigos..."
+        echo "6. Verificando Resource Groups antigos..."
         echo ""
         
         OLD_RGS=("rg-ai-saas-staging" "rg-ai-saas-prod")
         for RG in "${OLD_RGS[@]}"; do
             if az group show --name "$RG" --query id -o tsv &> /dev/null; then
-                echo -e "${YELLOW}⚠️${NC} Resource Group antigo encontrado: $RG"
+                echo -e "${YELLOW}[WARNING]${NC} Resource Group antigo encontrado: $RG"
                 VMS_OLD=$(az vm list --resource-group "$RG" --query "[].name" -o tsv 2>/dev/null || echo "")
                 if [ -n "$VMS_OLD" ]; then
                     echo -e "${CYAN}   VMs:${NC} $VMS_OLD"
@@ -165,11 +165,11 @@ if command -v az &> /dev/null; then
         done
         
     else
-        echo -e "${YELLOW}⚠️${NC} Não está logado no Azure. Execute: az login"
+        echo -e "${YELLOW}[WARNING]${NC} Não está logado no Azure. Execute: az login"
         ((WARNINGS++))
     fi
 else
-    echo -e "${YELLOW}⚠️${NC} Azure CLI não instalado (opcional para validação local)"
+    echo -e "${YELLOW}[WARNING]${NC} Azure CLI não instalado (opcional para validação local)"
     ((WARNINGS++))
 fi
 
@@ -180,9 +180,9 @@ echo "=========================================="
 echo ""
 
 if [ $ERRORS -eq 0 ]; then
-    echo -e "${GREEN}✅ Validação concluída sem erros!${NC}"
+    echo -e "${GREEN}[OK] Validação concluída sem erros!${NC}"
     if [ $WARNINGS -gt 0 ]; then
-        echo -e "${YELLOW}⚠️  $WARNINGS aviso(s) encontrado(s)${NC}"
+        echo -e "${YELLOW}[WARNING] $WARNINGS aviso(s) encontrado(s)${NC}"
     fi
     echo ""
     echo "Próximos passos:"
@@ -191,9 +191,9 @@ if [ $ERRORS -eq 0 ]; then
     echo "3. Após staging, fazer push para main: git push origin main"
     exit 0
 else
-    echo -e "${RED}❌ Validação falhou com $ERRORS erro(s)!${NC}"
+    echo -e "${RED}[ERROR] Validação falhou com $ERRORS erro(s)!${NC}"
     if [ $WARNINGS -gt 0 ]; then
-        echo -e "${YELLOW}⚠️  $WARNINGS aviso(s) encontrado(s)${NC}"
+        echo -e "${YELLOW}[WARNING] $WARNINGS aviso(s) encontrado(s)${NC}"
     fi
     echo ""
     echo "Corrija os erros antes de fazer deploy."
