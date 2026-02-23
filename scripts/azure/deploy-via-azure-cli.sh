@@ -82,7 +82,7 @@ clone_or_update() {
 }
 
 echo "=========================================="
-echo "📦 Clonando/Atualizando Repositórios"
+echo " Clonando/Atualizando Repositórios"
 echo "=========================================="
 
 clone_or_update "sky-poc-infra" "https://github.com/${REPO_OWNER}/sky-poc-infra.git" "staging"
@@ -114,7 +114,7 @@ fi
 # CRÍTICO: Validar configuração .env antes de continuar
 echo ""
 echo "=========================================="
-echo "🔍 Validando Configuração .env"
+echo " Validando Configuração .env"
 echo "=========================================="
 if [ -f scripts/validate-env.sh ]; then
     chmod +x scripts/validate-env.sh
@@ -206,7 +206,7 @@ fi
 echo ""
 
 echo "=========================================="
-echo "🐳 Iniciando Containers"
+echo " Iniciando Containers"
 echo "=========================================="
 
 # Parar containers existentes
@@ -234,7 +234,7 @@ sudo docker compose ps
 
 echo ""
 echo "=========================================="
-echo "📋 Logs do Proxy (últimas 20 linhas)"
+echo " Logs do Proxy (últimas 20 linhas)"
 echo "=========================================="
 sudo docker compose logs proxy --tail=20 || sudo docker logs ai_saas_proxy --tail=20 2>/dev/null || echo "Proxy não encontrado"
 
@@ -277,7 +277,7 @@ if [ $? -eq 0 ]; then
     
     echo ""
     echo "=========================================="
-    echo "📋 Próximos Passos"
+    echo " Próximos Passos"
     echo "=========================================="
     echo ""
     echo "1. Verificar se containers estão rodando:"

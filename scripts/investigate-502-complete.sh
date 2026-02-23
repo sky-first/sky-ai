@@ -17,7 +17,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔬 Investigação Completa 502 Bad Gateway${NC}"
+echo -e "${CYAN}    Investigação Completa 502 Bad Gateway${NC}"
 echo -e "${CYAN}   Metodologia: Evidência → Correção → Validação${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
@@ -82,17 +82,17 @@ if [ -n "$NGINX_LOGS" ]; then
     # Análise dos erros
     if echo "$NGINX_LOGS" | grep -q "connect() failed (111\|Connection refused"; then
         echo -e "${RED} EVIDÊNCIA: Connection refused (111) encontrado${NC}"
-        echo -e "${YELLOW}➡ Nginx tentou conectar ao frontend e foi recusado${NC}"
+        echo -e "${YELLOW} Nginx tentou conectar ao frontend e foi recusado${NC}"
     fi
     
     if echo "$NGINX_LOGS" | grep -q "upstream prematurely closed\|upstream closed"; then
         echo -e "${RED} EVIDÊNCIA: Upstream closed connection${NC}"
-        echo -e "${YELLOW}➡ Frontend crashou ao receber request${NC}"
+        echo -e "${YELLOW} Frontend crashou ao receber request${NC}"
     fi
     
     if echo "$NGINX_LOGS" | grep -q "no live upstreams"; then
         echo -e "${RED} EVIDÊNCIA: No live upstreams${NC}"
-        echo -e "${YELLOW}➡ Nenhum upstream disponível${NC}"
+        echo -e "${YELLOW} Nenhum upstream disponível${NC}"
     fi
 else
     echo -e "${YELLOW}[WARNING] Nenhum erro específico encontrado nos logs recentes${NC}"
@@ -113,19 +113,19 @@ PORT_ISSUE=false
 
 if echo "$FRONTEND_LOGS" | grep -q "Creating an optimized production build\|Compiling\|compiling"; then
     echo -e "${RED} EVIDÊNCIA: Cold start detectado${NC}"
-    echo -e "${YELLOW}➡ Next.js está compilando em runtime${NC}"
+    echo -e "${YELLOW} Next.js está compilando em runtime${NC}"
     COLD_START_DETECTED=true
 fi
 
 if echo "$FRONTEND_LOGS" | grep -q "Error:\|UnhandledPromiseRejection\|Missing environment"; then
     echo -e "${RED} EVIDÊNCIA: Erro no frontend${NC}"
-    echo -e "${YELLOW}➡ Frontend pode estar crashando${NC}"
+    echo -e "${YELLOW} Frontend pode estar crashando${NC}"
     CRASH_DETECTED=true
 fi
 
 if echo "$FRONTEND_LOGS" | grep -q "Listening on localhost:3000"; then
     echo -e "${RED} EVIDÊNCIA: Porta escutando em localhost (não 0.0.0.0)${NC}"
-    echo -e "${YELLOW}➡ Frontend não está acessível externamente${NC}"
+    echo -e "${YELLOW} Frontend não está acessível externamente${NC}"
     PORT_ISSUE=true
 fi
 
@@ -194,7 +194,7 @@ echo ""
 HEALTHCHECK_MISSING=false
 if echo "$FRONTEND_STATE" | grep -q "no healthcheck\|Health: $"; then
     echo -e "${RED} EVIDÊNCIA: Frontend NÃO tem healthcheck configurado${NC}"
-    echo -e "${YELLOW}➡ Docker não sabe se o app está pronto${NC}"
+    echo -e "${YELLOW} Docker não sabe se o app está pronto${NC}"
     HEALTHCHECK_MISSING=true
 fi
 
@@ -204,7 +204,7 @@ fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO DA FASE 1${NC}"
+echo -e "${CYAN}    RESUMO DA FASE 1${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -400,7 +400,7 @@ fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 CONCLUSÃO PROFISSIONAL${NC}"
+echo -e "${CYAN}    CONCLUSÃO PROFISSIONAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

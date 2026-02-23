@@ -9,7 +9,7 @@ set -e
 MONITORING_NS="monitoring"
 PROD_NS="prod"
 
-echo "📊 Validando Stack de Monitoramento"
+echo " Validando Stack de Monitoramento"
 echo ""
 
 # 1. Verificar Prometheus

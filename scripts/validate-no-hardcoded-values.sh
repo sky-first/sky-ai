@@ -26,11 +26,11 @@ log_success() {
 }
 
 log_info() {
-    echo -e "ℹ️  $1"
+    echo -e "ℹ  $1"
 }
 
 echo "=========================================="
-echo "🔍 Validação: Valores Hardcoded"
+echo " Validação: Valores Hardcoded"
 echo "=========================================="
 echo ""
 
@@ -38,7 +38,7 @@ ERRORS=0
 WARNINGS=0
 
 # Verificar Frontend
-echo "📦 Verificando Frontend (sky-poc-frontend)..."
+echo " Verificando Frontend (sky-poc-frontend)..."
 FRONTEND_DIR="$PROJECT_ROOT/../sky-poc-frontend"
 
 if [ -d "$FRONTEND_DIR" ]; then
@@ -74,7 +74,7 @@ fi
 echo ""
 
 # Verificar Backend
-echo "📦 Verificando Backend (sky-poc-backend)..."
+echo " Verificando Backend (sky-poc-backend)..."
 BACKEND_DIR="$PROJECT_ROOT/../sky-poc-backend"
 
 if [ -d "$BACKEND_DIR" ]; then
@@ -102,7 +102,7 @@ fi
 echo ""
 
 # Verificar AI Service
-echo "📦 Verificando AI Service (sky-poc-ai)..."
+echo " Verificando AI Service (sky-poc-ai)..."
 AI_DIR="$PROJECT_ROOT/../sky-poc-ai"
 
 if [ -d "$AI_DIR" ]; then
@@ -122,7 +122,7 @@ fi
 echo ""
 
 # Verificar Infraestrutura
-echo "📦 Verificando Infraestrutura (sky-poc-infra)..."
+echo " Verificando Infraestrutura (sky-poc-infra)..."
 INFRA_DIR="$PROJECT_ROOT"
 
 if [ -f "$INFRA_DIR/env.example" ]; then
@@ -138,7 +138,7 @@ echo ""
 
 # Resumo
 echo "=========================================="
-echo "📊 Resumo da Validação"
+echo " Resumo da Validação"
 echo "=========================================="
 echo ""
 

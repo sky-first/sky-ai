@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   ⏳ Aguardando e Reiniciando Frontend${NC}"
+echo -e "${CYAN}    Aguardando e Reiniciando Frontend${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -26,7 +26,7 @@ try_execute() {
     local elapsed=0
     
     while [ $elapsed -lt $max_wait ]; do
-        echo -e "${BLUE}🔄 Tentando executar comando... (${elapsed}s/${max_wait}s)${NC}"
+        echo -e "${BLUE} Tentando executar comando... (${elapsed}s/${max_wait}s)${NC}"
         
         local result=$(az vm run-command invoke \
             --resource-group "$RESOURCE_GROUP" \
@@ -36,7 +36,7 @@ try_execute() {
             --output json 2>&1)
         
         if echo "$result" | grep -q "Conflict"; then
-            echo -e "${YELLOW}⏳ Comando anterior ainda em execução. Aguardando ${wait_interval}s...${NC}"
+            echo -e "${YELLOW} Comando anterior ainda em execução. Aguardando ${wait_interval}s...${NC}"
             sleep $wait_interval
             elapsed=$((elapsed + wait_interval))
         else
@@ -111,7 +111,7 @@ try_execute 'docker stats ai_saas_frontend_prod --no-stream --format "CPU: {{.CP
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 Resumo${NC}"
+echo -e "${CYAN}    Resumo${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

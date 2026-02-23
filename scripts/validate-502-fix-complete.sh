@@ -302,7 +302,7 @@ FINAL_TEST=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://local
 # CONCLUSÃO PROFISSIONAL
 # ============================================================================
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 CONCLUSÃO PROFISSIONAL${NC}"
+echo -e "${CYAN}    CONCLUSÃO PROFISSIONAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -378,7 +378,7 @@ if [ $CRITERIA_MET -eq $TOTAL_CRITERIA ]; then
     echo -e "${BLUE}[INFO] A plataforma está acessível: http://20.185.60.67${NC}"
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}🎉 INCIDENTE ENCERRADO COM SUCESSO${NC}"
+    echo -e "${GREEN} INCIDENTE ENCERRADO COM SUCESSO${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 elif [ $CRITERIA_MET -ge 3 ]; then
     echo -e "${YELLOW}[WARNING] Correções aplicadas com sucesso parcial${NC}"

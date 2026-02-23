@@ -276,7 +276,7 @@ jobs:
           KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
 
           if [ -z "$KV_LIST" ]; then
-            echo "ℹ️  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
+            echo "ℹ  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
           else
             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
             # Salvar lista para cleanup posterior
@@ -284,12 +284,12 @@ jobs:
 
             # Função auxiliar para validar autenticação OIDC
             verify_oidc_authentication() {
-              echo "   🔐 Verificando autenticação OIDC..."
+              echo "    Verificando autenticação OIDC..."
 
               # Tentar obter token OIDC
               if ! az account get-access-token --query "accessToken" -o tsv >/dev/null 2>&1; then
                 echo "   [ERROR] ERRO: Falha na autenticação OIDC"
-                echo "   ℹ️  Possíveis causas:"
+                echo "   ℹ  Possíveis causas:"
                 echo "      - Federated Identity Credential não configurado no Azure AD"
                 echo "      - Subject claim não corresponde ao repositório/branch"
                 echo "      - Client ID incorreto"
@@ -316,8 +316,8 @@ jobs:
               local retry_interval=${3:-5}
               local elapsed=0
 
-              echo "   ⏳ Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
-              echo "   ℹ️  Se não funcionar em ${max_wait}s, pode ser problema de OIDC/firewall (não propagação)"
+              echo "    Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
+              echo "   ℹ  Se não funcionar em ${max_wait}s, pode ser problema de OIDC/firewall (não propagação)"
 
               while [ $elapsed -lt $max_wait ]; do
                 # Testar acesso real ao secret
@@ -331,12 +331,12 @@ jobs:
 
                 # Log a cada 15 segundos (mais frequente que antes)
                 if [ $((elapsed % 15)) -eq 0 ]; then
-                  echo "   ⏳ Aguardando propagação... (${elapsed}s/${max_wait}s)"
+                  echo "    Aguardando propagação... (${elapsed}s/${max_wait}s)"
                 fi
               done
 
               echo "   [WARNING] Timeout aguardando propagação RBAC após ${elapsed}s"
-              echo "   ℹ️  Se role existe no Azure, pode ser problema de:"
+              echo "   ℹ  Se role existe no Azure, pode ser problema de:"
               echo "      - Autenticação OIDC não funcionando"
               echo "      - Firewall/IP ainda bloqueando"
               echo "      - Token OIDC não sendo aceito pelo Key Vault"
@@ -349,15 +349,15 @@ jobs:
               echo " Configurando Key Vault: $kv"
 
               # 1. Primeiro adicionar IP à whitelist (mais seguro)
-              echo "   📍 Adicionando IP do runner à whitelist..."
+              echo "    Adicionando IP do runner à whitelist..."
               if az keyvault network-rule add \
                 --name "$kv" \
                 --ip-address "${RUNNER_IP}/32"; then
                 echo "   [OK] IP ${RUNNER_IP}/32 adicionado à whitelist"
-                echo "   ⏳ Aguardando 5s para propagação da regra de IP..."
+                echo "    Aguardando 5s para propagação da regra de IP..."
                 sleep 5
               else
-                echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
+                echo "   ℹ  IP já está na whitelist ou firewall desabilitado"
               fi
 
               # 2. Garantir que AzureServices bypass está habilitado
@@ -370,12 +370,12 @@ jobs:
               RBAC_ENABLED=$(az keyvault show --name "$kv" --query "properties.enableRbacAuthorization" -o tsv 2>/dev/null || echo "false")
 
               if [ "$RBAC_ENABLED" == "true" ]; then
-                echo "   🔐 Key Vault usa RBAC - verificando permissões..."
+                echo "    Key Vault usa RBAC - verificando permissões..."
                 KV_SCOPE="${KV_SCOPE_PREFIX}/${kv}"
 
                 # Converter AppId (CLIENT_ID) para ObjectId para busca mais confiável
                 # Azure CLI pode ter problemas detectando roles quando usa AppId em alguns contextos
-                echo "   🔍 Obtendo ObjectId do Service Principal para verificação mais confiável..."
+                echo "    Obtendo ObjectId do Service Principal para verificação mais confiável..."
                 OBJECT_ID=$(az ad sp show --id "$CLIENT_ID" --query "id" -o tsv 2>/dev/null || echo "")
                 if [ -z "$OBJECT_ID" ]; then
                   echo "   [WARNING] Não foi possível obter ObjectId, usando AppId para verificação"
@@ -396,7 +396,7 @@ jobs:
 
                 # Se não encontrou com ObjectId, tentar com AppId como fallback
                 if [ "$HAS_ROLE" -eq "0" ] && [ "$OBJECT_ID" != "$CLIENT_ID" ]; then
-                  echo "   🔍 Tentando verificar com AppId como fallback..."
+                  echo "    Tentando verificar com AppId como fallback..."
                   HAS_ROLE=$(az role assignment list \
                     --assignee "$CLIENT_ID" \
                     --scope "$KV_SCOPE" \
@@ -405,7 +405,7 @@ jobs:
                 fi
 
                 if [ "$HAS_ROLE" -eq "0" ]; then
-                  echo "   🔑 Role não detectada - tentando conceder 'Key Vault Secrets User'..."
+                  echo "    Role não detectada - tentando conceder 'Key Vault Secrets User'..."
                   if az role assignment create \
                     --assignee "$CLIENT_ID" \
                     --role "Key Vault Secrets User" \
@@ -415,12 +415,12 @@ jobs:
                     ROLE_GRANTED_NOW=true
                   else
                     echo "   [WARNING] Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
-                    echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
-                    echo "   ℹ️  A role pode já existir no Azure mas não foi detectada (ObjectId: $OBJECT_ID)"
+                    echo "   ℹ  Isso é esperado se houver políticas ABAC restritivas"
+                    echo "   ℹ  A role pode já existir no Azure mas não foi detectada (ObjectId: $OBJECT_ID)"
                     ROLE_GRANTED_NOW=false
                   fi
                 else
-                  echo "   ℹ️  Role 'Key Vault Secrets User' detectada (ObjectId: $OBJECT_ID)"
+                  echo "   ℹ  Role 'Key Vault Secrets User' detectada (ObjectId: $OBJECT_ID)"
                   ROLE_GRANTED_NOW=false
                 fi
 
@@ -428,30 +428,30 @@ jobs:
                 # Se OIDC não funciona, não adianta aguardar propagação
                 if ! verify_oidc_authentication; then
                   echo "   [ERROR] ERRO: Autenticação OIDC falhou - não adianta aguardar propagação RBAC"
-                  echo "   ℹ️  Corrija autenticação OIDC antes de continuar"
-                  echo "   ℹ️  Verifique Federated Identity Credential no Azure AD"
-                  echo "   ℹ️  Verifique se Subject claim corresponde ao repositório/branch"
+                  echo "   ℹ  Corrija autenticação OIDC antes de continuar"
+                  echo "   ℹ  Verifique Federated Identity Credential no Azure AD"
+                  echo "   ℹ  Verifique se Subject claim corresponde ao repositório/branch"
                   exit 1
                 fi
 
                 # CRÍTICO: SEMPRE aguardar propagação RBAC quando usa RBAC
                 # Mesmo se não detectou a role ou não conseguiu conceder, ela pode existir e estar propagando
                 # A função wait_for_rbac_propagation valida acesso REAL (secret list), não apenas verifica role
-                echo "   ⏳ Aguardando propagação RBAC (máximo 90s - se não funcionar, é outro problema)..."
-                echo "   ℹ️  Azure RBAC costuma propagar em 30-90s. Se não funcionar nesse tempo, problema pode ser OIDC/firewall"
-                echo "   ℹ️  A role foi detectada como: $([ "$HAS_ROLE" != "0" ] && echo "EXISTE" || echo "NÃO EXISTE (mas pode existir no Azure)")"
+                echo "    Aguardando propagação RBAC (máximo 90s - se não funcionar, é outro problema)..."
+                echo "   ℹ  Azure RBAC costuma propagar em 30-90s. Se não funcionar nesse tempo, problema pode ser OIDC/firewall"
+                echo "   ℹ  A role foi detectada como: $([ "$HAS_ROLE" != "0" ] && echo "EXISTE" || echo "NÃO EXISTE (mas pode existir no Azure)")"
                 if ! wait_for_rbac_propagation "$kv" 90; then
                   echo "   [WARNING] RBAC não propagado após 90s"
-                  echo "   ℹ️  Se role existe no Azure, problema pode ser:"
+                  echo "   ℹ  Se role existe no Azure, problema pode ser:"
                   echo "      - Autenticação OIDC não está funcionando corretamente"
                   echo "      - Firewall/IP ainda bloqueando acesso"
                   echo "      - Token OIDC não sendo aceito pelo Key Vault"
-                  echo "   ℹ️  ObjectId verificado: $OBJECT_ID"
-                  echo "   ℹ️  Continuando validação (mas provavelmente falhará se OIDC/firewall estiver errado)"
+                  echo "   ℹ  ObjectId verificado: $OBJECT_ID"
+                  echo "   ℹ  Continuando validação (mas provavelmente falhará se OIDC/firewall estiver errado)"
                 fi
               else
-                echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
-                echo "   🔐 Verificando/Concedendo permissão via Access Policy..."
+                echo "   ℹ  Key Vault usa Access Policies (RBAC não necessário)"
+                echo "    Verificando/Concedendo permissão via Access Policy..."
 
                 # Conceder permissão explícita para o runner
                 if az keyvault set-policy \
@@ -466,9 +466,9 @@ jobs:
 
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
               # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
-              echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
+              echo "    Ajustando firewall para permitir acesso durante deploy..."
               # Verificação de depuração: listar regras atuais
-              echo "   🔍 Regras atuais de IP em $kv (antes de Allow):"
+              echo "    Regras atuais de IP em $kv (antes de Allow):"
               az keyvault network-rule list --name "$kv" --query "ipRules[].ipAddress" -o tsv || echo "      (vazio)"
 
               FIREWALL_CHANGED=false
@@ -476,17 +476,17 @@ jobs:
                 echo "   [OK] Firewall ajustado para Allow"
                 FIREWALL_CHANGED=true
               else
-                echo "   ℹ️  Firewall já está configurado ou não pôde ser alterado"
+                echo "   ℹ  Firewall já está configurado ou não pôde ser alterado"
               fi
 
               # Aguardar propagação de firewall se foi alterado (pode levar 30-60s)
               if [ "$FIREWALL_CHANGED" == "true" ]; then
-                echo "   ⏳ Aguardando propagação de firewall e DNS (45s)..."
+                echo "    Aguardando propagação de firewall e DNS (45s)..."
                 sleep 45
               fi
 
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
-              echo "   🔍 Validando conectividade real..."
+              echo "    Validando conectividade real..."
               MAX_VALIDATION_ATTEMPTS=60  # Aumentado para 60 (5 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
@@ -500,7 +500,7 @@ jobs:
                 fi
 
                 if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
-                  echo "   ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
+                  echo "    Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
                   sleep $VALIDATION_DELAY
                 fi
               done
@@ -510,7 +510,7 @@ jobs:
                 echo ""
                 echo "[ERROR] ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
                 echo ""
-                echo "🔍 Diagnóstico:"
+                echo " Diagnóstico:"
                 echo "  Key Vault: $kv"
                 echo "  Runner IP: $RUNNER_IP"
                 echo "  Service Principal AppId: $CLIENT_ID"
@@ -528,13 +528,13 @@ jobs:
                   echo "  RBAC habilitado: Não (usa Access Policies)"
                 fi
                 echo ""
-                echo "📋 Verificações necessárias:"
+                echo " Verificações necessárias:"
                 echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP/32"
                 echo "  2. Permissões RBAC/Access Policies estão corretas"
                 echo "  3. Service Principal ($CLIENT_ID) tem role 'Key Vault Secrets User'"
                 echo "  4. Propagação RBAC/firewall pode levar até 5 minutos"
                 echo ""
-                echo "🛠️  Comandos de diagnóstico:"
+                echo "  Comandos de diagnóstico:"
                 echo "  az role assignment list --assignee $CLIENT_ID --scope \"${KV_SCOPE_PREFIX}/${kv}\""
                 echo "  az keyvault show --name $kv --query \"{firewall:properties.networkAcls, rbac:properties.enableRbacAuthorization}\""
                 exit 1
@@ -618,7 +618,7 @@ jobs:
 
               ROLE_GRANTED=false
               if [ "$HAS_ROLE" == "0" ]; then
-                echo "   🔐 Concedendo role 'Storage Blob Data Contributor'..."
+                echo "    Concedendo role 'Storage Blob Data Contributor'..."
                 if az role assignment create \
                   --assignee "$CLIENT_ID" \
                   --role "Storage Blob Data Contributor" \
@@ -638,7 +638,7 @@ jobs:
                   exit 1
                 fi
               else
-                echo "   ℹ️  Role 'Storage Blob Data Contributor' já existe"
+                echo "   ℹ  Role 'Storage Blob Data Contributor' já existe"
               fi
 
               # Aguardar propagação RBAC com retry exponencial (máximo 5 minutos)
@@ -647,7 +647,7 @@ jobs:
                 RBAC_RETRY_INTERVAL=5
                 elapsed=0
 
-                echo "   ⏳ Aguardando propagação RBAC (máximo ${MAX_RBAC_WAIT}s)..."
+                echo "    Aguardando propagação RBAC (máximo ${MAX_RBAC_WAIT}s)..."
 
                 while [ $elapsed -lt $MAX_RBAC_WAIT ]; do
                   # Testar acesso real: tentar criar container
@@ -665,7 +665,7 @@ jobs:
 
                   # Log a cada 30 segundos
                   if [ $((elapsed % 30)) -eq 0 ]; then
-                    echo "   ⏳ Aguardando propagação RBAC... (${elapsed}s/${MAX_RBAC_WAIT}s)"
+                    echo "    Aguardando propagação RBAC... (${elapsed}s/${MAX_RBAC_WAIT}s)"
                   fi
                 done
 
@@ -805,7 +805,7 @@ jobs:
         run: |
           set -uo pipefail # Don't use -e yet, we handle errors in the function
           echo "=========================================="
-          echo "📥 Importing Existing Resources (Before Plan)"
+          echo " Importing Existing Resources (Before Plan)"
           echo "=========================================="
 
           ENV="${{ needs.detect-environment.outputs.environment }}"
@@ -827,7 +827,7 @@ jobs:
             local name="$3"
 
             echo ""
-            echo "🔍 Checking: $name"
+            echo " Checking: $name"
 
             # Check if already in state
             if terraform state show "$tf_address" &>/dev/null; then
@@ -839,15 +839,15 @@ jobs:
             # SKIP check for Key Vault Access Policy as it is not a standard ARM resource ID (it's a property)
             if [[ "$name" != *"Access Policy"* ]]; then
               if ! az resource show --ids "$azure_id" &>/dev/null; then
-                echo "  ℹ️  Doesn't exist in Azure (will be created)"
+                echo "  ℹ  Doesn't exist in Azure (will be created)"
                 return 0
               fi
             else
-               echo "  ℹ️  Skipping Azure existence check for Access Policy (pseudo-resource)"
+               echo "  ℹ  Skipping Azure existence check for Access Policy (pseudo-resource)"
             fi
 
             # Import
-            echo "  📥 Importing..."
+            echo "   Importing..."
             # Pass var-file and required TF_VARs to ensure all required variables are set
             if terraform import \
               -var-file="$TFVARS_FILE" \
@@ -909,7 +909,7 @@ jobs:
 
           # Import Key Vault Access Policy (Fix for already exists error)
           echo ""
-          echo "🔍 Detecting Key Vault for policy import..."
+          echo " Detecting Key Vault for policy import..."
           # Find Key Vault in the resource group (assume the one matching 'akv-sky-*')
           KV_NAME=$(az keyvault list --resource-group "$RG" --query "[?starts_with(name, 'akv-sky-')].name | [0]" -o tsv 2>/dev/null || echo "")
 
@@ -948,7 +948,7 @@ jobs:
           set -euo pipefail
 
           echo "=========================================="
-          echo "🔍 Verificando role assignments existentes..."
+          echo " Verificando role assignments existentes..."
           echo "=========================================="
 
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
@@ -966,7 +966,7 @@ jobs:
           KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
 
           if [ -z "$KV_LIST" ]; then
-            echo "ℹ️  Nenhum Key Vault encontrado, pulando auto-import"
+            echo "ℹ  Nenhum Key Vault encontrado, pulando auto-import"
             exit 0
           fi
 
@@ -975,7 +975,7 @@ jobs:
           # Para cada Key Vault, verificar se role assignment existe no Azure mas não no state
           for kv in $KV_LIST; do
             echo ""
-            echo "🔍 Verificando Key Vault: $kv"
+            echo " Verificando Key Vault: $kv"
 
             # Buscar role assignments existentes no Azure
             EXISTING_ROLE=$(az role assignment list \
@@ -985,7 +985,7 @@ jobs:
               --query "[0].id" -o tsv 2>/dev/null || echo "")
 
             if [ -z "$EXISTING_ROLE" ]; then
-              echo "   ℹ️  Nenhum role assignment existente (será criado pelo Terraform)"
+              echo "   ℹ  Nenhum role assignment existente (será criado pelo Terraform)"
               continue
             fi
 
@@ -993,12 +993,12 @@ jobs:
 
             # Verificar se já está no Terraform state
             if terraform state list | grep -q "azurerm_role_assignment.github_actions_secrets_user"; then
-              echo "   ℹ️  Role assignment já está no Terraform state"
+              echo "   ℹ  Role assignment já está no Terraform state"
               continue
             fi
 
             # Importar para o Terraform state
-            echo "   📥 Importando role assignment para Terraform state..."
+            echo "    Importando role assignment para Terraform state..."
             if terraform import "azurerm_role_assignment.github_actions_secrets_user[0]" "$EXISTING_ROLE"; then
               echo "   [OK] Role assignment importado com sucesso!"
             else
@@ -1838,7 +1838,7 @@ jobs:
           KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
 
           if [ -z "$KV_LIST" ]; then
-            echo "ℹ️  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
+            echo "ℹ  Nenhum Key Vault encontrado no RG $RG_NAME (serão criados durante o apply)"
           else
             echo "Encontrados os seguintes Key Vaults: $KV_LIST"
             # Salvar lista para cleanup posterior
@@ -1846,12 +1846,12 @@ jobs:
 
             # Função auxiliar para validar autenticação OIDC
             verify_oidc_authentication() {
-              echo "   🔐 Verificando autenticação OIDC..."
+              echo "    Verificando autenticação OIDC..."
 
               # Tentar obter token OIDC
               if ! az account get-access-token --query "accessToken" -o tsv >/dev/null 2>&1; then
                 echo "   [ERROR] ERRO: Falha na autenticação OIDC"
-                echo "   ℹ️  Possíveis causas:"
+                echo "   ℹ  Possíveis causas:"
                 echo "      - Federated Identity Credential não configurado no Azure AD"
                 echo "      - Subject claim não corresponde ao repositório/branch"
                 echo "      - Client ID incorreto"
@@ -1878,8 +1878,8 @@ jobs:
               local retry_interval=${3:-5}
               local elapsed=0
 
-              echo "   ⏳ Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
-              echo "   ℹ️  Se não funcionar em ${max_wait}s, pode ser problema de OIDC/firewall (não propagação)"
+              echo "    Aguardando propagação RBAC para $kv_name (máximo ${max_wait}s)..."
+              echo "   ℹ  Se não funcionar em ${max_wait}s, pode ser problema de OIDC/firewall (não propagação)"
 
               while [ $elapsed -lt $max_wait ]; do
                 # Testar acesso real ao secret
@@ -1893,12 +1893,12 @@ jobs:
 
                 # Log a cada 15 segundos (mais frequente que antes)
                 if [ $((elapsed % 15)) -eq 0 ]; then
-                  echo "   ⏳ Aguardando propagação... (${elapsed}s/${max_wait}s)"
+                  echo "    Aguardando propagação... (${elapsed}s/${max_wait}s)"
                 fi
               done
 
               echo "   [WARNING] Timeout aguardando propagação RBAC após ${elapsed}s"
-              echo "   ℹ️  Se role existe no Azure, pode ser problema de:"
+              echo "   ℹ  Se role existe no Azure, pode ser problema de:"
               echo "      - Autenticação OIDC não funcionando"
               echo "      - Firewall/IP ainda bloqueando"
               echo "      - Token OIDC não sendo aceito pelo Key Vault"
@@ -1911,16 +1911,16 @@ jobs:
               echo " Configurando Key Vault: $kv"
 
               # 1. Primeiro adicionar IP à whitelist (mais seguro)
-              echo "   📍 Adicionando IP do runner à whitelist..."
+              echo "    Adicionando IP do runner à whitelist..."
               if az keyvault network-rule add \
                 --name "$kv" \
                 --ip-address "${RUNNER_IP}/32" \
                 --only-show-errors >/dev/null 2>&1; then
                 echo "   [OK] IP ${RUNNER_IP}/32 adicionado à whitelist"
-                echo "   ⏳ Aguardando 20s para propagação da regra de IP..."
+                echo "    Aguardando 20s para propagação da regra de IP..."
                 sleep 20
               else
-                echo "   ℹ️  IP já está na whitelist ou firewall desabilitado"
+                echo "   ℹ  IP já está na whitelist ou firewall desabilitado"
               fi
 
               # 2. Garantir que AzureServices bypass está habilitado
@@ -1933,12 +1933,12 @@ jobs:
               RBAC_ENABLED=$(az keyvault show --name "$kv" --query "properties.enableRbacAuthorization" -o tsv 2>/dev/null || echo "false")
 
               if [ "$RBAC_ENABLED" == "true" ]; then
-                echo "   🔐 Key Vault usa RBAC - verificando permissões..."
+                echo "    Key Vault usa RBAC - verificando permissões..."
                 KV_SCOPE="${KV_SCOPE_PREFIX}/${kv}"
 
                 # Converter AppId (CLIENT_ID) para ObjectId para busca mais confiável
                 # Azure CLI pode ter problemas detectando roles quando usa AppId em alguns contextos
-                echo "   🔍 Obtendo ObjectId do Service Principal para verificação mais confiável..."
+                echo "    Obtendo ObjectId do Service Principal para verificação mais confiável..."
                 OBJECT_ID=$(az ad sp show --id "$CLIENT_ID" --query "id" -o tsv 2>/dev/null || echo "")
                 if [ -z "$OBJECT_ID" ]; then
                   echo "   [WARNING] Não foi possível obter ObjectId, usando AppId para verificação"
@@ -1959,7 +1959,7 @@ jobs:
 
                 # Se não encontrou com ObjectId, tentar com AppId como fallback
                 if [ "$HAS_ROLE" -eq "0" ] && [ "$OBJECT_ID" != "$CLIENT_ID" ]; then
-                  echo "   🔍 Tentando verificar com AppId como fallback..."
+                  echo "    Tentando verificar com AppId como fallback..."
                   HAS_ROLE=$(az role assignment list \
                     --assignee "$CLIENT_ID" \
                     --scope "$KV_SCOPE" \
@@ -1968,7 +1968,7 @@ jobs:
                 fi
 
                 if [ "$HAS_ROLE" -eq "0" ]; then
-                  echo "   🔑 Role não detectada - tentando conceder 'Key Vault Secrets User'..."
+                  echo "    Role não detectada - tentando conceder 'Key Vault Secrets User'..."
                   if az role assignment create \
                     --assignee "$CLIENT_ID" \
                     --role "Key Vault Secrets User" \
@@ -1978,12 +1978,12 @@ jobs:
                     ROLE_GRANTED_NOW=true
                   else
                     echo "   [WARNING] Não foi possível conceder role automaticamente (requer 'User Access Administrator')"
-                    echo "   ℹ️  Isso é esperado se houver políticas ABAC restritivas"
-                    echo "   ℹ️  A role pode já existir no Azure mas não foi detectada (ObjectId: $OBJECT_ID)"
+                    echo "   ℹ  Isso é esperado se houver políticas ABAC restritivas"
+                    echo "   ℹ  A role pode já existir no Azure mas não foi detectada (ObjectId: $OBJECT_ID)"
                     ROLE_GRANTED_NOW=false
                   fi
                 else
-                  echo "   ℹ️  Role 'Key Vault Secrets User' detectada (ObjectId: $OBJECT_ID)"
+                  echo "   ℹ  Role 'Key Vault Secrets User' detectada (ObjectId: $OBJECT_ID)"
                   ROLE_GRANTED_NOW=false
                 fi
 
@@ -1991,50 +1991,50 @@ jobs:
                 # Se OIDC não funciona, não adianta aguardar propagação
                 if ! verify_oidc_authentication; then
                   echo "   [ERROR] ERRO: Autenticação OIDC falhou - não adianta aguardar propagação RBAC"
-                  echo "   ℹ️  Corrija autenticação OIDC antes de continuar"
-                  echo "   ℹ️  Verifique Federated Identity Credential no Azure AD"
-                  echo "   ℹ️  Verifique se Subject claim corresponde ao repositório/branch"
+                  echo "   ℹ  Corrija autenticação OIDC antes de continuar"
+                  echo "   ℹ  Verifique Federated Identity Credential no Azure AD"
+                  echo "   ℹ  Verifique se Subject claim corresponde ao repositório/branch"
                   exit 1
                 fi
 
                 # CRÍTICO: SEMPRE aguardar propagação RBAC quando usa RBAC
                 # Mesmo se não detectou a role ou não conseguiu conceder, ela pode existir e estar propagando
                 # A função wait_for_rbac_propagation valida acesso REAL (secret list), não apenas verifica role
-                echo "   ⏳ Aguardando propagação RBAC (máximo 90s - se não funcionar, é outro problema)..."
-                echo "   ℹ️  Azure RBAC costuma propagar em 30-90s. Se não funcionar nesse tempo, problema pode ser OIDC/firewall"
-                echo "   ℹ️  A role foi detectada como: $([ "$HAS_ROLE" != "0" ] && echo "EXISTE" || echo "NÃO EXISTE (mas pode existir no Azure)")"
+                echo "    Aguardando propagação RBAC (máximo 90s - se não funcionar, é outro problema)..."
+                echo "   ℹ  Azure RBAC costuma propagar em 30-90s. Se não funcionar nesse tempo, problema pode ser OIDC/firewall"
+                echo "   ℹ  A role foi detectada como: $([ "$HAS_ROLE" != "0" ] && echo "EXISTE" || echo "NÃO EXISTE (mas pode existir no Azure)")"
                 if ! wait_for_rbac_propagation "$kv" 90; then
                   echo "   [WARNING] RBAC não propagado após 90s"
-                  echo "   ℹ️  Se role existe no Azure, problema pode ser:"
+                  echo "   ℹ  Se role existe no Azure, problema pode ser:"
                   echo "      - Autenticação OIDC não está funcionando corretamente"
                   echo "      - Firewall/IP ainda bloqueando acesso"
                   echo "      - Token OIDC não sendo aceito pelo Key Vault"
-                  echo "   ℹ️  ObjectId verificado: $OBJECT_ID"
-                  echo "   ℹ️  Continuando validação (mas provavelmente falhará se OIDC/firewall estiver errado)"
+                  echo "   ℹ  ObjectId verificado: $OBJECT_ID"
+                  echo "   ℹ  Continuando validação (mas provavelmente falhará se OIDC/firewall estiver errado)"
                 fi
               else
-                echo "   ℹ️  Key Vault usa Access Policies (RBAC não necessário)"
+                echo "   ℹ  Key Vault usa Access Policies (RBAC não necessário)"
               fi
 
               # 4. Apenas então abrir firewall se necessário (mais seguro manter Deny quando possível)
               # Mas para garantir funcionamento durante o deploy, vamos permitir temporariamente
-              echo "   🔓 Ajustando firewall para permitir acesso durante deploy..."
+              echo "    Ajustando firewall para permitir acesso durante deploy..."
               FIREWALL_CHANGED=false
               if az keyvault update --name "$kv" --default-action Allow >/dev/null 2>&1; then
                 echo "   [OK] Firewall ajustado para Allow"
                 FIREWALL_CHANGED=true
               else
-                echo "   ℹ️  Firewall já está configurado ou não pôde ser alterado"
+                echo "   ℹ  Firewall já está configurado ou não pôde ser alterado"
               fi
 
               # Aguardar propagação de firewall se foi alterado (pode levar 30-60s)
               if [ "$FIREWALL_CHANGED" == "true" ]; then
-                echo "   ⏳ Aguardando propagação de firewall (30s)..."
+                echo "    Aguardando propagação de firewall (30s)..."
                 sleep 30
               fi
 
               # 5. Validar conectividade REAL (apenas secret list, não keyvault show)
-              echo "   🔍 Validando conectividade real..."
+              echo "    Validando conectividade real..."
               MAX_VALIDATION_ATTEMPTS=60  # Aumentado para 60 (5 minutos)
               VALIDATION_DELAY=5
               CONNECTED=false
@@ -2048,7 +2048,7 @@ jobs:
                 fi
 
                 if [ $i -lt $MAX_VALIDATION_ATTEMPTS ]; then
-                  echo "   ⏳ Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
+                  echo "    Tentativa $i/$MAX_VALIDATION_ATTEMPTS... (aguardando ${VALIDATION_DELAY}s)"
                   sleep $VALIDATION_DELAY
                 fi
               done
@@ -2058,7 +2058,7 @@ jobs:
                 echo ""
                 echo "[ERROR] ERRO: Key Vault $kv não acessível após $MAX_VALIDATION_ATTEMPTS tentativas"
                 echo ""
-                echo "🔍 Diagnóstico:"
+                echo " Diagnóstico:"
                 echo "  Key Vault: $kv"
                 echo "  Runner IP: $RUNNER_IP"
                 echo "  Service Principal AppId: $CLIENT_ID"
@@ -2076,13 +2076,13 @@ jobs:
                   echo "  RBAC habilitado: Não (usa Access Policies)"
                 fi
                 echo ""
-                echo "📋 Verificações necessárias:"
+                echo " Verificações necessárias:"
                 echo "  1. Firewall do Key Vault permite acesso do IP $RUNNER_IP/32"
                 echo "  2. Permissões RBAC/Access Policies estão corretas"
                 echo "  3. Service Principal ($CLIENT_ID) tem role 'Key Vault Secrets User'"
                 echo "  4. Propagação RBAC/firewall pode levar até 5 minutos"
                 echo ""
-                echo "🛠️  Comandos de diagnóstico:"
+                echo "  Comandos de diagnóstico:"
                 echo "  az role assignment list --assignee $CLIENT_ID --scope \"${KV_SCOPE_PREFIX}/${kv}\""
                 echo "  az keyvault show --name $kv --query \"{firewall:properties.networkAcls, rbac:properties.enableRbacAuthorization}\""
                 exit 1
@@ -2157,7 +2157,7 @@ jobs:
                 --query "[].id" -o tsv 2>/dev/null | wc -l || echo "0")
 
               if [ "$HAS_ROLE" == "0" ]; then
-                echo "   🔐 Concedendo role 'Storage Blob Data Contributor'..."
+                echo "    Concedendo role 'Storage Blob Data Contributor'..."
                 if az role assignment create \
                   --assignee "$CLIENT_ID" \
                   --role "Storage Blob Data Contributor" \
@@ -2177,12 +2177,12 @@ jobs:
                   exit 1
                 fi
               else
-                echo "   ℹ️  Role 'Storage Blob Data Contributor' já existe - aguardando propagação (10s)..."
+                echo "   ℹ  Role 'Storage Blob Data Contributor' já existe - aguardando propagação (10s)..."
                 sleep 10
               fi
 
               # Tentar criar novamente após conceder permissões
-              echo "   🔄 Tentando criar container novamente..."
+              echo "    Tentando criar container novamente..."
               if ! az storage container create \
                 --name "${TF_BACKEND_CONTAINER}" \
                 --account-name "${TF_BACKEND_STORAGE_ACCOUNT}" \
@@ -2466,7 +2466,7 @@ jobs:
             # Verificar se é migração de Resource Group (não destruição real)
             IS_MIGRATION=false
             if [ -n "$RG_NAME_FROM_STATE" ] && [ -n "$RG_NAME_NEW" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
-              echo "🔍 DETECÇÃO: Migração de Resource Group detectada!"
+              echo " DETECÇÃO: Migração de Resource Group detectada!"
               echo "   Resource Group atual (no state): $RG_NAME_FROM_STATE"
               echo "   Resource Group novo (no tfvars): $RG_NAME_NEW"
               echo "   Isso é uma MIGRAÇÃO, não destruição real"
@@ -2493,10 +2493,10 @@ jobs:
                 if [ "$IS_MIGRATION" = "true" ] && [ -n "$RG_NAME_NEW" ]; then
                   if az vm show -g "$RG_NAME_NEW" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
                     echo "  [OK] VM '$VM_TO_CHECK' já existe no Resource Group destino '$RG_NAME_NEW'"
-                    echo "  ℹ️  Isso é uma migração - recursos já estão no destino"
+                    echo "  ℹ  Isso é uma migração - recursos já estão no destino"
                   elif az vm show -g "$RG_NAME_FROM_STATE" -n "$VM_TO_CHECK" --query id -o tsv > /dev/null 2>&1; then
                     echo "  [OK] VM '$VM_TO_CHECK' existe no Resource Group origem '$RG_NAME_FROM_STATE'"
-                    echo "  ℹ️  Será migrada para '$RG_NAME_NEW' (não destruída)"
+                    echo "  ℹ  Será migrada para '$RG_NAME_NEW' (não destruída)"
                   else
                     echo "  [WARNING] VM '$VM_TO_CHECK' NÃO existe em nenhum Resource Group"
                     RESOURCES_EXIST_IN_AZURE=false
@@ -2539,7 +2539,7 @@ jobs:
                     echo "  [OK] Bastion '$BASTION_NAME' já existe no Resource Group destino '$RG_NAME_NEW'"
                   elif az network bastion show -g "$RG_NAME_FROM_STATE" -n "$BASTION_NAME" --query id -o tsv > /dev/null 2>&1; then
                     echo "  [OK] Bastion '$BASTION_NAME' existe no Resource Group origem '$RG_NAME_FROM_STATE'"
-                    echo "  ℹ️  Será migrado para '$RG_NAME_NEW' (não destruído)"
+                    echo "  ℹ  Será migrado para '$RG_NAME_NEW' (não destruído)"
                   else
                     echo "  [WARNING] Bastion '$BASTION_NAME' NÃO existe em nenhum Resource Group"
                   fi
@@ -2562,9 +2562,9 @@ jobs:
                   fi
                   if [ -n "$RG_NAME_NEW" ] && az group show -n "$RG_NAME_NEW" --query id -o tsv > /dev/null 2>&1; then
                     echo "  [OK] Resource Group destino '$RG_NAME_NEW' existe no Azure"
-                    echo "  ℹ️  Migração: recursos serão movidos para este RG"
+                    echo "  ℹ  Migração: recursos serão movidos para este RG"
                   elif [ -n "$RG_NAME_NEW" ]; then
-                    echo "  ℹ️  Resource Group destino '$RG_NAME_NEW' será criado (migração)"
+                    echo "  ℹ  Resource Group destino '$RG_NAME_NEW' será criado (migração)"
                   fi
                 else
                   # Verificação normal
@@ -2586,9 +2586,9 @@ jobs:
                 echo "   Resource Group origem: $RG_NAME_FROM_STATE"
                 echo "   Resource Group destino: $RG_NAME_NEW"
                 echo ""
-                echo "ℹ️  Isso é uma MIGRAÇÃO, não destruição real."
-                echo "ℹ️  Recursos serão movidos para o novo Resource Group."
-                echo "ℹ️  Continuando com apply... (migração é permitida)"
+                echo "ℹ  Isso é uma MIGRAÇÃO, não destruição real."
+                echo "ℹ  Recursos serão movidos para o novo Resource Group."
+                echo "ℹ  Continuando com apply... (migração é permitida)"
               elif [ "$RESOURCES_EXIST_IN_AZURE" = "true" ]; then
                 echo "[OK] Todos os recursos que serão 'destruídos' já existem no Azure."
                 echo "[WARNING] Isso indica que são replacements (atualizações), não destruições reais."
@@ -2628,7 +2628,7 @@ jobs:
               if [ -n "$RG_NAME_NEW" ] && [ -n "$RG_NAME_FROM_STATE" ] && [ "$RG_NAME_FROM_STATE" != "$RG_NAME_NEW" ]; then
                 echo "[OK] MIGRAÇÃO DE RESOURCE GROUP DETECTADA (mesmo sem RG no state)"
                 echo "   Resource Group destino: $RG_NAME_NEW"
-                echo "ℹ️  Continuando com apply... (migração é permitida)"
+                echo "ℹ  Continuando com apply... (migração é permitida)"
               elif [ "$ALLOW_DESTROY" != "true" ]; then
                 echo "ERRO: Mudanças destrutivas não permitidas (allow_destroy=false)"
                 echo "Se você realmente quer destruir recursos, defina allow_destroy=true no workflow_dispatch"
@@ -2670,7 +2670,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "=========================================="
-          echo "🔍 Verificando saúde do AKS antes do Apply"
+          echo " Verificando saúde do AKS antes do Apply"
           echo "=========================================="
 
           RG="${{ needs.detect-environment.outputs.resource_group }}"
@@ -2691,7 +2691,7 @@ jobs:
                  echo "[WARNING]Cluster em estado Failed. Tentando recuperar/prosseguir (Terraform pode corrigir)..."
                  break
               else
-                 echo "⏳ Cluster em atualização ($STATE). Aguardando... ($i/60)"
+                 echo " Cluster em atualização ($STATE). Aguardando... ($i/60)"
                  sleep 10
               fi
 
@@ -2701,7 +2701,7 @@ jobs:
               fi
             done
           else
-            echo "ℹ️ Cluster não existe ainda. Safe to proceed."
+            echo "ℹ Cluster não existe ainda. Safe to proceed."
           fi
 
       - name: Terraform Apply
@@ -2726,7 +2726,7 @@ jobs:
 
           # CRÍTICO: Última verificação antes do apply - garantir que não vai destruir recursos críticos
           echo ""
-          echo "🔍 Verificação final: recursos críticos que serão destruídos..."
+          echo " Verificação final: recursos críticos que serão destruídos..."
 
           # Re-detectar se é migração de Resource Group (mesma lógica da etapa de validação)
           ENV="${{ needs.detect-environment.outputs.environment }}"
@@ -2762,9 +2762,9 @@ jobs:
             # Se é migração, permitir (recursos serão movidos, não realmente destruídos)
             if [ "$IS_MIGRATION" = "true" ]; then
               echo "[OK] É uma MIGRAÇÃO de Resource Group - permitindo destruição de recursos críticos"
-              echo "ℹ️  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
-              echo "ℹ️  Isso é uma operação de MIGRAÇÃO, não destruição real"
-              echo "ℹ️  Continuando com apply..."
+              echo "ℹ  Recursos serão movidos de '$RG_NAME_FROM_STATE' para '$RG_NAME_NEW'"
+              echo "ℹ  Isso é uma operação de MIGRAÇÃO, não destruição real"
+              echo "ℹ  Continuando com apply..."
             elif [ "$ALLOW_DESTROY" = "true" ]; then
               echo "[WARNING] AVISO: allow_destroy=true - recursos críticos serão destruídos!"
               echo "[WARNING] Continuando com apply..."
@@ -2797,7 +2797,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "🔐 Populating Key Vault secrets via Azure CLI..."
+          echo " Populating Key Vault secrets via Azure CLI..."
           echo "This bypasses firewall restrictions since Azure CLI is a trusted service"
           echo ""
 

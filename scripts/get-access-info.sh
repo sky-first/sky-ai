@@ -17,7 +17,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📍 Informações de Acesso - Aplicação Deployada${NC}"
+echo -e "${CYAN}    Informações de Acesso - Aplicação Deployada${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -29,7 +29,7 @@ if [ ! -d "$TF_DIR" ]; then
 fi
 
 # Obter IP público
-echo -e "${BLUE}🔍 Obtendo IP público da VM...${NC}"
+echo -e "${BLUE} Obtendo IP público da VM...${NC}"
 cd "$TF_DIR"
 
 # Verificar se o Terraform está inicializado
@@ -84,7 +84,7 @@ echo -e "${GREEN}[OK] IP Público encontrado: ${CYAN}$VM_IP${NC}"
 echo ""
 
 # Testar conectividade
-echo -e "${BLUE}🔗 Testando conectividade...${NC}"
+echo -e "${BLUE} Testando conectividade...${NC}"
 if curl -s --connect-timeout 5 "http://$VM_IP" > /dev/null 2>&1; then
   echo -e "${GREEN}[OK] VM está acessível!${NC}"
 else
@@ -95,7 +95,7 @@ echo ""
 
 # Mostrar URLs de acesso
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}🌐 URLs de Acesso:${NC}"
+echo -e "${GREEN} URLs de Acesso:${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${YELLOW}Frontend:${NC}  ${CYAN}http://$VM_IP${NC}"
@@ -103,7 +103,7 @@ echo -e "  ${YELLOW}API:${NC}       ${CYAN}http://$VM_IP/api/v1${NC}"
 echo -e "  ${YELLOW}Health:${NC}    ${CYAN}http://$VM_IP/api/v1/health${NC}"
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}📋 Informações Adicionais:${NC}"
+echo -e "${BLUE} Informações Adicionais:${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${YELLOW}SSH:${NC}       ${CYAN}ssh azureuser@$VM_IP${NC}"

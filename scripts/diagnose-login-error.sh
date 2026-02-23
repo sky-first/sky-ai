@@ -48,7 +48,7 @@ print_warning() {
 
 # Função para imprimir info
 print_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}ℹ  $1${NC}"
 }
 
 # Verificar se estamos na VM ou precisamos SSH

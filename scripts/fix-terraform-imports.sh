@@ -59,7 +59,7 @@ if az monitor action-group show --resource-group "$RESOURCE_GROUP_NAME" --name "
         echo "[OK] Action Group importado com sucesso"
     fi
 else
-    echo "ℹ️  Action Group não existe no Azure: $ACTION_GROUP_NAME"
+    echo "ℹ  Action Group não existe no Azure: $ACTION_GROUP_NAME"
 fi
 
 echo ""
@@ -101,7 +101,7 @@ if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PI
 
         if [ -n "$CURRENT_NIC_NAME" ] && [ "$CURRENT_NIC_NAME" != "$EXPECTED_NIC" ]; then
             echo "[WARNING] IP público está associado à NIC: $CURRENT_NIC_NAME (esperado: $EXPECTED_NIC)"
-            echo "➡️  Desanexando IP público da NIC antiga..."
+            echo "  Desanexando IP público da NIC antiga..."
             
             # Tentar desanexar
             if az network nic ip-config update \
@@ -121,7 +121,7 @@ if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PI
         echo "[OK] IP público não está associado a nenhuma NIC"
     fi
 else
-    echo "ℹ️  IP público não existe no Azure: $PIP_NAME"
+    echo "ℹ  IP público não existe no Azure: $PIP_NAME"
 fi
 
 echo ""

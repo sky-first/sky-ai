@@ -21,7 +21,7 @@ CHECKS_PASSED=0
 
 # Função para log
 log_info() {
-    echo -e "${BLUE}ℹ️  INFO:${NC} $1"
+    echo -e "${BLUE}ℹ  INFO:${NC} $1"
 }
 
 log_success() {
@@ -64,7 +64,7 @@ test_endpoint() {
 }
 
 echo "=========================================="
-echo "🔍 DIAGNÓSTICO DEVOPS - Frontend/Backend"
+echo " DIAGNÓSTICO DEVOPS - Frontend/Backend"
 echo "=========================================="
 echo ""
 
@@ -257,7 +257,7 @@ echo ""
 # 7. RESUMO E RECOMENDAÇÕES
 # ============================================
 echo "=========================================="
-echo "📊 RESUMO DO DIAGNÓSTICO"
+echo " RESUMO DO DIAGNÓSTICO"
 echo "=========================================="
 echo ""
 

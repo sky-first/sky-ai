@@ -93,7 +93,7 @@ test_code() {
 }
 
 echo "=========================================="
-echo "🧪 Teste da função validate_http_code"
+echo " Teste da função validate_http_code"
 echo "=========================================="
 echo ""
 

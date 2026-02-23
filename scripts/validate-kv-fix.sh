@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-echo "🧪 Validating Terraform Key Vault Firewall Fix (Azure Services Bypass)..."
+echo " Validating Terraform Key Vault Firewall Fix (Azure Services Bypass)..."
 echo ""
 
 cd "$(dirname "$0")/../infra/aks"
@@ -84,7 +84,7 @@ else
 fi
 echo ""
 
-echo "🎉 All validation tests PASSED!"
+echo " All validation tests PASSED!"
 echo ""
 echo "Summary of Changes (v2 - Azure Services Bypass):"
 echo "  [OK] Key Vault firewall always denies by default (secure)"

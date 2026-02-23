@@ -145,7 +145,7 @@ echo "$NGINX_LOGS" | tail -10
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO FINAL${NC}"
+echo -e "${CYAN}    RESUMO FINAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

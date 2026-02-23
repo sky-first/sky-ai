@@ -3,7 +3,7 @@
 
 set -e
 
-echo "🔍 Validando correções do .env no pipeline..."
+echo " Validando correções do .env no pipeline..."
 echo ""
 
 # Cores
@@ -148,7 +148,7 @@ if [ $ERRORS -eq 0 ]; then
     echo "  [OK] Pipeline YAML válido"
     echo "  [OK] Documentação criada"
     echo ""
-    echo "🎉 Pronto para testar no próximo deploy!"
+    echo " Pronto para testar no próximo deploy!"
     exit 0
 else
     echo -e "${RED}[ERROR] Encontrados $ERRORS erro(s)${NC}"

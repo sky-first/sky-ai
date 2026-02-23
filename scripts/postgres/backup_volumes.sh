@@ -31,7 +31,7 @@ fi
 # Backup PostgreSQL (dump do banco)
 echo -e "${BLUE}Fazendo backup do PostgreSQL...${NC}"
 if docker exec ai_saas_postgres_prod pg_dump -U postgres ai_saas_db | gzip > "$BACKUP_DIR/postgres_${TIMESTAMP}.sql.gz"; then
-  echo -e "${GREEN}✓ Backup do PostgreSQL concluído: postgres_${TIMESTAMP}.sql.gz${NC}"
+  echo -e "${GREEN} Backup do PostgreSQL concluído: postgres_${TIMESTAMP}.sql.gz${NC}"
   # Verificar tamanho do arquivo
   SIZE=$(du -h "$BACKUP_DIR/postgres_${TIMESTAMP}.sql.gz" | cut -f1)
   echo -e "${GREEN}  Tamanho: $SIZE${NC}"

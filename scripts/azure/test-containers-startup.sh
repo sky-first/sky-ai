@@ -23,7 +23,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================="
-echo "🧪 Teste de Inicialização dos Containers"
+echo " Teste de Inicialização dos Containers"
 echo "==========================================${NC}"
 echo ""
 

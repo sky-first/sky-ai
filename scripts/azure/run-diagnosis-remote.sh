@@ -9,7 +9,7 @@ VM_NAME="${VM_NAME:-poc-sky}"
 VM_IP="${VM_IP:-172.172.134.36}"
 
 echo "=========================================="
-echo "🔍 Executando Diagnóstico Remoto na VM"
+echo " Executando Diagnóstico Remoto na VM"
 echo "=========================================="
 echo ""
 echo "Resource Group: $RESOURCE_GROUP"
@@ -114,7 +114,7 @@ if [ $? -eq 0 ]; then
     
     echo ""
     echo "=========================================="
-    echo "📋 Próximos Passos"
+    echo " Próximos Passos"
     echo "=========================================="
     echo ""
     echo "1. Se o problema foi corrigido, teste a conexão:"

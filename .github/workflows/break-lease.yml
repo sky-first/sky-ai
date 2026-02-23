@@ -35,7 +35,7 @@ jobs:
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
           ENV: ${{ inputs.environment }}
         run: |
-          echo "🔍 Searching for state blobs for environment: $ENV..."
+          echo " Searching for state blobs for environment: $ENV..."
 
           # List all blobs and try to find matches
           BLOBS=$(az storage blob list \
@@ -54,7 +54,7 @@ jobs:
 
           for blob in $BLOBS; do
             if [[ "$blob" == *"$ENV"* ]] && [[ "$blob" == *".tfstate"* ]]; then
-              echo "🔓 Breaking lease for: $blob"
+              echo " Breaking lease for: $blob"
               az storage blob lease break \
                 --blob-name "$blob" \
                 --container-name "$CONTAINER" \
@@ -66,7 +66,7 @@ jobs:
           # Also try the specific lock info blob if it exists anywhere
           for blob in $BLOBS; do
             if [[ "$blob" == *".lock.info"* ]]; then
-              echo "🗑️ Deleting lock blob: $blob"
+              echo " Deleting lock blob: $blob"
               az storage blob delete \
                 --name "$blob" \
                 --container-name "$CONTAINER" \

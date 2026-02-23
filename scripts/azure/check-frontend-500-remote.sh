@@ -8,7 +8,7 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-POC-SKY}"
 VM_NAME="${VM_NAME:-poc-sky}"
 
 echo "=========================================="
-echo "🔍 DIAGNÓSTICO REMOTO: Erro HTTP 500"
+echo " DIAGNÓSTICO REMOTO: Erro HTTP 500"
 echo "=========================================="
 echo ""
 echo "VM: $VM_NAME"
@@ -21,7 +21,7 @@ DIAGNOSTIC_SCRIPT=$(cat <<'EOF'
 set -eu
 
 echo "=========================================="
-echo "📊 STATUS DOS CONTAINERS"
+echo " STATUS DOS CONTAINERS"
 echo "=========================================="
 echo ""
 
@@ -44,7 +44,7 @@ sudo docker compose ps 2>/dev/null || docker compose ps 2>/dev/null || {
 
 echo ""
 echo "=========================================="
-echo "📋 LOGS DO FRONTEND (últimas 100 linhas)"
+echo " LOGS DO FRONTEND (últimas 100 linhas)"
 echo "=========================================="
 echo ""
 
@@ -64,7 +64,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📋 LOGS DO NGINX/PROXY (últimas 50 linhas)"
+echo " LOGS DO NGINX/PROXY (últimas 50 linhas)"
 echo "=========================================="
 echo ""
 
@@ -82,7 +82,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📋 LOGS DO BACKEND (últimas 30 linhas)"
+echo " LOGS DO BACKEND (últimas 30 linhas)"
 echo "=========================================="
 echo ""
 
@@ -100,7 +100,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "🔍 VERIFICAÇÃO DE VARIÁVEIS DE AMBIENTE"
+echo " VERIFICAÇÃO DE VARIÁVEIS DE AMBIENTE"
 echo "=========================================="
 echo ""
 
@@ -120,7 +120,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "🌐 TESTE DE CONECTIVIDADE INTERNA"
+echo " TESTE DE CONECTIVIDADE INTERNA"
 echo "=========================================="
 echo ""
 
@@ -143,7 +143,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📊 RESUMO DO DIAGNÓSTICO"
+echo " RESUMO DO DIAGNÓSTICO"
 echo "=========================================="
 echo ""
 

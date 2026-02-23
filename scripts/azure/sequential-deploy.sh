@@ -25,7 +25,7 @@ cd "$PROJECT_DIR" || {
     exit 1
 }
 
-echo "📁 Diretório do projeto: $(pwd)"
+echo " Diretório do projeto: $(pwd)"
 
 MAX_WAIT=300  # 5 minutos máximo por serviço
 WAIT_INTERVAL=5
@@ -72,7 +72,7 @@ if [ -f scripts/azure/ensure-complete-env.sh ]; then
 else
     echo "[WARNING] Script ensure-complete-env.sh não encontrado (continuando...)"
     if [ ! -f .env ] && [ -f env.example ]; then
-        echo "📝 Criando .env a partir de env.example..."
+        echo " Criando .env a partir de env.example..."
         cp env.example .env
         chmod 600 .env
     fi
@@ -224,7 +224,7 @@ echo ""
 
 # 10. Iniciar Frontend (se buildado)
 if grep -q "^  frontend:" docker-compose.yml; then
-    echo "🔟 Iniciando Frontend..."
+    echo " Iniciando Frontend..."
     if ! sudo docker compose up -d frontend; then
         echo "[ERROR] ERRO: Falha ao iniciar Frontend"
         echo "Logs do frontend:"
@@ -272,7 +272,7 @@ echo ""
 
 # 12. Status final
 echo "=========================================="
-echo "📊 Status Final dos Containers"
+echo " Status Final dos Containers"
 echo "=========================================="
 sudo docker compose ps || {
     echo "[WARNING] docker compose ps falhou, tentando docker ps..."
@@ -319,7 +319,7 @@ echo ""
 
 # 13. Verificar porta 80
 echo "=========================================="
-echo "🔍 Verificando Porta 80"
+echo " Verificando Porta 80"
 echo "=========================================="
 if sudo ss -tlnp | grep -q ":80 " || sudo netstat -tlnp 2>/dev/null | grep -q ":80 "; then
     echo "[OK] Porta 80 está escutando"

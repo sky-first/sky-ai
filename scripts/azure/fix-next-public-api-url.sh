@@ -29,7 +29,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}ℹ  $1${NC}"
 }
 
 log_success() {
@@ -145,7 +145,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📋 Resumo"
+echo " Resumo"
 echo "=========================================="
 echo ""
 echo "Valor configurado: $(grep "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" | cut -d'=' -f2- || echo 'não encontrado')"

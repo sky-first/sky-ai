@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   ⏳ Aguardando e Iniciando Containers${NC}"
+echo -e "${CYAN}    Aguardando e Iniciando Containers${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -26,7 +26,7 @@ try_execute_with_retry() {
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
-        echo -e "${BLUE}🔄 Tentativa $attempt/$max_attempts...${NC}"
+        echo -e "${BLUE} Tentativa $attempt/$max_attempts...${NC}"
         
         local result=$(az vm run-command invoke \
             --resource-group "$RESOURCE_GROUP" \
@@ -37,7 +37,7 @@ try_execute_with_retry() {
         
         if echo "$result" | grep -q "Conflict"; then
             if [ $attempt -lt $max_attempts ]; then
-                echo -e "${YELLOW}⏳ Comando anterior ainda em execução. Aguardando ${wait_interval}s...${NC}"
+                echo -e "${YELLOW} Comando anterior ainda em execução. Aguardando ${wait_interval}s...${NC}"
                 sleep $wait_interval
                 attempt=$((attempt + 1))
             else
@@ -139,7 +139,7 @@ fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO${NC}"
+echo -e "${CYAN}    RESUMO${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

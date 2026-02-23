@@ -19,7 +19,7 @@ CRITICAL_ISSUES=0
 WARNINGS=0
 
 log_critical() {
-    echo -e "${RED}🔴 CRÍTICO: $1${NC}"
+    echo -e "${RED} CRÍTICO: $1${NC}"
     CRITICAL_ISSUES=$((CRITICAL_ISSUES + 1))
     ISSUES_FOUND=$((ISSUES_FOUND + 1))
 }
@@ -35,11 +35,11 @@ log_success() {
 }
 
 log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}ℹ  $1${NC}"
 }
 
 echo "=========================================="
-echo "🔍 ANÁLISE MINUCIOSA - DEPLOY PARCIAL"
+echo " ANÁLISE MINUCIOSA - DEPLOY PARCIAL"
 echo "=========================================="
 echo "Focando em problemas que impedem re-deploy após deploy parcial"
 echo ""
@@ -47,7 +47,7 @@ echo ""
 # ============================================
 # ANÁLISE 1: Cleanup de Key Vault Firewall
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 1: Cleanup de Key Vault Firewall${NC}"
+echo -e "${CYAN} ANÁLISE 1: Cleanup de Key Vault Firewall${NC}"
 echo ""
 
 RESTRICT_STEP=$(grep -A 10 "Restrict Key Vault Internal Firewalls" .github/workflows/deploy.yml | head -15)
@@ -84,7 +84,7 @@ echo ""
 # ============================================
 # ANÁLISE 2: State do Terraform Após Deploy Parcial
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 2: State do Terraform Após Deploy Parcial${NC}"
+echo -e "${CYAN} ANÁLISE 2: State do Terraform Após Deploy Parcial${NC}"
 echo ""
 
 # Verificar se há validação de state antes de plan/apply
@@ -108,7 +108,7 @@ echo ""
 # ============================================
 # ANÁLISE 3: Recursos Criados Parcialmente
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 3: Recursos Criados Parcialmente${NC}"
+echo -e "${CYAN} ANÁLISE 3: Recursos Criados Parcialmente${NC}"
 echo ""
 
 # Verificar se há import automático de recursos existentes
@@ -126,7 +126,7 @@ echo ""
 # ============================================
 # ANÁLISE 4: Dependências Entre Recursos
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 4: Dependências Entre Recursos${NC}"
+echo -e "${CYAN} ANÁLISE 4: Dependências Entre Recursos${NC}"
 echo ""
 
 # Verificar se há depends_on no Terraform
@@ -156,7 +156,7 @@ echo ""
 # ============================================
 # ANÁLISE 5: Validações que Podem Falhar em Re-deploy
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 5: Validações que Podem Falhar em Re-deploy${NC}"
+echo -e "${CYAN} ANÁLISE 5: Validações que Podem Falhar em Re-deploy${NC}"
 echo ""
 
 # Verificar validação de Storage Account/Container
@@ -187,7 +187,7 @@ echo ""
 # ============================================
 # ANÁLISE 6: Timeout e Retry
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 6: Timeout e Retry${NC}"
+echo -e "${CYAN} ANÁLISE 6: Timeout e Retry${NC}"
 echo ""
 
 # Verificar timeouts dos jobs
@@ -213,7 +213,7 @@ echo ""
 # ============================================
 # ANÁLISE 7: Rollback e Recuperação
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 7: Rollback e Recuperação${NC}"
+echo -e "${CYAN} ANÁLISE 7: Rollback e Recuperação${NC}"
 echo ""
 
 ROLLBACK_JOB=$(grep -A 5 "rollback\|Rollback on Failure" .github/workflows/deploy.yml | head -10)
@@ -236,7 +236,7 @@ echo ""
 # ============================================
 # ANÁLISE 8: Artifacts e State Backup
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 8: Artifacts e State Backup${NC}"
+echo -e "${CYAN} ANÁLISE 8: Artifacts e State Backup${NC}"
 echo ""
 
 # Verificar backup de state
@@ -263,7 +263,7 @@ echo ""
 # ============================================
 # ANÁLISE 9: Variáveis de Ambiente e Secrets
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 9: Variáveis de Ambiente e Secrets${NC}"
+echo -e "${CYAN} ANÁLISE 9: Variáveis de Ambiente e Secrets${NC}"
 echo ""
 
 # Verificar se todas as variáveis necessárias estão definidas
@@ -282,7 +282,7 @@ echo ""
 # ============================================
 # ANÁLISE 10: Problemas Específicos de Re-deploy
 # ============================================
-echo -e "${CYAN}📋 ANÁLISE 10: Problemas Específicos de Re-deploy${NC}"
+echo -e "${CYAN} ANÁLISE 10: Problemas Específicos de Re-deploy${NC}"
 echo ""
 
 # Verificar se há tratamento para recursos já existentes
@@ -309,17 +309,17 @@ echo ""
 # RESUMO FINAL
 # ============================================
 echo "=========================================="
-echo "📊 RESUMO DA ANÁLISE"
+echo " RESUMO DA ANÁLISE"
 echo "=========================================="
 echo ""
-echo "🔴 Problemas Críticos: $CRITICAL_ISSUES"
+echo " Problemas Críticos: $CRITICAL_ISSUES"
 echo "[WARNING] Avisos: $WARNINGS"
 echo "[OK] Total de Itens Analisados: $ISSUES_FOUND"
 echo ""
 
 if [ $CRITICAL_ISSUES -eq 0 ]; then
     if [ $WARNINGS -eq 0 ]; then
-        echo -e "${GREEN}🎉 NENHUM PROBLEMA ENCONTRADO!${NC}"
+        echo -e "${GREEN} NENHUM PROBLEMA ENCONTRADO!${NC}"
         echo "O workflow está preparado para re-deploy após deploy parcial"
         exit 0
     else

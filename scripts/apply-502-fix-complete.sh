@@ -15,7 +15,7 @@ wait_for_previous_command() {
     local max_wait=300
     local waited=0
     
-    echo "⏳ Aguardando comandos anteriores finalizarem..."
+    echo " Aguardando comandos anteriores finalizarem..."
     while [ $waited -lt $max_wait ]; do
         if az vm run-command invoke \
             --resource-group "$RESOURCE_GROUP" \
@@ -40,7 +40,7 @@ wait_for_previous_command() {
 wait_for_previous_command
 
 echo ""
-echo "📋 PASSO 1: Verificando estado atual..."
+echo " PASSO 1: Verificando estado atual..."
 echo ""
 
 # Verificar estado atual
@@ -88,7 +88,7 @@ except:
 " 2>/dev/null || echo "Verificação executada"
 
 echo ""
-echo "📋 PASSO 2: Aplicando healthcheck..."
+echo " PASSO 2: Aplicando healthcheck..."
 echo ""
 
 # Script completo para aplicar healthcheck
@@ -100,7 +100,7 @@ cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/proje
     exit 1
 }
 
-echo "📁 Diretório: $(pwd)"
+echo " Diretório: $(pwd)"
 echo ""
 
 # Verificar se healthcheck já existe
@@ -184,7 +184,7 @@ else
 fi
 
 echo ""
-echo "🔄 Aplicando correções (docker compose down/up)..."
+echo " Aplicando correções (docker compose down/up)..."
 docker compose down
 echo ""
 echo "Iniciando containers..."
@@ -213,11 +213,11 @@ except:
 " 2>/dev/null || echo "Aplicação executada"
 
 echo ""
-echo "⏳ Aguardando 30 segundos para containers iniciarem..."
+echo " Aguardando 30 segundos para containers iniciarem..."
 sleep 30
 
 echo ""
-echo "📋 PASSO 3: Validação completa..."
+echo " PASSO 3: Validação completa..."
 echo ""
 
 # Script de validação completa
@@ -389,6 +389,6 @@ echo "[OK] PROCESSO COMPLETO FINALIZADO"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "[INFO] Verifique o output acima para confirmar o status"
-echo "🌐 Teste acessando: http://20.185.60.67"
+echo " Teste acessando: http://20.185.60.67"
 echo ""
 

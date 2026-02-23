@@ -14,7 +14,7 @@ readonly BLUE='\033[0;34m'
 readonly NC='\033[0m'
 
 echo "=========================================="
-echo "📊 AVALIAÇÃO DE ESTABILIDADE DO DEPLOY"
+echo " AVALIAÇÃO DE ESTABILIDADE DO DEPLOY"
 echo "=========================================="
 echo ""
 
@@ -91,7 +91,7 @@ echo ""
 PERCENTAGE=$((SCORE * 100 / MAX_SCORE))
 
 echo "=========================================="
-echo "📈 RESULTADO DA AVALIAÇÃO"
+echo " RESULTADO DA AVALIAÇÃO"
 echo "=========================================="
 echo ""
 echo "Score: $SCORE/$MAX_SCORE ($PERCENTAGE%)"

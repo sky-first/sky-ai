@@ -21,7 +21,7 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-echo "🔐 Gerando valores seguros para variáveis com placeholders..."
+echo " Gerando valores seguros para variáveis com placeholders..."
 echo ""
 
 # Função para gerar senha segura
@@ -94,13 +94,13 @@ chmod 600 .env
 if [ "$UPDATED" = "true" ]; then
     echo ""
     echo "[OK] Variáveis atualizadas com valores seguros!"
-    echo "📝 Permissões ajustadas para 600"
+    echo " Permissões ajustadas para 600"
     echo ""
     echo "[WARNING] IMPORTANTE: Reinicie os containers para aplicar as mudanças:"
     echo "   cd $INFRA_DIR"
     echo "   sudo docker compose restart"
 else
-    echo "ℹ️  Nenhuma variável com placeholder encontrada"
+    echo "ℹ  Nenhuma variável com placeholder encontrada"
     echo "   Todas as variáveis já estão configuradas"
 fi
 

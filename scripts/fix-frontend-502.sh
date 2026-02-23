@@ -35,7 +35,7 @@ run_vm_command() {
         
         if echo "$result" | grep -q "Conflict"; then
             if [ $attempt -lt $max_attempts ]; then
-                echo -e "${YELLOW}⏳ Comando anterior ainda em execução. Aguardando... (tentativa $attempt/$max_attempts)${NC}"
+                echo -e "${YELLOW} Comando anterior ainda em execução. Aguardando... (tentativa $attempt/$max_attempts)${NC}"
                 sleep 10
                 attempt=$((attempt + 1))
             else
@@ -116,7 +116,7 @@ echo "$STATS"
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 Resumo${NC}"
+echo -e "${CYAN}    Resumo${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 

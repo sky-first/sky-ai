@@ -51,7 +51,7 @@ log_check() {
             ((WARNING_CHECKS++))
             ;;
         "INFO")
-            echo -e "${BLUE}ℹ️  INFO${NC}: $message"
+            echo -e "${BLUE}ℹ  INFO${NC}: $message"
             ;;
     esac
 }
@@ -74,7 +74,7 @@ test_http() {
 
 # Verificar se IP foi fornecido
 if [ -z "$VM_IP" ]; then
-    log_section "🔍 Tentando Obter IP da VM Automaticamente"
+    log_section " Tentando Obter IP da VM Automaticamente"
     
     # Tentar via Terraform
     if [ -d "$PROJECT_DIR/infra/azure" ]; then
@@ -103,7 +103,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 echo "=========================================="
-echo -e "${CYAN}🔍 VERIFICAÇÃO COMPLETA - FRONTEND/BACKEND${NC}"
+echo -e "${CYAN} VERIFICAÇÃO COMPLETA - FRONTEND/BACKEND${NC}"
 echo "=========================================="
 echo ""
 echo "VM IP: $VM_IP"
@@ -113,7 +113,7 @@ echo ""
 # ============================================
 # PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO
 # ============================================
-log_section "📋 PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO"
+log_section " PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO"
 
 echo "Verificando configurações arquiteturais..."
 echo ""
@@ -334,7 +334,7 @@ echo ""
 # ============================================
 # PARTE 2: TESTES DE CONECTIVIDADE
 # ============================================
-log_section "🌐 PARTE 2: TESTES DE CONECTIVIDADE"
+log_section " PARTE 2: TESTES DE CONECTIVIDADE"
 
 echo "Testando conectividade com a VM..."
 echo ""
@@ -418,7 +418,7 @@ echo ""
 # ============================================
 # PARTE 3: TESTES DE CORS
 # ============================================
-log_section "🔐 PARTE 3: TESTES DE CORS"
+log_section " PARTE 3: TESTES DE CORS"
 
 # 3.1 CORS Preflight (OPTIONS)
 log_check "INFO" "Testando CORS Preflight (OPTIONS)..."
@@ -475,7 +475,7 @@ echo ""
 # ============================================
 # PARTE 4: VERIFICAÇÃO DE ROTEAMENTO
 # ============================================
-log_section "🔄 PARTE 4: VERIFICAÇÃO DE ROTEAMENTO"
+log_section " PARTE 4: VERIFICAÇÃO DE ROTEAMENTO"
 
 # 4.1 Verificar se /api/v1/ roteia para backend
 log_check "INFO" "Verificando roteamento /api/v1/ → backend..."
@@ -523,7 +523,7 @@ echo ""
 # ============================================
 # PARTE 5: ANÁLISE DE CONTEÚDO
 # ============================================
-log_section "📄 PARTE 5: ANÁLISE DE CONTEÚDO"
+log_section " PARTE 5: ANÁLISE DE CONTEÚDO"
 
 # 5.1 Analisar resposta do frontend
 if [ -n "$ROOT_RESPONSE" ]; then
@@ -562,10 +562,10 @@ echo ""
 # ============================================
 # PARTE 6: RESUMO E RECOMENDAÇÕES
 # ============================================
-log_section "📊 RESUMO FINAL"
+log_section " RESUMO FINAL"
 
 echo "=========================================="
-echo "📈 ESTATÍSTICAS"
+echo " ESTATÍSTICAS"
 echo "=========================================="
 echo ""
 echo "Total de verificações: $TOTAL_CHECKS"
@@ -583,7 +583,7 @@ fi
 
 # Conclusão
 echo "=========================================="
-echo "🎯 CONCLUSÃO"
+echo " CONCLUSÃO"
 echo "=========================================="
 echo ""
 

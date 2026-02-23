@@ -35,6 +35,6 @@ echo ""
 echo "Conteúdo:"
 cat "$OUTPUT_FILE"
 echo ""
-echo "📧 Compartilhe este arquivo com o time DevOps"
+echo " Compartilhe este arquivo com o time DevOps"
 echo "   (via Slack, email, ou repositório privado)"
 

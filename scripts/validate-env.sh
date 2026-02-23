@@ -171,7 +171,7 @@ validate_next_public_api_url() {
 }
 
 echo "=========================================="
-echo "🔍 Validação de Configuração .env"
+echo " Validação de Configuração .env"
 echo "=========================================="
 echo ""
 echo "Arquivo: $ENV_FILE_PATH"
@@ -198,7 +198,7 @@ source "$ENV_FILE_PATH" 2>/dev/null || {
 set +a
 
 echo "=========================================="
-echo "📋 Validando Variáveis Obrigatórias"
+echo " Validando Variáveis Obrigatórias"
 echo "=========================================="
 echo ""
 
@@ -219,7 +219,7 @@ done
 
 echo ""
 echo "=========================================="
-echo "🔐 Validando Segurança"
+echo " Validando Segurança"
 echo "=========================================="
 echo ""
 
@@ -231,7 +231,7 @@ validate_password "${ENCRYPTION_KEY:-}" "ENCRYPTION_KEY" || true
 
 echo ""
 echo "=========================================="
-echo "🔗 Validando URLs e Conexões"
+echo " Validando URLs e Conexões"
 echo "=========================================="
 echo ""
 
@@ -252,7 +252,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "📊 Resumo da Validação"
+echo " Resumo da Validação"
 echo "=========================================="
 echo ""
 

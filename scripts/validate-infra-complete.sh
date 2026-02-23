@@ -21,12 +21,12 @@ ERRORS=0
 WARNINGS=0
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[⚠]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
-log_error() { echo -e "${RED}[✗]${NC} $1"; ERRORS=$((ERRORS + 1)); }
+log_success() { echo -e "${GREEN}[]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
+log_error() { echo -e "${RED}[]${NC} $1"; ERRORS=$((ERRORS + 1)); }
 log_section() { 
     echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; 
-    echo -e "${CYAN}▶ $1${NC}"; 
+    echo -e "${CYAN} $1${NC}"; 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; 
 }
 
