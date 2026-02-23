@@ -41,7 +41,7 @@ spec:
         autoscaling:
           enabled: true
           minReplicas: 3
-          maxReplicas: 20
+          maxReplicas: 5
           behavior:
             scaleUp:
               stabilizationWindowSeconds: 0
