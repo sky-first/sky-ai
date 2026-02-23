@@ -4,6 +4,14 @@ image:
 
 replicaCount: 2
 
+# QoS: Burstable (Low Latency / CPU Bursting)
+resources:
+  requests:
+    cpu: 50m
+    memory: 600Mi
+  limits:
+    memory: 600Mi
+
 pdb:
   enabled: true
   minAvailable: 1
@@ -44,7 +52,7 @@ probes:
     timeoutSeconds: 5
     failureThreshold: 3
   readiness:
-    path: /health        # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
+    path: /health # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
     initialDelaySeconds: 10
     periodSeconds: 5
     timeoutSeconds: 5

@@ -31,6 +31,11 @@
     },
     "podAnnotations": {
       "type": "object"
+    },
+    "resources": {
+      "type": "object",
+      "description": "Limites de governança estritos (Zero Trust). Todo container deve declarar CPU e Memória para evitar o efeito Noisy Neighbor e permitir escalonamento previsível.",
+      "required": ["requests", "limits"]
     }
   }
 }

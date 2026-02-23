@@ -2,6 +2,15 @@
 image:
   tag: "sha-638adc48433445f183d0d0bd2b3b35660b29f13d"
 
+# QoS: Guaranteed (Noisy Neighbor Isolation Cage)
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
 # P0.1: Security Context - Non-Root Execution
 podSecurityContext:
   runAsNonRoot: true
@@ -20,7 +29,7 @@ securityContext:
 extraVolumes:
   - name: tmp-volume
     emptyDir:
-      sizeLimit: 5Gi  # Limite para evitar disk pressure
+      sizeLimit: 5Gi # Limite para evitar disk pressure
 
 extraVolumeMounts:
   - name: tmp-volume
