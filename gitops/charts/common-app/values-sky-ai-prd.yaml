@@ -7,3 +7,12 @@ helm:
   - name: image.tag
     value: sha-49d831d95c803d5fa8cc28f2ce6592db421a1fda
     forcestring: true
+
+# QoS: Guaranteed (Noisy Neighbor Isolation Cage)
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2048Mi
+  limits:
+    cpu: 1000m
+    memory: 2048Mi
