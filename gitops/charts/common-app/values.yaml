@@ -31,6 +31,10 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
+podLabels:
+  owner: data-first-engineering
+  cost-center: engineering
+
 podSecurityContext: {}
   # fsGroup: 2000
 
