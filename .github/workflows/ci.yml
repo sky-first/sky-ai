@@ -24,20 +24,6 @@ on:
       - "gitops/**"
       - ".env.example"
       - "env.example"
-  push:
-    branches: [staging, main]
-    paths:
-      - "infra/**"
-      - "docker/**"
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/linters/**"
-      - "scripts/**"
-      - "docs/**"
-      - "README.md"
-      - "gitops/**"
-      - ".env.example"
-      - "env.example"
 
 
 # Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
