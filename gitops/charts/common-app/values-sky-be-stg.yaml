@@ -7,9 +7,10 @@ replicaCount: 2
 # QoS: Burstable (Low Latency / CPU Bursting)
 resources:
   requests:
-    cpu: 50m
-    memory: 600Mi
+    cpu: 100m
+    memory: 256Mi
   limits:
+    cpu: 500m
     memory: 600Mi
 
 pdb:
@@ -66,3 +67,12 @@ extraVolumes:
 extraVolumeMounts:
   - name: tmp-volume
     mountPath: /tmp
+    
+migration:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
