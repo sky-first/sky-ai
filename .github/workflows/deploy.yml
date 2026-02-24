@@ -14,8 +14,6 @@ on:
       - "gitops/**"
       - ".github/workflows/deploy.yml"
       - ".github/actions/**"
-  repository_dispatch:
-    types: [deploy-trigger]
   workflow_dispatch:
     inputs:
       environment:
@@ -130,28 +128,6 @@ jobs:
             ENV="${{ github.event.inputs.environment }}"
             ALLOW_DESTROY="${{ github.event.inputs.allow_destroy }}"
             BRANCH="manual"
-          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
-            echo "Trigger via repository_dispatch detected"
-            ENV="${{ github.event.client_payload.environment }}"
-            BRANCH="${{ github.event.client_payload.branch }}"
-            ALLOW_DESTROY="false"
-
-            # Set default branch if not provided
-            if [[ -z "$BRANCH" ]] || [[ "$BRANCH" == "null" ]]; then
-              if [[ "$ENV" == "prod" ]]; then
-                BRANCH="main"
-              else
-                BRANCH="staging"
-              fi
-            fi
-
-            echo "Payload Environment: $ENV"
-            echo "Payload Branch: $BRANCH"
-
-            if [[ -z "$ENV" ]] || [[ "$ENV" == "null" ]]; then
-              echo "ERRO: environment não fornecido no payload"
-              exit 1
-            fi
           elif [[ "${{ github.event_name }}" == "push" ]]; then
             # Push direto na branch staging ou main
             BRANCH_REF="${{ github.ref_name }}"
