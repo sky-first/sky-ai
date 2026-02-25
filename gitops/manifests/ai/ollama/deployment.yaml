@@ -17,17 +17,6 @@ spec:
       labels:
         app: ollama
     spec:
-      # Ensure it runs on the AI CPU Node Pool
-      # Ensure it runs on the AI CPU Node Pool (Turbo)
-      nodeSelector:
-        sky-poc-type: ai-turbo
-        workload_type: ai-turbo
-
-      tolerations:
-        - key: "sku"
-          operator: "Equal"
-          value: "cpu-turbo"
-          effect: "NoSchedule"
 
       containers:
         - name: ollama

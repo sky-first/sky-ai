@@ -93,32 +93,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   }
 }
 
-# AI CPU Turbo Node Pool (Immediate Relief: 16 vCPUs)
-resource "azurerm_kubernetes_cluster_node_pool" "ai_turbo" {
-  name                  = "aicpu16"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_F16s_v2" # 16 vCPUs, 32GB RAM (Compute Optimized)
-  auto_scaling_enabled  = true
-  min_count             = 0 # Scale to zero when not in use to save cost
-  max_count             = 1
-  priority              = "Regular" # Using Regular to guarantee availability for critical workload
-
-  node_labels = {
-    "sky-poc-type"  = "ai-turbo"
-    "workload_type" = "ai-turbo"
-  }
-
-  node_taints = [
-    "sku=cpu-turbo:NoSchedule" # Dedicated to Ollama
-  ]
-
-  vnet_subnet_id = azurerm_subnet.aks.id
-
-  tags = {
-    Environment = var.environment
-    Type        = "AI-Turbo-CPU"
-  }
-}
 
 # Grant AKS Identity access to VNet (Network Contributor) 
 # Required for Azure CNI to manage IPs
