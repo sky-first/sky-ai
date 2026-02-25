@@ -25,6 +25,7 @@ spec:
               cpu: 50m
               memory: 100Mi
             limits:
+              cpu: 100m
               memory: 200Mi
           admissionWebhooks:
             patch:
@@ -33,6 +34,7 @@ spec:
                   cpu: 10m
                   memory: 50Mi
                 limits:
+                  cpu: 50m
                   memory: 100Mi
 
         # Grafana Configuration
@@ -48,6 +50,7 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
+              cpu: 200m
               memory: 500Mi
           persistence:
             enabled: true
@@ -70,6 +73,7 @@ spec:
                 cpu: 10m
                 memory: 50Mi
               limits:
+                cpu: 50m
                 memory: 100Mi
           sidecar:
             resources:
@@ -77,6 +81,7 @@ spec:
                 cpu: 10m
                 memory: 50Mi
               limits:
+                cpu: 50m
                 memory: 100Mi
             dashboards:
               enabled: true
@@ -107,6 +112,7 @@ spec:
                 cpu: 100m
                 memory: 500Mi
               limits:
+                cpu: 500m
                 memory: 2Gi
             storageSpec:
               volumeClaimTemplate:
@@ -123,6 +129,7 @@ spec:
                   cpu: 10m
                   memory: 50Mi
                 limits:
+                  cpu: 50m
                   memory: 100Mi
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
@@ -152,6 +159,7 @@ spec:
                 cpu: 10m
                 memory: 50Mi
               limits:
+                cpu: 100m
                 memory: 100Mi
             storage:
               volumeClaimTemplate:
@@ -186,6 +194,7 @@ spec:
               cpu: 10m
               memory: 50Mi
             limits:
+              cpu: 100m
               memory: 100Mi
         nodeExporter:
           enabled: true
@@ -197,6 +206,7 @@ spec:
               cpu: 10m
               memory: 50Mi
             limits:
+              cpu: 100m
               memory: 100Mi
         kubeStateMetrics:
           enabled: true
