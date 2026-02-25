@@ -47,7 +47,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -109,7 +109,7 @@ spec:
   ingress:
     # Kubelet health checks
     - from:
-        - podSelector: {}
+        - podSelector: { }
       ports:
         - protocol: TCP
           port: 3000
@@ -126,7 +126,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -160,7 +160,7 @@ spec:
   ingress:
     # Kubelet health checks
     - from:
-        - podSelector: {}
+        - podSelector: { }
       ports:
         - protocol: TCP
           port: 8001
@@ -177,7 +177,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -258,7 +258,7 @@ spec:
 
     # Allow health checks from same namespace
     - from:
-        - podSelector: {}
+        - podSelector: { }
       ports:
         - protocol: TCP
           port: 5432
@@ -299,7 +299,7 @@ spec:
       
     # Allow health checks from same namespace (safe default)
     - from:
-        - podSelector: {}
+        - podSelector: { }
       ports:
         - protocol: TCP
           port: 6379

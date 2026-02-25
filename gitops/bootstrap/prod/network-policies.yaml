@@ -34,7 +34,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -71,7 +71,7 @@ spec:
 
     # External HTTPS (OpenAI, etc)
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: TCP
           port: 443
@@ -106,7 +106,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -160,7 +160,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -188,7 +188,7 @@ spec:
 
     # External HTTPS (OpenAI)
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: TCP
           port: 443

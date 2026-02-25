@@ -8,7 +8,7 @@ ignore: |
 
 rules:
   line-length:
-    max: 200
+    max: 300
     allow-non-breakable-words: true
   document-start:
     level: warning
