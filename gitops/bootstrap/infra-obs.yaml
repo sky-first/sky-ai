@@ -116,6 +116,9 @@ spec:
           prometheusSpec:
             retention: 15d
             retentionSize: "10GB"
+            # Label de cluster para compatibilidade com dashboards do kube-prometheus-stack
+            externalLabels:
+              cluster: staging
             resources:
               requests:
                 cpu: 100m
