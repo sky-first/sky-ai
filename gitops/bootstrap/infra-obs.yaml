@@ -123,16 +123,14 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
-            # Containers customizações (config-reloader)
-            containers:
-              - name: config-reloader
-                resources:
-                  requests:
-                    cpu: 10m
-                    memory: 50Mi
-                  limits:
-                    cpu: 50m
-                    memory: 100Mi
+            # Config Reloader Constraints (Fix para Kyverno)
+            configReloaderResources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                cpu: 50m
+                memory: 100Mi
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
