@@ -64,6 +64,7 @@ spec:
             pathType: Prefix
           # Dashboards automáticos
           initChownData:
+            enabled: true
             resources:
               requests:
                 cpu: 10m
@@ -71,23 +72,17 @@ spec:
               limits:
                 memory: 100Mi
           sidecar:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                memory: 100Mi
             dashboards:
               enabled: true
               defaultFolderName: "General"
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 50Mi
-                limits:
-                  memory: 100Mi
             datasources:
               enabled: true
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 50Mi
-                limits:
-                  memory: 100Mi
           additionalDataSources:
             - name: Loki
               type: loki
