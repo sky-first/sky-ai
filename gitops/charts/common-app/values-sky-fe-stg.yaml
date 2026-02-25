@@ -1,6 +1,6 @@
 ---
 image:
-  tag: "sha-7896dff000812f971a832cd096d7bef5a7dbe470"
+  tag: "sha-8b959dafcfecf634e7eae6ca9e82b2a646a95e26"
 replicaCount: 2
 # QoS: Burstable (Low Latency / CPU Bursting)
 resources:
@@ -35,7 +35,7 @@ securityContext:
   capabilities:
     drop:
       - ALL
-  # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+      # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
 # P0.1: Nginx cache directory (non-root nginx needs writable cache)
 extraVolumes:
   - name: nginx-cache
