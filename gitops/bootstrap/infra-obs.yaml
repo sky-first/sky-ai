@@ -75,7 +75,7 @@ spec:
                 memory: 50Mi
               limits:
                 cpu: 50m
-                memory: 100Mi
+                memory: 256Mi
           sidecar:
             resources:
               requests:
@@ -83,7 +83,7 @@ spec:
                 memory: 50Mi
               limits:
                 cpu: 50m
-                memory: 100Mi
+                memory: 256Mi
             dashboards:
               enabled: true
               defaultFolderName: "General"
