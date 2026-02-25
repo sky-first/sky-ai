@@ -123,15 +123,16 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
-            # Config Reloader Constraints
-            configReloader:
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 50Mi
-                limits:
-                  cpu: 50m
-                  memory: 100Mi
+            # Containers customizações (config-reloader)
+            containers:
+              - name: config-reloader
+                resources:
+                  requests:
+                    cpu: 10m
+                    memory: 50Mi
+                  limits:
+                    cpu: 50m
+                    memory: 100Mi
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
