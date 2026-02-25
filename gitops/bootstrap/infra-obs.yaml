@@ -40,10 +40,12 @@ spec:
         # Grafana Configuration
         grafana:
           enabled: true
+          fullnameOverride: "grafana"
           adminPassword: "SkyAdmin2026!"
           # Override the local SQLite persistence of passwords
           env:
             GF_SECURITY_ADMIN_PASSWORD: "SkyAdmin2026!"
+            GF_AUTH_ANONYMOUS_ENABLED: "false"
           # Resource constraints to satisfy Kyverno require-pod-resources policy
           resources:
             requests:
