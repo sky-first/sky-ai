@@ -22,7 +22,17 @@ spec:
         # Grafana Configuration
         grafana:
           enabled: true
-          adminPassword: "admin" # TODO: Change in production!
+          adminPassword: "SkyAdmin2026!"
+          # Override the local SQLite persistence of passwords
+          env:
+            GF_SECURITY_ADMIN_PASSWORD: "SkyAdmin2026!"
+          # Resource constraints to satisfy Kyverno require-pod-resources policy
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 500Mi
           persistence:
             enabled: true
             size: 10Gi
@@ -38,6 +48,12 @@ spec:
             pathType: Prefix
           # Dashboards automáticos
           sidecar:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                memory: 100Mi
             dashboards:
               enabled: true
               defaultFolderName: "General"
@@ -77,6 +93,14 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
+            # Config Reloader Constraints
+            configReloader:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+                limits:
+                  memory: 100Mi
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
@@ -134,10 +158,24 @@ spec:
             pathType: Prefix
 
         # Node Exporter (métricas de nodes)
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+            limits:
+              memory: 100Mi
         nodeExporter:
           enabled: true
 
         # Kube State Metrics (métricas do cluster)
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+            limits:
+              memory: 100Mi
         kubeStateMetrics:
           enabled: true
 
