@@ -19,10 +19,48 @@ spec:
         crds:
           enabled: false
 
+        prometheusOperator:
+          prometheusConfigReloader:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                cpu: 50m
+                memory: 100Mi
+          resources:
+            requests:
+              cpu: 50m
+              memory: 100Mi
+            limits:
+              cpu: 100m
+              memory: 200Mi
+          admissionWebhooks:
+            patch:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+                limits:
+                  cpu: 50m
+                  memory: 100Mi
+
         # Grafana Configuration
         grafana:
           enabled: true
-          adminPassword: "admin" # TODO: Change in production!
+          adminPassword: "SkyAdmin2026!"
+          # Override the local SQLite persistence of passwords
+          env:
+            GF_SECURITY_ADMIN_PASSWORD: "SkyAdmin2026!"
+            GF_AUTH_ANONYMOUS_ENABLED: "false"
+          # Resource constraints to satisfy Kyverno require-pod-resources policy
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 500Mi
           persistence:
             enabled: true
             size: 10Gi
@@ -37,7 +75,23 @@ spec:
             path: /
             pathType: Prefix
           # Dashboards automáticos
+          initChownData:
+            enabled: true
+            resources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                cpu: 50m
+                memory: 256Mi
           sidecar:
+            resources:
+              requests:
+                cpu: 10m
+                memory: 50Mi
+              limits:
+                cpu: 50m
+                memory: 256Mi
             dashboards:
               enabled: true
               defaultFolderName: "General"
@@ -64,11 +118,11 @@ spec:
             retentionSize: "10GB"
             resources:
               requests:
-                cpu: 200m
-                memory: 500Mi
+                cpu: 100m
+                memory: 1Gi
               limits:
-                cpu: 1000m
-                memory: 2Gi
+                cpu: 500m
+                memory: 4Gi
             storageSpec:
               volumeClaimTemplate:
                 spec:
@@ -77,6 +131,7 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
+
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
@@ -134,10 +189,26 @@ spec:
             pathType: Prefix
 
         # Node Exporter (métricas de nodes)
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
         nodeExporter:
           enabled: true
 
         # Kube State Metrics (métricas do cluster)
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
         kubeStateMetrics:
           enabled: true
 
