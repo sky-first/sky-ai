@@ -40,7 +40,6 @@ spec:
         # Grafana Configuration
         grafana:
           enabled: true
-          fullnameOverride: "grafana"
           adminPassword: "SkyAdmin2026!"
           # Override the local SQLite persistence of passwords
           env:
