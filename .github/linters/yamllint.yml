@@ -5,13 +5,13 @@ ignore: |
   gitops/charts/
   **.chart/
   **/templates/
+  scripts/
 
 rules:
   line-length:
     max: 300
     allow-non-breakable-words: true
-  document-start:
-    level: warning
+  document-start: disable
   truthy: disable
   brackets:
     min-spaces-inside: 0
