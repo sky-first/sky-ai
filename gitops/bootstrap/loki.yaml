@@ -18,6 +18,11 @@ spec:
         # =============================================================
         loki:
           enabled: true
+          
+          # Prioritizing startup speed: only change volume ownership if root mismatch
+          podSecurityContext:
+            fsGroup: 2000
+            fsGroupChangePolicy: "OnRootMismatch"
 
           # Evitar conflito de Default Datasource com Prometheus
           isDefault: false

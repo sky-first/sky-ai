@@ -69,6 +69,14 @@ spec:
           annotations:
             argocd.argoproj.io/hook: PreSync
             argocd.argoproj.io/hook-delete-policy: before-hook-creation
+          # Resources obrigatórios pela política Kyverno require-pod-resources
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           command: ["python3", "-c"]
           args:
             - |
