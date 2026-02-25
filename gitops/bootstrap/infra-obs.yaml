@@ -19,6 +19,22 @@ spec:
         crds:
           enabled: false
 
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 100Mi
+            limits:
+              memory: 200Mi
+          admissionWebhooks:
+            patch:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+                limits:
+                  memory: 100Mi
+
         # Grafana Configuration
         grafana:
           enabled: true
@@ -47,18 +63,31 @@ spec:
             path: /
             pathType: Prefix
           # Dashboards automáticos
-          sidecar:
+          initChownData:
             resources:
               requests:
                 cpu: 10m
                 memory: 50Mi
               limits:
                 memory: 100Mi
+          sidecar:
             dashboards:
               enabled: true
               defaultFolderName: "General"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+                limits:
+                  memory: 100Mi
             datasources:
               enabled: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 50Mi
+                limits:
+                  memory: 100Mi
           additionalDataSources:
             - name: Loki
               type: loki
