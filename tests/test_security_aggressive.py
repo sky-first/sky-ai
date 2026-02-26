@@ -863,12 +863,9 @@ async def main():
 
     all_results = {}
 
-    # Categoria 1: Jailbreaks
-    print("\n\n" + "=" * 80)
-    print(
-        f"📝 CATEGORIA 1: JAILBREAKS CONHECIDOS ({
-            len(JAILBREAK_TESTS)} testes)"
-    )
+    num_jailbreak = len(JAILBREAK_TESTS)
+    print(f"\n\n{'=' * 80}")
+    print(f"📝 CATEGORIA 1: JAILBREAKS CONHECIDOS ({num_jailbreak} testes)")
     print("=" * 80)
     all_results["jailbreaks"] = await run_test_category(JAILBREAK_TESTS, "Jailbreak")
 
@@ -884,12 +881,9 @@ async def main():
     print("=" * 80)
     all_results["context"] = await run_test_category(CONTEXT_TESTS, "Context")
 
-    # Categoria 4: SQL Avançado
-    print("\n\n" + "=" * 80)
-    print(
-        f"📝 CATEGORIA 4: SQL INJECTION AVANÇADO ({
-            len(SQL_ADVANCED_TESTS)} testes)"
-    )
+    num_sql = len(SQL_ADVANCED_TESTS)
+    print(f"\n\n{'=' * 80}")
+    print(f"📝 CATEGORIA 4: SQL INJECTION AVANÇADO ({num_sql} testes)")
     print("=" * 80)
     all_results["sql_advanced"] = await run_test_category(
         SQL_ADVANCED_TESTS, "SQL Advanced"
@@ -901,12 +895,9 @@ async def main():
     print("=" * 80)
     all_results["evasion"] = await run_test_category(EVASION_TESTS, "Evasion")
 
-    # Categoria 6: Schema Exfiltration
-    print("\n\n" + "=" * 80)
-    print(
-        f"📝 CATEGORIA 6: SCHEMA EXFILTRATION ({
-            len(SCHEMA_EXFIL_TESTS)} testes)"
-    )
+    num_schema = len(SCHEMA_EXFIL_TESTS)
+    print(f"\n\n{'=' * 80}")
+    print(f"📝 CATEGORIA 6: SCHEMA EXFILTRATION ({num_schema} testes)")
     print("=" * 80)
     all_results["schema_exfil"] = await run_test_category(
         SCHEMA_EXFIL_TESTS, "Schema Exfil"
