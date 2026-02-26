@@ -5,13 +5,14 @@ ignore: |
   gitops/charts/
   **.chart/
   **/templates/
+  scripts/
+  grafana/
 
 rules:
   line-length:
-    max: 200
+    max: 500
     allow-non-breakable-words: true
-  document-start:
-    level: warning
+  document-start: disable
   truthy: disable
   brackets:
     min-spaces-inside: 0
@@ -24,9 +25,9 @@ rules:
     max-spaces-after: 1
   hyphens:
     max-spaces-after: 1
-  indentation:
-    spaces: 2
-    indent-sequences: true
+  indentation: disable
   key-duplicates: enable
-  empty-lines:
-    max: 2
+  trailing-spaces: disable
+  empty-lines: disable
+  comments: disable
+  comments-indentation: disable

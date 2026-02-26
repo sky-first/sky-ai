@@ -34,7 +34,7 @@ spec:
   egress:
     # DNS
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: UDP
           port: 53
@@ -71,7 +71,7 @@ spec:
 
     # External HTTPS (OpenAI, etc)
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector: { }
       ports:
         - protocol: TCP
           port: 443
@@ -87,38 +87,38 @@ spec:
     matchLabels:
       app: sky-frontend
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   # INGRESS: Apenas nginx-ingress
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 3000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
 
   # EGRESS: Frontend pode sair para:
   # 1. Backend API (10.3.x.x:80 ou 10.2.x.x:8000)
   # 2. DNS (53)
   egress:
-  # DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: UDP
+          port: 53
 
-  # Backend API
-  - to:
-    - podSelector:
-        matchLabels:
-          app: sky-backend
-    ports:
-    - protocol: TCP
-      port: 8000
+    # Backend API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sky-backend
+      ports:
+        - protocol: TCP
+          port: 8000
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -131,26 +131,26 @@ spec:
     matchLabels:
       app: sky-ai
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   # INGRESS: Apenas nginx-ingress + backend (para async tasks)
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 8001
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8001
 
-  - from:
-    - podSelector:
-        matchLabels:
-          app: sky-backend
-    ports:
-    - protocol: TCP
-      port: 8001
+    - from:
+        - podSelector:
+            matchLabels:
+              app: sky-backend
+      ports:
+        - protocol: TCP
+          port: 8001
 
   # EGRESS: AI pode sair para:
   # 1. OpenAI API (external, 443)
@@ -158,40 +158,40 @@ spec:
   # 3. DNS (53)
   # 4. Loki (monitoring)
   egress:
-  # DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: UDP
+          port: 53
 
-  # Redis (celery)
-  - to:
-    - podSelector:
-        matchLabels:
-          app: redis
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Redis (celery)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
 
-  # Loki
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: monitoring
-      podSelector:
-        matchLabels:
-          app: loki
-    ports:
-    - protocol: TCP
-      port: 3100
+    # Loki
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
 
-  # External HTTPS (OpenAI)
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: TCP
-      port: 443
+    # External HTTPS (OpenAI)
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: TCP
+          port: 443
 
 ---
 # Metadata label para monitoring namespace

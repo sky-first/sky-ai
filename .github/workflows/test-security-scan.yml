@@ -1,3 +1,4 @@
+---
 name: Test - Security Scan Template
 on:
   workflow_dispatch:

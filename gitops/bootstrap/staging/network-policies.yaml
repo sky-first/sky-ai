@@ -12,75 +12,84 @@ spec:
     matchLabels:
       app.kubernetes.io/instance: sky-be-stg
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
-  # INGRESS: nginx-ingress + kubelet health checks
+  # INGRESS: nginx-ingress + frontend + kubelet health checks
   ingress:
-  # Kubelet health checks (readiness/liveness probes) - Restrito ao CIDR da VNET do Cluster
-  - from:
-    - ipBlock:
-        cidr: 10.1.0.0/16
-    ports:
-    - protocol: TCP
-      port: 8000
+    # Kubelet health checks (readiness/liveness probes)
+    - from:
+        - ipBlock:
+            cidr: 10.1.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8000
 
-  # Nginx Ingress Controller
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 8000
+    # Nginx Ingress Controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+
+    # Frontend communication (Service-to-Service)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-fe-stg
+      ports:
+        - protocol: TCP
+          port: 8000
 
   # EGRESS: Backend pode sair apenas para:
   egress:
-  # DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: UDP
+          port: 53
 
-  # Postgres (internal)
-  - to:
-    - podSelector:
-        matchLabels:
-          app: postgres
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Postgres (internal)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
 
-  # Redis (internal)
-  - to:
-    - podSelector:
-        matchLabels:
-          app: redis
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Redis (internal)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
 
-  # AI Service (internal)
-  - to:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-ai-stg
-    ports:
-    - protocol: TCP
-      port: 8001
+    # AI Service (internal)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-ai-stg
+      ports:
+        - protocol: TCP
+          port: 8001
 
-  # External HTTPS (OpenAI, BigQuery, etc)
-  - to:
-    - ipBlock:
-        cidr: 0.0.0.0/0
-        except:
-        - 10.0.0.0/8
-        - 172.16.0.0/12
-        - 192.168.0.0/16
-    ports:
-    - protocol: TCP
-      port: 443
+    # External HTTPS (OpenAI, BigQuery, etc)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -93,43 +102,45 @@ spec:
     matchLabels:
       app.kubernetes.io/instance: sky-fe-stg
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   # INGRESS: nginx-ingress + kubelet health checks
   ingress:
-  # Kubelet health checks
-  - from:
-    - podSelector: {}
-    ports:
-    - protocol: TCP
-      port: 3000
-  # Nginx Ingress Controller
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 3000
+    # Kubelet health checks
+    - from:
+        - podSelector: { }
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Nginx Ingress Controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
 
   # EGRESS: Frontend pode sair para:
   egress:
-  # DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: UDP
+          port: 53
 
-  # Backend API (ingress ou service IP)
-  - to:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-be-stg
-    ports:
-    - protocol: TCP
-      port: 8000
+    # Backend API (ingress ou service IP)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-be-stg
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 80
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -142,65 +153,65 @@ spec:
     matchLabels:
       app.kubernetes.io/instance: sky-ai-stg
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 
   # INGRESS: backend + kubelet health checks
   ingress:
-  # Kubelet health checks
-  - from:
-    - podSelector: {}
-    ports:
-    - protocol: TCP
-      port: 8001
-  # Backend service
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-be-stg
-    ports:
-    - protocol: TCP
-      port: 8001
+    # Kubelet health checks
+    - from:
+        - podSelector: { }
+      ports:
+        - protocol: TCP
+          port: 8001
+    # Backend service
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-be-stg
+      ports:
+        - protocol: TCP
+          port: 8001
 
   # EGRESS: AI pode sair para:
   egress:
-  # DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+    # DNS
+    - to:
+        - namespaceSelector: { }
+      ports:
+        - protocol: UDP
+          port: 53
 
-  # Postgres (internal)
-  - to:
-    - podSelector:
-        matchLabels:
-          app: postgres
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Postgres (internal)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
 
-  # Redis (celery)
-  - to:
-    - podSelector:
-        matchLabels:
-          app: redis
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Redis (celery)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
 
 
-  # External HTTPS (OpenAI)
-  - to:
-    - ipBlock:
-        cidr: 0.0.0.0/0
-        except:
-        - 10.0.0.0/8
-        - 172.16.0.0/12
-        - 192.168.0.0/16
-    ports:
-    - protocol: TCP
-      port: 443
+    # External HTTPS (OpenAI)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
 
 ---
 # Network Policy for PostgreSQL
@@ -215,42 +226,42 @@ spec:
     matchLabels:
       app: postgres
   policyTypes:
-  - Ingress
+    - Ingress
 
   ingress:
-  # Allow from backend
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-be-stg
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Allow from backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-be-stg
+      ports:
+        - protocol: TCP
+          port: 5432
   
-  # Allow from AI service
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-ai-stg
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Allow from AI service
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-ai-stg
+      ports:
+        - protocol: TCP
+          port: 5432
   
-  # Allow from frontend (if needed for migrations)
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-fe-stg
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Allow from frontend (if needed for migrations)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-fe-stg
+      ports:
+        - protocol: TCP
+          port: 5432
 
-  # Allow health checks from same namespace
-  - from:
-    - podSelector: {}
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Allow health checks from same namespace
+    - from:
+        - podSelector: { }
+      ports:
+        - protocol: TCP
+          port: 5432
 
 ---
 # Network Policy for Redis
@@ -265,33 +276,33 @@ spec:
     matchLabels:
       app: redis
   policyTypes:
-  - Ingress
+    - Ingress
   
   ingress:
-  # Allow from backend
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-be-stg
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Allow from backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-be-stg
+      ports:
+        - protocol: TCP
+          port: 6379
       
-  # Allow from AI service
-  - from:
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/instance: sky-ai-stg
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Allow from AI service
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: sky-ai-stg
+      ports:
+        - protocol: TCP
+          port: 6379
       
-  # Allow health checks from same namespace (safe default)
-  - from:
-    - podSelector: {}
-    ports:
-    - protocol: TCP
-      port: 6379
+    # Allow health checks from same namespace (safe default)
+    - from:
+        - podSelector: { }
+      ports:
+        - protocol: TCP
+          port: 6379
 
 ---
 # Network Policy for Data Team PostgreSQL
@@ -305,19 +316,19 @@ spec:
     matchLabels:
       app: pg-data-team
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  # Allow health checks from Kubelet (VNET IP)
-  - from:
-    - ipBlock:
-        cidr: 10.1.0.0/16
-    ports:
-    - protocol: TCP
-      port: 5432
-  # Allow external access from Public Internet
-  - from:
-    - ipBlock:
-        cidr: 0.0.0.0/0
-    ports:
-    - protocol: TCP
-      port: 5432
+    # Allow health checks from Kubelet (VNET IP)
+    - from:
+        - ipBlock:
+            cidr: 10.1.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow external access from Public Internet
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -80,6 +80,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISABLE_ALL: true
           VALIDATE_YAML: true
+          YAML_CONFIG_FILE: yamllint.yml
           # Skip Helm templates which cause syntax errors in standard YAML linters
           FILTER_REGEX_EXCLUDE: ".*gitops/charts/.*"
           # Super-linter will auto-detect .github/linters/yamllint.yml
