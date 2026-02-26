@@ -78,6 +78,7 @@ jobs:
     env:
       TESTING: "True"
       OPENAI_API_KEY: "sk-dummy-key-for-unit-tests"
+      OLLAMA_BASE_URL: "http://localhost:11434"
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
