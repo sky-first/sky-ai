@@ -41,15 +41,15 @@ securityContext:
 probes:
   liveness:
     path: /health
-    initialDelaySeconds: 15
-    periodSeconds: 5
-    timeoutSeconds: 5
+    initialDelaySeconds: 45 # AUMENTADO: De 15 para 45 para nós sobrecarregados
+    periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 3
   readiness:
     path: /health # MUDANÇA ESSENCIAL: Garante que o Ingress libere o tráfego
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    timeoutSeconds: 5
+    initialDelaySeconds: 30 # AUMENTADO: De 10 para 30 para nós sobrecarregados
+    periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 3
 # P0.1: Local temporary storage for Read-Only Root FS
 extraVolumes:
