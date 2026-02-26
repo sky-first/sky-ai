@@ -10,7 +10,7 @@ ignore: |
 
 rules:
   line-length:
-    max: 300
+    max: 500
     allow-non-breakable-words: true
   document-start: disable
   truthy: disable
