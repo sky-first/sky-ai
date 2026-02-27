@@ -30,7 +30,7 @@ spec:
           # Persistência habilitada
           persistence:
             enabled: true
-            size: 20Gi
+            size: 50Gi # Alinhado ao PVC real provisionado no cluster
             storageClassName: default
 
           # Configuração do Loki
@@ -99,14 +99,15 @@ spec:
               max_outstanding_per_tenant: 200
               compress_responses: true
 
-          # Recursos
+          # Recursos - QoS Guaranteed (requests == limits)
+          # Fix: 512Mi era insuficiente causando CrashLoop (763 restarts)
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 200m
+              memory: 1Gi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 2Gi
 
         # =============================================================
         # PROMTAIL - Log Collector

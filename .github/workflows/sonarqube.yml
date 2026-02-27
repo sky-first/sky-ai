@@ -4,6 +4,11 @@ name: SonarQube Analysis
 on:
   push:
     branches: [ staging, main ]
+    paths-ignore:
+      # Ignora commits automáticos do app-release.yml (update de image tag)
+      # O ArgoCD cuida do rollout - SonarQube não precisa rodar para isso
+      - "gitops/charts/**/values-*.yaml"
+      - "gitops/bootstrap/**"
   pull_request:
     types: [opened, synchronize, reopened]
 

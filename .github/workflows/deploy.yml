@@ -9,11 +9,16 @@ on:
   push:
     branches: [staging, main]
     paths:
+      # Infra Azure (Terraform) — sempre roda
       - "infra/**"
       - "scripts/**"
-      - "gitops/**"
       - ".github/workflows/deploy.yml"
       - ".github/actions/**"
+      # GitOps estrutural: bootstrap e ArgoCD root — roda Terraform
+      # EXCLUÍDO: gitops/charts/**/values-*.yaml (image tags gerenciados pelo ArgoCD)
+      # Esses commits automáticos do app-release.yml NÃO devem disparar Terraform
+      - "gitops/bootstrap/**"
+      - "gitops/argocd/**"
   workflow_dispatch:
     inputs:
       environment:
@@ -35,13 +40,12 @@ on:
         type: boolean
         default: false
 
-# Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
+# Concurrency control: garante que apenas 1 operação Terraform rode por ambiente.
+# cancel-in-progress: true → o workflow mais recente sempre vence.
+# Isso protege o Azure Blob lease do tfstate contra race conditions e deadlocks.
 concurrency:
   group: terraform-deploy-${{ github.ref_name }}
-  cancel-in-progress: false
-
-# Concurrency removed as per user request for immediate execution
-# WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
+  cancel-in-progress: true
 
 env:
   TERRAFORM_VERSION: "1.9.0"

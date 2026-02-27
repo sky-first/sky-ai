@@ -35,7 +35,7 @@ spec:
             memory: "512Mi"
             cpu: "200m"
           limits:
-            memory: "1Gi"
+            memory: "1536Mi" # Aumentado para suporte a embeddings OpenAI
             cpu: "1000m"
         ingress:
           enabled: true
@@ -45,14 +45,14 @@ spec:
             nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
-            - host: workspace-stg-ollama.skyfirstlabs.com
+            - host: workspace-stg-ollama.skyfirstlabs.com # TODO: renomear para workspace-stg-ai.skyfirstlabs.com (exige atualização DNS simultânea)
               paths:
                 - path: /
                   pathType: Prefix
           tls:
             - secretName: sky-ai-stg-tls
               hosts:
-                - workspace-stg-ollama.skyfirstlabs.com
+                - workspace-stg-ollama.skyfirstlabs.com # TODO: alinhar com DNS ao renomear
         probes:
           liveness:
             path: /docs
@@ -136,11 +136,10 @@ spec:
           - name: DEBUG
             value: "false"
           - name: AI_PROVIDER
-            value: "openai"
+            value: "openai" # Exclusivo - Ollama removido
           - name: ROLLOUT_TRIGGER
             value: "2026-02-09T16:00:00Z"
-          - name: OLLAMA_BASE_URL
-            value: "http://127.0.0.1:11434"
+          # OLLAMA_BASE_URL e OLLAMA_MODEL removidos - utilizando exclusivamente OpenAI via OPENAI_API_KEY no Secret
 
   destination:
     server: "https://kubernetes.default.svc"
