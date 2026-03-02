@@ -2383,7 +2383,7 @@ async def query_connection(
                     space_id=body.space_id,
                     question=body.question,
                     embedding=query_embedding,
-                    response_json=response.model_dump()
+                    response_json=response.model_dump(mode='json')
                 )
                 db.add(cache_record)
                 await db.commit()

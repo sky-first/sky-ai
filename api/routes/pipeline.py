@@ -118,7 +118,7 @@ async def execute_pipeline(
                     result_data = {
                         "answer": result.answer,
                         "data_sample": result.data_sample,
-                        "meta": result.meta.dict() if hasattr(result.meta, 'dict') else result.meta,
+                        "meta": result.meta.model_dump(mode='json') if hasattr(result.meta, 'model_dump') else result.meta,
                     }
                 elif agent_id:
                     # Usar agent query
