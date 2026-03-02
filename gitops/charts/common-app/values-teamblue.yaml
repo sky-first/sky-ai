@@ -11,11 +11,14 @@ monitoring:
   retention_days: 7
 
 image:
-  repository: nginx
-  tag: latest
+  repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+  tag: sha-c1f75dae69a6b10bb1e8baa053662ded7032c928
+
+imagePullSecrets:
+  - name: regcred
 
 service:
-  targetPort: 80
+  targetPort: 3000
 
 ingress:
   enabled: true
@@ -32,6 +35,10 @@ ingress:
     - secretName: teamblue-plat-tls
       hosts:
         - "plataform.teamblue-stg.skyfirstlabs.com"
+
+extraEnv:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://workspace-stg.skyfirstlabs.com/api/v1"
 
 externalSecret:
   enabled: true
