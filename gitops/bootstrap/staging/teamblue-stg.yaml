@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: staging
+    targetRevision: DO2025-968-devops-simulacao-de-clientes
     helm:
       valueFiles:
         - values-teamblue.yaml
