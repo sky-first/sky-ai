@@ -1,6 +1,6 @@
 ---
 image:
-  tag: "sha-e533e9ba0f861aec212ae9baf34fc86725c93e16"
+  tag: "sha-967c92b4e04bef4734967eb6475e2878cf98d969"
 # QoS: Guaranteed (Noisy Neighbor Isolation Cage)
 resources:
   requests:
@@ -20,7 +20,7 @@ securityContext:
   capabilities:
     drop:
       - ALL
-  # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+      # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
 # P0.1: Temporary directory for AI frameworks (TensorFlow, PyTorch, etc)
 extraVolumes:
   - name: tmp-volume
