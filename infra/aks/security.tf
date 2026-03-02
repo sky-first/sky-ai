@@ -110,7 +110,7 @@ resource "azurerm_federated_identity_credential" "eso" {
   resource_group_name = azurerm_resource_group.aks.name
   parent_id           = azurerm_user_assigned_identity.eso.id
   audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.aks.oidc_issuer_url
+  issuer              = var.oidc_issuer_url != "" ? var.oidc_issuer_url : azurerm_kubernetes_cluster.aks.oidc_issuer_url
   subject             = "system:serviceaccount:external-secrets:external-secrets"
 }
 

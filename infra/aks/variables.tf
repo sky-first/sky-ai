@@ -107,3 +107,8 @@ variable "backup_retention_days" {
     prod    = 365
   }
 }
+variable "oidc_issuer_url" {
+  description = "The OIDC Issuer URL for the AKS cluster (used for workload identity)"
+  type        = string
+  default     = "" # If empty, it will fallback to the dynamic cluster output in resources
+}

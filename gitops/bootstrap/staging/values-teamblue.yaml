@@ -1,0 +1,16 @@
+global:
+  client_slug: "teamblue"
+  domain: "plataform.teamblue-stg.skyfirstlabs.com"
+
+frontend:
+  branding:
+
+    logo_url: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+
+monitoring:
+  grafana_host: "grafana.plataform.teamblue-stg.skyfirstlabs.com"
+  retention_days: 7 
+
+image:
+  repository: nginx
+  tag: latest
