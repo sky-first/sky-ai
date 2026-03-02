@@ -138,7 +138,11 @@ spec:
           - name: AI_PROVIDER
             value: "openai" # Exclusivo - Ollama removido
           - name: ROLLOUT_TRIGGER
-            value: "2026-02-09T16:00:00Z"
+            value: "2026-03-02T12:35:00Z"
+          - name: OLLAMA_BASE_URL
+            value: "http://ollama.ollama.svc.cluster.local:11434"
+          - name: OLLAMA_MODEL
+            value: "llama2"
           # OLLAMA_BASE_URL e OLLAMA_MODEL removidos - utilizando exclusivamente OpenAI via OPENAI_API_KEY no Secret
 
   destination:
