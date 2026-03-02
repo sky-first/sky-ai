@@ -26,4 +26,4 @@ spec:
   data:
   - secretKey: password
     remoteRef:
-      key: acr-password
+      key: ACR-PASSWORD
