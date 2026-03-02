@@ -90,7 +90,7 @@ resource "azurerm_federated_identity_credential" "db_backup" {
   resource_group_name = var.resource_group_name
   audience            = ["api://AzureADTokenExchange"]
   # Use the production issuer URL discovered via CLI
-  issuer    = var.environment == "prod" ? "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/a0bef504-bd1f-4c4f-91f7-4e40cc6782fd/" : "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/04bef504-bd1f-4c4f-91f7-4e40cc6782fd/"
+  issuer    = var.oidc_issuer_url != "" ? var.oidc_issuer_url : (var.environment == "prod" ? "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/a0bef504-bd1f-4c4f-91f7-4e40cc6782fd/" : "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/04bef504-bd1f-4c4f-91f7-4e40cc6782fd/")
   parent_id = azurerm_user_assigned_identity.db_backup.id
 
   # Links to the ServiceAccount in K8s
