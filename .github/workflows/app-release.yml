@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# Garante que apenas um job de deploy por branch rode por vez.
+# cancel-in-progress: false -> o job mais recente aguarda na fila (não cancela o anterior).
+concurrency:
+  group: gitops-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Promote Image Tag
@@ -17,7 +23,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITOPS_PUSH_TOKEN }}
-
 
       - name: Install yq
         run: |
@@ -71,14 +76,27 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           git add ${{ steps.vars.outputs.values_file }}
-          
-          # Only commit if there are changes
+
+          # Somente commita se houver mudanças
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             git commit -m "chore(gitops): update ${{ steps.vars.outputs.mapped_app }} image tag to ${{ steps.vars.outputs.image_tag }}"
-            git push origin ${{ github.ref_name }}
-          fi
 
+            # Anti-fragile push: rebase automático em caso de race condition
+            for i in {1..5}; do
+              if git push origin ${{ github.ref_name }}; then
+                echo "Push realizado com sucesso."
+                exit 0
+              fi
+              echo "Push rejeitado (colisão). Recuperando via rebase (tentativa $i/5)..."
+              git pull --rebase origin ${{ github.ref_name }}
+              # Jitter aleatório para evitar thundering herd entre runners
+              sleep $((RANDOM % 5 + 3))
+            done
+
+            echo "::error::Push falhou após 5 tentativas. Intervenção manual necessária."
+            exit 1
+          fi
