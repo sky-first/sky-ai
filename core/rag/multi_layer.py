@@ -405,7 +405,72 @@ def retrieve_glossary_rag(
 
 
 # ============================================================================
-# Parallel Orchestrator — asyncio.gather over all 5 layers
+# NEW Context Layers (Placeholders for Vector Search with Similarity Thresholds)
+# ============================================================================
+
+def retrieve_catalog_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Data Catalog, Connections, Systems
+    return []
+
+def retrieve_analytics_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Lineage, Quality, Provenance
+    return []
+
+def retrieve_strategy_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Objectives, OKRs, Initiatives
+    return []
+
+def retrieve_governance_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Governance, Legal, Compliance, Permissions
+    return []
+
+def retrieve_enterprise_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Enterprise Graph, Hidden Dependencies
+    return []
+
+def retrieve_signals_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[Session] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 2
+) -> List[str]:
+    # Placeholder for Signals, Events, Macro Trends
+    return []
+
+
+# ============================================================================
+# Parallel Orchestrator — asyncio.gather over all layers
 # ============================================================================
 
 async def retrieve_all_layers_async(
@@ -432,13 +497,19 @@ async def retrieve_all_layers_async(
         """Wrap a sync function to run in the thread pool."""
         return fn(*args, **kwargs)
 
-    # Dispatch all 5 layers concurrently
+    # Dispatch all layers concurrently
     (
         schema_results,
         metrics_results,
         questions_results,
         comments_results,
         glossary_results,
+        catalog_results,
+        analytics_results,
+        strategy_results,
+        governance_results,
+        enterprise_results,
+        signals_results,
     ) = await asyncio.gather(
         loop.run_in_executor(
             _rag_executor,
@@ -496,6 +567,72 @@ async def retrieve_all_layers_async(
                 top_k=2,
             ),
         ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_catalog_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_analytics_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_strategy_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_governance_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_enterprise_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
+        loop.run_in_executor(
+            _rag_executor,
+            lambda: _run(
+                retrieve_signals_rag,
+                question=question,
+                embedding_provider=embedding_provider,
+                db=db,
+                space_id=space_id,
+                top_k=2,
+            ),
+        ),
     )
 
     total_chunks = (
@@ -504,6 +641,12 @@ async def retrieve_all_layers_async(
         + len(questions_results)
         + len(comments_results)
         + len(glossary_results)
+        + len(catalog_results)
+        + len(analytics_results)
+        + len(strategy_results)
+        + len(governance_results)
+        + len(enterprise_results)
+        + len(signals_results)
     )
 
     log_event(
@@ -514,6 +657,12 @@ async def retrieve_all_layers_async(
             "questions_chunks": len(questions_results),
             "comments_chunks": len(comments_results),
             "glossary_chunks": len(glossary_results),
+            "catalog_chunks": len(catalog_results),
+            "analytics_chunks": len(analytics_results),
+            "strategy_chunks": len(strategy_results),
+            "governance_chunks": len(governance_results),
+            "enterprise_chunks": len(enterprise_results),
+            "signals_chunks": len(signals_results),
             "total_chunks": total_chunks,
         },
     )
@@ -524,6 +673,12 @@ async def retrieve_all_layers_async(
         "questions_rag": questions_results,
         "comments_rag": comments_results,
         "glossary_rag": glossary_results,
+        "catalog_rag": catalog_results,
+        "analytics_rag": analytics_results,
+        "strategy_rag": strategy_results,
+        "governance_rag": governance_results,
+        "enterprise_rag": enterprise_results,
+        "signals_rag": signals_results,
     }
 
 
