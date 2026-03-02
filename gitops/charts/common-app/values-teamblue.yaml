@@ -4,12 +4,11 @@ global:
 
 frontend:
   branding:
-
     logo_url: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
 
 monitoring:
   grafana_host: "grafana.plataform.teamblue-stg.skyfirstlabs.com"
-  retention_days: 7 
+  retention_days: 7
 
 image:
   repository: nginx
@@ -23,6 +22,7 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
   hosts:
     - host: "plataform.teamblue-stg.skyfirstlabs.com"
       paths:
