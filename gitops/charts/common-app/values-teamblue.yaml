@@ -1,0 +1,55 @@
+global:
+  client_slug: "teamblue"
+  domain: "plataform.teamblue-stg.skyfirstlabs.com"
+
+frontend:
+  branding:
+    logo_url: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+
+monitoring:
+  grafana_host: "grafana.plataform.teamblue-stg.skyfirstlabs.com"
+  retention_days: 7
+
+image:
+  repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+  tag: sha-c1f75dae69a6b10bb1e8baa053662ded7032c928
+
+imagePullSecrets:
+  - name: regcred
+
+service:
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: "plataform.teamblue-stg.skyfirstlabs.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: teamblue-plat-tls
+      hosts:
+        - "plataform.teamblue-stg.skyfirstlabs.com"
+
+extraEnv:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://workspace-stg.skyfirstlabs.com/api/v1"
+
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: teamblue-keyvault-cluster
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: DATABASE-URL
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: JWT-SECRET
