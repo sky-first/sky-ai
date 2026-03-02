@@ -109,6 +109,12 @@ def build_context_bundle(
                 "questions_rag": [],
                 "comments_rag": [],
                 "glossary_rag": [],
+                "catalog_rag": [],
+                "analytics_rag": [],
+                "strategy_rag": [],
+                "governance_rag": [],
+                "enterprise_rag": [],
+                "signals_rag": [],
             }
 
         historical_ctx = HistoricalContext(
@@ -117,6 +123,12 @@ def build_context_bundle(
             questions_rag=rag_results["questions_rag"],
             comments_rag=rag_results["comments_rag"],
             glossary_rag=rag_results["glossary_rag"],
+            catalog_rag=rag_results.get("catalog_rag", []),
+            analytics_rag=rag_results.get("analytics_rag", []),
+            strategy_rag=rag_results.get("strategy_rag", []),
+            governance_rag=rag_results.get("governance_rag", []),
+            enterprise_rag=rag_results.get("enterprise_rag", []),
+            signals_rag=rag_results.get("signals_rag", []),
             chat_history=state.get("chat_history", [])[-4:]  # Last 4 messages only
         )
 
@@ -128,6 +140,12 @@ def build_context_bundle(
                 "questions_chunks": len(historical_ctx.questions_rag),
                 "comments_chunks": len(historical_ctx.comments_rag),
                 "glossary_chunks": len(historical_ctx.glossary_rag),
+                "catalog_chunks": len(historical_ctx.catalog_rag),
+                "analytics_chunks": len(historical_ctx.analytics_rag),
+                "strategy_chunks": len(historical_ctx.strategy_rag),
+                "governance_chunks": len(historical_ctx.governance_rag),
+                "enterprise_chunks": len(historical_ctx.enterprise_rag),
+                "signals_chunks": len(historical_ctx.signals_rag),
                 "total_chunks": historical_ctx.total_chunks(),
             }
         )
@@ -173,6 +191,12 @@ def build_context_bundle(
                 "questions": len(historical_ctx.questions_rag),
                 "comments": len(historical_ctx.comments_rag),
                 "glossary": len(historical_ctx.glossary_rag),
+                "catalog": len(historical_ctx.catalog_rag),
+                "analytics": len(historical_ctx.analytics_rag),
+                "strategy": len(historical_ctx.strategy_rag),
+                "governance": len(historical_ctx.governance_rag),
+                "enterprise": len(historical_ctx.enterprise_rag),
+                "signals": len(historical_ctx.signals_rag),
             }
         }
     )
@@ -368,6 +392,12 @@ def _estimate_bundle_tokens(bundle: ContextBundle) -> int:
     total_chars += sum(len(chunk) for chunk in bundle.historical.questions_rag)
     total_chars += sum(len(chunk) for chunk in bundle.historical.comments_rag)
     total_chars += sum(len(chunk) for chunk in bundle.historical.glossary_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.catalog_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.analytics_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.strategy_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.governance_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.enterprise_rag)
+    total_chars += sum(len(chunk) for chunk in bundle.historical.signals_rag)
     
     # Chat history
     for msg in bundle.historical.chat_history:
@@ -401,33 +431,76 @@ def _truncate_bundle(bundle: ContextBundle, max_tokens: int) -> ContextBundle:
         return bundle
     
     # Truncate RAG layers in reverse priority order
-    # Start with glossary (lowest priority)
+    
+    # 1. Signals (lowest priority for SQL matching)
+    if bundle.historical.signals_rag and tokens_to_remove > 0:
+        removed = len(bundle.historical.signals_rag)
+        bundle.historical.signals_rag = []
+        tokens_to_remove -= removed * 50
+        truncation_details["signals_rag"] = f"removed {removed} chunks"
+        
+    # 2. Enterprise
+    if bundle.historical.enterprise_rag and tokens_to_remove > 0:
+        removed = len(bundle.historical.enterprise_rag)
+        bundle.historical.enterprise_rag = []
+        tokens_to_remove -= removed * 50
+        truncation_details["enterprise_rag"] = f"removed {removed} chunks"
+        
+    # 3. Catalog
+    if bundle.historical.catalog_rag and tokens_to_remove > 0:
+        removed = len(bundle.historical.catalog_rag)
+        bundle.historical.catalog_rag = []
+        tokens_to_remove -= removed * 50
+        truncation_details["catalog_rag"] = f"removed {removed} chunks"
+
+    # 4. Glossary
     if bundle.historical.glossary_rag and tokens_to_remove > 0:
         removed = len(bundle.historical.glossary_rag)
         bundle.historical.glossary_rag = []
         tokens_to_remove -= removed * 50  # Assume ~50 tokens per chunk
         truncation_details["glossary_rag"] = f"removed {removed} chunks"
     
-    # Comments
+    # 5. Comments
     if bundle.historical.comments_rag and tokens_to_remove > 0:
         removed = len(bundle.historical.comments_rag)
         bundle.historical.comments_rag = []
         tokens_to_remove -= removed * 40
         truncation_details["comments_rag"] = f"removed {removed} chunks"
-    
-    # Metrics (keep top 1)
+        
+    # 6. Analytics (Lineage/Quality)
+    if bundle.historical.analytics_rag and tokens_to_remove > 0:
+        removed = len(bundle.historical.analytics_rag)
+        bundle.historical.analytics_rag = []
+        tokens_to_remove -= removed * 50
+        truncation_details["analytics_rag"] = f"removed {removed} chunks"
+
+    # 7. Metrics (keep top 1)
     if len(bundle.historical.metrics_rag) > 1 and tokens_to_remove > 0:
         removed = len(bundle.historical.metrics_rag) - 1
         bundle.historical.metrics_rag = bundle.historical.metrics_rag[:1]
         tokens_to_remove -= removed * 60
         truncation_details["metrics_rag"] = f"kept 1/{removed + 1} chunks"
-    
-    # Questions (keep top 2)
+
+    # 8. Questions (keep top 2)
     if len(bundle.historical.questions_rag) > 2 and tokens_to_remove > 0:
         removed = len(bundle.historical.questions_rag) - 2
         bundle.historical.questions_rag = bundle.historical.questions_rag[:2]
         tokens_to_remove -= removed * 70
         truncation_details["questions_rag"] = f"kept 2/{removed + 2} chunks"
+        
+    # 9. Strategy (OKRs/Goals)
+    if bundle.historical.strategy_rag and tokens_to_remove > 0:
+        removed = len(bundle.historical.strategy_rag)
+        bundle.historical.strategy_rag = []
+        tokens_to_remove -= removed * 50
+        truncation_details["strategy_rag"] = f"removed {removed} chunks"
+        
+    # 10. Governance (highly sensitive, try to keep)
+    if len(bundle.historical.governance_rag) > 1 and tokens_to_remove > 0:
+        removed = len(bundle.historical.governance_rag) - 1
+        bundle.historical.governance_rag = bundle.historical.governance_rag[:1]
+        tokens_to_remove -= removed * 50
+        truncation_details["governance_rag"] = f"kept 1/{removed + 1} chunks"
     
     # Schema (keep top 2) - highest priority, truncate last
     if len(bundle.historical.schema_rag) > 2 and tokens_to_remove > 0:

@@ -100,6 +100,26 @@ def _serialize_for_orchestrator(bundle: ContextBundle) -> str:
         parts.append(f"[ENTITIES: {', '.join(bundle.query.entities)}]")
     if bundle.query.metrics:
         parts.append(f"[METRICS: {', '.join(bundle.query.metrics)}]")
+        
+    # SÓ INJETA SE TIVER DADO RELEVANTE!
+    
+    # Strategy RAG (High-Level Intent/Objectives)
+    if bundle.historical.strategy_rag:
+        parts.append("\n[BUSINESS OBJECTIVES & OKRs]")
+        for chunk in bundle.historical.strategy_rag[:1]:
+            parts.append(f"- {chunk}")
+
+    # Governance (Access limits, compliance)
+    if bundle.historical.governance_rag:
+        parts.append("\n[GOVERNANCE & COMPLIANCE WARNING]")
+        for chunk in bundle.historical.governance_rag[:1]:
+            parts.append(f"- {chunk}")
+
+    # Signals (Macro Events)
+    if bundle.historical.signals_rag:
+        parts.append("\n[MARKET SIGNALS & EVENTS]")
+        for chunk in bundle.historical.signals_rag[:1]:
+            parts.append(f"- {chunk}")
     
     # Schema RAG (table semantics)
     if bundle.historical.schema_rag:
@@ -143,6 +163,30 @@ def _serialize_for_specialist(bundle: ContextBundle) -> str:
         parts.append("[MULTI-TABLE: Use JOINs to combine data]")
     if bundle.query.time_range:
         parts.append(f"[TIME RANGE: {bundle.query.time_range}]")
+        
+    # Analytics / Lineage RAG (Data quality warnings)
+    if bundle.historical.analytics_rag:
+        parts.append("\n[DATA QUALITY & LINEAGE WARNING]")
+        for chunk in bundle.historical.analytics_rag[:1]:
+            parts.append(f"- ATENÇÃO: {chunk}")
+            
+    # Enterprise Graph (Systemic dependencies)
+    if bundle.historical.enterprise_rag:
+        parts.append("\n[SYSTEMIC DEPENDENCIES]")
+        for chunk in bundle.historical.enterprise_rag[:1]:
+            parts.append(f"- {chunk}")
+
+    # Governance & Permissions (CRITICAL FOR SQL GENERATION)
+    if bundle.historical.governance_rag:
+        parts.append("\n[SECURITY & GOVERNANCE POLICIES]")
+        for chunk in bundle.historical.governance_rag: # Injeta TODAS as políticas de gov retidas
+            parts.append(f"- {chunk}")
+
+    # Catalog RAG (Connection issues/infra context)
+    if bundle.historical.catalog_rag:
+        parts.append("\n[DATA CATALOG & INFRASTRUCTURE]")
+        for chunk in bundle.historical.catalog_rag[:1]:
+            parts.append(f"- {chunk}")
     
     # Schema RAG (most important for SQL)
     if bundle.historical.schema_rag:
@@ -239,6 +283,12 @@ def _serialize_full(bundle: ContextBundle) -> str:
     parts.append(f"- Questions RAG: {len(bundle.historical.questions_rag)} chunks")
     parts.append(f"- Comments RAG: {len(bundle.historical.comments_rag)} chunks")
     parts.append(f"- Glossary RAG: {len(bundle.historical.glossary_rag)} chunks")
+    parts.append(f"- Catalog RAG: {len(bundle.historical.catalog_rag)} chunks")
+    parts.append(f"- Analytics RAG: {len(bundle.historical.analytics_rag)} chunks")
+    parts.append(f"- Strategy RAG: {len(bundle.historical.strategy_rag)} chunks")
+    parts.append(f"- Governance RAG: {len(bundle.historical.governance_rag)} chunks")
+    parts.append(f"- Enterprise RAG: {len(bundle.historical.enterprise_rag)} chunks")
+    parts.append(f"- Signals RAG: {len(bundle.historical.signals_rag)} chunks")
     parts.append(f"- Chat History: {len(bundle.historical.chat_history)} messages")
     
     # Token info

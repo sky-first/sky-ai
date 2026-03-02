@@ -134,6 +134,14 @@ class HistoricalContext:
     # Layer 5: Business glossary
     glossary_rag: List[str] = field(default_factory=list)
     
+    # NOVAS CAMADAS (Carregadas dinamicamente via RAG com alto threshold)
+    catalog_rag: List[str] = field(default_factory=list)      # Data Catalog, Conexões, Infraestrutura
+    analytics_rag: List[str] = field(default_factory=list)    # Lineage, Qualidade, Compliance de dados
+    strategy_rag: List[str] = field(default_factory=list)     # Objetivos, OKRs, Metas corporativas
+    governance_rag: List[str] = field(default_factory=list)   # Governança, Permissões, Auditoria
+    enterprise_rag: List[str] = field(default_factory=list)   # Grafos da empresa, Relações sistêmicas
+    signals_rag: List[str] = field(default_factory=list)      # Sazonalidade, Eventos, Ciclos macroeconômicos
+    
     # Traditional context
     chat_history: List[Dict[str, str]] = field(default_factory=list)
     
@@ -145,6 +153,12 @@ class HistoricalContext:
             "questions_rag_count": len(self.questions_rag),
             "comments_rag_count": len(self.comments_rag),
             "glossary_rag_count": len(self.glossary_rag),
+            "catalog_rag_count": len(self.catalog_rag),
+            "analytics_rag_count": len(self.analytics_rag),
+            "strategy_rag_count": len(self.strategy_rag),
+            "governance_rag_count": len(self.governance_rag),
+            "enterprise_rag_count": len(self.enterprise_rag),
+            "signals_rag_count": len(self.signals_rag),
             "chat_history_count": len(self.chat_history),
         }
     
@@ -155,7 +169,13 @@ class HistoricalContext:
             len(self.metrics_rag) +
             len(self.questions_rag) +
             len(self.comments_rag) +
-            len(self.glossary_rag)
+            len(self.glossary_rag) +
+            len(self.catalog_rag) +
+            len(self.analytics_rag) +
+            len(self.strategy_rag) +
+            len(self.governance_rag) +
+            len(self.enterprise_rag) +
+            len(self.signals_rag)
         )
 
 
