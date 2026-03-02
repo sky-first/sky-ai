@@ -69,7 +69,7 @@ spec:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
             hosts:
               - grafana.135.18.146.170.nip.io
             path: /
@@ -143,7 +143,7 @@ spec:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
             hosts:
               - prometheus.135.18.146.170.nip.io
             paths:
@@ -181,7 +181,7 @@ spec:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
             hosts:
               - alertmanager.135.18.146.170.nip.io
             paths:
