@@ -23,18 +23,6 @@ securityContext:
     drop:
       - ALL
 
-probes:
-  liveness:
-    path: /health
-    initialDelaySeconds: 60
-    periodSeconds: 10
-    failureThreshold: 5
-  readiness:
-    path: /health
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    failureThreshold: 3
-
 extraVolumes:
   - name: tmp-volume
     emptyDir:
@@ -52,13 +40,11 @@ extraEnvFrom:
       name: teamblue-infra-secrets
 
 extraEnv:
-  - name: AI_PROVIDER
-    value: "openai"
-  - name: OLLAMA_BASE_URL
-    value: "http://localhost:11434" # Dummy for Pydantic validation
   - name: REDIS_HOST
     value: "redis"
   - name: REDIS_PORT
     value: "6379"
   - name: DEBUG
     value: "false"
+  - name: OLLAMA_BASE_URL
+    value: "http://localhost:11434" # Dummy value to satisfy Pydantic validation when AI_PROVIDER=openai

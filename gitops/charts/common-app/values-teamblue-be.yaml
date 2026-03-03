@@ -67,8 +67,11 @@ extraEnvFrom:
       name: teamblue-infra-secrets
 
 extraEnv:
-  - name: DATABASE_URL
-    value: "postgresql+asyncpg://postgres:sky-teamblue-stg-pass@postgres.teamblue.svc.cluster.local:5432/ai_saas_db"
+  - name: JWT_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: sky-be-stg-secrets
+        key: JWT_SECRET
   - name: REDIS_HOST
     value: "redis" # Resolved via local service in teamblue namespace
   - name: REDIS_PORT
