@@ -138,8 +138,9 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
             else f"{c.name} ({c.type})"
             for c in (t.columns or [])[:8]
         )
+        desc_part = f" | description: {t.description}" if getattr(t, "description", None) else ""
         parts.append(
-            f"- {t.logical_name} -> physical: {t.physical_name} | columns: {col_desc}"
+            f"- {t.logical_name} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
         )
     return "\n".join(parts)
 
