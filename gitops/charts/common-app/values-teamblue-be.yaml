@@ -59,13 +59,7 @@ probes:
     path: /health
     initialDelaySeconds: 15
 
-# Map the synced secrets from teamblue-secrets-sync.yaml
-extraEnvFrom:
-  - secretRef:
-      name: sky-be-stg-secrets
-  - secretRef:
-      name: teamblue-infra-secrets
-
+# Extra environment variables
 extraEnv:
   - name: DATABASE_URL
     value: "postgresql+asyncpg://postgres:sky-teamblue-stg-pass@postgres.teamblue.svc.cluster.local:5432/ai_saas_db"
@@ -86,6 +80,13 @@ extraEnv:
     value: "http://sky-teamblue-ai-suite-common-app.teamblue.svc.cluster.local"
   - name: CORS_ORIGINS
     value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+
+# Map the synced secrets from teamblue-secrets-sync.yaml
+extraEnvFrom:
+  - secretRef:
+      name: sky-be-stg-secrets
+  - secretRef:
+      name: teamblue-infra-secrets
 
 migration:
   enabled: true
