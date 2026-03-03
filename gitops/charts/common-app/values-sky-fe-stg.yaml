@@ -1,6 +1,6 @@
 ---
 image:
-  tag: "sha-c1f75dae69a6b10bb1e8baa053662ded7032c928"
+  tag: "sha-2c2b6a9f7e08ac743b97eff5ef37388d2279ad2b"
 replicaCount: 2
 # QoS: Burstable (Low Latency / CPU Bursting)
 resources:
