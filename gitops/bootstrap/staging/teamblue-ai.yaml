@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: fix/teamblue-login-connectivity
+    targetRevision: staging
     helm:
       valueFiles:
         - values-teamblue-ai.yaml
