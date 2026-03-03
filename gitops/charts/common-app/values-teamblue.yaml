@@ -70,13 +70,3 @@ externalSecret:
     - secretKey: JWT_SECRET
       remoteRef:
         key: JWT-SECRET
-
-extraVolumes:
-  - name: teamblue-index
-    configMap:
-      name: teamblue-index
-
-extraVolumeMounts:
-  - name: teamblue-index
-    mountPath: /usr/share/nginx/html/index.html
-    subPath: index.html
