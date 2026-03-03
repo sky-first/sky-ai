@@ -66,7 +66,8 @@ extraEnvFrom:
   - secretRef:
       name: teamblue-infra-secrets
 
-extraEnv:
+  - name: DATABASE_URL
+    value: "postgresql+asyncpg://postgres:sky-teamblue-stg-pass@postgres.teamblue.svc.cluster.local:5432/ai_saas_db"
   - name: REDIS_HOST
     value: "redis" # Resolved via local service in teamblue namespace
   - name: REDIS_PORT
@@ -76,7 +77,7 @@ extraEnv:
   - name: AI_SERVICE_TYPE
     value: "real"
   - name: AI_SERVICE_URL
-    value: "http://sky-ai-teamblue.teamblue.svc.cluster.local"
+    value: "http://sky-teamblue-ai-suite-common-app.teamblue.svc.cluster.local"
   - name: CORS_ORIGINS
     value: "https://plataform.teamblue-stg.skyfirstlabs.com"
 
