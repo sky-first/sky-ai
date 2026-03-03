@@ -46,6 +46,13 @@ extraEnv:
     value: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
   - name: NEXT_PUBLIC_FAVICON_URL
     value: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+  - name: NEXTAUTH_URL
+    value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+  - name: NEXTAUTH_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: sky-teamblue-stg-common-app-secrets
+        key: JWT_SECRET
 
 extraVolumes:
   - name: teamblue-branding
