@@ -2118,6 +2118,7 @@ async def load_agent_config_from_connection(
                                 "name": str(cname),
                                 "type": str(c.get("type") or c.get("data_type") or "STRING"),
                                 "nullable": bool(c.get("nullable", True)),
+                                "description": c.get("description"),
                             }
                         )
 
@@ -2125,6 +2126,7 @@ async def load_agent_config_from_connection(
                     TableSchema(
                         logical_name=logical_name,
                         physical_name=physical_name,
+                        description=t.get("description"),
                         columns=columns,
                     )
                 )
@@ -2162,7 +2164,7 @@ async def load_agent_config_from_connection(
     
     # Construir query SQL com filtro de permissões
     query_sql = """
-        SELECT table_name, column_name, data_type, is_nullable
+        SELECT table_name, column_name, data_type, is_nullable, description
         FROM table_metadata
         WHERE space_id = :space_id AND data_connection_id = :conn_id
     """
@@ -2216,7 +2218,8 @@ async def load_agent_config_from_connection(
         tables[table_name].append({
             "column_name": row[1],
             "data_type": row[2] or "STRING",
-            "is_nullable": row[3] or False
+            "is_nullable": row[3] or False,
+            "description": row[4]
         })
     
     log_event(
@@ -2283,7 +2286,8 @@ async def load_agent_config_from_connection(
                      {
                          "name": c["column_name"],
                          "type": c["data_type"],
-                         "nullable": c["is_nullable"]
+                         "nullable": c["is_nullable"],
+                         "description": c["description"]
                      }
                      for c in columns
                 ],

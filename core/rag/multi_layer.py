@@ -68,6 +68,8 @@ def retrieve_schema_rag(
     for table in tables[:top_k]:
         # Basic table info
         table_info = f"{table.logical_name}: {len(table.columns)} columns"
+        if getattr(table, "description", None):
+            table_info += f" - Description: {table.description}"
         
         # Add sample columns (first 5)
         sample_cols = []
@@ -75,11 +77,16 @@ def retrieve_schema_rag(
             if isinstance(col, dict):
                 col_name = col.get("name", "")
                 col_type = col.get("type", "")
+                col_desc = col.get("description", "")
             else:
                 col_name = getattr(col, "name", "")
                 col_type = str(getattr(col, "type", ""))
+                col_desc = getattr(col, "description", "")
             
-            sample_cols.append(f"{col_name} ({col_type})")
+            col_info = f"{col_name} ({col_type})"
+            if col_desc:
+                col_info += f" - {col_desc}"
+            sample_cols.append(col_info)
         
         if sample_cols:
             table_info += f" - Sample columns: {', '.join(sample_cols)}"
@@ -128,6 +135,8 @@ def retrieve_schema_rag(
         for table in tables[:top_k]:
              # Basic table info
             table_info = f"{table.logical_name}: {len(table.columns)} columns"
+            if getattr(table, "description", None):
+                table_info += f" - Description: {table.description}"
             results.append(table_info)
     
     log_event(
