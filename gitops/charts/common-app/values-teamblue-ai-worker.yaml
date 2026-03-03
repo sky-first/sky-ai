@@ -23,6 +23,18 @@ securityContext:
     drop:
       - ALL
 
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 3
+
 extraVolumes:
   - name: tmp-volume
     emptyDir:
