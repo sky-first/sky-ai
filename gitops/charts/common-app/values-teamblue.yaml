@@ -26,22 +26,8 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/server-snippet: |
-      location /api/ {
-          proxy_pass https://workspace-stg.skyfirstlabs.com/api/v1/;
-          proxy_ssl_server_name on;
-      }
-      location = /login {
-          error_page 418 = @proxy_login_post;
-          if ($request_method = POST) {
-              return 418;
-          }
-          proxy_pass http://sky-teamblue-stg-common-app.teamblue.svc.cluster.local:80;
-      }
-      location @proxy_login_post {
-          proxy_pass https://workspace-stg.skyfirstlabs.com/api/v1/login;
-          proxy_ssl_server_name on;
-      }
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
   hosts:
     - host: "plataform.teamblue-stg.skyfirstlabs.com"
       paths:
@@ -52,9 +38,10 @@ ingress:
       hosts:
         - "plataform.teamblue-stg.skyfirstlabs.com"
 
+# P0.1: Client Isolation (NEXT_PUBLIC pointing to dedicated BE)
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://workspace-stg.skyfirstlabs.com/api/v1"
+    value: "https://api.teamblue-stg.skyfirstlabs.com/api/v1"
   - name: NEXT_PUBLIC_LOGO_URL
     value: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
   - name: NEXT_PUBLIC_FAVICON_URL

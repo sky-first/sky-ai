@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-teamblue-be
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: staging
+    helm:
+      valueFiles:
+        - values-teamblue-be.yaml
+      values: |
+        image:
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
+        imagePullSecrets:
+          - name: regcred
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: teamblue
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

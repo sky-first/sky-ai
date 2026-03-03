@@ -1,0 +1,84 @@
+---
+image:
+  tag: "sha-5c1f949fdb34cd06fc7ce1897346dd7e33ebf92a"
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  port: 80
+  targetPort: 8000
+
+# Backend doesn't need external ingress typically, only internal for FE
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  hosts:
+    - host: api.teamblue-stg.skyfirstlabs.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: teamblue-be-tls
+      hosts:
+        - api.teamblue-stg.skyfirstlabs.com
+
+# Reloader for Secrets/ConfigMaps
+podAnnotations:
+  reloader.stakater.com/auto: "true"
+
+# Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+  readiness:
+    path: /health
+    initialDelaySeconds: 15
+
+# Map the synced secrets from teamblue-secrets-sync.yaml
+extraEnvFrom:
+  - secretRef:
+      name: sky-be-stg-secrets # This is the secret created by teamblue-secrets-sync.yaml
+
+extraEnv:
+  - name: REDIS_HOST
+    value: "redis" # Resolved via local service in teamblue namespace
+  - name: REDIS_PORT
+    value: "6379"
+  - name: DEBUG
+    value: "true"
+  - name: AI_SERVICE_TYPE
+    value: "real"
+  - name: AI_SERVICE_URL
+    value: "http://sky-ai-teamblue.teamblue.svc.cluster.local"
+  - name: CORS_ORIGINS
+    value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+
+migration:
+  enabled: true
+  command: ["/bin/sh", "-c"]
+  args: ["alembic upgrade head || echo 'Migration already applied'"]
