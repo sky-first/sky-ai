@@ -40,6 +40,10 @@ extraEnvFrom:
       name: teamblue-infra-secrets
 
 extraEnv:
+  - name: AI_PROVIDER
+    value: "openai"
+  - name: OLLAMA_BASE_URL
+    value: "http://localhost:11434" # Dummy for Pydantic validation
   - name: REDIS_HOST
     value: "redis"
   - name: REDIS_PORT
