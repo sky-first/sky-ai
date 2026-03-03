@@ -1,13 +1,13 @@
 ---
 extends: default
 
-ignore: |
-  gitops/charts/
-  **.chart/
-  **/templates/
-  scripts/
-  grafana/
-  gitops/bootstrap/staging/teamblue-branding-cm.yaml
+ignore:
+  - gitops/charts/
+  - "**.chart/"
+  - "**/templates/"
+  - scripts/
+  - grafana/
+  - gitops/bootstrap/staging/teamblue-branding-cm.yaml
 
 rules:
   line-length:
