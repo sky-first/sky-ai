@@ -56,9 +56,6 @@ extraVolumeMounts:
   - name: teamblue-branding
     mountPath: /app/public/favicon.ico
     subPath: favicon.ico
-  - name: teamblue-branding
-    mountPath: /app/.next/server/app/icon.png
-    subPath: logo.png
 
 externalSecret:
   enabled: true
