@@ -62,7 +62,9 @@ probes:
 # Map the synced secrets from teamblue-secrets-sync.yaml
 extraEnvFrom:
   - secretRef:
-      name: sky-be-stg-secrets # This is the secret created by teamblue-secrets-sync.yaml
+      name: sky-be-stg-secrets
+  - secretRef:
+      name: teamblue-infra-secrets
 
 extraEnv:
   - name: REDIS_HOST

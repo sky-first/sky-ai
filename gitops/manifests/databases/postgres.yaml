@@ -52,7 +52,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: password
+                  key: postgres-password
           ports:
             - containerPort: 9187
               name: metrics
@@ -80,7 +80,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: password
+                  key: postgres-password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           resources:

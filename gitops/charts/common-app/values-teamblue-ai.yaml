@@ -40,7 +40,9 @@ probes:
 
 extraEnvFrom:
   - secretRef:
-      name: sky-be-stg-secrets # Segredos sincronizados via teamblue-secrets-sync
+      name: sky-be-stg-secrets
+  - secretRef:
+      name: teamblue-infra-secrets
 
 extraEnv:
   - name: AI_PROVIDER

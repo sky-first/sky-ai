@@ -61,7 +61,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: redis-secret
-                  key: password
+                  key: redis-password
           ports:
             - containerPort: 6379
               name: redis

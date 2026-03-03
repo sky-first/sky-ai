@@ -36,6 +36,8 @@ extraVolumeMounts:
 extraEnvFrom:
   - secretRef:
       name: sky-be-stg-secrets
+  - secretRef:
+      name: teamblue-infra-secrets
 
 extraEnv:
   - name: REDIS_HOST
