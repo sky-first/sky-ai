@@ -14,6 +14,7 @@ spec:
         namespace: monitoring
         commonLabels:
           release: kube-prometheus-stack
+          prometheus: staging  # Alinhamento com o seletor da Produção
         serviceMonitors:
           backend:
             enabled: true
