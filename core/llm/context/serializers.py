@@ -167,7 +167,7 @@ def _serialize_for_specialist(bundle: ContextBundle) -> str:
     - Comments RAG (user corrections about column usage)
     """
     parts = []
-    
+
     # Minimal user context (specialist doesn't need full role details)
     parts.append(f"[USER ROLE: {bundle.user.platform_role}]")
     

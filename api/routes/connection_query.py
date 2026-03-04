@@ -550,6 +550,7 @@ async def _filter_tables_by_permissions(
     space_id: str,
     tables: list[dict],
     crew_ids: Optional[List[str]] = None,
+    strict_mode: bool = False,
 ) -> list[dict]:
     """
     Filtra tabelas baseado em permissões (space_id + crew_ids).
@@ -564,6 +565,8 @@ async def _filter_tables_by_permissions(
         space_id: ID do space
         tables: Lista de tabelas do connection_metadata.tables
         crew_ids: Lista opcional de crew_ids para filtrar
+        strict_mode: Se True (modo colaborativo), falhas de permissão retornam lista vazia
+                     em vez de todas as tabelas. Previne vazamento de dados em modo crew.
         
     Returns:
         Lista filtrada de tabelas que o usuário tem permissão
@@ -633,8 +636,19 @@ async def _filter_tables_by_permissions(
             except Exception:
                 pass
 
-            # IMPORTANTE: Se a tabela não existe, retornamos todas as tabelas (sem filtro)
-            # Isso é o comportamento fallback seguro.
+            # SEGURANÇA: Em strict_mode (modo colaborativo), falha de DB => lista vazia.
+            # Em modo personal/fallback, retornar todas as tabelas.
+            if strict_mode:
+                log_event(
+                    "table_filter_strict_mode_db_error",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "crew_ids": crew_ids,
+                        "error": str(e)[:200],
+                    },
+                )
+                return []  # Fail-closed: não vazar dados de outras crews
             return tables
         
         # Filtrar tabelas baseado em allowed_table_names
@@ -650,11 +664,10 @@ async def _filter_tables_by_permissions(
             if full_name in allowed_table_names or name in allowed_table_names:
                 filtered_tables.append(t)
         
-        # Se não encontramos correspondências em table_metadata, retornar todas
-        # (pode ser que table_metadata não esteja populado ainda)
+        # Se não encontramos correspondências em table_metadata:
         if not filtered_tables and allowed_table_names:
-            # Se há allowed_table_names mas não encontramos match, pode ser problema de normalização
-            # Retornar todas por segurança
+            # Há allowed_table_names no DB mas nenhuma tabela do metadata coincide.
+            # Pode ser problema de normalização de nome (schema.table vs table).
             log_event(
                 "bootstrap_table_filter_no_matches",
                 {
@@ -663,22 +676,48 @@ async def _filter_tables_by_permissions(
                     "crew_ids": crew_ids,
                     "total_tables": len(tables),
                     "allowed_table_names_count": len(allowed_table_names),
+                    "strict_mode": strict_mode,
                 },
             )
-            return tables
+            # SEGURANÇA: Em strict_mode (modo colaborativo), problema de normalização
+            # NÃO deve abrir acesso a todas as tabelas — retornar vazio.
+            if strict_mode:
+                return []  # Fail-closed
+            return tables  # Modo personal: fail-open (sem dados de crew configurados)
         
-        return filtered_tables if filtered_tables else tables
+        # Se não há nenhum registro em table_metadata (tabela não configurada)
+        if not filtered_tables and not allowed_table_names:
+            # table_metadata não tem registros para este space/connection
+            # Em modo personal: retornar todas (sem restrições configuradas ainda)
+            # Em strict_mode: retornar vazio (política de negação por padrão)
+            if strict_mode:
+                log_event(
+                    "table_filter_strict_mode_no_metadata",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "crew_ids": crew_ids,
+                    },
+                )
+                return []  # Fail-closed
+            return tables
+
+        return filtered_tables
         
     except Exception as e:
-        # Se der erro ao filtrar, retornar todas as tabelas (fail-safe)
+        # Se der erro ao filtrar:
         log_event(
             "bootstrap_table_filter_error",
             {
                 "connection_id": connection_id,
                 "space_id": space_id,
                 "error": str(e)[:500],
+                "strict_mode": strict_mode,
             },
         )
+        # SEGURANÇA: Em strict_mode, erro => lista vazia (fail-closed)
+        if strict_mode:
+            return []
         return tables
 
 
@@ -703,12 +742,14 @@ async def _get_allowed_tables_for_validation(
             return []
         
         # Filtrar por permissões
+        # strict_mode=True quando há crew_ids (modo colaborativo) para evitar vazamento de dados
         filtered_tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=space_id,
             tables=all_tables,
-            crew_ids=crew_ids
+            crew_ids=crew_ids,
+            strict_mode=bool(crew_ids),  # Fail-closed quando restrito a crews específicas
         )
         
         # Extrair apenas nomes
@@ -1258,12 +1299,16 @@ async def chat_bootstrap(
         tables = all_tables
     else:
         # Modo collaborative: filtrar por permissões
+        # strict_mode=True quando há crew_ids específicos (modo colaborativo real)
+        # strict_mode=False quando não há crew_ids (guest, sem permissões configuradas)
+        is_strict = bool(resolved_crew_ids)  # strict quando tem crews definidos
         tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=body.space_id,
             tables=all_tables,
             crew_ids=resolved_crew_ids,
+            strict_mode=is_strict,
         )
     
     if not tables:
