@@ -478,7 +478,11 @@ jobs:
         if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
-          terraform init -input=false -backend-config=backend.hcl
+          # Limpar cache do Terraform restaurado pela action de setup para evitar drift de workspace
+          echo "Limpando metadados locais do Terraform..."
+          rm -rf .terraform .terraform.lock.hcl
+          
+          terraform init -input=false -reconfigure -backend-config=backend.hcl
 
       - name: Select Workspace
         if: steps.changes.outputs.infra == 'true'
