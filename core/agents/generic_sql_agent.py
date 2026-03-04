@@ -64,6 +64,10 @@ class AgentState(TypedDict, total=False):
     chosen_tables_physical: Optional[List[str]]  # physical_names correspondentes (novo)
     join_relationships: Optional[List[Dict[str, str]]]  # relacionamentos para JOINs (novo)
 
+    # Relacionamentos documentados pelo cliente (explicit) passados pelo AI engine
+    # Format: [{from_table, from_column, to_table, to_column, join_type, label}]
+    explicit_relationships: Optional[List[Dict[str, str]]]
+
     # Saída do specialist
     # Multi-source fields
     is_multi_source: bool
@@ -408,6 +412,7 @@ def run_agent_once(
     sql_instructions: Optional[str] = None,
     selected_datasets: Optional[List[str]] = None,
     chat_history: Optional[List[Dict[str, str]]] = None,
+    explicit_relationships: Optional[List[Dict[str, str]]] = None,
 ) -> AgentState:
     """
     Função de alto nível:
@@ -465,6 +470,7 @@ def run_agent_once(
         "response_format": response_format,
         "sql_instructions": sql_instructions,
         "selected_datasets": selected_datasets,
+        "explicit_relationships": explicit_relationships or [],  # Relacionamentos documentados pelo cliente
     }
 
     # Use checkpointer context manager to acquire and release connection
