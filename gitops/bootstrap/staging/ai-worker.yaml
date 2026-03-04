@@ -42,7 +42,7 @@ spec:
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault
+            name: azure-keyvault-staging  # Corrigido: azure-keyvault não existe no cluster
             kind: ClusterSecretStore
           target:
             name: sky-ai-worker-stg-secrets
