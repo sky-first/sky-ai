@@ -33,15 +33,20 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # Branding: Altera o título da aba de SKY para TeamBlue
-    # Como o título está hardcoded no build, usamos sub_filter para substituir no body
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Branding: Altera o título da aba de "SKY" para "TeamBlue"
+    # O sub_filter substitui no corpo do HTML e no RSC (React Server Components)
+    # proxy_set_header Accept-Encoding "" impede que o backend comprima a resposta, permitindo o filtro
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Accept-Encoding "";
       sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
-      sub_filter '{"children":"SKY"}' '{"children":"TeamBlue"}';
+      sub_filter '"children":"SKY"' '"children":"TeamBlue"';
+      sub_filter '"title":"SKY"' '"title":"TeamBlue"';
       sub_filter_once off;
-      sub_filter_types text/html text/javascript application/json;
-    # Favicon/Icon override: server-snippet injeta no nível do server{} do NGINX
-    # Intercepta /icon.png e /favicon.ico antes do Next.js para servir o logo TeamBlue
+      sub_filter_types text/html text/javascript application/json text/x-component;
+    # Favicon: server-snippet injeta no nível server{} para permitir novas locations
     nginx.ingress.kubernetes.io/server-snippet: |
       location = /icon.png {
         return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;

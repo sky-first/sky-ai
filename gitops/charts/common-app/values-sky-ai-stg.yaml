@@ -1,6 +1,6 @@
 ---
 image:
-  tag: "sha-f05df3e245a5a59aecdeb507222a69ed549d3ef3"
+  tag: "sha-ea32a792b30c3ff963806d252f209947c5c4cbdb"
 # QoS: Guaranteed (Noisy Neighbor Isolation Cage)
 resources:
   requests:
