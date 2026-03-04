@@ -45,7 +45,7 @@ ingress:
       sub_filter '"children":"SKY"' '"children":"TeamBlue"';
       sub_filter '"title":"SKY"' '"title":"TeamBlue"';
       sub_filter_once off;
-      sub_filter_types text/html text/javascript application/json;
+      sub_filter_types text/html text/javascript application/json text/x-component;
     # Favicon: server-snippet injeta no nível server{} para permitir novas locations
     nginx.ingress.kubernetes.io/server-snippet: |
       location = /icon.png {
