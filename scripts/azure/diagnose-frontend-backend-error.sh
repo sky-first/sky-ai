@@ -11,7 +11,7 @@ cd "$PROJECT_DIR" || {
     elif [ -d ~/projeto/poc-deploy ]; then
         cd ~/projeto/poc-deploy
     else
-        echo "❌ ERRO: Diretório do projeto não encontrado"
+        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
         exit 1
     fi
 }
@@ -24,18 +24,18 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-log_error() { echo -e "${RED}❌ $1${NC}"; }
-log_section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN}▶ $1${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; }
+log_info() { echo -e "${BLUE}ℹ  $1${NC}"; }
+log_success() { echo -e "${GREEN}[OK] $1${NC}"; }
+log_warning() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}"; }
+log_section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN} $1${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; }
 
 ERRORS=0
 WARNINGS=0
 FIXES_APPLIED=0
 
 echo "=========================================="
-echo "🔍 DIAGNÓSTICO: Erro Frontend → Backend"
+echo " DIAGNÓSTICO: Erro Frontend → Backend"
 echo "=========================================="
 echo "Erro: 'Failed to load data. Please check if the backend is running on port 8000'"
 echo ""

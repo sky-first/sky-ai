@@ -36,7 +36,7 @@ echo -e "${YELLOW}--- Iniciando Rotação de Segredo: $SECRET_NAME ---${NC}"
 echo -e "1. Atualizando segredo no Azure Key Vault [$KV_NAME]..."
 az keyvault secret set --vault-name "$KV_NAME" --name "$SECRET_NAME" --value "$NEW_VALUE" > /dev/null
 
-echo -e "${GREEN}✅ Segredo atualizado no Azure.${NC}"
+echo -e "${GREEN}[OK] Segredo atualizado no Azure.${NC}"
 
 # 2. Forçar sincronização do External Secrets no Kubernetes
 echo -e "2. Notificando External Secrets Operator no namespace [$NAMESPACE]..."
@@ -45,13 +45,13 @@ echo -e "2. Notificando External Secrets Operator no namespace [$NAMESPACE]..."
 ES_NAME=$(kubectl get externalsecrets -n "$NAMESPACE" -o json | jq -r ".items[] | select(.spec.data[].remoteRef.key == \"$SECRET_NAME\") | .metadata.name" | head -n 1)
 
 if [ -z "$ES_NAME" ] || [ "$ES_NAME" == "null" ]; then
-    echo -e "${YELLOW}⚠️ Não foi encontrado um recurso ExternalSecret específico para '$SECRET_NAME'.${NC}"
+    echo -e "${YELLOW}[WARNING]Não foi encontrado um recurso ExternalSecret específico para '$SECRET_NAME'.${NC}"
     echo "   Dica: O External Secrets sincronizará automaticamente conforme o intervalo definido (ex: 1h)."
 else
     echo -e "   Forçando trigger no ExternalSecret: $ES_NAME"
     # Adicionando uma annotation para forçar o refresh imediato
     kubectl annotate externalsecret "$ES_NAME" -n "$NAMESPACE" "force-sync=$(date +%s)" --overwrite
-    echo -e "${GREEN}✅ Trigger de sincronização enviado.${NC}"
+    echo -e "${GREEN}[OK] Trigger de sincronização enviado.${NC}"
 fi
 
 # 3. Verificação (Opcional - Requer privilégios para ler segredos no k8s)
@@ -60,9 +60,9 @@ sleep 5
 SYNC_STATUS=$(kubectl get externalsecret "$ES_NAME" -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
 
 if [ "$SYNC_STATUS" == "True" ]; then
-    echo -e "${GREEN}✅ Sincronização concluída com sucesso!${NC}"
+    echo -e "${GREEN}[OK] Sincronização concluída com sucesso!${NC}"
 else
-    echo -e "${YELLOW}⚠️ O segredo foi atualizado na Azure, mas o Kubernetes ainda está processando.${NC}"
+    echo -e "${YELLOW}[WARNING]O segredo foi atualizado na Azure, mas o Kubernetes ainda está processando.${NC}"
     echo "   Verifique com: kubectl describe externalsecret $ES_NAME -n $NAMESPACE"
 fi
 

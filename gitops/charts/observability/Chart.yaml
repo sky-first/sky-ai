@@ -1,3 +1,4 @@
+---
 apiVersion: v2
 name: observability
 description: Stack de observabilidade customizada (ServiceMonitors, Alertas, Dashboards)

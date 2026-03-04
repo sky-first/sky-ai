@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "🚀 Configurando monitoramento..."
+echo " Configurando monitoramento..."
 
 # Criar diretório de configuração
 mkdir -p "$PROJECT_DIR/monitoring"
@@ -32,7 +32,7 @@ scrape_configs:
       - targets: ['postgres:5432']
 EOF
 
-echo "✅ Configuração do Prometheus criada"
+echo "[OK] Configuração do Prometheus criada"
 
 # Criar docker-compose.monitoring.yml
 cat > "$PROJECT_DIR/docker-compose.monitoring.yml" <<'EOF'
@@ -72,7 +72,7 @@ networks:
     external: true
 EOF
 
-echo "✅ docker-compose.monitoring.yml criado"
+echo "[OK] docker-compose.monitoring.yml criado"
 echo ""
 echo "Para iniciar o monitoramento:"
 echo "  docker compose -f docker-compose.monitoring.yml up -d"

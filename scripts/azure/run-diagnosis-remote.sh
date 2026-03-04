@@ -9,7 +9,7 @@ VM_NAME="${VM_NAME:-poc-sky}"
 VM_IP="${VM_IP:-172.172.134.36}"
 
 echo "=========================================="
-echo "🔍 Executando Diagnóstico Remoto na VM"
+echo " Executando Diagnóstico Remoto na VM"
 echo "=========================================="
 echo ""
 echo "Resource Group: $RESOURCE_GROUP"
@@ -19,7 +19,7 @@ echo ""
 
 # Verificar se Azure CLI está instalado
 if ! command -v az &> /dev/null; then
-    echo "❌ ERRO: Azure CLI não está instalado"
+    echo "[ERROR] ERRO: Azure CLI não está instalado"
     echo "   Instale em: https://aka.ms/installazurecli"
     exit 1
 fi
@@ -27,11 +27,11 @@ fi
 # Verificar se está logado
 echo "Verificando autenticação Azure..."
 if ! az account show &> /dev/null; then
-    echo "❌ Não está autenticado no Azure CLI"
+    echo "[ERROR] Não está autenticado no Azure CLI"
     echo "   Execute: az login"
     exit 1
 fi
-echo "✅ Autenticado no Azure"
+echo "[OK] Autenticado no Azure"
 echo ""
 
 # Script a ser executado na VM
@@ -42,7 +42,7 @@ if [ ! -d "$PROJECT_DIR" ]; then
     if [ -d ~/projeto/poc-deploy ]; then
         PROJECT_DIR=~/projeto/poc-deploy
     else
-        echo "❌ Diretório do projeto não encontrado"
+        echo "[ERROR] Diretório do projeto não encontrado"
         exit 1
     fi
 fi
@@ -63,7 +63,7 @@ if [ ! -f scripts/azure/fix-connection-issue.sh ]; then
         echo "Container: $PROXY"
         sudo docker logs --tail=20 "$PROXY" 2>&1 | tail -10
     else
-        echo "❌ Proxy não está rodando"
+        echo "[ERROR] Proxy não está rodando"
     fi
     
     echo ""
@@ -74,13 +74,13 @@ if [ ! -f scripts/azure/fix-connection-issue.sh ]; then
     echo "=== Configuração Nginx ==="
     if [ -f docker/nginx/nginx.conf ]; then
         if grep -q "return 301 https" docker/nginx/nginx.conf && ! grep -q "# return 301 https" docker/nginx/nginx.conf; then
-            echo "⚠️ PROBLEMA: nginx redirecionando para HTTPS sem certificados"
+            echo "[WARNING]PROBLEMA: nginx redirecionando para HTTPS sem certificados"
             if [ -f docker/nginx/nginx.conf.http-only ]; then
-                echo "🔧 Aplicando correção..."
+                echo " Aplicando correção..."
                 sudo cp docker/nginx/nginx.conf docker/nginx/nginx.conf.backup
                 sudo cp docker/nginx/nginx.conf.http-only docker/nginx/nginx.conf
                 sudo docker compose restart proxy || sudo docker restart "$PROXY" 2>/dev/null || true
-                echo "✅ Correção aplicada"
+                echo "[OK] Correção aplicada"
             fi
         fi
     fi
@@ -105,7 +105,7 @@ OUTPUT=$(az vm run-command invoke \
 
 if [ $? -eq 0 ]; then
     echo "=========================================="
-    echo "✅ Comando executado com sucesso"
+    echo "[OK] Comando executado com sucesso"
     echo "=========================================="
     echo ""
     
@@ -114,7 +114,7 @@ if [ $? -eq 0 ]; then
     
     echo ""
     echo "=========================================="
-    echo "📋 Próximos Passos"
+    echo " Próximos Passos"
     echo "=========================================="
     echo ""
     echo "1. Se o problema foi corrigido, teste a conexão:"
@@ -125,7 +125,7 @@ if [ $? -eq 0 ]; then
     echo "   - Containers estão rodando: az vm run-command invoke -g $RESOURCE_GROUP -n $VM_NAME --command-id RunShellScript --scripts 'sudo docker ps'"
     echo ""
 else
-    echo "❌ ERRO ao executar comando na VM"
+    echo "[ERROR] ERRO ao executar comando na VM"
     echo "$OUTPUT"
     exit 1
 fi

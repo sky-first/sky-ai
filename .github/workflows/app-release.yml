@@ -1,0 +1,102 @@
+---
+name: Application Deployment (GitOps)
+
+on:
+  repository_dispatch:
+    types: [deploy-trigger]
+
+permissions:
+  contents: write
+
+# Garante que apenas um job de deploy por branch rode por vez.
+# cancel-in-progress: false -> o job mais recente aguarda na fila (não cancela o anterior).
+concurrency:
+  group: gitops-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Promote Image Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Infrastructure Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITOPS_PUSH_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+
+      - name: Extract and Map Variables
+        id: vars
+        run: |
+          # Robust payload extraction (supports both 'env' and 'environment')
+          APP_NAME="${{ github.event.client_payload.app_name }}"
+          ENV="${{ github.event.client_payload.env || github.event.client_payload.environment }}"
+          IMAGE_TAG="${{ github.event.client_payload.image_tag || github.event.client_payload.sha }}"
+
+          echo "Original App Name: $APP_NAME"
+          echo "Environment: $ENV"
+          echo "New Tag: $IMAGE_TAG"
+
+          # Map backend/frontend/ai to sky-be/sky-fe/sky-ai
+          case "$APP_NAME" in
+            "backend")  MAPPED_APP="sky-be" ;;
+            "frontend") MAPPED_APP="sky-fe" ;;
+            "ai")       MAPPED_APP="sky-ai" ;;
+            *)          MAPPED_APP="$APP_NAME" ;;
+          esac
+
+          # Environment suffix mapping (prod -> prd, staging -> stg)
+          case "$ENV" in
+            "prod")     MAPPED_ENV="prd" ;;
+            "staging")  MAPPED_ENV="stg" ;;
+            *)          MAPPED_ENV="$ENV" ;;
+          esac
+
+          VALUES_FILE="gitops/charts/common-app/values-${MAPPED_APP}-${MAPPED_ENV}.yaml"
+          
+          if [ ! -f "$VALUES_FILE" ]; then
+            echo "::error::Values file not found: $VALUES_FILE"
+            exit 1
+          fi
+
+          echo "mapped_app=$MAPPED_APP" >> $GITHUB_OUTPUT
+          echo "values_file=$VALUES_FILE" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update Image Tag
+        run: |
+          yq eval ".image.tag = \"${{ steps.vars.outputs.image_tag }}\"" -i ${{ steps.vars.outputs.values_file }}
+          echo "Updated ${{ steps.vars.outputs.values_file }} with tag ${{ steps.vars.outputs.image_tag }}"
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add ${{ steps.vars.outputs.values_file }}
+
+          # Somente commita se houver mudanças
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(gitops): update ${{ steps.vars.outputs.mapped_app }} image tag to ${{ steps.vars.outputs.image_tag }}"
+
+            # Anti-fragile push: rebase automático em caso de race condition
+            for i in {1..5}; do
+              if git push origin ${{ github.ref_name }}; then
+                echo "Push realizado com sucesso."
+                exit 0
+              fi
+              echo "Push rejeitado (colisão). Recuperando via rebase (tentativa $i/5)..."
+              git pull --rebase origin ${{ github.ref_name }}
+              # Jitter aleatório para evitar thundering herd entre runners
+              sleep $((RANDOM % 5 + 3))
+            done
+
+            echo "::error::Push falhou após 5 tentativas. Intervenção manual necessária."
+            exit 1
+          fi

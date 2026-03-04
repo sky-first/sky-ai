@@ -1,2 +1,53 @@
 image:
-  tag: "staging"
+  tag: "sha-9ebc449"
+
+imagePullSecrets:
+  - name: regcred
+
+# QoS: Guaranteed (Noisy Neighbor Isolation Cage)
+resources:
+  requests:
+    cpu: 500m
+    memory: 1024Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+
+# P0.1: Security Context - Non-Root Execution
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+
+# P0.1: Temporary directory for worker processing
+extraVolumes:
+  - name: tmp-volume
+    emptyDir:
+      sizeLimit: 2Gi # Workers processam arquivos temporários
+
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp
+
+# AI services start slower due to model loading
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5

@@ -14,22 +14,22 @@ fi
 
 echo "Checking if Bastion VM '$BASTION_VM_NAME' exists in Azure..."
 if az vm show --resource-group "$RESOURCE_GROUP" --name "$BASTION_VM_NAME" &>/dev/null; then
-  echo "✅ VM exists in Azure."
+  echo "[OK] VM exists in Azure."
   
   # Switch to Terraform directory
   pushd infra/aks > /dev/null
 
   echo "Checking if VM is already in Terraform state..."
   if terraform state show "$BASTION_TF_ADDR" &>/dev/null; then
-    echo "✅ VM is already in state. No action needed."
+    echo "[OK] VM is already in state. No action needed."
   else
-    echo "⚠️ VM is missing from state. Importing..."
+    echo "[WARNING]VM is missing from state. Importing..."
     VM_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Compute/virtualMachines/$BASTION_VM_NAME"
     
     terraform import "$BASTION_TF_ADDR" "$VM_ID"
-    echo "✅ Import complete."
+    echo "[OK] Import complete."
   fi
   popd > /dev/null
 else
-  echo "ℹ️  VM does not exist in Azure. Terraform will create it."
+  echo "ℹ  VM does not exist in Azure. Terraform will create it."
 fi

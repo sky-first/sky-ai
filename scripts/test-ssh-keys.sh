@@ -15,7 +15,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "🔑 Testando chaves SSH para $VM_USER@$VM_IP"
+echo " Testando chaves SSH para $VM_USER@$VM_IP"
 echo ""
 
 # Lista de chaves para testar
@@ -47,18 +47,18 @@ for key in "${KEYS[@]}"; do
         -o BatchMode=yes \
         -o PasswordAuthentication=no \
         "$VM_USER@$VM_IP" "echo OK" 2>/dev/null | grep -q "OK"; then
-        echo -e "${GREEN}✅ FUNCIONA!${NC}"
+        echo -e "${GREEN}[OK] FUNCIONA!${NC}"
         WORKING_KEY="$key"
         break
     else
-        echo -e "${RED}❌${NC}"
+        echo -e "${RED}[ERROR]${NC}"
     fi
 done
 
 echo ""
 
 if [ -n "$WORKING_KEY" ]; then
-    echo -e "${GREEN}✅ Chave funcionando: $WORKING_KEY${NC}"
+    echo -e "${GREEN}[OK] Chave funcionando: $WORKING_KEY${NC}"
     echo ""
     echo "Para usar esta chave no deploy:"
     echo "  export SSH_KEY=\"$WORKING_KEY\""
@@ -67,7 +67,7 @@ if [ -n "$WORKING_KEY" ]; then
     echo "  ./scripts/deploy-local-to-vm.sh"
     exit 0
 else
-    echo -e "${RED}❌ Nenhuma chave funcionou${NC}"
+    echo -e "${RED}[ERROR] Nenhuma chave funcionou${NC}"
     echo ""
     echo -e "${YELLOW}Possíveis causas:${NC}"
     echo "  1. Chave pública não está na VM (~/.ssh/authorized_keys)"

@@ -14,7 +14,7 @@ readonly BLUE='\033[0;34m'
 readonly NC='\033[0m'
 
 echo "=========================================="
-echo "📊 AVALIAÇÃO DE ESTABILIDADE DO DEPLOY"
+echo " AVALIAÇÃO DE ESTABILIDADE DO DEPLOY"
 echo "=========================================="
 echo ""
 
@@ -32,13 +32,13 @@ check_item() {
     MAX_SCORE=$((MAX_SCORE + 1))
     
     if [ "$status" = "PASS" ]; then
-        echo -e "${GREEN}✅${NC} $description"
+        echo -e "${GREEN}[OK]${NC} $description"
         SCORE=$((SCORE + 1))
     elif [ "$status" = "WARN" ]; then
-        echo -e "${YELLOW}⚠️ ${NC} $description"
+        echo -e "${YELLOW}[WARNING]${NC} $description"
         WARNINGS=$((WARNINGS + 1))
     else
-        echo -e "${RED}❌${NC} $description"
+        echo -e "${RED}[ERROR]${NC} $description"
         if [ "$critical" = "true" ]; then
             CRITICAL_ISSUES=$((CRITICAL_ISSUES + 1))
         fi
@@ -91,7 +91,7 @@ echo ""
 PERCENTAGE=$((SCORE * 100 / MAX_SCORE))
 
 echo "=========================================="
-echo "📈 RESULTADO DA AVALIAÇÃO"
+echo " RESULTADO DA AVALIAÇÃO"
 echo "=========================================="
 echo ""
 echo "Score: $SCORE/$MAX_SCORE ($PERCENTAGE%)"
@@ -100,26 +100,26 @@ echo "Avisos: $WARNINGS"
 echo ""
 
 if [ $PERCENTAGE -ge 80 ] && [ $CRITICAL_ISSUES -eq 0 ]; then
-    echo -e "${GREEN}✅ DEPLOY ESTÁVEL${NC}"
+    echo -e "${GREEN}[OK] DEPLOY ESTÁVEL${NC}"
     echo ""
     echo "O deploy atual tem alta confiabilidade."
     echo "Com a correção do Redis healthcheck, a estabilidade será garantida."
 elif [ $PERCENTAGE -ge 60 ] && [ $CRITICAL_ISSUES -le 1 ]; then
-    echo -e "${YELLOW}⚠️  DEPLOY PARCIALMENTE ESTÁVEL${NC}"
+    echo -e "${YELLOW}[WARNING] DEPLOY PARCIALMENTE ESTÁVEL${NC}"
     echo ""
     echo "O deploy funciona, mas há melhorias recomendadas:"
     echo "  • Corrigir Redis healthcheck (CRÍTICO)"
     echo "  • Implementar rollback automático"
     echo "  • Adicionar backup antes de migrations"
 else
-    echo -e "${RED}❌ DEPLOY INSTÁVEL${NC}"
+    echo -e "${RED}[ERROR] DEPLOY INSTÁVEL${NC}"
     echo ""
     echo "Há issues críticas que precisam ser resolvidas."
 fi
 
 echo ""
 echo "=========================================="
-echo "🔧 RECOMENDAÇÕES PARA 100% DE ESTABILIDADE"
+echo " RECOMENDAÇÕES PARA 100% DE ESTABILIDADE"
 echo "=========================================="
 echo ""
 echo "CRÍTICO (Fazer agora):"

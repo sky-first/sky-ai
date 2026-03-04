@@ -1,0 +1,112 @@
+global:
+  client_slug: "teamblue"
+  domain: "plataform.teamblue-stg.skyfirstlabs.com"
+
+frontend:
+  branding:
+    logo_url: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+
+monitoring:
+  grafana_host: "grafana.plataform.teamblue-stg.skyfirstlabs.com"
+  retention_days: 7
+
+image:
+  repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+  tag: sha-c1f75dae69a6b10bb1e8baa053662ded7032c928
+
+imagePullSecrets:
+  - name: regcred
+
+service:
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Branding: Altera o título da aba de "SKY" para "TeamBlue"
+    # O sub_filter substitui no corpo do HTML e no RSC (React Server Components)
+    # Incluímos variantes com escapes (\" e \\") para capturar o estado de hidratação do React
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Accept-Encoding "";
+      sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
+      sub_filter '"children":"SKY"' '"children":"TeamBlue"';
+      sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
+      sub_filter '\\\"children\\\":\\\"SKY\\\"' '\\\"children\\\":\\\"TeamBlue\\\"';
+      sub_filter '"title":"SKY"' '"title":"TeamBlue"';
+      sub_filter '\"title\":\"SKY\"' '\"title\":\"TeamBlue\"';
+      sub_filter '\\\"title\\\":\\\"SKY\\\"' '\\\"title\\\":\\\"TeamBlue\\\"';
+      sub_filter_once off;
+      sub_filter_types text/html text/javascript application/json text/x-component;
+    # Favicon: server-snippet injeta no nível server{} para permitir novas locations
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /icon.png {
+        return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;
+      }
+      location = /favicon.ico {
+        return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;
+      }
+  hosts:
+    - host: "plataform.teamblue-stg.skyfirstlabs.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: teamblue-plat-tls
+      hosts:
+        - "plataform.teamblue-stg.skyfirstlabs.com"
+
+# P0.1: Client Isolation (NEXT_PUBLIC pointing to dedicated BE)
+extraEnv:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://api.teamblue-stg.skyfirstlabs.com/api/v1"
+  - name: NEXT_PUBLIC_LOGO_URL
+    value: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+  - name: NEXT_PUBLIC_FAVICON_URL
+    value: "https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/logo.png"
+  - name: NEXTAUTH_URL
+    value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+  - name: NEXTAUTH_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: sky-teamblue-stg-common-app-secrets
+        key: JWT_SECRET
+
+extraVolumes:
+  - name: teamblue-branding
+    configMap:
+      name: teamblue-branding
+
+extraVolumeMounts:
+  - name: teamblue-branding
+    mountPath: /app/public/logo.png
+    subPath: logo.png
+  - name: teamblue-branding
+    mountPath: /app/public/favicon.ico
+    subPath: favicon.ico
+
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef:
+    name: teamblue-keyvault-cluster
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: DATABASE-URL
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: JWT-SECRET

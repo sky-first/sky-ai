@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -22,7 +23,7 @@ spec:
               username: sky
               password: "qL2fmcDPM02ec3yj"
               database: ai_saas_db
-        
+
         image:
            registry: skyacrprodel5zpw.azurecr.io
            repository: bitnami/postgresql
@@ -37,17 +38,17 @@ spec:
             readOnlyUser:
               name: sky_readonly
               password: "qL2fmcDPM02ec3yj"
-          
+
           # Streaming replication setup
           maxConnections: 200
           sharedBuffers: 256MB
-        
+
         primary:
           persistence:
             enabled: true
             size: 100Gi
             storageClassName: premium-rwo
-        
+
         readReplicas:
           enabled: true
           replicaCount: 2
@@ -55,7 +56,7 @@ spec:
             enabled: true
             size: 100Gi
             storageClassName: premium-rwo
-        
+
         # Backup configuration
         backup:
           enabled: true
@@ -63,7 +64,7 @@ spec:
             schedule: "0 2 * * *"  # Daily at 2 AM
             storage:
               existingClaim: postgresql-backup-pvc
-        
+
         metrics:
           enabled: true
           image:
@@ -74,11 +75,11 @@ spec:
             enabled: true
             labels:
               prometheus: prod
-  
+
   destination:
     server: https://kubernetes.default.svc
     namespace: prod
-  
+
   syncPolicy:
     automated:
       prune: false  # Never auto-delete DB pods
@@ -106,34 +107,34 @@ spec:
         global:
           imagePullSecrets:
             - regcred
-        
+
         image:
           registry: skyacrprodel5zpw.azurecr.io
           repository: bitnami/redis
           tag: latest
-        
+
         auth:
           enabled: true
           password: "LDVUBr9jYhxnddxhvbDpDliO"
-        
+
         # Architecture standalone to avoid write errors in workers
         architecture: standalone
         sentinel:
           enabled: false
-        
+
         replica:
           replicaCount: 0
           persistence:
             enabled: true
             size: 10Gi
             storageClassName: premium-rwo
-        
+
         master:
           persistence:
             enabled: true
             size: 10Gi
             storageClassName: premium-rwo
-        
+
         # Resource limits
         resources:
           requests:
@@ -142,7 +143,7 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-        
+
         metrics:
           enabled: true
           image:
@@ -153,11 +154,11 @@ spec:
             enabled: true
             labels:
               prometheus: prod
-  
+
   destination:
     server: https://kubernetes.default.svc
     namespace: prod
-  
+
   syncPolicy:
     automated:
       prune: false  # Never auto-delete cache pods

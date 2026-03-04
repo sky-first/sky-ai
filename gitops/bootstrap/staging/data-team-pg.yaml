@@ -1,0 +1,21 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: data-team-pg-stg
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    targetRevision: staging
+    path: gitops/manifests/data-team-pg
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

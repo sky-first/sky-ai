@@ -17,7 +17,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   🔬 Investigação Completa 502 Bad Gateway${NC}"
+echo -e "${CYAN}    Investigação Completa 502 Bad Gateway${NC}"
 echo -e "${CYAN}   Metodologia: Evidência → Correção → Validação${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
@@ -65,13 +65,13 @@ except:
 # FASE 1: COLETAR EVIDÊNCIA ANTES DA CORREÇÃO
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   FASE 1️⃣: COLETAR EVIDÊNCIA (ANTES DA CORREÇÃO)${NC}"
+echo -e "${MAGENTA}   FASE 1.: COLETAR EVIDÊNCIA (ANTES DA CORREÇÃO)${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "${YELLOW}⚠️  NÃO reiniciar nada ainda - apenas coletar evidência${NC}"
+echo -e "${YELLOW}[WARNING] NÃO reiniciar nada ainda - apenas coletar evidência${NC}"
 echo ""
 
-echo -e "${BLUE}1️⃣ Logs do nginx (fonte primária do 502)${NC}"
+echo -e "${BLUE}1. Logs do nginx (fonte primária do 502)${NC}"
 echo -e "${BLUE}   Procurando: connect() failed, upstream closed, no live upstreams${NC}"
 echo ""
 NGINX_LOGS=$(run_vm_command 'docker logs ai_saas_proxy --tail 100 2>&1 | grep -iE "(error|failed|refused|upstream|502|111|113)" | tail -50')
@@ -81,25 +81,25 @@ if [ -n "$NGINX_LOGS" ]; then
     
     # Análise dos erros
     if echo "$NGINX_LOGS" | grep -q "connect() failed (111\|Connection refused"; then
-        echo -e "${RED}🚨 EVIDÊNCIA: Connection refused (111) encontrado${NC}"
-        echo -e "${YELLOW}➡ Nginx tentou conectar ao frontend e foi recusado${NC}"
+        echo -e "${RED} EVIDÊNCIA: Connection refused (111) encontrado${NC}"
+        echo -e "${YELLOW} Nginx tentou conectar ao frontend e foi recusado${NC}"
     fi
     
     if echo "$NGINX_LOGS" | grep -q "upstream prematurely closed\|upstream closed"; then
-        echo -e "${RED}🚨 EVIDÊNCIA: Upstream closed connection${NC}"
-        echo -e "${YELLOW}➡ Frontend crashou ao receber request${NC}"
+        echo -e "${RED} EVIDÊNCIA: Upstream closed connection${NC}"
+        echo -e "${YELLOW} Frontend crashou ao receber request${NC}"
     fi
     
     if echo "$NGINX_LOGS" | grep -q "no live upstreams"; then
-        echo -e "${RED}🚨 EVIDÊNCIA: No live upstreams${NC}"
-        echo -e "${YELLOW}➡ Nenhum upstream disponível${NC}"
+        echo -e "${RED} EVIDÊNCIA: No live upstreams${NC}"
+        echo -e "${YELLOW} Nenhum upstream disponível${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠️  Nenhum erro específico encontrado nos logs recentes${NC}"
+    echo -e "${YELLOW}[WARNING] Nenhum erro específico encontrado nos logs recentes${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}2️⃣ Logs do frontend (onde a verdade está)${NC}"
+echo -e "${BLUE}2. Logs do frontend (onde a verdade está)${NC}"
 echo -e "${BLUE}   Procurando: cold start, crash, porta não aberta${NC}"
 echo ""
 FRONTEND_LOGS=$(run_vm_command 'docker logs ai_saas_frontend_prod --tail 200 2>&1')
@@ -112,42 +112,42 @@ CRASH_DETECTED=false
 PORT_ISSUE=false
 
 if echo "$FRONTEND_LOGS" | grep -q "Creating an optimized production build\|Compiling\|compiling"; then
-    echo -e "${RED}🚨 EVIDÊNCIA: Cold start detectado${NC}"
-    echo -e "${YELLOW}➡ Next.js está compilando em runtime${NC}"
+    echo -e "${RED} EVIDÊNCIA: Cold start detectado${NC}"
+    echo -e "${YELLOW} Next.js está compilando em runtime${NC}"
     COLD_START_DETECTED=true
 fi
 
 if echo "$FRONTEND_LOGS" | grep -q "Error:\|UnhandledPromiseRejection\|Missing environment"; then
-    echo -e "${RED}🚨 EVIDÊNCIA: Erro no frontend${NC}"
-    echo -e "${YELLOW}➡ Frontend pode estar crashando${NC}"
+    echo -e "${RED} EVIDÊNCIA: Erro no frontend${NC}"
+    echo -e "${YELLOW} Frontend pode estar crashando${NC}"
     CRASH_DETECTED=true
 fi
 
 if echo "$FRONTEND_LOGS" | grep -q "Listening on localhost:3000"; then
-    echo -e "${RED}🚨 EVIDÊNCIA: Porta escutando em localhost (não 0.0.0.0)${NC}"
-    echo -e "${YELLOW}➡ Frontend não está acessível externamente${NC}"
+    echo -e "${RED} EVIDÊNCIA: Porta escutando em localhost (não 0.0.0.0)${NC}"
+    echo -e "${YELLOW} Frontend não está acessível externamente${NC}"
     PORT_ISSUE=true
 fi
 
 if echo "$FRONTEND_LOGS" | grep -q "Ready in\|Local:.*3000"; then
-    echo -e "${GREEN}✅ Frontend parece estar pronto${NC}"
+    echo -e "${GREEN}[OK] Frontend parece estar pronto${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}3️⃣ Docker events (eventos do sistema)${NC}"
+echo -e "${BLUE}3. Docker events (eventos do sistema)${NC}"
 echo ""
 DOCKER_EVENTS=$(run_vm_command 'docker events --since 10m --filter "container=ai_saas_frontend_prod" --format "{{.Time}} {{.Action}} {{.Actor.Attributes.name}}" 2>&1 | tail -20 || echo "EVENTS_NAO_DISPONIVEIS"')
 if [ -n "$DOCKER_EVENTS" ] && ! echo "$DOCKER_EVENTS" | grep -q "EVENTS_NAO_DISPONIVEIS"; then
     echo "$DOCKER_EVENTS"
     if echo "$DOCKER_EVENTS" | grep -q "die\|oom"; then
-        echo -e "${RED}🚨 EVIDÊNCIA: Container morreu ou OOM${NC}"
+        echo -e "${RED} EVIDÊNCIA: Container morreu ou OOM${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠️  Docker events não disponível ou sem eventos recentes${NC}"
+    echo -e "${YELLOW}[WARNING] Docker events não disponível ou sem eventos recentes${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}4️⃣ Timeline (correlação de timestamps)${NC}"
+echo -e "${BLUE}4. Timeline (correlação de timestamps)${NC}"
 echo ""
 echo -e "${BLUE}   Timestamp atual:${NC}"
 CURRENT_TIME=$(run_vm_command 'date "+%Y-%m-%d %H:%M:%S"')
@@ -170,7 +170,7 @@ if [ -n "$FRONTEND_LAST" ]; then
 fi
 echo ""
 
-echo -e "${BLUE}5️⃣ Estado real do container frontend${NC}"
+echo -e "${BLUE}5. Estado real do container frontend${NC}"
 echo ""
 FRONTEND_STATE=$(run_vm_command 'docker inspect ai_saas_frontend_prod --format "{{json .State}}" 2>&1 | python3 -c "
 import sys, json
@@ -193,18 +193,18 @@ echo ""
 
 HEALTHCHECK_MISSING=false
 if echo "$FRONTEND_STATE" | grep -q "no healthcheck\|Health: $"; then
-    echo -e "${RED}🚨 EVIDÊNCIA: Frontend NÃO tem healthcheck configurado${NC}"
-    echo -e "${YELLOW}➡ Docker não sabe se o app está pronto${NC}"
+    echo -e "${RED} EVIDÊNCIA: Frontend NÃO tem healthcheck configurado${NC}"
+    echo -e "${YELLOW} Docker não sabe se o app está pronto${NC}"
     HEALTHCHECK_MISSING=true
 fi
 
 if echo "$FRONTEND_STATE" | grep -q "unhealthy"; then
-    echo -e "${RED}🚨 EVIDÊNCIA: Frontend está unhealthy${NC}"
+    echo -e "${RED} EVIDÊNCIA: Frontend está unhealthy${NC}"
 fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 RESUMO DA FASE 1${NC}"
+echo -e "${CYAN}    RESUMO DA FASE 1${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -230,34 +230,34 @@ echo "  - Porta issue: $PORT_ISSUE"
 echo "  - Healthcheck ausente: $HEALTHCHECK_MISSING"
 echo ""
 
-echo -e "${GREEN}✅ Fase 1 concluída - Evidência coletada${NC}"
+echo -e "${GREEN}[OK] Fase 1 concluída - Evidência coletada${NC}"
 echo ""
-echo -e "${YELLOW}💡 Próximo passo: Aplicar correções e validar${NC}"
+echo -e "${YELLOW}[INFO] Próximo passo: Aplicar correções e validar${NC}"
 echo ""
 
 # ============================================================================
 # FASE 2: APLICAR CORREÇÕES (já aplicadas nos arquivos)
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   FASE 2️⃣: APLICAR CORREÇÕES${NC}"
+echo -e "${MAGENTA}   FASE 2.: APLICAR CORREÇÕES${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "${GREEN}✅ Correções já aplicadas nos arquivos:${NC}"
-echo "   1. ✅ Healthcheck adicionado ao frontend no docker-compose.yml"
-echo "   2. ✅ depends_on mudado para service_healthy no docker-compose.yml"
-echo "   3. ✅ proxy_next_upstream adicionado no nginx.conf"
+echo -e "${GREEN}[OK] Correções já aplicadas nos arquivos:${NC}"
+echo "   1. [OK] Healthcheck adicionado ao frontend no docker-compose.yml"
+echo "   2. [OK] depends_on mudado para service_healthy no docker-compose.yml"
+echo "   3. [OK] proxy_next_upstream adicionado no nginx.conf"
 echo ""
 
-echo -e "${YELLOW}⚠️  Aplicando correções na VM...${NC}"
+echo -e "${YELLOW}[WARNING] Aplicando correções na VM...${NC}"
 echo ""
 
 # Verificar se precisa recriar containers
 echo -e "${BLUE}Verificando se precisa recriar containers...${NC}"
 NEEDS_RECREATE=$(run_vm_command 'cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null && docker compose config --services 2>&1 | head -1 || echo "DIR_NOT_FOUND"')
 if echo "$NEEDS_RECREATE" | grep -q "DIR_NOT_FOUND"; then
-    echo -e "${YELLOW}⚠️  Diretório docker-compose não encontrado${NC}"
-    echo -e "${BLUE}💡 Aplicando correções manualmente...${NC}"
+    echo -e "${YELLOW}[WARNING] Diretório docker-compose não encontrado${NC}"
+    echo -e "${BLUE}[INFO] Aplicando correções manualmente...${NC}"
     
     # Aplicar healthcheck via docker update (se possível)
     echo -e "${BLUE}Reiniciando containers com nova configuração...${NC}"
@@ -277,11 +277,11 @@ echo ""
 # FASE 3: VALIDAR DEPOIS DA CORREÇÃO
 # ============================================================================
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${MAGENTA}   FASE 3️⃣: VALIDAR (DEPOIS DA CORREÇÃO)${NC}"
+echo -e "${MAGENTA}   FASE 3.: VALIDAR (DEPOIS DA CORREÇÃO)${NC}"
 echo -e "${MAGENTA}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "${BLUE}5️⃣ Validar healthcheck em tempo real${NC}"
+echo -e "${BLUE}5. Validar healthcheck em tempo real${NC}"
 echo ""
 echo -e "${YELLOW}Monitorando status dos containers (60 segundos)...${NC}"
 for i in {1..12}; do
@@ -293,15 +293,15 @@ echo ""
 
 FRONTEND_HEALTH=$(run_vm_command 'docker ps --filter "name=ai_saas_frontend_prod" --format "{{.Status}}"')
 if echo "$FRONTEND_HEALTH" | grep -q "healthy"; then
-    echo -e "${GREEN}✅ Frontend está healthy${NC}"
+    echo -e "${GREEN}[OK] Frontend está healthy${NC}"
     HEALTHCHECK_WORKING=true
 else
-    echo -e "${RED}❌ Frontend NÃO está healthy: $FRONTEND_HEALTH${NC}"
+    echo -e "${RED}[ERROR] Frontend NÃO está healthy: $FRONTEND_HEALTH${NC}"
     HEALTHCHECK_WORKING=false
 fi
 echo ""
 
-echo -e "${BLUE}6️⃣ Validar logs novamente${NC}"
+echo -e "${BLUE}6. Validar logs novamente${NC}"
 echo ""
 echo -e "${BLUE}   Logs do nginx (últimas 50 linhas):${NC}"
 NGINX_LOGS_AFTER=$(run_vm_command 'docker logs ai_saas_proxy --tail 50 2>&1')
@@ -309,10 +309,10 @@ echo "$NGINX_LOGS_AFTER" | tail -30
 
 NO_502_IN_LOGS=true
 if echo "$NGINX_LOGS_AFTER" | grep -q "502\|Connection refused\|upstream.*failed"; then
-    echo -e "${RED}❌ Ainda há erros 502 nos logs${NC}"
+    echo -e "${RED}[ERROR] Ainda há erros 502 nos logs${NC}"
     NO_502_IN_LOGS=false
 else
-    echo -e "${GREEN}✅ Nenhum erro 502 encontrado nos logs recentes${NC}"
+    echo -e "${GREEN}[OK] Nenhum erro 502 encontrado nos logs recentes${NC}"
 fi
 echo ""
 
@@ -321,42 +321,42 @@ FRONTEND_LOGS_AFTER=$(run_vm_command 'docker logs ai_saas_frontend_prod --tail 5
 echo "$FRONTEND_LOGS_AFTER" | tail -30
 echo ""
 
-echo -e "${BLUE}7️⃣ Testes ativos (comprovam funcionamento)${NC}"
+echo -e "${BLUE}7. Testes ativos (comprovam funcionamento)${NC}"
 echo ""
 echo -n "  Teste 1 - localhost:80: "
 TEST_LOCAL=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1')
 if echo "$TEST_LOCAL" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_LOCAL${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_LOCAL${NC}"
     TEST_LOCAL_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_LOCAL${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_LOCAL${NC}"
     TEST_LOCAL_OK=false
 fi
 
 echo -n "  Teste 2 - nginx → frontend: "
 TEST_NGINX=$(run_vm_command 'docker exec ai_saas_proxy curl -s -o /dev/null -w "%{http_code}" http://frontend:3000 2>&1')
 if echo "$TEST_NGINX" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_NGINX${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_NGINX${NC}"
     TEST_NGINX_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_NGINX${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_NGINX${NC}"
     TEST_NGINX_OK=false
 fi
 
 echo -n "  Teste 3 - IP externo: "
 TEST_EXTERNAL=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://20.185.60.67 2>&1')
 if echo "$TEST_EXTERNAL" | grep -qE "200|301|302|307"; then
-    echo -e "${GREEN}✅ HTTP $TEST_EXTERNAL${NC}"
+    echo -e "${GREEN}[OK] HTTP $TEST_EXTERNAL${NC}"
     TEST_EXTERNAL_OK=true
 else
-    echo -e "${RED}❌ HTTP $TEST_EXTERNAL${NC}"
+    echo -e "${RED}[ERROR] HTTP $TEST_EXTERNAL${NC}"
     TEST_EXTERNAL_OK=false
 fi
 echo ""
 
-echo -e "${BLUE}8️⃣ Teste de regressão (nível sênior)${NC}"
+echo -e "${BLUE}8. Teste de regressão (nível sênior)${NC}"
 echo ""
-echo -e "${YELLOW}⚠️  Reiniciando frontend para testar resiliência...${NC}"
+echo -e "${YELLOW}[WARNING] Reiniciando frontend para testar resiliência...${NC}"
 run_vm_command 'docker restart ai_saas_frontend_prod'
 echo ""
 
@@ -370,12 +370,12 @@ for i in {1..12}; do
     
     # Verificar se nginx retornou 502 durante restart
     if echo "$NGINX_TEST" | grep -q "502"; then
-        echo -e "${RED}🚨 502 detectado durante restart!${NC}"
+        echo -e "${RED} 502 detectado durante restart!${NC}"
         REGRESSION_PASSED=false
     fi
     
     if echo "$FRONTEND_STATUS" | grep -q "healthy" && echo "$NGINX_TEST" | grep -qE "200|301|302|307"; then
-        echo -e "${GREEN}✅ Frontend healthy e nginx respondendo!${NC}"
+        echo -e "${GREEN}[OK] Frontend healthy e nginx respondendo!${NC}"
         break
     fi
     
@@ -386,21 +386,21 @@ echo ""
 FINAL_TEST=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1')
 if echo "$FINAL_TEST" | grep -qE "200|301|302|307"; then
     if [ "$REGRESSION_PASSED" = true ]; then
-        echo -e "${GREEN}✅ TESTE DE REGRESSÃO PASSOU${NC}"
-        echo -e "${GREEN}✅ Nginx não retornou 502 durante restart${NC}"
-        echo -e "${GREEN}✅ Sistema se recuperou automaticamente${NC}"
+        echo -e "${GREEN}[OK] TESTE DE REGRESSÃO PASSOU${NC}"
+        echo -e "${GREEN}[OK] Nginx não retornou 502 durante restart${NC}"
+        echo -e "${GREEN}[OK] Sistema se recuperou automaticamente${NC}"
     else
-        echo -e "${YELLOW}⚠️  TESTE DE REGRESSÃO PARCIAL${NC}"
-        echo -e "${YELLOW}⚠️  Houve 502 durante restart, mas sistema se recuperou${NC}"
+        echo -e "${YELLOW}[WARNING] TESTE DE REGRESSÃO PARCIAL${NC}"
+        echo -e "${YELLOW}[WARNING] Houve 502 durante restart, mas sistema se recuperou${NC}"
     fi
 else
-    echo -e "${RED}❌ TESTE DE REGRESSÃO FALHOU${NC}"
-    echo -e "${RED}❌ Ainda há problemas após restart${NC}"
+    echo -e "${RED}[ERROR] TESTE DE REGRESSÃO FALHOU${NC}"
+    echo -e "${RED}[ERROR] Ainda há problemas após restart${NC}"
 fi
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}   📊 CONCLUSÃO PROFISSIONAL${NC}"
+echo -e "${CYAN}    CONCLUSÃO PROFISSIONAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -412,38 +412,38 @@ echo -e "${BLUE}Critérios objetivos de 'incidente resolvido':${NC}"
 echo ""
 
 if [ "$NO_502_IN_LOGS" = true ]; then
-    echo -e "${GREEN}✅ 1. Não há mais 502 nos logs${NC}"
+    echo -e "${GREEN}[OK] 1. Não há mais 502 nos logs${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 1. Ainda há 502 nos logs${NC}"
+    echo -e "${RED}[ERROR] 1. Ainda há 502 nos logs${NC}"
 fi
 
 if [ "$HEALTHCHECK_WORKING" = true ]; then
-    echo -e "${GREEN}✅ 2. Frontend só fica healthy quando responde${NC}"
+    echo -e "${GREEN}[OK] 2. Frontend só fica healthy quando responde${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 2. Healthcheck não está funcionando${NC}"
+    echo -e "${RED}[ERROR] 2. Healthcheck não está funcionando${NC}"
 fi
 
 if [ "$TEST_NGINX_OK" = true ]; then
-    echo -e "${GREEN}✅ 3. Nginx consegue conectar ao frontend${NC}"
+    echo -e "${GREEN}[OK] 3. Nginx consegue conectar ao frontend${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 3. Nginx não consegue conectar ao frontend${NC}"
+    echo -e "${RED}[ERROR] 3. Nginx não consegue conectar ao frontend${NC}"
 fi
 
 if [ "$REGRESSION_PASSED" = true ]; then
-    echo -e "${GREEN}✅ 4. Restart do frontend não causa erro externo${NC}"
+    echo -e "${GREEN}[OK] 4. Restart do frontend não causa erro externo${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${YELLOW}⚠️  4. Restart causou 502 temporário (mas se recuperou)${NC}"
+    echo -e "${YELLOW}[WARNING] 4. Restart causou 502 temporário (mas se recuperou)${NC}"
 fi
 
 if [ "$TEST_EXTERNAL_OK" = true ]; then
-    echo -e "${GREEN}✅ 5. Sistema se auto-recupera sem intervenção${NC}"
+    echo -e "${GREEN}[OK] 5. Sistema se auto-recupera sem intervenção${NC}"
     CRITERIA_MET=$((CRITERIA_MET + 1))
 else
-    echo -e "${RED}❌ 5. Sistema não está acessível externamente${NC}"
+    echo -e "${RED}[ERROR] 5. Sistema não está acessível externamente${NC}"
 fi
 
 echo ""
@@ -451,18 +451,18 @@ echo -e "${BLUE}Resultado: $CRITERIA_MET/$TOTAL_CRITERIA critérios atendidos${N
 echo ""
 
 if [ $CRITERIA_MET -eq $TOTAL_CRITERIA ]; then
-    echo -e "${GREEN}✅ Root cause confirmado e corrigido${NC}"
-    echo -e "${GREEN}✅ Correções validadas${NC}"
-    echo -e "${GREEN}✅ Sem regressão detectada${NC}"
+    echo -e "${GREEN}[OK] Root cause confirmado e corrigido${NC}"
+    echo -e "${GREEN}[OK] Correções validadas${NC}"
+    echo -e "${GREEN}[OK] Sem regressão detectada${NC}"
     echo ""
-    echo -e "${BLUE}💡 O problema 502 Bad Gateway está resolvido estruturalmente${NC}"
+    echo -e "${BLUE}[INFO] O problema 502 Bad Gateway está resolvido estruturalmente${NC}"
 elif [ $CRITERIA_MET -ge 3 ]; then
-    echo -e "${YELLOW}⚠️  Correções aplicadas com sucesso parcial${NC}"
-    echo -e "${YELLOW}💡 Alguns critérios ainda não foram totalmente atendidos${NC}"
-    echo -e "${YELLOW}💡 Pode ser necessário ajustar timeouts ou aguardar mais tempo${NC}"
+    echo -e "${YELLOW}[WARNING] Correções aplicadas com sucesso parcial${NC}"
+    echo -e "${YELLOW}[INFO] Alguns critérios ainda não foram totalmente atendidos${NC}"
+    echo -e "${YELLOW}[INFO] Pode ser necessário ajustar timeouts ou aguardar mais tempo${NC}"
 else
-    echo -e "${RED}❌ Problema ainda persiste${NC}"
-    echo -e "${YELLOW}💡 Revisar correções aplicadas e logs${NC}"
+    echo -e "${RED}[ERROR] Problema ainda persiste${NC}"
+    echo -e "${YELLOW}[INFO] Revisar correções aplicadas e logs${NC}"
 fi
 
 echo ""

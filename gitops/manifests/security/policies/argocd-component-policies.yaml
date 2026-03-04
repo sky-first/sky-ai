@@ -1,0 +1,136 @@
+---
+# Network Policies Segmentadas para ArgoCD (Hardening Fase 2)
+# Mantém default-deny-all e libera apenas fluxos documentados
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-server-network-policy
+  namespace: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Inbound via Ingress Nginx (API/UI)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 443
+  # Inbound via Image Updater (Updates)
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-image-updater
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Repo Server
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-repo-server
+    ports:
+    - protocol: TCP
+      port: 8081
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-repo-server-network-policy
+  namespace: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-repo-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-server
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-application-controller
+    ports:
+    - protocol: TCP
+      port: 8081
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Git & ACR Access (Explicit Egress)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 22
+  # Redis Access for manifest caching
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-redis
+    ports:
+    - protocol: TCP
+      port: 6379
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-redis-network-policy
+  namespace: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {} # Allow from all pods in the same namespace
+    ports:
+    - protocol: TCP
+      port: 6379

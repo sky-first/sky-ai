@@ -25,12 +25,12 @@ cd "$PROJECT_DIR"
 # 1. Verificar se .env está sendo rastreado atualmente
 echo -e "${BLUE}1. Verificando se .env está sendo rastreado...${NC}"
 if git ls-files --error-unmatch .env &>/dev/null; then
-    echo -e "${RED}❌ .env está sendo rastreado pelo git!${NC}"
+    echo -e "${RED}[ERROR] .env está sendo rastreado pelo git!${NC}"
     echo -e "${YELLOW}Removendo do índice...${NC}"
     git rm --cached .env
-    echo -e "${GREEN}✅ .env removido do índice${NC}"
+    echo -e "${GREEN}[OK] .env removido do índice${NC}"
 else
-    echo -e "${GREEN}✅ .env não está sendo rastreado${NC}"
+    echo -e "${GREEN}[OK] .env não está sendo rastreado${NC}"
 fi
 
 # 2. Verificar se .env está no histórico
@@ -39,12 +39,12 @@ echo -e "${BLUE}2. Verificando histórico do git...${NC}"
 HISTORY=$(git log --all --full-history --oneline -- .env 2>/dev/null | head -10)
 
 if [ -z "$HISTORY" ]; then
-    echo -e "${GREEN}✅ .env NÃO está no histórico do git${NC}"
-    echo -e "${GREEN}✅ Tudo seguro!${NC}"
+    echo -e "${GREEN}[OK] .env NÃO está no histórico do git${NC}"
+    echo -e "${GREEN}[OK] Tudo seguro!${NC}"
     exit 0
 fi
 
-echo -e "${RED}❌ .env ENCONTRADO no histórico do git!${NC}"
+echo -e "${RED}[ERROR] .env ENCONTRADO no histórico do git!${NC}"
 echo ""
 echo -e "${YELLOW}Commits encontrados:${NC}"
 echo "$HISTORY"
@@ -56,7 +56,7 @@ git log --all --full-history --pretty=format:"%h - %an, %ar : %s" --date=short -
 echo ""
 
 # 4. Avisar sobre remoção
-echo -e "${RED}⚠️  ATENÇÃO: Remover .env do histórico requer rewrite do histórico${NC}"
+echo -e "${RED}[WARNING] ATENÇÃO: Remover .env do histórico requer rewrite do histórico${NC}"
 echo -e "${YELLOW}Isso pode afetar colaboradores e requer force push${NC}"
 echo ""
 read -p "Deseja remover .env do histórico? (yes/no): " confirm
@@ -81,7 +81,7 @@ if ! command -v git-filter-repo &> /dev/null; then
     elif command -v pip &> /dev/null; then
         pip install git-filter-repo
     else
-        echo -e "${RED}❌ pip não encontrado${NC}"
+        echo -e "${RED}[ERROR] pip não encontrado${NC}"
         echo -e "${YELLOW}Instale git-filter-repo manualmente:${NC}"
         echo -e "${YELLOW}  pip install git-filter-repo${NC}"
         echo ""
@@ -99,13 +99,13 @@ echo ""
 echo -e "${BLUE}4. Criando backup do repositório...${NC}"
 BACKUP_DIR="../sky-poc-infra-backup-$(date +%Y%m%d_%H%M%S)"
 cp -r "$PROJECT_DIR" "$BACKUP_DIR" 2>/dev/null || {
-    echo -e "${YELLOW}⚠️  Não foi possível criar backup completo${NC}"
+    echo -e "${YELLOW}[WARNING] Não foi possível criar backup completo${NC}"
     echo -e "${YELLOW}Fazendo backup do .git apenas...${NC}"
     BACKUP_DIR="../git-backup-$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$BACKUP_DIR"
     cp -r .git "$BACKUP_DIR/"
 }
-echo -e "${GREEN}✅ Backup criado em: $BACKUP_DIR${NC}"
+echo -e "${GREEN}[OK] Backup criado em: $BACKUP_DIR${NC}"
 
 # 7. Remover do histórico
 echo ""
@@ -128,7 +128,7 @@ else
     git filter-repo --path .env --invert-paths --force
 fi
 
-echo -e "${GREEN}✅ .env removido do histórico${NC}"
+echo -e "${GREEN}[OK] .env removido do histórico${NC}"
 
 # 8. Verificar novamente
 echo ""
@@ -136,19 +136,19 @@ echo -e "${BLUE}6. Verificando novamente...${NC}"
 HISTORY_AFTER=$(git log --all --full-history --oneline -- .env 2>/dev/null)
 
 if [ -z "$HISTORY_AFTER" ]; then
-    echo -e "${GREEN}✅ .env removido com sucesso!${NC}"
+    echo -e "${GREEN}[OK] .env removido com sucesso!${NC}"
 else
-    echo -e "${RED}❌ Ainda há referências ao .env${NC}"
+    echo -e "${RED}[ERROR] Ainda há referências ao .env${NC}"
     exit 1
 fi
 
 # 9. Instruções finais
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}✅ Remoção concluída!${NC}"
+echo -e "${CYAN}[OK] Remoção concluída!${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${YELLOW}⚠️  PRÓXIMOS PASSOS IMPORTANTES:${NC}"
+echo -e "${YELLOW}[WARNING] PRÓXIMOS PASSOS IMPORTANTES:${NC}"
 echo ""
 echo -e "${BLUE}1. Avisar todos os colaboradores${NC}"
 echo -e "${YELLOW}   Todos precisarão fazer:${NC}"
@@ -161,7 +161,7 @@ echo -e "${YELLOW}   git push --force --tags${NC}"
 echo ""
 echo -e "${BLUE}3. Verificar que .env está no .gitignore${NC}"
 echo ""
-echo -e "${RED}⚠️  ATENÇÃO: Force push reescreve o histórico remoto!${NC}"
+echo -e "${RED}[WARNING] ATENÇÃO: Force push reescreve o histórico remoto!${NC}"
 echo -e "${RED}   Certifique-se de que todos os colaboradores foram avisados!${NC}"
 echo ""
 

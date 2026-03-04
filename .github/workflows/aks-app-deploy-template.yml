@@ -1,3 +1,4 @@
+---
 name: Reusable Build & Deploy to AKS
 
 on:
@@ -24,6 +25,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  security-events: write
 
 jobs:
   build-and-push:
@@ -41,6 +43,16 @@ jobs:
 
       - name: Login to ACR
         run: az acr login --name ${{ inputs.acr_name }}
+
+      - name: Scan Filesystem (Shift-Left)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
 
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
@@ -64,10 +76,27 @@ jobs:
         # but keep the structure.
         if: false
 
-      - name: Scan Image (Trivy)
-        uses: aquasecurity/trivy-action@master
+      - name: Cache Trivy DB
+        uses: actions/cache@v3
         with:
-          image-ref: "${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:${{ github.sha }}"
-          format: "table"
-          exit-code: "0" # Don't fail build yet, just report
+          path: .trivy
+          key: ${{ runner.os }}-trivy-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-
+
+      - name: Scan Image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "${{ inputs.acr_name }}.azurecr.io/${{ inputs.app_name }}:${{ github.sha }}"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          cache-dir: .trivy
+          exit-code: "1" # Fail build if vulnerabilities are found
+          severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() # Ensure report is uploaded even if scan fails
+        with:
+          sarif_file: "trivy-results.sarif"

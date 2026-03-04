@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -26,7 +27,7 @@ spec:
               prefix: "skyacrstagingj3minh.azurecr.io"
               ping: yes
               credentials: pullsecret:argocd/acr-secret-staging-docker-std
-              
+
           git:
             commitMessage: "chore(gitops): update image tag [skip ci]"
             user: "ArgoCD Image Updater"

@@ -1,3 +1,4 @@
+---
 name: 'Terraform Plan Validation'
 description: 'Validate Terraform plan for destructive changes and security issues'
 inputs:
@@ -32,29 +33,29 @@ runs:
       run: |
         PLAN_FILE="${{ inputs.plan_file }}"
         FOUND_FILE=""
-        
+
         # Tentar 1: Caminho relativo (diretório atual - deve ser working-directory)
         if [ -f "$PLAN_FILE" ]; then
           FOUND_FILE="$PLAN_FILE"
-          echo "✅ Plan file found (relative path): $FOUND_FILE"
-        
+          echo "[OK] Plan file found (relative path): $FOUND_FILE"
+
         # Tentar 2: Workspace root + caminho
         elif [ -f "${GITHUB_WORKSPACE}/${PLAN_FILE}" ]; then
           FOUND_FILE="${GITHUB_WORKSPACE}/${PLAN_FILE}"
-          echo "✅ Plan file found in workspace root: $FOUND_FILE"
-        
+          echo "[OK] Plan file found in workspace root: $FOUND_FILE"
+
         # Tentar 3: infra/azure + caminho (working-directory padrão)
         elif [ -f "${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}" ]; then
           FOUND_FILE="${GITHUB_WORKSPACE}/infra/azure/${PLAN_FILE}"
-          echo "✅ Plan file found in infra/azure: $FOUND_FILE"
-        
+          echo "[OK] Plan file found in infra/azure: $FOUND_FILE"
+
         # Tentar 4: Buscar recursivamente (fallback)
         else
           FOUND_FILE=$(find ${GITHUB_WORKSPACE} -name "$(basename ${PLAN_FILE})" -type f 2>/dev/null | head -1)
           if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
-            echo "✅ Plan file found (searched): $FOUND_FILE"
+            echo "[OK] Plan file found (searched): $FOUND_FILE"
           else
-            echo "❌ Plan file not found: ${{ inputs.plan_file }}"
+            echo "[ERROR] Plan file not found: ${{ inputs.plan_file }}"
             echo "Current directory: $(pwd)"
             echo "Workspace: ${GITHUB_WORKSPACE}"
             echo ""
@@ -71,7 +72,7 @@ runs:
             exit 1
           fi
         fi
-        
+
         echo "plan_file_path=${FOUND_FILE}" >> $GITHUB_OUTPUT
 
     - name: Analyze Plan for Destructive Changes
@@ -80,27 +81,27 @@ runs:
       run: |
         PLAN_FILE="${{ steps.validate-plan-file.outputs.plan_file_path || inputs.plan_file }}"
         PLAN_OUTPUT=$(terraform show -json "$PLAN_FILE" 2>/dev/null || echo "{}")
-        
+
         DESTROY_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("delete"))] | length' 2>/dev/null || echo "0")
         CREATE_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("create"))] | length' 2>/dev/null || echo "0")
         UPDATE_COUNT=$(echo "$PLAN_OUTPUT" | jq -r '[.resource_changes[]? | select(.change.actions[]? | contains("update"))] | length' 2>/dev/null || echo "0")
-        
+
         TOTAL_CHANGES=$((DESTROY_COUNT + CREATE_COUNT + UPDATE_COUNT))
-        
+
         HAS_DESTROY="false"
         if [ "$DESTROY_COUNT" -gt 0 ]; then
           HAS_DESTROY="true"
         fi
-        
+
         HAS_CHANGES="false"
         if [ "$TOTAL_CHANGES" -gt 0 ]; then
           HAS_CHANGES="true"
         fi
-        
+
         echo "has_destroy=${HAS_DESTROY}" >> $GITHUB_OUTPUT
         echo "has_changes=${HAS_CHANGES}" >> $GITHUB_OUTPUT
         echo "resource_count=${TOTAL_CHANGES}" >> $GITHUB_OUTPUT
-        
+
         echo "Plan Analysis:"
         echo "  - Resources to destroy: $DESTROY_COUNT"
         echo "  - Resources to create: $CREATE_COUNT"

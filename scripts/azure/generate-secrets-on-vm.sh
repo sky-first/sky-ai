@@ -10,18 +10,18 @@ if [ -d "$BASE/sky-poc-infra" ]; then
 elif [ -d "$BASE/poc-deploy" ]; then
     INFRA_DIR="$BASE/poc-deploy"
 else
-    echo "❌ ERRO: Diretório de infraestrutura não encontrado"
+    echo "[ERROR] ERRO: Diretório de infraestrutura não encontrado"
     exit 1
 fi
 
 cd "$INFRA_DIR"
 
 if [ ! -f .env ]; then
-    echo "❌ ERRO: Arquivo .env não encontrado em $INFRA_DIR"
+    echo "[ERROR] ERRO: Arquivo .env não encontrado em $INFRA_DIR"
     exit 1
 fi
 
-echo "🔐 Gerando valores seguros para variáveis com placeholders..."
+echo " Gerando valores seguros para variáveis com placeholders..."
 echo ""
 
 # Função para gerar senha segura
@@ -68,7 +68,7 @@ update_env_var() {
 if grep -q "REDIS_PASSWORD=secure_redis_password_here" .env; then
     NEW_PASS=$(generate_password)
     update_env_var "REDIS_PASSWORD" "secure_redis_password_here" "$NEW_PASS"
-    echo "✅ REDIS_PASSWORD atualizado"
+    echo "[OK] REDIS_PASSWORD atualizado"
     UPDATED=true
 fi
 
@@ -76,7 +76,7 @@ fi
 if grep -q "JWT_SECRET_KEY=generate_a_secure_random_string_here" .env; then
     NEW_SECRET=$(generate_jwt_secret)
     update_env_var "JWT_SECRET_KEY" "generate_a_secure_random_string_here" "$NEW_SECRET"
-    echo "✅ JWT_SECRET_KEY atualizado"
+    echo "[OK] JWT_SECRET_KEY atualizado"
     UPDATED=true
 fi
 
@@ -84,7 +84,7 @@ fi
 if grep -q "ENCRYPTION_KEY=generate_another_secure_key_here" .env; then
     NEW_KEY=$(generate_encryption_key)
     update_env_var "ENCRYPTION_KEY" "generate_another_secure_key_here" "$NEW_KEY"
-    echo "✅ ENCRYPTION_KEY atualizado"
+    echo "[OK] ENCRYPTION_KEY atualizado"
     UPDATED=true
 fi
 
@@ -93,14 +93,14 @@ chmod 600 .env
 
 if [ "$UPDATED" = "true" ]; then
     echo ""
-    echo "✅ Variáveis atualizadas com valores seguros!"
-    echo "📝 Permissões ajustadas para 600"
+    echo "[OK] Variáveis atualizadas com valores seguros!"
+    echo " Permissões ajustadas para 600"
     echo ""
-    echo "⚠️  IMPORTANTE: Reinicie os containers para aplicar as mudanças:"
+    echo "[WARNING] IMPORTANTE: Reinicie os containers para aplicar as mudanças:"
     echo "   cd $INFRA_DIR"
     echo "   sudo docker compose restart"
 else
-    echo "ℹ️  Nenhuma variável com placeholder encontrada"
+    echo "ℹ  Nenhuma variável com placeholder encontrada"
     echo "   Todas as variáveis já estão configuradas"
 fi
 

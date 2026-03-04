@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -6,6 +7,7 @@ metadata:
   annotations:
     argocd-image-updater.argoproj.io/image-list: sky-poc-backend=skyacrstagingj3minh.azurecr.io/sky-poc-backend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
+    argocd-image-updater.argoproj.io/sky-poc-backend.pull-secret: secret:argocd/acr-secret-staging-docker-std
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
     argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-sky-ai-worker-stg.yaml
 spec:
@@ -18,85 +20,12 @@ spec:
       valueFiles:
         - values-sky-ai-worker-stg.yaml
       values: |
+        # Configurações centralizadas em values-sky-ai-worker-stg.yaml
         nameOverride: "sky-ai-worker-stg"
-        podAnnotations:
-          rollout-trigger: "2026-01-30T08:42:40Z"
+        imagePullSecrets:
+          - name: regcred
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
-        
-        # O Worker não precisa de Ingress nem Service
-        service:
-          enabled: false
-        ingress:
-          enabled: false
-        probes:
-          liveness:
-            enabled: false
-          readiness:
-            enabled: false
-
-        command: ["celery"]
-        args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
-        
-        # Reutilizar os segredos da IA
-        externalSecret:
-          enabled: true
-          secretStoreRef:
-            name: azure-keyvault
-            kind: ClusterSecretStore
-          target:
-            name: sky-ai-worker-stg-secrets
-            template:
-              engineVersion: v2
-              data:
-                openai_api_key: "{{ .openai_api_key }}"
-                qdrant_url: "{{ .qdrant_url }}"
-                redis_url: "{{ .redis_url }}"
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
-          data:
-            - secretKey: openai_api_key
-              remoteRef:
-                key: openai-api-key
-            - secretKey: qdrant_url
-              remoteRef:
-                key: qdrant-url
-            - secretKey: database_url
-              remoteRef:
-                key: database-url
-            - secretKey: redis_url
-              remoteRef:
-                key: redis-url
-                
-        envSecrets:
-          openai-api-key:
-            name: sky-ai-worker-stg-secrets
-            key: openai_api_key
-          DATABASE_URL:
-            name: sky-ai-worker-stg-secrets
-            key: database_url
-          REDIS_URL:
-            name: sky-ai-worker-stg-secrets
-            key: redis_url
-          CELERY_BROKER_URL:
-            name: sky-ai-worker-stg-secrets
-            key: celery_broker_url
-          CELERY_RESULT_BACKEND:
-            name: sky-ai-worker-stg-secrets
-            key: celery_result_backend
-            
-        extraEnv:
-          - name: REDIS_PORT
-            value: "6379"
-          - name: DEBUG
-            value: "false"
-          - name: OLLAMA_BASE_URL
-            value: "http://ollama.ollama.svc.cluster.local:11434"
-          - name: AI_SERVICE_URL
-            value: "http://sky-ai-stg-common-app"
-          - name: DATABASE_POOL_SIZE
-            value: "10"
 
   destination:
     server: "https://kubernetes.default.svc"

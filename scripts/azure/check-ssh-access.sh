@@ -15,31 +15,31 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================="
-echo "🔍 Verificando Acesso SSH à VM"
+echo " Verificando Acesso SSH à VM"
 echo "==========================================${NC}"
 echo ""
 
 # 1. Testar SSH direto
-echo -e "${BLUE}1️⃣  Testando SSH direto (porta 22)...${NC}"
+echo -e "${BLUE}1.  Testando SSH direto (porta 22)...${NC}"
 if timeout 5 bash -c "echo > /dev/tcp/$VM_IP/22" 2>/dev/null; then
-    echo -e "${GREEN}✅ Porta 22 está aberta${NC}"
+    echo -e "${GREEN}[OK] Porta 22 está aberta${NC}"
     SSH_DIRECT=true
 else
-    echo -e "${RED}❌ Porta 22 está fechada ou bloqueada${NC}"
+    echo -e "${RED}[ERROR] Porta 22 está fechada ou bloqueada${NC}"
     SSH_DIRECT=false
 fi
 
 echo ""
 
 # 2. Verificar se Azure Bastion está configurado
-echo -e "${BLUE}2️⃣  Verificando Azure Bastion...${NC}"
+echo -e "${BLUE}2.  Verificando Azure Bastion...${NC}"
 if command -v az >/dev/null 2>&1; then
     if az account show >/dev/null 2>&1; then
         BASTION_NAME=$(az network bastion list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "")
         if [ -n "$BASTION_NAME" ]; then
-            echo -e "${GREEN}✅ Azure Bastion encontrado: $BASTION_NAME${NC}"
+            echo -e "${GREEN}[OK] Azure Bastion encontrado: $BASTION_NAME${NC}"
             echo ""
-            echo "💡 Use Azure Bastion para acessar a VM:"
+            echo "[INFO] Use Azure Bastion para acessar a VM:"
             echo ""
             echo "   Via Portal Azure:"
             echo "   1. Acesse: https://portal.azure.com"
@@ -56,34 +56,34 @@ if command -v az >/dev/null 2>&1; then
             echo ""
             BASTION_AVAILABLE=true
         else
-            echo -e "${YELLOW}⚠️  Azure Bastion não encontrado${NC}"
+            echo -e "${YELLOW}[WARNING] Azure Bastion não encontrado${NC}"
             BASTION_AVAILABLE=false
         fi
     else
-        echo -e "${YELLOW}⚠️  Não está logado no Azure CLI${NC}"
+        echo -e "${YELLOW}[WARNING] Não está logado no Azure CLI${NC}"
         echo "   Execute: az login"
         BASTION_AVAILABLE=false
     fi
 else
-    echo -e "${YELLOW}⚠️  Azure CLI não instalado${NC}"
+    echo -e "${YELLOW}[WARNING] Azure CLI não instalado${NC}"
     BASTION_AVAILABLE=false
 fi
 
 echo ""
 
 # 3. Verificar NSG (Network Security Group)
-echo -e "${BLUE}3️⃣  Verificando Network Security Group...${NC}"
+echo -e "${BLUE}3.  Verificando Network Security Group...${NC}"
 if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then
     NSG_NAME=$(az network nic list -g "$RESOURCE_GROUP" --query "[0].networkSecurityGroup.id" -o tsv 2>/dev/null | awk -F'/' '{print $NF}' || echo "")
     if [ -n "$NSG_NAME" ]; then
         echo "NSG: $NSG_NAME"
         SSH_RULE=$(az network nsg rule list -g "$RESOURCE_GROUP" --nsg-name "$NSG_NAME" --query "[?destinationPortRange=='22']" -o json 2>/dev/null)
         if [ -n "$SSH_RULE" ] && [ "$SSH_RULE" != "[]" ]; then
-            echo -e "${GREEN}✅ Regra SSH (porta 22) encontrada no NSG${NC}"
+            echo -e "${GREEN}[OK] Regra SSH (porta 22) encontrada no NSG${NC}"
         else
-            echo -e "${RED}❌ Regra SSH (porta 22) NÃO encontrada no NSG${NC}"
+            echo -e "${RED}[ERROR] Regra SSH (porta 22) NÃO encontrada no NSG${NC}"
             echo ""
-            echo "💡 Para abrir SSH, adicione regra no NSG:"
+            echo "[INFO] Para abrir SSH, adicione regra no NSG:"
             echo "   az network nsg rule create \\"
             echo "     --resource-group $RESOURCE_GROUP \\"
             echo "     --nsg-name $NSG_NAME \\"
@@ -96,16 +96,16 @@ if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then
             echo "     --source-address-prefixes 0.0.0.0/0"
         fi
     else
-        echo -e "${YELLOW}⚠️  NSG não encontrado${NC}"
+        echo -e "${YELLOW}[WARNING] NSG não encontrado${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠️  Azure CLI não disponível para verificar NSG${NC}"
+    echo -e "${YELLOW}[WARNING] Azure CLI não disponível para verificar NSG${NC}"
 fi
 
 echo ""
 
 # 4. Alternativa: Azure CLI run-command
-echo -e "${BLUE}4️⃣  Alternativa: Azure CLI run-command${NC}"
+echo -e "${BLUE}4.  Alternativa: Azure CLI run-command${NC}"
 echo "Você pode executar comandos na VM sem SSH usando:"
 echo ""
 echo "   az vm run-command invoke \\"
@@ -117,18 +117,18 @@ echo ""
 
 # 5. Resumo e recomendações
 echo -e "${BLUE}=========================================="
-echo "📋 Resumo e Recomendações"
+echo " Resumo e Recomendações"
 echo "==========================================${NC}"
 echo ""
 
 if [ "$SSH_DIRECT" = "true" ]; then
-    echo -e "${GREEN}✅ SSH direto disponível${NC}"
+    echo -e "${GREEN}[OK] SSH direto disponível${NC}"
     echo "   Use: ssh -i keys/azure/team/id_rsa_poc $VM_USER@$VM_IP"
 elif [ "$BASTION_AVAILABLE" = "true" ]; then
-    echo -e "${GREEN}✅ Use Azure Bastion (recomendado)${NC}"
+    echo -e "${GREEN}[OK] Use Azure Bastion (recomendado)${NC}"
     echo "   Acesse via Portal Azure ou Azure CLI"
 else
-    echo -e "${YELLOW}⚠️  SSH direto bloqueado e Bastion não disponível${NC}"
+    echo -e "${YELLOW}[WARNING] SSH direto bloqueado e Bastion não disponível${NC}"
     echo ""
     echo "Opções:"
     echo "  1. Use Azure CLI run-command (veja acima)"

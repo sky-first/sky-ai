@@ -6,36 +6,36 @@
 
 set -e
 
-echo "🏥 Health Check Completo - Ambiente de Produção"
+echo " Health Check Completo - Ambiente de Produção"
 echo "================================================="
 echo ""
 
 # 1. Verificar Nodes
-echo "1️⃣  Status dos Nodes..."
+echo "1.  Status dos Nodes..."
 NODES=$(kubectl get nodes --no-headers | wc -l)
 READY=$(kubectl get nodes -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}.metadata.name{"\n"}{end}' | wc -l)
 
 if [ "$NODES" -eq "$READY" ]; then
-    echo "✅ Todos os $NODES nodes estão ready"
+    echo "[OK] Todos os $NODES nodes estão ready"
 else
-    echo "❌ Apenas $READY/$NODES nodes estão ready"
+    echo "[ERROR] Apenas $READY/$NODES nodes estão ready"
     exit 1
 fi
 
 # 2. Verificar Namespaces
 echo ""
-echo "2️⃣  Verificando Namespaces..."
+echo "2.  Verificando Namespaces..."
 for ns in prod monitoring external-secrets argocd cert-manager; do
     if kubectl get namespace $ns &>/dev/null; then
-        echo "✅ Namespace $ns existe"
+        echo "[OK] Namespace $ns existe"
     else
-        echo "⚠️  Namespace $ns não encontrado"
+        echo "[WARNING] Namespace $ns não encontrado"
     fi
 done
 
 # 3. Verificar Pods críticos
 echo ""
-echo "3️⃣  Pods críticos..."
+echo "3.  Pods críticos..."
 CRITICAL_PODS=(
     "prod:backend"
     "prod:frontend"
@@ -50,86 +50,86 @@ for pod_spec in "${CRITICAL_PODS[@]}"; do
     IFS=':' read -r ns label <<< "$pod_spec"
     RUNNING=$(kubectl get pods -n $ns -l app=$label -o jsonpath='{.items[?(@.status.phase=="Running")]}' | wc -l)
     if [ "$RUNNING" -gt 0 ]; then
-        echo "✅ $ns/$label: $RUNNING pods running"
+        echo "[OK] $ns/$label: $RUNNING pods running"
     else
-        echo "❌ $ns/$label: Nenhum pod running"
+        echo "[ERROR] $ns/$label: Nenhum pod running"
     fi
 done
 
 # 4. Verificar PVCs
 echo ""
-echo "4️⃣  Persistent Volumes..."
+echo "4.  Persistent Volumes..."
 BOUND_PVCS=$(kubectl get pvc --all-namespaces -o jsonpath='{range .items[?(@.status.phase=="Bound")]}.metadata.namespace{"\n"}{end}' | wc -l)
 UNBOUND_PVCS=$(kubectl get pvc --all-namespaces -o jsonpath='{range .items[?(@.status.phase!="Bound")]}.metadata.namespace{"\n"}{end}' | wc -l)
 
-echo "✅ $BOUND_PVCS PVCs bound"
+echo "[OK] $BOUND_PVCS PVCs bound"
 if [ "$UNBOUND_PVCS" -gt 0 ]; then
-    echo "⚠️  $UNBOUND_PVCS PVCs unbound"
+    echo "[WARNING] $UNBOUND_PVCS PVCs unbound"
 fi
 
 # 5. Verificar Secrets
 echo ""
-echo "5️⃣  ExternalSecrets sincronizados..."
+echo "5.  ExternalSecrets sincronizados..."
 SYNCED=$(kubectl get externalsecrets -n prod -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}.metadata.name{"\n"}{end}' | wc -l)
 TOTAL=$(kubectl get externalsecrets -n prod -o jsonpath='{range .items[*]}.metadata.name{"\n"}{end}' | wc -l)
 
 if [ "$SYNCED" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
-    echo "✅ Todos os $TOTAL ExternalSecrets sincronizados"
+    echo "[OK] Todos os $TOTAL ExternalSecrets sincronizados"
 elif [ "$TOTAL" -eq 0 ]; then
-    echo "⚠️  Nenhum ExternalSecret encontrado (podem não estar aplicados ainda)"
+    echo "[WARNING] Nenhum ExternalSecret encontrado (podem não estar aplicados ainda)"
 else
-    echo "⚠️  $SYNCED/$TOTAL ExternalSecrets sincronizados"
+    echo "[WARNING] $SYNCED/$TOTAL ExternalSecrets sincronizados"
 fi
 
 # 6. Verificar Ingress
 echo ""
-echo "6️⃣  Ingress e Certificados..."
+echo "6.  Ingress e Certificados..."
 INGRESS=$(kubectl get ingress -n prod --no-headers | wc -l)
-echo "✅ $INGRESS Ingress resources em prod"
+echo "[OK] $INGRESS Ingress resources em prod"
 
 CERTS=$(kubectl get certificate -n prod --no-headers 2>/dev/null | wc -l)
 if [ "$CERTS" -gt 0 ]; then
-    echo "✅ $CERTS Certificates configurados"
+    echo "[OK] $CERTS Certificates configurados"
 else
-    echo "⚠️  Nenhum Certificate encontrado (Cert-Manager pode não estar aplicado)"
+    echo "[WARNING] Nenhum Certificate encontrado (Cert-Manager pode não estar aplicado)"
 fi
 
 # 7. Verificar Services
 echo ""
-echo "7️⃣  Services..."
+echo "7.  Services..."
 kubectl get svc -n prod -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.type}{"\n"}{end}' | while read svc type; do
     echo "  $svc ($type)"
 done
 
 # 8. Verificar DNS (LoadBalancer)
 echo ""
-echo "8️⃣  LoadBalancer IP..."
+echo "8.  LoadBalancer IP..."
 LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "PENDING")
 if [ "$LB_IP" != "PENDING" ] && [ -n "$LB_IP" ]; then
-    echo "✅ LoadBalancer IP: $LB_IP"
+    echo "[OK] LoadBalancer IP: $LB_IP"
     echo "   Configure DNS para apontar:"
     echo "   - workspace-prd.skyfirstlabs.com -> $LB_IP"
     echo "   - api-workspace-prd.skyfirstlabs.com -> $LB_IP"
     echo "   - workspace-prd-ai.skyfirstlabs.com -> $LB_IP"
 else
-    echo "⏳ LoadBalancer IP pendente (aguardando Azure)"
+    echo " LoadBalancer IP pendente (aguardando Azure)"
 fi
 
 # 9. Erros recentes
 echo ""
-echo "9️⃣  Erros recentes (últimos 10 min)..."
+echo "9.  Erros recentes (últimos 10 min)..."
 ERROR_COUNT=$(kubectl logs --all-namespaces --all-containers=true --timestamps=true --since=10m 2>/dev/null | grep -i error | wc -l || echo "0")
 if [ "$ERROR_COUNT" -eq 0 ]; then
-    echo "✅ Nenhum erro encontrado"
+    echo "[OK] Nenhum erro encontrado"
 else
-    echo "⚠️  $ERROR_COUNT erros encontrados"
+    echo "[WARNING] $ERROR_COUNT erros encontrados"
     kubectl logs --all-namespaces --all-containers=true --timestamps=true --since=10m 2>/dev/null | grep -i error | head -3
 fi
 
 # 10. Resumo
 echo ""
 echo "========================================="
-echo "✅ Health Check Completo!"
+echo "[OK] Health Check Completo!"
 echo "========================================="
 echo ""
 echo "Próximos passos:"

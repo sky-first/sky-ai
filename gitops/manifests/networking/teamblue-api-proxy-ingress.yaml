@@ -1,0 +1,37 @@
+---
+# Proxy reverso: /api/* no domínio do Frontend → Backend dedicado TeamBlue
+# CONTEXT: O `NEXT_PUBLIC_API_URL` é injetado em BUILD-TIME na imagem compartilhada.
+# O código cliente JavaScript envia requisições para /api/* no próprio domínio do frontend.
+# Este Ingress faz rewrite de /api/v1/* → backend service interno do TeamBlue.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: teamblue-api-proxy
+  namespace: teamblue
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: teamblue-plat-tls
+      hosts:
+        - plataform.teamblue-stg.skyfirstlabs.com
+  rules:
+    - host: plataform.teamblue-stg.skyfirstlabs.com
+      http:
+        paths:
+          # /api/anything → Backend interno da porta 80 (targetPort 8000)
+          # O rewrite-target remove o prefixo /api e adiciona /api/v1/
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: sky-teamblue-be-common-app
+                port:
+                  number: 80

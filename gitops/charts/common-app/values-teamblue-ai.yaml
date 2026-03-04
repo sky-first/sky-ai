@@ -1,0 +1,82 @@
+---
+image:
+  tag: "sha-39b28c399b741ca59a556281616e909fba162f23"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1536Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+extraVolumes:
+  - name: tmp-volume
+    emptyDir:
+      sizeLimit: 1Gi
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 60
+  readiness:
+    path: /health
+    initialDelaySeconds: 30
+
+extraEnvFrom:
+  - secretRef:
+      name: sky-be-stg-secrets
+  - secretRef:
+      name: teamblue-infra-secrets
+
+extraEnv:
+  - name: DATABASE_URL
+    value: "postgresql+asyncpg://postgres:sky-teamblue-stg-pass@postgres.teamblue.svc.cluster.local:5432/ai_saas_db"
+  - name: REDIS_URL
+    value: "redis://:sky-teamblue-stg-redis@redis.teamblue.svc.cluster.local:6379/0"
+  - name: AI_PROVIDER
+    value: "openai"
+  - name: REDIS_HOST
+    value: "redis"
+  - name: REDIS_PORT
+    value: "6379"
+  - name: DEBUG
+    value: "false"
+  - name: OLLAMA_BASE_URL
+    value: "http://localhost:11434" # Dummy value to satisfy Pydantic validation when AI_PROVIDER=openai
+
+# Database Migration with pgvector support
+migration:
+  enabled: true
+  command: ["python3", "-c"]
+  args:
+    - |
+      import os, asyncio, asyncpg, glob
+      from sqlalchemy import text
+      # Note: engine and Base must be available in the image
+      async def run():
+          url = os.getenv('DATABASE_URL')
+          if not url: return
+          pure_url = url.replace('postgresql+asyncpg://', 'postgresql://')
+          try:
+              conn_pg = await asyncpg.connect(pure_url)
+              await conn_pg.execute('CREATE EXTENSION IF NOT EXISTS vector;')
+              await conn_pg.close()
+              print('[OK] pgvector enabled')
+          except Exception as e: print(f'Vector error: {e}')
+      asyncio.run(run())

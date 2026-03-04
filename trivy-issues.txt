@@ -1,0 +1,1827 @@
+
+Report Summary
+
+┌───────────────────────────────────────────────────────────────────┬────────────────────────┬───────────────────┐
+│                              Target                               │          Type          │ Misconfigurations │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ .                                                                 │ terraformplan-snapshot │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ aks.tf                                                            │ terraformplan-snapshot │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ bastion.tf                                                        │ terraformplan-snapshot │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ docker/ai/Dockerfile                                              │       dockerfile       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ docker/frontend/Dockerfile                                        │       dockerfile       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ docker/frontend/Dockerfile.dev                                    │       dockerfile       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ docker/postgres/Dockerfile                                        │       dockerfile       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ docker/terraform-azurecli/Dockerfile                              │       dockerfile       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/argocd/root-app.yaml                                       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/argocd-ingress.yaml                              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/external-secrets.yaml                            │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/infra-obs.yaml                                   │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/loki.yaml                                        │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/observability-rules.yaml                         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/ai-worker.yaml                              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/ai.yaml                                     │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/argocd-image-updater.yaml                   │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/backend.yaml                                │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/cert-manager.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/databases-ha.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/databases-registry-override.yaml            │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/external-dns-cm.yaml                        │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/external-dns.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/external-secrets-monitoring.yaml            │       kubernetes       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/external-secrets-operator.yaml              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/frontend.yaml                               │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/infra-secrets.yaml                          │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/ingress-nginx.yaml                          │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/ingress-patch-login.yaml                    │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/monitoring-secrets-injector.yaml            │       kubernetes       │         2         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/monitoring.yaml                             │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/network-policies.yaml                       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/networking.yaml                             │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/nginx-servicemonitor.yaml                   │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/observability-rules.yaml                    │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/prod/tempo.yaml                                  │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/reloader.yaml                                    │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging-env.yaml                                 │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/ai-worker.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/ai.yaml                                  │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/backend.yaml                             │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/cert-manager.yaml                        │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/csi-secrets-driver.yaml                  │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/data-team-pg.yaml                        │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/databases-registry-override.yaml         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/databases.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/external-dns-cm.yaml                     │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/external-dns.yaml                        │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/frontend.yaml                            │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/infra-secrets.yaml                       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/ingress-nginx.yaml                       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/kyverno-policies.yaml                    │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/kyverno.yaml                             │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/network-policies.yaml                    │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/networking.yaml                          │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/bootstrap/staging/ollama.yaml                              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/charts/common-app/templates/deployment.yaml                │          helm          │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/charts/common-app/templates/service.yaml                   │          helm          │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/charts/common-app/templates/serviceaccount.yaml            │          helm          │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/check-users.yaml                                           │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/configmap.yaml                         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/deployment.yaml                        │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/ingress.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/namespace.yaml                         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/pvc.yaml                               │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/schedule.yaml                          │       kubernetes       │         6         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/ai/ollama/service.yaml                           │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/data-team-pg/postgres.yaml                       │       kubernetes       │         2         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/backup-configmap.yaml                  │       kubernetes       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/backup-cronjob.yaml                    │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/database-secrets-stg.yaml              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/db-backup-cronjob.yaml                 │       kubernetes       │         5         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/db-restore-test-job.yaml               │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/init-config-map.yaml                   │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/postgres.yaml                          │       kubernetes       │         2         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/databases/redis.yaml                             │       kubernetes       │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/networking/cluster-issuer.yaml                   │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/networking/nodelocaldns.yaml                     │       kubernetes       │         4         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/networking/unified-ingress-stg.yaml              │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/cluster-secret-store.yaml               │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/policies/argocd-component-policies.yaml │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/policies/argocd-deny-ingress.yaml       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/policies/default-deny-ingress.yaml      │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/policies/netpol-validate-job.yaml       │       kubernetes       │         6         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/policies/stg-security-policies.yaml     │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/prod/cluster-secret-store.yaml          │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/acr-secret-staging-es.yaml      │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/ai-external-secret.yaml         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/ai-network-policy.yaml          │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/be-external-secret.yaml         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/cluster-secret-store.yaml       │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/regcred-es.yaml                 │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/secret-store.yaml               │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manifests/security/staging/worker-external-secret.yaml     │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manual-es-fix.yaml                                         │       kubernetes       │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ gitops/manual-migration-verify.yaml                               │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/aks                                                         │       terraform        │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/aks/aks.tf                                                  │       terraform        │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/aks/backups.tf                                              │       terraform        │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/aks/network.tf                                              │       terraform        │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/aks/observability.tf                                        │       terraform        │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ infra/core                                                        │       terraform        │         0         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ network.tf                                                        │ terraformplan-snapshot │         2         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ observability.tf                                                  │ terraformplan-snapshot │         1         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ scripts/fire-drill-failure.yaml                                   │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ scripts/inject-admin-staging.yaml                                 │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ scripts/inject-admin.yaml                                         │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ scripts/k6-job.yaml                                               │       kubernetes       │         3         │
+├───────────────────────────────────────────────────────────────────┼────────────────────────┼───────────────────┤
+│ security.tf                                                       │ terraformplan-snapshot │         1         │
+└───────────────────────────────────────────────────────────────────┴────────────────────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+aks.tf (terraformplan-snapshot)
+===============================
+Tests: 3 (SUCCESSES: 0, FAILURES: 3)
+Failures: 3 (HIGH: 2, CRITICAL: 1)
+
+AZU-0041 (CRITICAL): Cluster does not limit API access to specific IP addresses.
+═══════════════════════════════════════
+The API server is the central way to interact with and manage a cluster. To improve cluster security and minimize attacks, the API server should only be accessible from a limited set of IP address ranges.
+
+
+See https://avd.aquasec.com/misconfig/azu-0041
+───────────────────────────────────────
+ aks.tf:1-47
+───────────────────────────────────────
+   1 ┌ resource "azurerm_kubernetes_cluster" "aks" {
+   2 │   name                = var.aks_cluster_name
+   3 │   location            = azurerm_resource_group.aks.location
+   4 │   resource_group_name = azurerm_resource_group.aks.name
+   5 │   dns_prefix          = var.dns_prefix
+   6 │   kubernetes_version  = var.kubernetes_version
+   7 │ 
+   8 │   default_node_pool {
+   9 └     name       = "system"
+  ..   
+───────────────────────────────────────
+
+
+AZU-0042 (HIGH): RBAC is not enabled on cluster
+═══════════════════════════════════════
+Using Kubernetes role-based access control (RBAC), you can grant users, groups, and service accounts access to only the resources they need.
+
+
+See https://avd.aquasec.com/misconfig/azu-0042
+───────────────────────────────────────
+ aks.tf:1-47
+───────────────────────────────────────
+   1 ┌ resource "azurerm_kubernetes_cluster" "aks" {
+   2 │   name                = var.aks_cluster_name
+   3 │   location            = azurerm_resource_group.aks.location
+   4 │   resource_group_name = azurerm_resource_group.aks.name
+   5 │   dns_prefix          = var.dns_prefix
+   6 │   kubernetes_version  = var.kubernetes_version
+   7 │ 
+   8 │   default_node_pool {
+   9 └     name       = "system"
+  ..   
+───────────────────────────────────────
+
+
+AZU-0043 (HIGH): Kubernetes cluster does not have a network policy set.
+═══════════════════════════════════════
+The Kubernetes object type NetworkPolicy should be defined to have opportunity allow or block traffic to pods, as in a Kubernetes cluster configured with default settings, all pods can discover and communicate with each other without any restrictions.
+
+
+See https://avd.aquasec.com/misconfig/azu-0043
+───────────────────────────────────────
+ aks.tf:24-31
+   via aks.tf:1-47 (azurerm_kubernetes_cluster.aks)
+───────────────────────────────────────
+   1   resource "azurerm_kubernetes_cluster" "aks" {
+   .   
+  24 ┌   network_profile {
+  25 │     network_plugin    = "azure"
+  26 │     load_balancer_sku = "standard"
+  27 │     service_cidr      = var.service_cidr
+  28 │     dns_service_ip    = cidrhost(var.service_cidr, 10)
+  29 │     # azure-cni needs careful IP planning, or use 'overlay' mode (preview in some regions, standard in newer provider versions)
+  30 └     # Using basic azure CNI here. Subnet is large enough (/22 = 1022 IPs).
+  ..   
+───────────────────────────────────────
+
+
+
+docker/ai/Dockerfile (dockerfile)
+=================================
+Tests: 20 (SUCCESSES: 19, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+═══════════════════════════════════════
+Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.
+
+See https://avd.aquasec.com/misconfig/ds-0002
+───────────────────────────────────────
+
+
+
+docker/frontend/Dockerfile.dev (dockerfile)
+===========================================
+Tests: 20 (SUCCESSES: 19, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+═══════════════════════════════════════
+Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.
+
+See https://avd.aquasec.com/misconfig/ds-0002
+───────────────────────────────────────
+
+
+
+docker/postgres/Dockerfile (dockerfile)
+=======================================
+Tests: 20 (SUCCESSES: 19, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+═══════════════════════════════════════
+Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.
+
+See https://avd.aquasec.com/misconfig/ds-0002
+───────────────────────────────────────
+
+
+
+docker/terraform-azurecli/Dockerfile (dockerfile)
+=================================================
+Tests: 20 (SUCCESSES: 19, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+═══════════════════════════════════════
+Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.
+
+See https://avd.aquasec.com/misconfig/ds-0002
+───────────────────────────────────────
+
+
+
+gitops/bootstrap/prod/external-secrets-monitoring.yaml (kubernetes)
+===================================================================
+Tests: 34 (SUCCESSES: 33, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+KSV-0109 (HIGH): ConfigMap 'monitoring-helm-values-prod' in 'argocd' namespace stores secrets in key(s) or value(s) '{"grafana_admin_password"}'
+═══════════════════════════════════════
+Storing secrets in configMaps is unsafe
+
+See https://avd.aquasec.com/misconfig/ksv-0109
+───────────────────────────────────────
+ gitops/bootstrap/prod/external-secrets-monitoring.yaml:31
+───────────────────────────────────────
+  31 [       key: slack-webhook-url
+───────────────────────────────────────
+
+
+
+gitops/bootstrap/prod/monitoring-secrets-injector.yaml (kubernetes)
+===================================================================
+Tests: 34 (SUCCESSES: 32, FAILURES: 2)
+Failures: 2 (HIGH: 2, CRITICAL: 0)
+
+KSV-0109 (HIGH): ConfigMap 'monitoring-helm-secrets-injector' in 'argocd' namespace stores secrets in key(s) or value(s) '{"grafana_admin_password"}'
+═══════════════════════════════════════
+Storing secrets in configMaps is unsafe
+
+See https://avd.aquasec.com/misconfig/ksv-0109
+───────────────────────────────────────
+ gitops/bootstrap/prod/monitoring-secrets-injector.yaml:1
+───────────────────────────────────────
+   1 [ ---
+───────────────────────────────────────
+
+
+KSV-0109 (HIGH): ConfigMap 'monitoring-values-override' in 'argocd' namespace stores secrets in key(s) or value(s) '{"  adminPassword"}'
+═══════════════════════════════════════
+Storing secrets in configMaps is unsafe
+
+See https://avd.aquasec.com/misconfig/ksv-0109
+───────────────────────────────────────
+ gitops/bootstrap/prod/monitoring-secrets-injector.yaml:12
+───────────────────────────────────────
+  12 [ 
+───────────────────────────────────────
+
+
+
+gitops/charts/common-app/templates/deployment.yaml (helm)
+=========================================================
+Tests: 23 (SUCCESSES: 20, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'common-app' of Deployment 'common-app' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/charts/common-app/templates/deployment.yaml:29-60
+───────────────────────────────────────
+  29 ┌         - name: common-app
+  30 │           securityContext:
+  31 │             {}
+  32 │           image: "nginx:1.0.0"
+  33 │           imagePullPolicy: Always
+  34 │           ports:
+  35 │             - name: http
+  36 │               containerPort: 8000
+  37 └               protocol: TCP
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container common-app in default namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/charts/common-app/templates/deployment.yaml:29-60
+───────────────────────────────────────
+  29 ┌         - name: common-app
+  30 │           securityContext:
+  31 │             {}
+  32 │           image: "nginx:1.0.0"
+  33 │           imagePullPolicy: Always
+  34 │           ports:
+  35 │             - name: http
+  36 │               containerPort: 8000
+  37 └               protocol: TCP
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): deployment common-app in default namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/charts/common-app/templates/deployment.yaml:23-60
+───────────────────────────────────────
+  23 ┌     spec:
+  24 │       serviceAccountName: common-app
+  25 │       enableServiceLinks: false
+  26 │       securityContext:
+  27 │         {}
+  28 │       containers:
+  29 │         - name: common-app
+  30 │           securityContext:
+  31 └             {}
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/check-users.yaml (kubernetes)
+====================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'check-users' of Job 'check-users-count' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/check-users.yaml:15-41
+───────────────────────────────────────
+  15 ┌       - name: check-users
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["python3"]
+  18 │         args:
+  19 │         - "-c"
+  20 │         - |
+  21 │           import asyncio
+  22 │           import os
+  23 └           from sqlalchemy.ext.asyncio import create_async_engine
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container check-users-count in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/check-users.yaml:15-41
+───────────────────────────────────────
+  15 ┌       - name: check-users
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["python3"]
+  18 │         args:
+  19 │         - "-c"
+  20 │         - |
+  21 │           import asyncio
+  22 │           import os
+  23 └           from sqlalchemy.ext.asyncio import create_async_engine
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job check-users-count in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/check-users.yaml:10-42
+───────────────────────────────────────
+  10 ┌     spec:
+  11 │       enableServiceLinks: false
+  12 │       imagePullSecrets:
+  13 │         - name: regcred
+  14 │       containers:
+  15 │       - name: check-users
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["python3"]
+  18 └         args:
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/ai/ollama/deployment.yaml (kubernetes)
+=======================================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'ollama' of Deployment 'ollama' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/deployment.yaml:33-83
+───────────────────────────────────────
+  33 ┌         - name: ollama
+  34 │           image: ollama/ollama:latest
+  35 │           ports:
+  36 │             - containerPort: 11434
+  37 │               name: http
+  38 │           resources:
+  39 │             limits:
+  40 │               memory: "28Gi"
+  41 └               cpu: "15"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container ollama in ollama namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/deployment.yaml:33-83
+───────────────────────────────────────
+  33 ┌         - name: ollama
+  34 │           image: ollama/ollama:latest
+  35 │           ports:
+  36 │             - containerPort: 11434
+  37 │               name: http
+  38 │           resources:
+  39 │             limits:
+  40 │               memory: "28Gi"
+  41 └               cpu: "15"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): deployment ollama in ollama namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/deployment.yaml:19-92
+───────────────────────────────────────
+  19 ┌     spec:
+  20 │       # Ensure it runs on the AI CPU Node Pool
+  21 │       # Ensure it runs on the AI CPU Node Pool (Turbo)
+  22 │       nodeSelector:
+  23 │         sky-poc-type: ai-turbo
+  24 │         workload_type: ai-turbo
+  25 │ 
+  26 │       tolerations:
+  27 └         - key: "sku"
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/ai/ollama/schedule.yaml (kubernetes)
+=====================================================
+Tests: 39 (SUCCESSES: 33, FAILURES: 6)
+Failures: 6 (HIGH: 6, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'kubectl' of CronJob 'ollama-sleep' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:65-70
+───────────────────────────────────────
+  65 ┌       template:
+  66 │         spec:
+  67 │           serviceAccountName: ollama-scaler-sa
+  68 │           containers:
+  69 │             - name: kubectl
+  70 └               image: bitnami/kubectl:latest
+───────────────────────────────────────
+
+
+KSV-0014 (HIGH): Container 'kubectl' of CronJob 'ollama-wake-up' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:44-49
+───────────────────────────────────────
+  44 ┌         spec:
+  45 │           serviceAccountName: ollama-scaler-sa
+  46 │           containers:
+  47 │             - name: kubectl
+  48 │               image: bitnami/kubectl:latest
+  49 └               command:
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container ollama-sleep in ollama namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:65-70
+───────────────────────────────────────
+  65 ┌       template:
+  66 │         spec:
+  67 │           serviceAccountName: ollama-scaler-sa
+  68 │           containers:
+  69 │             - name: kubectl
+  70 └               image: bitnami/kubectl:latest
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container ollama-wake-up in ollama namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:44-49
+───────────────────────────────────────
+  44 ┌         spec:
+  45 │           serviceAccountName: ollama-scaler-sa
+  46 │           containers:
+  47 │             - name: kubectl
+  48 │               image: bitnami/kubectl:latest
+  49 └               command:
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): cronjob ollama-sleep in ollama namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:62-71
+───────────────────────────────────────
+  62 ┌   schedule: "0 18 * * 1-5"
+  63 │   jobTemplate:
+  64 │     spec:
+  65 │       template:
+  66 │         spec:
+  67 │           serviceAccountName: ollama-scaler-sa
+  68 │           containers:
+  69 │             - name: kubectl
+  70 │               image: bitnami/kubectl:latest
+  71 └               command:
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): cronjob ollama-wake-up in ollama namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/ai/ollama/schedule.yaml:41-50
+───────────────────────────────────────
+  41 ┌   jobTemplate:
+  42 │     spec:
+  43 │       template:
+  44 │         spec:
+  45 │           serviceAccountName: ollama-scaler-sa
+  46 │           containers:
+  47 │             - name: kubectl
+  48 │               image: bitnami/kubectl:latest
+  49 │               command:
+  50 └                 - /bin/sh
+───────────────────────────────────────
+
+
+
+gitops/manifests/data-team-pg/postgres.yaml (kubernetes)
+========================================================
+Tests: 35 (SUCCESSES: 33, FAILURES: 2)
+Failures: 2 (HIGH: 2, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'postgres' of StatefulSet 'pg-data-team' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/data-team-pg/postgres.yaml:45-68
+───────────────────────────────────────
+  45 ┌         fsGroup: 999
+  46 │       containers:
+  47 │         - name: postgres
+  48 │           image: pgvector/pgvector:pg14
+  49 │           env:
+  50 │             - name: POSTGRES_DB
+  51 │               value: "data_warehouse"
+  52 │             - name: POSTGRES_USER
+  53 └               value: "data_admin"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container pg-data-team in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/data-team-pg/postgres.yaml:45-68
+───────────────────────────────────────
+  45 ┌         fsGroup: 999
+  46 │       containers:
+  47 │         - name: postgres
+  48 │           image: pgvector/pgvector:pg14
+  49 │           env:
+  50 │             - name: POSTGRES_DB
+  51 │               value: "data_warehouse"
+  52 │             - name: POSTGRES_USER
+  53 └               value: "data_admin"
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/backup-configmap.yaml (kubernetes)
+=============================================================
+Tests: 33 (SUCCESSES: 32, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+KSV-0109 (HIGH): ConfigMap 'backup-scripts' in 'staging' namespace stores secrets in key(s) or value(s) '{"PGPASSWORD"}'
+═══════════════════════════════════════
+Storing secrets in configMaps is unsafe
+
+See https://avd.aquasec.com/misconfig/ksv-0109
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/backup-cronjob.yaml (kubernetes)
+===========================================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'backup' of CronJob 'postgres-backup' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/backup-cronjob.yaml:16-42
+───────────────────────────────────────
+  16 ┌           - name: backup
+  17 │             image: mcr.microsoft.com/azure-cli:latest
+  18 │             command: ["/bin/bash", "/scripts/backup.sh"]
+  19 │             env:
+  20 │             - name: POSTGRES_PASSWORD
+  21 │               valueFrom:
+  22 │                 secretKeyRef:
+  23 │                   name: postgres-secret
+  24 └                   key: password
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container postgres-backup in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/backup-cronjob.yaml:16-42
+───────────────────────────────────────
+  16 ┌           - name: backup
+  17 │             image: mcr.microsoft.com/azure-cli:latest
+  18 │             command: ["/bin/bash", "/scripts/backup.sh"]
+  19 │             env:
+  20 │             - name: POSTGRES_PASSWORD
+  21 │               valueFrom:
+  22 │                 secretKeyRef:
+  23 │                   name: postgres-secret
+  24 └                   key: password
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): cronjob postgres-backup in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/backup-cronjob.yaml:13-47
+───────────────────────────────────────
+  13 ┌         spec:
+  14 │           restartPolicy: OnFailure
+  15 │           containers:
+  16 │           - name: backup
+  17 │             image: mcr.microsoft.com/azure-cli:latest
+  18 │             command: ["/bin/bash", "/scripts/backup.sh"]
+  19 │             env:
+  20 │             - name: POSTGRES_PASSWORD
+  21 └               valueFrom:
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/db-backup-cronjob.yaml (kubernetes)
+==============================================================
+Tests: 38 (SUCCESSES: 33, FAILURES: 5)
+Failures: 5 (HIGH: 5, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'dump' of CronJob 'sky-db-backup' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/db-backup-cronjob.yaml:31-63
+───────────────────────────────────────
+  31 ┌           initContainers:
+  32 │             - name: dump
+  33 │               image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+  34 │               command:
+  35 │                 - /bin/bash
+  36 │                 - -c
+  37 │                 - |
+  38 │                   set -e
+  39 └                   DB_HOST="postgresql"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0014 (HIGH): Container 'upload' of CronJob 'sky-db-backup' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/db-backup-cronjob.yaml:65-102
+───────────────────────────────────────
+  65 ┌           containers:
+  66 │             - name: upload
+  67 │               image: mcr.microsoft.com/azure-cli:latest
+  68 │               command:
+  69 │                 - /bin/sh
+  70 │                 - -c
+  71 │                 - |
+  72 │                   set -e
+  73 └                   STORAGE_ACCOUNT="skybkpprod8ooz9z"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container sky-db-backup in prod namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/db-backup-cronjob.yaml:31-63
+───────────────────────────────────────
+  31 ┌           initContainers:
+  32 │             - name: dump
+  33 │               image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+  34 │               command:
+  35 │                 - /bin/bash
+  36 │                 - -c
+  37 │                 - |
+  38 │                   set -e
+  39 └                   DB_HOST="postgresql"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container sky-db-backup in prod namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/db-backup-cronjob.yaml:65-102
+───────────────────────────────────────
+  65 ┌           containers:
+  66 │             - name: upload
+  67 │               image: mcr.microsoft.com/azure-cli:latest
+  68 │               command:
+  69 │                 - /bin/sh
+  70 │                 - -c
+  71 │                 - |
+  72 │                   set -e
+  73 └                   STORAGE_ACCOUNT="skybkpprod8ooz9z"
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): cronjob sky-db-backup in prod namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/db-backup-cronjob.yaml:24-102
+───────────────────────────────────────
+  24 ┌             azure.workload.identity/use: "true"
+  25 │         spec:
+  26 │           serviceAccountName: sky-db-backup
+  27 │           restartPolicy: OnFailure
+  28 │           volumes:
+  29 │             - name: backup-data
+  30 │               emptyDir: { }
+  31 │           initContainers:
+  32 └             - name: dump
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/db-restore-test-job.yaml (kubernetes)
+================================================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'restore-test' of Job 'db-restore-test-job-staging' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/db-restore-test-job.yaml:15-81
+───────────────────────────────────────
+  15 ┌       - name: restore-test
+  16 │         image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+  17 │         command:
+  18 │         - /bin/bash
+  19 │         - -c
+  20 │         - |
+  21 │           set -e
+  22 │           echo "🧪 Iniciando Teste de Higiene de Backup (Automated Restore Validation)..."
+  23 └ 
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container db-restore-test-job-staging in default namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/db-restore-test-job.yaml:15-81
+───────────────────────────────────────
+  15 ┌       - name: restore-test
+  16 │         image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+  17 │         command:
+  18 │         - /bin/bash
+  19 │         - -c
+  20 │         - |
+  21 │           set -e
+  22 │           echo "🧪 Iniciando Teste de Higiene de Backup (Automated Restore Validation)..."
+  23 └ 
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job db-restore-test-job-staging in default namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/databases/db-restore-test-job.yaml:11-81
+───────────────────────────────────────
+  11 ┌     spec:
+  12 │       serviceAccountName: sky-db-backup
+  13 │       restartPolicy: OnFailure
+  14 │       containers:
+  15 │       - name: restore-test
+  16 │         image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+  17 │         command:
+  18 │         - /bin/bash
+  19 └         - -c
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/postgres.yaml (kubernetes)
+=====================================================
+Tests: 35 (SUCCESSES: 33, FAILURES: 2)
+Failures: 2 (HIGH: 2, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'postgres' of StatefulSet 'postgres' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/postgres.yaml:65-100
+───────────────────────────────────────
+  65 ┌               memory: 128Mi
+  66 │         - name: postgres
+  67 │           image: pgvector/pgvector:pg14
+  68 │           imagePullPolicy: IfNotPresent
+  69 │           securityContext:
+  70 │             allowPrivilegeEscalation: false
+  71 │             capabilities:
+  72 │               drop:
+  73 └                 - ALL
+  ..   
+───────────────────────────────────────
+
+
+KSV-0014 (HIGH): Container 'postgres-exporter' of StatefulSet 'postgres' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/postgres.yaml:41-64
+───────────────────────────────────────
+  41 ┌       containers:
+  42 │         - name: postgres-exporter
+  43 │           image: prometheuscommunity/postgres-exporter:v0.12.0
+  44 │           securityContext:
+  45 │              allowPrivilegeEscalation: false
+  46 │           env:
+  47 │             - name: DATA_SOURCE_URI
+  48 │               value: "127.0.0.1:5432/ai_saas_db?sslmode=disable"
+  49 └             - name: PGUSER
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/databases/redis.yaml (kubernetes)
+==================================================
+Tests: 34 (SUCCESSES: 33, FAILURES: 1)
+Failures: 1 (HIGH: 1, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'redis' of Deployment 'redis' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/databases/redis.yaml:37-76
+───────────────────────────────────────
+  37 ┌       containers:
+  38 │         - name: redis
+  39 │           image: redis:7-alpine
+  40 │           securityContext:
+  41 │             allowPrivilegeEscalation: false
+  42 │             capabilities:
+  43 │               drop:
+  44 │                 - ALL
+  45 └           command:
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/networking/nodelocaldns.yaml (kubernetes)
+==========================================================
+Tests: 37 (SUCCESSES: 33, FAILURES: 4)
+Failures: 4 (HIGH: 4, CRITICAL: 0)
+
+KSV-0009 (HIGH): DaemonSet 'sky-node-local-dns' should not set 'spec.template.spec.hostNetwork' to true
+═══════════════════════════════════════
+Sharing the host’s network namespace permits processes in the pod to communicate with processes bound to the host’s loopback adapter.
+
+See https://avd.aquasec.com/misconfig/ksv-0009
+───────────────────────────────────────
+ gitops/manifests/networking/nodelocaldns.yaml:10-79
+───────────────────────────────────────
+  10 ┌ spec:
+  11 │   updateStrategy:
+  12 │     rollingUpdate:
+  13 │       maxUnavailable: 1
+  14 │   selector:
+  15 │     matchLabels:
+  16 │       k8s-app: sky-node-local-dns
+  17 │   template:
+  18 └     metadata:
+  ..   
+───────────────────────────────────────
+
+
+KSV-0014 (HIGH): Container 'node-cache' of DaemonSet 'sky-node-local-dns' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/networking/nodelocaldns.yaml:32-71
+───────────────────────────────────────
+  32 ┌       - name: node-cache
+  33 │         image: registry.k8s.io/dns/k8s-dns-node-cache:1.23.1
+  34 │         resources:
+  35 │           requests:
+  36 │             cpu: 25m
+  37 │             memory: 5Mi
+  38 │           limits:
+  39 │             memory: 30Mi
+  40 └         args:
+  ..   
+───────────────────────────────────────
+
+
+KSV-0017 (HIGH): Container 'node-cache' of DaemonSet 'sky-node-local-dns' should set 'securityContext.privileged' to false
+═══════════════════════════════════════
+Privileged containers share namespaces with the host system and do not offer any security. They should be used exclusively for system containers that require high privileges.
+
+See https://avd.aquasec.com/misconfig/ksv-0017
+───────────────────────────────────────
+ gitops/manifests/networking/nodelocaldns.yaml:32-71
+───────────────────────────────────────
+  32 ┌       - name: node-cache
+  33 │         image: registry.k8s.io/dns/k8s-dns-node-cache:1.23.1
+  34 │         resources:
+  35 │           requests:
+  36 │             cpu: 25m
+  37 │             memory: 5Mi
+  38 │           limits:
+  39 │             memory: 30Mi
+  40 └         args:
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): daemonset sky-node-local-dns in kube-system namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/networking/nodelocaldns.yaml:24-79
+───────────────────────────────────────
+  24 ┌     spec:
+  25 │       priorityClassName: system-node-critical
+  26 │       serviceAccountName: sky-node-local-dns
+  27 │       hostNetwork: true
+  28 │       dnsPolicy: Default
+  29 │       tolerations:
+  30 │       - operator: Exists
+  31 │       containers:
+  32 └       - name: node-cache
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manifests/security/policies/netpol-validate-job.yaml (kubernetes)
+========================================================================
+Tests: 37 (SUCCESSES: 31, FAILURES: 6)
+Failures: 6 (HIGH: 6, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'validator' of Job 'netpol-repo-validator' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:36-40
+───────────────────────────────────────
+  36 ┌       containers:
+  37 │       - name: validator
+  38 │         image: alpine:latest
+  39 │         command: ["/bin/sh", "-c"]
+  40 └         args:
+───────────────────────────────────────
+
+
+KSV-0014 (HIGH): Container 'validator' of Job 'netpol-server-validator' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:13-17
+───────────────────────────────────────
+  13 ┌       - name: validator
+  14 │         image: alpine:latest
+  15 │         command: ["/bin/sh", "-c"]
+  16 │         args:
+  17 └           - |
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container netpol-repo-validator in argocd namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:36-40
+───────────────────────────────────────
+  36 ┌       containers:
+  37 │       - name: validator
+  38 │         image: alpine:latest
+  39 │         command: ["/bin/sh", "-c"]
+  40 └         args:
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container netpol-server-validator in argocd namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:13-17
+───────────────────────────────────────
+  13 ┌       - name: validator
+  14 │         image: alpine:latest
+  15 │         command: ["/bin/sh", "-c"]
+  16 │         args:
+  17 └           - |
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job netpol-repo-validator in argocd namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:34-44
+───────────────────────────────────────
+  34 ┌         app.kubernetes.io/name: argocd-repo-server
+  35 │     spec:
+  36 │       containers:
+  37 │       - name: validator
+  38 │         image: alpine:latest
+  39 │         command: ["/bin/sh", "-c"]
+  40 │         args:
+  41 │           - |
+  42 └             nc -z -w 5 argocd-redis 6379 && echo "REPO -> REDIS: OK" || exit 1
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job netpol-server-validator in argocd namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manifests/security/policies/netpol-validate-job.yaml:11-22
+───────────────────────────────────────
+  11 ┌     spec:
+  12 │       containers:
+  13 │       - name: validator
+  14 │         image: alpine:latest
+  15 │         command: ["/bin/sh", "-c"]
+  16 │         args:
+  17 │           - |
+  18 │             nc -z -w 5 argocd-repo-server 8081 && echo "SERVER -> REPO: OK" || exit 1
+  19 └             nc -z -w 5 argocd-redis 6379 && echo "SERVER -> REDIS: OK" || exit 1
+  ..   
+───────────────────────────────────────
+
+
+
+gitops/manual-migration-verify.yaml (kubernetes)
+================================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'migrate' of Job 'manual-migration-verify-db' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ gitops/manual-migration-verify.yaml:15-30
+───────────────────────────────────────
+  15 ┌       - name: migrate
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["alembic", "upgrade", "head"]
+  18 │         env:
+  19 │         - name: DATABASE_URL
+  20 │           valueFrom:
+  21 │             secretKeyRef:
+  22 │               name: sky-backend-staging-common-app-secrets
+  23 └               key: database-url
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container manual-migration-verify-db in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manual-migration-verify.yaml:15-30
+───────────────────────────────────────
+  15 ┌       - name: migrate
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["alembic", "upgrade", "head"]
+  18 │         env:
+  19 │         - name: DATABASE_URL
+  20 │           valueFrom:
+  21 │             secretKeyRef:
+  22 │               name: sky-backend-staging-common-app-secrets
+  23 └               key: database-url
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job manual-migration-verify-db in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ gitops/manual-migration-verify.yaml:10-31
+───────────────────────────────────────
+  10 ┌     spec:
+  11 │       enableServiceLinks: false
+  12 │       imagePullSecrets:
+  13 │         - name: regcred
+  14 │       containers:
+  15 │       - name: migrate
+  16 │         image: skyacrstaging.azurecr.io/sky-poc-backend:latest
+  17 │         command: ["alembic", "upgrade", "head"]
+  18 └         env:
+  ..   
+───────────────────────────────────────
+
+
+
+infra/aks/aks.tf (terraform)
+============================
+Tests: 1 (SUCCESSES: 0, FAILURES: 1)
+Failures: 1 (HIGH: 0, CRITICAL: 1)
+
+AZU-0041 (CRITICAL): Cluster does not limit API access to specific IP addresses.
+═══════════════════════════════════════
+The API server is the central way to interact with and manage a cluster. To improve cluster security and minimize attacks, the API server should only be accessible from a limited set of IP address ranges.
+
+
+See https://avd.aquasec.com/misconfig/azu-0041
+───────────────────────────────────────
+ infra/aks/aks.tf:1-65
+───────────────────────────────────────
+   1 ┌ resource "azurerm_kubernetes_cluster" "aks" {
+   2 │   name                = var.aks_cluster_name
+   3 │   location            = azurerm_resource_group.aks.location
+   4 │   resource_group_name = azurerm_resource_group.aks.name
+   5 │   dns_prefix          = var.dns_prefix
+   6 │   kubernetes_version  = var.kubernetes_version != "" ? var.kubernetes_version : null
+   7 │ 
+   8 │   default_node_pool {
+   9 └     name                        = "system"
+  ..   
+───────────────────────────────────────
+
+
+
+infra/aks/backups.tf (terraform)
+================================
+Tests: 1 (SUCCESSES: 0, FAILURES: 1)
+Failures: 1 (HIGH: 0, CRITICAL: 1)
+
+AZU-0012 (CRITICAL): No network rules defined and default action allows access.
+═══════════════════════════════════════
+The default_action for network rules should come into effect when no other rules are matched.
+The default action should be set to Deny.
+
+
+See https://avd.aquasec.com/misconfig/azu-0012
+───────────────────────────────────────
+ infra/aks/backups.tf:10-37
+───────────────────────────────────────
+  10 ┌ resource "azurerm_storage_account" "db_backup" {
+  11 │   name                     = "skybkp${var.environment}${random_string.backup_suffix.result}"
+  12 │   resource_group_name      = var.resource_group_name
+  13 │   location                 = var.location
+  14 │   account_tier             = "Standard"
+  15 │   account_replication_type = "GRS" # Geo-Redundant for Production resilience
+  16 │   min_tls_version          = "TLS1_2"
+  17 │ 
+  18 └   # Immutability & Protection
+  ..   
+───────────────────────────────────────
+
+
+
+infra/aks/observability.tf (terraform)
+======================================
+Tests: 1 (SUCCESSES: 0, FAILURES: 1)
+Failures: 1 (HIGH: 0, CRITICAL: 1)
+
+AZU-0012 (CRITICAL): No network rules defined and default action allows access.
+═══════════════════════════════════════
+The default_action for network rules should come into effect when no other rules are matched.
+The default action should be set to Deny.
+
+
+See https://avd.aquasec.com/misconfig/azu-0012
+───────────────────────────────────────
+ infra/aks/observability.tf:7-19
+───────────────────────────────────────
+   7 ┌ resource "azurerm_storage_account" "loki" {
+   8 │   name                     = "skyloki${var.environment}${random_string.storage_suffix.result}"
+   9 │   resource_group_name      = azurerm_resource_group.aks.name
+  10 │   location                 = azurerm_resource_group.aks.location
+  11 │   account_tier             = "Standard"
+  12 │   account_replication_type = "LRS"
+  13 │   min_tls_version          = "TLS1_2"
+  14 │   access_tier              = "Cool" # Cheaper for logs
+  15 └ 
+  ..   
+───────────────────────────────────────
+
+
+
+network.tf (terraformplan-snapshot)
+===================================
+Tests: 2 (SUCCESSES: 0, FAILURES: 2)
+Failures: 2 (HIGH: 0, CRITICAL: 2)
+
+AZU-0047 (CRITICAL): Security group rule allows unrestricted ingress from any IP address.
+═══════════════════════════════════════
+Opening up ports to allow connections from the public internet is generally to be avoided. You should restrict access to IP addresses or ranges that are explicitly required where possible.
+
+
+See https://avd.aquasec.com/misconfig/azu-0047
+───────────────────────────────────────
+ network.tf:48
+   via network.tf:40-50 (content)
+    via network.tf:38-51 (dynamic.security_rule)
+     via network.tf:33-56 (azurerm_network_security_group.bastion)
+───────────────────────────────────────
+  33   resource "azurerm_network_security_group" "bastion" {
+  ..   
+  48 [       source_address_prefix      = security_rule.value
+  ..   
+  56   }
+───────────────────────────────────────
+
+
+AZU-0050 (CRITICAL): Security group rule allows unrestricted ingress to SSH port from any IP address.
+═══════════════════════════════════════
+SSH access can be configured on either the network security group or in the network security group rule.
+SSH access should not be permitted from the internet (*, 0.0.0.0, /0, internet, any)
+
+
+See https://avd.aquasec.com/misconfig/azu-0050
+───────────────────────────────────────
+ network.tf:48
+   via network.tf:40-50 (content)
+    via network.tf:38-51 (dynamic.security_rule)
+     via network.tf:33-56 (azurerm_network_security_group.bastion)
+───────────────────────────────────────
+  33   resource "azurerm_network_security_group" "bastion" {
+  ..   
+  48 [       source_address_prefix      = security_rule.value
+  ..   
+  56   }
+───────────────────────────────────────
+
+
+
+observability.tf (terraformplan-snapshot)
+=========================================
+Tests: 1 (SUCCESSES: 0, FAILURES: 1)
+Failures: 1 (HIGH: 0, CRITICAL: 1)
+
+AZU-0012 (CRITICAL): No network rules defined and default action allows access.
+═══════════════════════════════════════
+The default_action for network rules should come into effect when no other rules are matched.
+The default action should be set to Deny.
+
+
+See https://avd.aquasec.com/misconfig/azu-0012
+───────────────────────────────────────
+ observability.tf:7-18
+───────────────────────────────────────
+   7 ┌ resource "azurerm_storage_account" "loki" {
+   8 │   name                     = "skyloki${var.environment}${random_string.storage_suffix.result}"
+   9 │   resource_group_name      = azurerm_resource_group.aks.name
+  10 │   location                 = azurerm_resource_group.aks.location
+  11 │   account_tier             = "Standard"
+  12 │   account_replication_type = "LRS"
+  13 │   access_tier              = "Cool" # Cheaper for logs
+  14 │ 
+  15 └   tags = {
+  ..   
+───────────────────────────────────────
+
+
+
+scripts/fire-drill-failure.yaml (kubernetes)
+============================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'fail' of Job 'fire-drill-alert-test' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ scripts/fire-drill-failure.yaml:10-12
+───────────────────────────────────────
+  10 ┌       - name: fail
+  11 │         image: busybox
+  12 └         command: ["/bin/sh", "-c", "echo 'Simulating Failure...'; exit 1"]
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container fire-drill-alert-test in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/fire-drill-failure.yaml:10-12
+───────────────────────────────────────
+  10 ┌       - name: fail
+  11 │         image: busybox
+  12 └         command: ["/bin/sh", "-c", "echo 'Simulating Failure...'; exit 1"]
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job fire-drill-alert-test in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/fire-drill-failure.yaml:8-13
+───────────────────────────────────────
+   8 ┌     spec:
+   9 │       containers:
+  10 │       - name: fail
+  11 │         image: busybox
+  12 │         command: ["/bin/sh", "-c", "echo 'Simulating Failure...'; exit 1"]
+  13 └       restartPolicy: Never
+───────────────────────────────────────
+
+
+
+scripts/inject-admin-staging.yaml (kubernetes)
+==============================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'injector' of Job 'inject-admin-user-staging' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ scripts/inject-admin-staging.yaml:12-73
+───────────────────────────────────────
+  12 ┌       - name: injector
+  13 │         # Usando imagem de staging confirmada em backend.yaml
+  14 │         image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:latest
+  15 │         command: ["python", "-c"]
+  16 │         args:
+  17 │         - |
+  18 │           import asyncio
+  19 │           import os
+  20 └           from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container inject-admin-user-staging in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/inject-admin-staging.yaml:12-73
+───────────────────────────────────────
+  12 ┌       - name: injector
+  13 │         # Usando imagem de staging confirmada em backend.yaml
+  14 │         image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:latest
+  15 │         command: ["python", "-c"]
+  16 │         args:
+  17 │         - |
+  18 │           import asyncio
+  19 │           import os
+  20 └           from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job inject-admin-user-staging in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/inject-admin-staging.yaml:10-74
+───────────────────────────────────────
+  10 ┌     spec:
+  11 │       containers:
+  12 │       - name: injector
+  13 │         # Usando imagem de staging confirmada em backend.yaml
+  14 │         image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:latest
+  15 │         command: ["python", "-c"]
+  16 │         args:
+  17 │         - |
+  18 └           import asyncio
+  ..   
+───────────────────────────────────────
+
+
+
+scripts/inject-admin.yaml (kubernetes)
+======================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'injector' of Job 'inject-admin-user' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ scripts/inject-admin.yaml:12-71
+───────────────────────────────────────
+  12 ┌       - name: injector
+  13 │         image: skyacrprodel5zpw.azurecr.io/sky-poc-backend:latest
+  14 │         command: ["python", "-c"]
+  15 │         args:
+  16 │         - |
+  17 │           import asyncio
+  18 │           import os
+  19 │           from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+  20 └           from sqlalchemy.orm import sessionmaker
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container inject-admin-user in prod namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/inject-admin.yaml:12-71
+───────────────────────────────────────
+  12 ┌       - name: injector
+  13 │         image: skyacrprodel5zpw.azurecr.io/sky-poc-backend:latest
+  14 │         command: ["python", "-c"]
+  15 │         args:
+  16 │         - |
+  17 │           import asyncio
+  18 │           import os
+  19 │           from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+  20 └           from sqlalchemy.orm import sessionmaker
+  ..   
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job inject-admin-user in prod namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/inject-admin.yaml:10-72
+───────────────────────────────────────
+  10 ┌     spec:
+  11 │       containers:
+  12 │       - name: injector
+  13 │         image: skyacrprodel5zpw.azurecr.io/sky-poc-backend:latest
+  14 │         command: ["python", "-c"]
+  15 │         args:
+  16 │         - |
+  17 │           import asyncio
+  18 └           import os
+  ..   
+───────────────────────────────────────
+
+
+
+scripts/k6-job.yaml (kubernetes)
+================================
+Tests: 34 (SUCCESSES: 31, FAILURES: 3)
+Failures: 3 (HIGH: 3, CRITICAL: 0)
+
+KSV-0014 (HIGH): Container 'k6' of Job 'k6-stress-test' should set 'securityContext.readOnlyRootFilesystem' to true
+═══════════════════════════════════════
+An immutable root file system prevents applications from writing to their local disk. This can limit intrusions, as attackers will not be able to tamper with the file system or write foreign executables to disk.
+
+See https://avd.aquasec.com/misconfig/ksv-0014
+───────────────────────────────────────
+ scripts/k6-job.yaml:10-15
+───────────────────────────────────────
+  10 ┌       - name: k6
+  11 │         image: grafana/k6:latest
+  12 │         command: ["k6", "run", "/scripts/stress-test.js"]
+  13 │         volumeMounts:
+  14 │         - name: scripts
+  15 └           mountPath: /scripts
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): container k6-stress-test in staging namespace is using the default security context
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/k6-job.yaml:10-15
+───────────────────────────────────────
+  10 ┌       - name: k6
+  11 │         image: grafana/k6:latest
+  12 │         command: ["k6", "run", "/scripts/stress-test.js"]
+  13 │         volumeMounts:
+  14 │         - name: scripts
+  15 └           mountPath: /scripts
+───────────────────────────────────────
+
+
+KSV-0118 (HIGH): job k6-stress-test in staging namespace is using the default security context, which allows root privileges
+═══════════════════════════════════════
+Security context controls the allocation of security parameters for the pod/container/volume, ensuring the appropriate level of protection. Relying on default security context may expose vulnerabilities to potential attacks that rely on privileged access.
+
+See https://avd.aquasec.com/misconfig/ksv-0118
+───────────────────────────────────────
+ scripts/k6-job.yaml:8-20
+───────────────────────────────────────
+   8 ┌     spec:
+   9 │       containers:
+  10 │       - name: k6
+  11 │         image: grafana/k6:latest
+  12 │         command: ["k6", "run", "/scripts/stress-test.js"]
+  13 │         volumeMounts:
+  14 │         - name: scripts
+  15 │           mountPath: /scripts
+  16 └       restartPolicy: Never
+  ..   
+───────────────────────────────────────
+
+
+
+security.tf (terraformplan-snapshot)
+====================================
+Tests: 1 (SUCCESSES: 0, FAILURES: 1)
+Failures: 1 (HIGH: 0, CRITICAL: 1)
+
+AZU-0013 (CRITICAL): Vault network ACL does not block access by default.
+═══════════════════════════════════════
+Network ACLs allow you to reduce your exposure to risk by limiting what can access your key vault.
+
+The default action of the Network ACL should be set to deny for when IPs are not matched. Azure services can be allowed to bypass.
+
+
+See https://avd.aquasec.com/misconfig/azu-0013
+───────────────────────────────────────
+ security.tf:7-27
+───────────────────────────────────────
+   7 ┌ resource "azurerm_key_vault" "main" {
+   8 │   name                        = "akv-sky-${var.environment}-${random_id.kv_suffix.hex}"
+   9 │   location                    = azurerm_resource_group.aks.location
+  10 │   resource_group_name         = azurerm_resource_group.aks.name
+  11 │   enabled_for_disk_encryption = true
+  12 │   tenant_id                   = data.azurerm_client_config.current.tenant_id
+  13 │   soft_delete_retention_days  = 7
+  14 │   purge_protection_enabled    = false
+  15 └ 
+  ..   
+───────────────────────────────────────
+
+

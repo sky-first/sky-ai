@@ -1,0 +1,74 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inject-admin-user-staging
+  namespace: staging
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      containers:
+      - name: injector
+        # Usando imagem de staging confirmada em backend.yaml
+        image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:latest
+        command: ["python", "-c"]
+        args:
+        - |
+          import asyncio
+          import os
+          from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+          from sqlalchemy.orm import sessionmaker
+          from sqlalchemy.future import select
+          from src.models.user import User
+          from passlib.context import CryptContext
+
+          async def run():
+              db_url = os.getenv("DATABASE_URL")
+              db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+
+              print(f"Connecting to DB...")
+              engine = create_async_engine(db_url)
+              async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+              ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+              async with async_session() as session:
+                  email = "admin@skyfirstlabs.com"
+                  stmt = select(User).where(User.email == email)
+                  result = await session.execute(stmt)
+                  existing = result.scalars().first()
+
+                  password = "SkyFirst@2026!"
+                  hashed = ctx.hash(password)
+
+                  if existing:
+                      print(f"User {email} already exists. Updating password...")
+                      existing.password_hash = hashed
+                      existing.role = "admin"
+                      await session.commit()
+                      print("[OK] User updated.")
+                  else:
+                      print(f"Creating new admin...")
+                      user = User(
+                          email=email,
+                          password_hash=hashed,
+                          name="Admin User",
+                          role="admin",
+                          auth_provider="local",
+                          email_verified=True,
+                          has_completed_onboarding=True
+                      )
+                      session.add(user)
+                      await session.commit()
+                      print(f"[OK] User created: {email}")
+
+          if __name__ == "__main__":
+              asyncio.run(run())
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: sky-be-stg-secrets
+              key: database_url
+      restartPolicy: Never

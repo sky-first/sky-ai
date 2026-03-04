@@ -1,0 +1,85 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: data-team-pg-secret
+  namespace: staging
+spec:
+  refreshInterval: "15m"
+  secretStoreRef:
+    name: azure-keyvault # Using the global valid ClusterSecretStore
+    kind: ClusterSecretStore
+  target:
+    name: data-team-pg-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: POSTGRES_PASSWORD
+      remoteRef:
+        key: data-team-pg-password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-data-team
+  namespace: staging
+  labels:
+    app: pg-data-team
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: pg-data-team
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pg-data-team
+  namespace: staging
+spec:
+  serviceName: "pg-data-team"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg-data-team
+  template:
+    metadata:
+      labels:
+        app: pg-data-team
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg14
+          env:
+            - name: POSTGRES_DB
+              value: "data_warehouse"
+            - name: POSTGRES_USER
+              value: "data_admin"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: data-team-pg-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

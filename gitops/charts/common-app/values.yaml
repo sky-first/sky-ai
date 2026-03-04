@@ -1,3 +1,4 @@
+---
 # Default values for common-app.
 replicaCount: 1
 
@@ -14,15 +15,15 @@ probes:
   liveness:
     path: /
     initialDelaySeconds: 15
-    periodSeconds: 20
+    periodSeconds: 5
     timeoutSeconds: 5
     failureThreshold: 3
   readiness:
     path: /
     initialDelaySeconds: 5
-    periodSeconds: 10
+    periodSeconds: 5
     timeoutSeconds: 5
-    failureThreshold: 3
+    failureThreshold: 2
 
 serviceAccount:
   create: true
@@ -30,6 +31,10 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
+podLabels:
+  owner: data-first-engineering
+  cost-center: engineering
+
 podSecurityContext: {}
   # fsGroup: 2000
 
@@ -75,6 +80,10 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
 
+pdb:
+  enabled: false
+  minAvailable: 1
+
 # Database Migration Hook
 migration:
   enabled: false
@@ -101,3 +110,6 @@ externalSecret:
 
 # Extra Environment Variables
 extraEnv: []
+
+# Extra Environment Sources (SecretRef, ConfigMapRef)
+extraEnvFrom: []

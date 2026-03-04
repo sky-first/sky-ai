@@ -12,7 +12,7 @@ if [ ! -d "$PROJECT_DIR" ]; then
     elif [ -d "/home/azureuser/projeto/poc-deploy" ]; then
         PROJECT_DIR="/home/azureuser/projeto/poc-deploy"
     else
-        echo "❌ ERRO: Diretório do projeto não encontrado"
+        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
         echo "   Procurou em: $PROJECT_DIR"
         echo "   E em: /home/azureuser/projeto/sky-poc-infra"
         echo "   E em: /home/azureuser/projeto/poc-deploy"
@@ -21,11 +21,11 @@ if [ ! -d "$PROJECT_DIR" ]; then
 fi
 
 cd "$PROJECT_DIR" || {
-    echo "❌ ERRO: Não foi possível entrar no diretório: $PROJECT_DIR"
+    echo "[ERROR] ERRO: Não foi possível entrar no diretório: $PROJECT_DIR"
     exit 1
 }
 
-echo "📁 Diretório do projeto: $(pwd)"
+echo " Diretório do projeto: $(pwd)"
 
 MAX_WAIT=300  # 5 minutos máximo por serviço
 WAIT_INTERVAL=5
@@ -40,7 +40,7 @@ wait_for_healthy() {
     
     while [ $elapsed -lt $MAX_WAIT ]; do
         if eval "$check_cmd" > /dev/null 2>&1; then
-            echo "✅ $service está healthy"
+            echo "[OK] $service está healthy"
             return 0
         fi
         
@@ -49,30 +49,30 @@ wait_for_healthy() {
         echo "  Aguardando... (${elapsed}s/${MAX_WAIT}s)"
     done
     
-    echo "❌ ERRO: $service não ficou healthy após ${MAX_WAIT}s"
+    echo "[ERROR] ERRO: $service não ficou healthy após ${MAX_WAIT}s"
     return 1
 }
 
 echo "=========================================="
-echo "🚀 Deploy Sequencial com Health Checks"
+echo " Deploy Sequencial com Health Checks"
 echo "=========================================="
 echo ""
 
 # 1. Parar containers existentes
-echo "1️⃣ Parando containers existentes..."
+echo "1. Parando containers existentes..."
 sudo docker compose down || echo "Nenhum container rodando"
 echo ""
 
 # 2. Garantir .env completo
-echo "2️⃣ Garantindo .env completo..."
+echo "2. Garantindo .env completo..."
 if [ -f scripts/azure/ensure-complete-env.sh ]; then
     bash scripts/azure/ensure-complete-env.sh "$PROJECT_DIR" || {
-        echo "⚠️  Aviso: Falha ao garantir .env completo (continuando...)"
+        echo "[WARNING] Aviso: Falha ao garantir .env completo (continuando...)"
     }
 else
-    echo "⚠️  Script ensure-complete-env.sh não encontrado (continuando...)"
+    echo "[WARNING] Script ensure-complete-env.sh não encontrado (continuando...)"
     if [ ! -f .env ] && [ -f env.example ]; then
-        echo "📝 Criando .env a partir de env.example..."
+        echo " Criando .env a partir de env.example..."
         cp env.example .env
         chmod 600 .env
     fi
@@ -80,36 +80,36 @@ fi
 echo ""
 
 # 3. Verificar docker-compose.yml
-echo "3️⃣ Verificando docker-compose.yml..."
+echo "3. Verificando docker-compose.yml..."
 if [ ! -f docker-compose.yml ]; then
-    echo "❌ ERRO: docker-compose.yml não encontrado em $(pwd)"
+    echo "[ERROR] ERRO: docker-compose.yml não encontrado em $(pwd)"
     exit 1
 fi
-echo "✅ docker-compose.yml encontrado"
+echo "[OK] docker-compose.yml encontrado"
 
 # Corrigir docker-compose.yml se script existir
 if [ -f scripts/azure/fix-docker-compose.sh ]; then
     bash scripts/azure/fix-docker-compose.sh "$PROJECT_DIR" || {
-        echo "⚠️  Aviso: Falha ao corrigir docker-compose.yml (continuando...)"
+        echo "[WARNING] Aviso: Falha ao corrigir docker-compose.yml (continuando...)"
     }
 fi
 echo ""
 
 # 4. Aplicar configuração do nginx
-echo "4️⃣ Configurando nginx..."
+echo "4. Configurando nginx..."
 if [ -f scripts/azure/apply-nginx-config.sh ]; then
     bash scripts/azure/apply-nginx-config.sh "$PROJECT_DIR" || {
-        echo "⚠️  Aviso: Falha ao configurar nginx (continuando...)"
+        echo "[WARNING] Aviso: Falha ao configurar nginx (continuando...)"
     }
 else
-    echo "⚠️  Script apply-nginx-config.sh não encontrado (continuando...)"
+    echo "[WARNING] Script apply-nginx-config.sh não encontrado (continuando...)"
 fi
 echo ""
 
 # 5. Iniciar Postgres
-echo "5️⃣ Iniciando PostgreSQL..."
+echo "5. Iniciando PostgreSQL..."
 if ! sudo docker compose up -d postgres; then
-    echo "❌ ERRO: Falha ao iniciar PostgreSQL"
+    echo "[ERROR] ERRO: Falha ao iniciar PostgreSQL"
     echo "Logs do postgres:"
     sudo docker compose logs postgres --tail=30 2>/dev/null || true
     exit 1
@@ -117,7 +117,7 @@ fi
 
 # Aguardar postgres ficar healthy
 if ! wait_for_healthy "PostgreSQL" "ai_saas_postgres_prod" "sudo docker exec ai_saas_postgres_prod pg_isready -U postgres 2>/dev/null"; then
-    echo "❌ ERRO: PostgreSQL não ficou healthy"
+    echo "[ERROR] ERRO: PostgreSQL não ficou healthy"
     echo "Logs do postgres:"
     sudo docker compose logs postgres --tail=30 2>/dev/null || true
     exit 1
@@ -125,9 +125,9 @@ fi
 echo ""
 
 # 6. Iniciar Redis
-echo "6️⃣ Iniciando Redis..."
+echo "6. Iniciando Redis..."
 if ! sudo docker compose up -d redis; then
-    echo "❌ ERRO: Falha ao iniciar Redis"
+    echo "[ERROR] ERRO: Falha ao iniciar Redis"
     echo "Logs do redis:"
     sudo docker compose logs redis --tail=30 2>/dev/null || true
     exit 1
@@ -142,7 +142,7 @@ else
 fi
 
 if ! wait_for_healthy "Redis" "ai_saas_redis_prod" "$REDIS_CHECK"; then
-    echo "❌ ERRO: Redis não ficou healthy"
+    echo "[ERROR] ERRO: Redis não ficou healthy"
     echo "Logs do redis:"
     sudo docker compose logs redis --tail=30 2>/dev/null || true
     exit 1
@@ -151,18 +151,18 @@ echo ""
 
 # 7. Executar migrações (se existir serviço migrate)
 if grep -q "^  migrate:" docker-compose.yml; then
-    echo "7️⃣ Executando migrações..."
+    echo "7. Executando migrações..."
     sudo docker compose up migrate || {
-        echo "⚠️  Migrações falharam (continuando...)"
+        echo "[WARNING] Migrações falharam (continuando...)"
     }
     echo ""
 fi
 
 # 7.5. Iniciar AI (se existir) - CRÍTICO: Backend depende do AI
 if grep -q "^  ai:" docker-compose.yml; then
-    echo "7️⃣.5️⃣ Iniciando AI Service..."
+    echo "7..5. Iniciando AI Service..."
     if ! sudo docker compose up -d ai; then
-        echo "❌ ERRO: Falha ao iniciar AI Service"
+        echo "[ERROR] ERRO: Falha ao iniciar AI Service"
         echo "Logs do ai:"
         sudo docker compose logs ai --tail=30 2>/dev/null || true
         exit 1
@@ -171,7 +171,7 @@ if grep -q "^  ai:" docker-compose.yml; then
     # Aguardar AI ficar healthy (backend depende disso)
     echo "Aguardando AI Service ficar healthy..."
     if ! wait_for_healthy "AI Service" "ai_saas_ai_prod" "curl -f -s http://localhost:8001/health > /dev/null 2>&1"; then
-        echo "⚠️  AI Service não respondeu ao health check"
+        echo "[WARNING] AI Service não respondeu ao health check"
         echo "Logs do ai:"
         sudo docker compose logs ai --tail=30 2>/dev/null || true
         echo "Status do container:"
@@ -182,9 +182,9 @@ if grep -q "^  ai:" docker-compose.yml; then
 fi
 
 # 8. Iniciar Backend
-echo "8️⃣ Iniciando Backend..."
+echo "8. Iniciando Backend..."
 if ! sudo docker compose up -d backend; then
-    echo "❌ ERRO: Falha ao iniciar Backend"
+    echo "[ERROR] ERRO: Falha ao iniciar Backend"
     echo "Logs do backend:"
     sudo docker compose logs backend --tail=30 2>/dev/null || true
     exit 1
@@ -196,11 +196,11 @@ sleep 15
 i=1
 while [ $i -le 12 ]; do
     if curl -f -s http://localhost:8000/health > /dev/null 2>&1 || curl -f -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
-        echo "✅ Backend está healthy (tentativa $i/12)"
+        echo "[OK] Backend está healthy (tentativa $i/12)"
         break
     fi
     if [ $i -eq 12 ]; then
-        echo "⚠️  Backend não respondeu ao health check após 12 tentativas"
+        echo "[WARNING] Backend não respondeu ao health check após 12 tentativas"
         echo "Logs do backend:"
         sudo docker compose logs backend --tail=30 2>/dev/null || true
         echo "Status do container:"
@@ -215,33 +215,33 @@ done
 echo ""
 
 # 9. Iniciar Worker e Beat
-echo "9️⃣ Iniciando Worker e Beat..."
+echo "9. Iniciando Worker e Beat..."
 sudo docker compose up -d worker beat || {
-    echo "⚠️  Worker/Beat falharam (não crítico)"
+    echo "[WARNING] Worker/Beat falharam (não crítico)"
 }
 sleep 10
 echo ""
 
 # 10. Iniciar Frontend (se buildado)
 if grep -q "^  frontend:" docker-compose.yml; then
-    echo "🔟 Iniciando Frontend..."
+    echo " Iniciando Frontend..."
     if ! sudo docker compose up -d frontend; then
-        echo "❌ ERRO: Falha ao iniciar Frontend"
+        echo "[ERROR] ERRO: Falha ao iniciar Frontend"
         echo "Logs do frontend:"
         sudo docker compose logs frontend --tail=30 2>/dev/null || true
         # Frontend não é crítico, continuar
-        echo "⚠️  Continuando sem frontend..."
+        echo "[WARNING] Continuando sem frontend..."
     else
-        echo "✅ Frontend iniciado"
+        echo "[OK] Frontend iniciado"
         sleep 15
     fi
     echo ""
 fi
 
 # 11. Iniciar Proxy
-echo "1️⃣1️⃣ Iniciando Proxy/Nginx..."
+echo "1.1. Iniciando Proxy/Nginx..."
 if ! sudo docker compose up -d proxy; then
-    echo "❌ ERRO: Falha ao iniciar Proxy"
+    echo "[ERROR] ERRO: Falha ao iniciar Proxy"
     echo "Logs do proxy:"
     sudo docker compose logs proxy --tail=30 2>/dev/null || true
     exit 1
@@ -252,7 +252,7 @@ echo "Aguardando proxy iniciar..."
 
 # Verificar se proxy está rodando
 if ! sudo docker ps | grep -q "ai_saas_proxy"; then
-    echo "❌ ERRO: Container proxy não está rodando"
+    echo "[ERROR] ERRO: Container proxy não está rodando"
     echo "Status dos containers:"
     sudo docker compose ps
     echo "Logs do proxy:"
@@ -262,7 +262,7 @@ fi
 
 # Tentar health check (mas não falhar se não responder ainda)
 if ! wait_for_healthy "Proxy" "ai_saas_proxy" "curl -f -s http://localhost/health > /dev/null 2>&1 || curl -f -s http://localhost > /dev/null 2>&1"; then
-    echo "⚠️  Proxy não respondeu ao health check (verificando logs...)"
+    echo "[WARNING] Proxy não respondeu ao health check (verificando logs...)"
     sudo docker compose logs proxy --tail=30 2>/dev/null || true
     echo "Status do container proxy:"
     sudo docker ps --filter "name=ai_saas_proxy" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
@@ -272,10 +272,10 @@ echo ""
 
 # 12. Status final
 echo "=========================================="
-echo "📊 Status Final dos Containers"
+echo " Status Final dos Containers"
 echo "=========================================="
 sudo docker compose ps || {
-    echo "⚠️  docker compose ps falhou, tentando docker ps..."
+    echo "[WARNING] docker compose ps falhou, tentando docker ps..."
     sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }
 echo ""
@@ -297,7 +297,7 @@ for container in "${CRITICAL_CONTAINERS[@]}"; do
 done
 
 if [ -n "$MISSING_CONTAINERS" ]; then
-    echo "❌ ERRO: Containers críticos não estão rodando:$MISSING_CONTAINERS"
+    echo "[ERROR] ERRO: Containers críticos não estão rodando:$MISSING_CONTAINERS"
     if [ -n "$FAILED_CONTAINERS" ]; then
         echo "   Containers com erro:$FAILED_CONTAINERS"
     fi
@@ -314,22 +314,22 @@ if [ -n "$MISSING_CONTAINERS" ]; then
     exit 1
 fi
 
-echo "✅ Todos os containers críticos estão rodando"
+echo "[OK] Todos os containers críticos estão rodando"
 echo ""
 
 # 13. Verificar porta 80
 echo "=========================================="
-echo "🔍 Verificando Porta 80"
+echo " Verificando Porta 80"
 echo "=========================================="
 if sudo ss -tlnp | grep -q ":80 " || sudo netstat -tlnp 2>/dev/null | grep -q ":80 "; then
-    echo "✅ Porta 80 está escutando"
+    echo "[OK] Porta 80 está escutando"
 else
-    echo "❌ ERRO: Porta 80 não está escutando"
+    echo "[ERROR] ERRO: Porta 80 não está escutando"
     exit 1
 fi
 echo ""
 
 echo "=========================================="
-echo "✅ Deploy Sequencial Concluído"
+echo "[OK] Deploy Sequencial Concluído"
 echo "=========================================="
 

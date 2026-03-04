@@ -1,0 +1,25 @@
+---
+name: Test - Security Scan Template
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'App name to test'
+        required: true
+        default: 'ai'
+      acr_name:
+        description: 'ACR name'
+        required: true
+        default: 'skyacrstaging'
+
+jobs:
+  test-vulnerability-scan:
+    uses: ./.github/workflows/aks-app-deploy-template.yml
+    with:
+      app_name: ${{ github.event.inputs.app_name }}
+      acr_name: ${{ github.event.inputs.acr_name }}
+      dockerfile_path: "./docker/ai/Dockerfile"
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

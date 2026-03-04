@@ -1,2 +1,45 @@
+---
 image:
-  tag: "sha-f54ff66e55f04d57a4cc5b0d959c212d986d3a84"
+  tag: "sha-ea32a792b30c3ff963806d252f209947c5c4cbdb"
+# QoS: Guaranteed (Noisy Neighbor Isolation Cage)
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+# P0.1: Security Context - Non-Root Execution
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+      # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+# P0.1: Temporary directory for AI frameworks (TensorFlow, PyTorch, etc)
+extraVolumes:
+  - name: tmp-volume
+    emptyDir:
+      sizeLimit: 5Gi # Limite para evitar disk pressure
+extraVolumeMounts:
+  - name: tmp-volume
+    mountPath: /tmp
+# AI services start slower due to model loading
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 30
+    failureThreshold: 5

@@ -21,10 +21,10 @@ ERRORS=0
 WARNINGS=0
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[⚠]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
-log_error() { echo -e "${RED}[✗]${NC} $1"; ERRORS=$((ERRORS + 1)); }
-log_section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN}▶ $1${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; }
+log_success() { echo -e "${GREEN}[]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
+log_error() { echo -e "${RED}[]${NC} $1"; ERRORS=$((ERRORS + 1)); }
+log_section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${CYAN} $1${NC}"; echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; }
 
 echo -e "${CYAN}"
 echo "╔════════════════════════════════════════════════════╗"
@@ -478,20 +478,20 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}✅✅✅ VALIDAÇÃO COMPLETA: TUDO OK!${NC}"
+    echo -e "${GREEN}[OK][OK][OK] VALIDAÇÃO COMPLETA: TUDO OK!${NC}"
     echo -e "${GREEN}Pronto para Fase 2: Deploy Local na VM${NC}"
     echo ""
     echo -e "${CYAN}Próximo passo:${NC}"
     echo "  ./scripts/deploy-local-to-vm.sh"
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}⚠️  VALIDAÇÃO OK com $WARNINGS aviso(s)${NC}"
+    echo -e "${YELLOW}[WARNING] VALIDAÇÃO OK com $WARNINGS aviso(s)${NC}"
     echo -e "${YELLOW}Recomendado revisar avisos antes de continuar${NC}"
     echo ""
     echo -e "${CYAN}Você pode continuar, mas é recomendado corrigir os avisos${NC}"
     exit 0
 else
-    echo -e "${RED}❌ VALIDAÇÃO FALHOU com $ERRORS erro(s)${NC}"
+    echo -e "${RED}[ERROR] VALIDAÇÃO FALHOU com $ERRORS erro(s)${NC}"
     echo -e "${RED}Corrija os erros antes de continuar${NC}"
     echo ""
     echo -e "${CYAN}Corrija os erros e execute novamente:${NC}"

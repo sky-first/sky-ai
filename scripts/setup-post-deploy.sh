@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🌐 Configurando acesso público após deploy...${NC}"
+echo -e "${BLUE} Configurando acesso público após deploy...${NC}"
 echo ""
 
 # 1. Obter IP público
@@ -26,20 +26,20 @@ cd "$TF_DIR"
 VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
 
 if [ -z "$VM_IP" ]; then
-  echo -e "${RED}❌ Não foi possível obter IP da VM${NC}"
+  echo -e "${RED}[ERROR] Não foi possível obter IP da VM${NC}"
   echo -e "${YELLOW}   Verifique se o deploy foi concluído${NC}"
   exit 1
 fi
 
-echo -e "${GREEN}✅ IP Público: $VM_IP${NC}"
+echo -e "${GREEN}[OK] IP Público: $VM_IP${NC}"
 
 # 2. Testar conectividade
 echo ""
 echo -e "${BLUE}2. Testando conectividade...${NC}"
 if curl -s --connect-timeout 5 "http://$VM_IP" > /dev/null 2>&1; then
-  echo -e "${GREEN}✅ VM está acessível${NC}"
+  echo -e "${GREEN}[OK] VM está acessível${NC}"
 else
-  echo -e "${YELLOW}⚠️  VM pode não estar totalmente pronta ainda${NC}"
+  echo -e "${YELLOW}[WARNING] VM pode não estar totalmente pronta ainda${NC}"
   echo -e "${YELLOW}   Aguarde alguns minutos e tente novamente${NC}"
 fi
 
@@ -72,21 +72,21 @@ if [ -f .env ]; then
   # Reiniciar frontend
   docker compose restart frontend
   
-  echo "✅ Configurado!"
+  echo "[OK] Configurado!"
 else
-  echo "⚠️  Arquivo .env não encontrado"
+  echo "[WARNING] Arquivo .env não encontrado"
   echo "   Crie a partir de env.example ou configure via Key Vault"
 fi
 EOF
 
 echo ""
-echo -e "${GREEN}✅ URLs de Acesso:${NC}"
+echo -e "${GREEN}[OK] URLs de Acesso:${NC}"
 echo ""
 echo -e "  Frontend: ${YELLOW}http://$VM_IP${NC}"
 echo -e "  API: ${YELLOW}http://$VM_IP/api/${NC}"
 echo -e "  Health: ${YELLOW}http://$VM_IP/api/health${NC}"
 echo ""
-echo -e "${BLUE}📋 Compartilhe com o time:${NC}"
+echo -e "${BLUE} Compartilhe com o time:${NC}"
 echo -e "   ${YELLOW}Aplicação disponível em: http://$VM_IP${NC}"
 echo ""
 

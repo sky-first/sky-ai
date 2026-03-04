@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Values Schema for common-app",
+  "type": "object",
+  "properties": {
+    "extraEnvFrom": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "secretRef": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" }
+            }
+          },
+          "configMapRef": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" }
+            }
+          }
+        },
+        "oneOf": [
+          { "required": ["secretRef"] },
+          { "required": ["configMapRef"] }
+        ]
+      }
+    },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object",
+      "description": "Limites de governança estritos (Zero Trust). Todo container deve declarar CPU e Memória para evitar o efeito Noisy Neighbor e permitir escalonamento previsível.",
+      "required": ["requests", "limits"]
+    }
+  }
+}

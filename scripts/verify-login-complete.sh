@@ -21,22 +21,22 @@ WARNINGS=0
 CHECKS_PASSED=0
 
 log_success() {
-    echo -e "${GREEN}✅${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
     ((CHECKS_PASSED++))
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  ${NC} $1"
+    echo -e "${YELLOW}[WARNING] ${NC} $1"
     ((WARNINGS++))
 }
 
 log_error() {
-    echo -e "${RED}❌${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1"
     ((ERRORS++))
 }
 
 log_info() {
-    echo -e "${BLUE}ℹ️  ${NC} $1"
+    echo -e "${BLUE}ℹ  ${NC} $1"
 }
 
 test_http() {
@@ -85,7 +85,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 echo "=========================================="
-echo -e "${CYAN}🔍 VERIFICAÇÃO COMPLETA - ENTRAR E LOGAR${NC}"
+echo -e "${CYAN} VERIFICAÇÃO COMPLETA - ENTRAR E LOGAR${NC}"
 echo "=========================================="
 echo ""
 echo "VM IP: $VM_IP"
@@ -96,7 +96,7 @@ echo ""
 # TESTE 1: Conectividade Básica
 # ============================================
 echo "=========================================="
-echo "1️⃣  Conectividade Básica"
+echo "1.  Conectividade Básica"
 echo "=========================================="
 echo ""
 
@@ -112,7 +112,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "2️⃣  Frontend Acessível"
+echo "2.  Frontend Acessível"
 echo "=========================================="
 echo ""
 
@@ -146,7 +146,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "3️⃣  Backend Health Check"
+echo "3.  Backend Health Check"
 echo "=========================================="
 echo ""
 
@@ -173,7 +173,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "4️⃣  API Backend Acessível"
+echo "4.  API Backend Acessível"
 echo "=========================================="
 echo ""
 
@@ -193,7 +193,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "5️⃣  CORS Configurado"
+echo "5.  CORS Configurado"
 echo "=========================================="
 echo ""
 
@@ -223,7 +223,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "6️⃣  Roteamento Nginx"
+echo "6.  Roteamento Nginx"
 echo "=========================================="
 echo ""
 
@@ -248,7 +248,7 @@ fi
 # ============================================
 echo ""
 echo "=========================================="
-echo "📊 RESUMO FINAL"
+echo " RESUMO FINAL"
 echo "=========================================="
 echo ""
 echo "Verificações passadas: $CHECKS_PASSED"
@@ -258,26 +258,26 @@ echo ""
 
 # Conclusão
 echo "=========================================="
-echo "🎯 CONCLUSÃO"
+echo " CONCLUSÃO"
 echo "=========================================="
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}✅ SIM, VOCÊ DEVE CONSEGUIR ENTRAR E LOGAR!${NC}"
+    echo -e "${GREEN}[OK] SIM, VOCÊ DEVE CONSEGUIR ENTRAR E LOGAR!${NC}"
     echo ""
     echo "Todos os testes passaram:"
-    echo "  ✅ Frontend está acessível"
-    echo "  ✅ Backend está respondendo"
-    echo "  ✅ API está acessível"
-    echo "  ✅ CORS está configurado"
-    echo "  ✅ Roteamento está funcionando"
+    echo "  [OK] Frontend está acessível"
+    echo "  [OK] Backend está respondendo"
+    echo "  [OK] API está acessível"
+    echo "  [OK] CORS está configurado"
+    echo "  [OK] Roteamento está funcionando"
     echo ""
     echo "Teste manualmente:"
     echo "  1. Abra: http://$VM_IP/"
     echo "  2. Tente fazer login"
     echo "  3. Verifique o console do browser (F12) se houver erros"
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}⚠️  PROVAVELMENTE SIM, MAS COM AVISOS${NC}"
+    echo -e "${YELLOW}[WARNING] PROVAVELMENTE SIM, MAS COM AVISOS${NC}"
     echo ""
     echo "A maioria dos testes passou, mas há avisos:"
     echo "  - Verifique os pontos mencionados acima"
@@ -287,7 +287,7 @@ elif [ $ERRORS -eq 0 ]; then
     echo "  2. Tente fazer login"
     echo "  3. Verifique o console do browser (F12) para erros"
 else
-    echo -e "${RED}❌ NÃO, HÁ PROBLEMAS QUE IMPEDEM O ACESSO${NC}"
+    echo -e "${RED}[ERROR] NÃO, HÁ PROBLEMAS QUE IMPEDEM O ACESSO${NC}"
     echo ""
     echo "Há erros que precisam ser corrigidos:"
     echo "  - Verifique os erros acima"
@@ -307,7 +307,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "✅ Verificação concluída"
+echo "[OK] Verificação concluída"
 echo "=========================================="
 echo ""
 

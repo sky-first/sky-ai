@@ -21,9 +21,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
     type = "SystemAssigned"
   }
 
+  # trivy:ignore:AVD-AZU-0042 (RBAC is enabled)
   role_based_access_control_enabled = true
 
   network_profile {
+    # trivy:ignore:AVD-AZU-0043 (Azure Network Policies are already configured)
     network_plugin    = "azure"
     network_policy    = "azure"
     load_balancer_sku = "standard"
@@ -39,6 +41,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   # Option 2: If runner_ip is null, enable private cluster (cluster private, Bastion access only)
   # When authorized_ip_ranges is empty AND private_cluster_enabled = true, access is VNET-only (secure)
   api_server_access_profile {
+    # trivy:ignore:AVD-AZU-0041 (Authorized IP ranges handle API restriction dynamically)
     # tfsec:ignore:azure-aks-no-authorized-ip-ranges
     # Ignored because: When runner_ip is null, cluster becomes private (private_cluster_enabled = true)
     # Private clusters don't require authorized_ip_ranges (access is VNET-only via Bastion)
@@ -66,13 +69,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # User Node Pool - Standard Instances
 resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
-  name                  = "userapps"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D2s_v3"
-  enable_auto_scaling   = true
-  min_count             = 1
-  max_count             = 3
-  priority              = "Regular"
+  name                        = "userapps"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.aks.id
+  vm_size                     = "Standard_D2s_v3"
+  auto_scaling_enabled        = true
+  min_count                   = 1
+  max_count                   = 3
+  priority                    = "Regular"
+  temporary_name_for_rotation = "userappsrot1"
+
+  upgrade_settings {
+    max_unavailable = "1"
+  }
 
   node_labels = {
     "workload_type" = "application"
@@ -85,32 +93,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "user_pool" {
   }
 }
 
-# AI CPU Turbo Node Pool (Immediate Relief: 16 vCPUs)
-resource "azurerm_kubernetes_cluster_node_pool" "ai_turbo" {
-  name                  = "aicpu16"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_F16s_v2" # 16 vCPUs, 32GB RAM (Compute Optimized)
-  enable_auto_scaling   = true
-  min_count             = 0 # Scale to zero when not in use to save cost
-  max_count             = 1
-  priority              = "Regular" # Using Regular to guarantee availability for critical workload
-
-  node_labels = {
-    "sky-poc-type"  = "ai-turbo"
-    "workload_type" = "ai-turbo"
-  }
-
-  node_taints = [
-    "sku=cpu-turbo:NoSchedule" # Dedicated to Ollama
-  ]
-
-  vnet_subnet_id = azurerm_subnet.aks.id
-
-  tags = {
-    Environment = var.environment
-    Type        = "AI-Turbo-CPU"
-  }
-}
 
 # Grant AKS Identity access to VNet (Network Contributor) 
 # Required for Azure CNI to manage IPs

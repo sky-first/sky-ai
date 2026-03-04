@@ -1,2 +1,46 @@
+---
 image:
-  tag: "sha-3f97925414d005076db111b9e3c67dde37a25cf4"
+  tag: "sha-9693e56b508e48062a7da57861778c650f61ec43"
+replicaCount: 2
+# QoS: Burstable (Low Latency / CPU Bursting)
+resources:
+  requests:
+    cpu: 20m
+    memory: 128Mi
+  limits:
+    memory: 128Mi
+pdb:
+  enabled: true
+  minAvailable: 1
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - sky-fe-stg
+          topologyKey: kubernetes.io/hostname
+# P0.1: Security Context - Non-Root Execution
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+      # readOnlyRootFilesystem: true  # P1.5: Ativar após validação
+# P0.1: Nginx cache directory (non-root nginx needs writable cache)
+extraVolumes:
+  - name: nginx-cache
+    emptyDir:
+      sizeLimit: 1Gi
+extraVolumeMounts:
+  - name: nginx-cache
+    mountPath: /var/cache/nginx

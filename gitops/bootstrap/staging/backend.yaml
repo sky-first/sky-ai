@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -19,19 +20,7 @@ spec:
         - values-sky-be-stg.yaml
       values: |
         podAnnotations:
-          rollout-trigger: "2026-02-02T09:26:49Z"
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          runAsGroup: 3000
-          fsGroup: 2000
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-            add:
-              - NET_BIND_SERVICE
+          reloader.stakater.com/auto: "true"
         replicaCount: 2
         imagePullSecrets:
           - name: regcred
@@ -41,99 +30,58 @@ spec:
         service:
           port: 80
           targetPort: 8000
-        ingress:
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        autoscaling:
           enabled: true
+          minReplicas: 3
+          maxReplicas: 5
+          behavior:
+            scaleUp:
+              stabilizationWindowSeconds: 0
+              policies:
+                - type: Percent
+                  value: 100
+                  periodSeconds: 15
+          targetCPUUtilizationPercentage: 70
+          targetMemoryUtilizationPercentage: 80
+        ingress:
+          enabled: false
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+            nginx.ingress.kubernetes.io/enable-modsecurity: "false"
+            nginx.ingress.kubernetes.io/enable-owasp-modsecurity-crs: "false"
+            nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+            nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
             - host: workspace-stg-api.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
-            - host: workspace-stg.skyfirstlabs.com
-              paths:
-                - path: /api
-                  pathType: Prefix
           tls:
             - secretName: sky-be-stg-tls
               hosts:
                 - workspace-stg-api.skyfirstlabs.com
-                - workspace-stg.skyfirstlabs.com
-        probes:
-          liveness:
-            path: /
-            initialDelaySeconds: 45
-          readiness:
-            path: /
-            initialDelaySeconds: 10
-        # Configure External Secret to fetch keys from Azure Key Vault
+        # Disable chart-level ExternalSecret as we use standalone manifest
         externalSecret:
-          enabled: true
-          secretStoreRef:
-            name: azure-keyvault
-            kind: ClusterSecretStore
-          target:
-            creationPolicy: Owner
-            template:
-              engineVersion: v2
-              data:
-                # Transform proper keys for the application check
-                jwt_secret_key: "{{ .jwt_secret_key }}"
-                encryption_key: "{{ .encryption_key }}"
-                openai_api_key: "{{ .openai_api_key }}"
-                redis_url: "{{ .redis_url }}"
-                # Derivando URLs do Celery a partir da redis_url do segredo
-                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
-                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
-                # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
-                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
-          data:
-            - secretKey: jwt_secret_key
-              remoteRef:
-                key: jwt-secret-key
-            - secretKey: encryption_key
-              remoteRef:
-                key: encryption-key
-            - secretKey: openai_api_key
-              remoteRef:
-                key: openai-api-key
-            - secretKey: database_url
-              remoteRef:
-                key: database-url
-            - secretKey: redis_url
-              remoteRef:
-                key: redis-url
+          enabled: false
 
         # Map the synced secrets to Env Vars in the container
-        envSecrets:
-          # These keys will be present in the secret created by ExternalSecret
-          jwt-secret-key:
-            name: sky-be-stg-common-app-secrets
-            key: jwt_secret_key
-          encryption-key:
-            name: sky-be-stg-common-app-secrets
-            key: encryption_key
-          openai-api-key:
-            name: sky-be-stg-common-app-secrets
-            key: openai_api_key
-          DATABASE_URL:
-            name: sky-be-stg-common-app-secrets
-            key: database_url
-          REDIS_URL:
-            name: sky-be-stg-common-app-secrets
-            key: redis_url
-          CELERY_BROKER_URL:
-            name: sky-be-stg-common-app-secrets
-            key: celery_broker_url
-          CELERY_RESULT_BACKEND:
-            name: sky-be-stg-common-app-secrets
-            key: celery_result_backend
-            
+        extraEnvFrom:
+          - secretRef:
+              name: sky-be-stg-secrets
+
         extraEnv:
           - name: CORS_ORIGINS
             value: "https://workspace-stg.skyfirstlabs.com,https://workspace-stg-ollama.skyfirstlabs.com"
+          - name: REDIS_HOST
+            value: "redis"
           - name: REDIS_PORT
             value: "6379"
           - name: DEBUG
@@ -145,6 +93,9 @@ spec:
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
           enabled: true
+          annotations:
+            argocd.argoproj.io/hook: PreSync
+            argocd.argoproj.io/hook-delete-policy: before-hook-creation
           command: ["/bin/sh", "-c"]
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:

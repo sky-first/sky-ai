@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -23,7 +24,7 @@ spec:
         image:
           repository: skyacrprodel5zpw.azurecr.io/sky-poc-frontend
           tag: "latest"
-        
+
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -36,16 +37,15 @@ spec:
               - ALL
             add:
               - NET_BIND_SERVICE
-        
+
         service:
           port: 80
           targetPort: 3000
-        
+
         ingress:
           enabled: true
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             cert-manager.io/cluster-issuer: "letsencrypt-prod"
           hosts:
             - host: workspace-prd.skyfirstlabs.com
@@ -62,7 +62,7 @@ spec:
           maxReplicas: 10
           targetCPUUtilizationPercentage: 70
           targetMemoryUtilizationPercentage: 80
-        
+
         resources:
           requests:
             cpu: 200m
@@ -70,10 +70,10 @@ spec:
           limits:
             cpu: 1000m
             memory: 768Mi
-        
+
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://workspace-prd.skyfirstlabs.com/api"
+            value: "https://workspace-prd.skyfirstlabs.com/api/v1"
           - name: ROLLOUT_TRIGGER
             value: "2026-02-02T09:52:00Z"
   destination:

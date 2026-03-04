@@ -9,8 +9,8 @@ echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:12\",\
 
 # Garantir que está sendo executado com bash (não zsh ou sh)
 if [ -z "$BASH_VERSION" ]; then
-    echo "❌ ERRO: Este script deve ser executado com bash"
-    echo "💡 Execute: bash $0"
+    echo "[ERROR] ERRO: Este script deve ser executado com bash"
+    echo "[INFO] Execute: bash $0"
     exit 1
 fi
 
@@ -74,8 +74,8 @@ cd "$PROJECT_DIR" || {
     # #region agent log
     echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:45\",\"message\":\"FALHA: cd falhou\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"exit_code\":\"$?\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "$LOG_FILE" 2>/dev/null || true
     # #endregion
-    echo "❌ ERRO: Não foi possível acessar o diretório: $PROJECT_DIR"
-    echo "💡 Dica: Execute o script do diretório sky-poc-infra ou passe o caminho como argumento"
+    echo "[ERROR] ERRO: Não foi possível acessar o diretório: $PROJECT_DIR"
+    echo "[INFO] Dica: Execute o script do diretório sky-poc-infra ou passe o caminho como argumento"
     exit 1
 }
 
@@ -87,8 +87,8 @@ if [ ! -f "env.example" ]; then
     # #region agent log
     echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:52\",\"message\":\"FALHA: env.example não encontrado\",\"data\":{\"PROJECT_DIR\":\"$PROJECT_DIR\",\"pwd\":\"$(pwd)\",\"files\":\"$(ls -la 2>&1 | head -5)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "$LOG_FILE" 2>/dev/null || true
     # #endregion
-    echo "❌ ERRO: Arquivo env.example não encontrado em: $PROJECT_DIR"
-    echo "💡 Certifique-se de estar no diretório sky-poc-infra"
+    echo "[ERROR] ERRO: Arquivo env.example não encontrado em: $PROJECT_DIR"
+    echo "[INFO] Certifique-se de estar no diretório sky-poc-infra"
     exit 1
 fi
 
@@ -125,7 +125,7 @@ echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:85\",\
 # #endregion
 if [ ! -f "$ENV_FILE" ]; then
     if [ -f "$ENV_EXAMPLE" ]; then
-        echo "📋 Criando .env a partir de $ENV_EXAMPLE..."
+        echo " Criando .env a partir de $ENV_EXAMPLE..."
         # #region agent log
         echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:88\",\"message\":\"Copiando env.example para .env\",\"data\":{\"ENV_EXAMPLE\":\"$ENV_EXAMPLE\",\"ENV_FILE\":\"$ENV_FILE\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "$LOG_FILE" 2>/dev/null || true
         # #endregion
@@ -143,7 +143,7 @@ if [ ! -f "$ENV_FILE" ]; then
         # #region agent log
         echo "{\"timestamp\":$(date +%s000),\"location\":\"ensure-complete-env.sh:92\",\"message\":\"FALHA: ENV_EXAMPLE não encontrado\",\"data\":{\"ENV_EXAMPLE\":\"$ENV_EXAMPLE\",\"pwd\":\"$(pwd)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "$LOG_FILE" 2>/dev/null || true
         # #endregion
-        echo "❌ ERRO: $ENV_EXAMPLE não encontrado"
+        echo "[ERROR] ERRO: $ENV_EXAMPLE não encontrado"
         exit 1
     fi
 else
@@ -158,15 +158,15 @@ if [ ! -r "$ENV_FILE" ]; then
     # Tentar verificar se somos o proprietário
     if [ -O "$ENV_FILE" ] 2>/dev/null; then
         # Somos o proprietário, então podemos ler mesmo com 600
-        echo "ℹ️  Arquivo $ENV_FILE tem permissões restritivas, mas você é o proprietário (OK)"
+        echo "ℹ  Arquivo $ENV_FILE tem permissões restritivas, mas você é o proprietário (OK)"
     else
-        echo "⚠️  AVISO: Arquivo $ENV_FILE não é legível. Tentando corrigir permissões..."
+        echo "[WARNING] AVISO: Arquivo $ENV_FILE não é legível. Tentando corrigir permissões..."
         # Tentar corrigir permissões
         if chmod 644 "$ENV_FILE" 2>/dev/null || chmod 600 "$ENV_FILE" 2>/dev/null; then
-            echo "✅ Permissões corrigidas"
+            echo "[OK] Permissões corrigidas"
         else
-            echo "⚠️  Não foi possível corrigir permissões automaticamente"
-            echo "💡 Se o script falhar, execute manualmente:"
+            echo "[WARNING] Não foi possível corrigir permissões automaticamente"
+            echo "[INFO] Se o script falhar, execute manualmente:"
             echo "   chmod 644 $ENV_FILE"
         fi
     fi
@@ -206,12 +206,12 @@ ensure_var() {
     
     # Verificar se arquivo existe
     if [ ! -f "$ENV_FILE" ]; then
-        echo "⚠️  Arquivo $ENV_FILE não existe. Tentando criar..."
+        echo "[WARNING] Arquivo $ENV_FILE não existe. Tentando criar..."
         if [ -f "$ENV_EXAMPLE" ]; then
             cp "$ENV_EXAMPLE" "$ENV_FILE"
             chmod 600 "$ENV_FILE" 2>/dev/null || true
         else
-            echo "❌ ERRO: Não foi possível criar $ENV_FILE (env.example não encontrado)"
+            echo "[ERROR] ERRO: Não foi possível criar $ENV_FILE (env.example não encontrado)"
             return 1
         fi
     fi
@@ -222,16 +222,16 @@ ensure_var() {
             # Tentar escrever no arquivo (pode falhar em ambiente restrito)
             if echo "${var_name}=${default_value}" >> "$ENV_FILE" 2>/dev/null; then
                 if [ "$is_secret" = "true" ]; then
-                    echo "✅ ${var_name} adicionado (gerado)"
+                    echo "[OK] ${var_name} adicionado (gerado)"
                 else
-                    echo "✅ ${var_name} adicionado: ${default_value}"
+                    echo "[OK] ${var_name} adicionado: ${default_value}"
                 fi
             else
-                echo "⚠️  Não foi possível adicionar ${var_name} (sem permissão de escrita)"
+                echo "[WARNING] Não foi possível adicionar ${var_name} (sem permissão de escrita)"
                 echo "   Valor sugerido: ${var_name}=${default_value}"
             fi
         else
-            echo "⚠️  ${var_name} não encontrado e sem valor padrão"
+            echo "[WARNING] ${var_name} não encontrado e sem valor padrão"
         fi
     else
         # Verificar se valor está vazio ou é placeholder
@@ -241,12 +241,12 @@ ensure_var() {
                 # Tentar atualizar (pode falhar em ambiente restrito)
                 if sed_inplace "$ENV_FILE" "s|^${var_name}=.*|${var_name}=${default_value}|" 2>/dev/null; then
                     if [ "$is_secret" = "true" ]; then
-                        echo "✅ ${var_name} atualizado (gerado)"
+                        echo "[OK] ${var_name} atualizado (gerado)"
                     else
-                        echo "✅ ${var_name} atualizado: ${default_value}"
+                        echo "[OK] ${var_name} atualizado: ${default_value}"
                     fi
                 else
-                    echo "⚠️  Não foi possível atualizar ${var_name} (sem permissão de escrita)"
+                    echo "[WARNING] Não foi possível atualizar ${var_name} (sem permissão de escrita)"
                     echo "   Valor sugerido: ${var_name}=${default_value}"
                 fi
             fi
@@ -255,7 +255,7 @@ ensure_var() {
 }
 
 echo "=========================================="
-echo "🔧 Garantindo .env Completo"
+echo " Garantindo .env Completo"
 echo "=========================================="
 echo ""
 
@@ -278,13 +278,13 @@ if ! grep -q "^DATABASE_URL=" "$ENV_FILE"; then
     POSTGRES_PASSWORD_VAL=$(grep "^POSTGRES_PASSWORD=" "$ENV_FILE" | cut -d'=' -f2)
     POSTGRES_DB_VAL=$(grep "^POSTGRES_DB=" "$ENV_FILE" | cut -d'=' -f2)
     echo "DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER_VAL}:${POSTGRES_PASSWORD_VAL}@postgres:5432/${POSTGRES_DB_VAL}" >> "$ENV_FILE"
-    echo "✅ DATABASE_URL adicionado (asyncpg)"
+    echo "[OK] DATABASE_URL adicionado (asyncpg)"
 else
     # Corrigir se estiver usando psycopg2
     if grep -q "postgresql+psycopg2://" "$ENV_FILE"; then
         sed_inplace "$ENV_FILE" "s|postgresql+psycopg2://|postgresql+asyncpg://|g"
         sed_inplace "$ENV_FILE" "s|?sslmode=require||g"
-        echo "✅ DATABASE_URL corrigido para asyncpg"
+        echo "[OK] DATABASE_URL corrigido para asyncpg"
     fi
 fi
 
@@ -292,7 +292,7 @@ fi
 if ! grep -q "^REDIS_URL=" "$ENV_FILE"; then
     REDIS_PASSWORD_VAL=$(grep "^REDIS_PASSWORD=" "$ENV_FILE" | cut -d'=' -f2)
     echo "REDIS_URL=redis://:${REDIS_PASSWORD_VAL}@redis:6379/0" >> "$ENV_FILE"
-    echo "✅ REDIS_URL adicionado"
+    echo "[OK] REDIS_URL adicionado"
 fi
 
 # Celery
@@ -300,7 +300,7 @@ if ! grep -q "^CELERY_BROKER_URL=" "$ENV_FILE"; then
     REDIS_PASSWORD_VAL=$(grep "^REDIS_PASSWORD=" "$ENV_FILE" | cut -d'=' -f2)
     echo "CELERY_BROKER_URL=redis://:${REDIS_PASSWORD_VAL}@redis:6379/1" >> "$ENV_FILE"
     echo "CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD_VAL}@redis:6379/2" >> "$ENV_FILE"
-    echo "✅ CELERY URLs adicionadas"
+    echo "[OK] CELERY URLs adicionadas"
 fi
 
 # Frontend - NEXT_PUBLIC_API_URL
@@ -339,7 +339,7 @@ fi
 if ! grep -q "^NEXT_PUBLIC_API_URL=" "$ENV_FILE"; then
     # Não configurado: usar path relativo (melhor prática)
     echo "NEXT_PUBLIC_API_URL=/api/v1" >> "$ENV_FILE"
-    echo "✅ NEXT_PUBLIC_API_URL adicionado: /api/v1 (path relativo - recomendado)"
+    echo "[OK] NEXT_PUBLIC_API_URL adicionado: /api/v1 (path relativo - recomendado)"
 else
     CURRENT_URL=$(grep "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
     
@@ -367,28 +367,28 @@ else
         # Path relativo funciona em qualquer ambiente (local, staging, produção)
         if echo "$CURRENT_URL" | grep -qE "^/api/v1$"; then
             # Já está usando path relativo - manter
-            echo "✅ NEXT_PUBLIC_API_URL já usa path relativo: $CURRENT_URL"
+            echo "[OK] NEXT_PUBLIC_API_URL já usa path relativo: $CURRENT_URL"
         elif [ -z "$VM_IP" ]; then
             # Sem IP da VM: usar path relativo (melhor prática e funciona sempre)
             sed_inplace "$ENV_FILE" "s|^NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=/api/v1|"
-            echo "✅ NEXT_PUBLIC_API_URL corrigido para path relativo: /api/v1 ($FIX_REASON)"
+            echo "[OK] NEXT_PUBLIC_API_URL corrigido para path relativo: /api/v1 ($FIX_REASON)"
         elif [ -n "$VM_IP" ] && echo "$CURRENT_URL" | grep -qE "http://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"; then
             # Tem IP da VM e URL já usa IP: atualizar para IP correto
             sed_inplace "$ENV_FILE" "s|^NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=http://${VM_IP}/api/v1|"
-            echo "✅ NEXT_PUBLIC_API_URL corrigido: http://${VM_IP}/api/v1 ($FIX_REASON)"
+            echo "[OK] NEXT_PUBLIC_API_URL corrigido: http://${VM_IP}/api/v1 ($FIX_REASON)"
         else
             # Qualquer outro caso: usar path relativo (mais seguro)
             sed_inplace "$ENV_FILE" "s|^NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=/api/v1|"
-            echo "✅ NEXT_PUBLIC_API_URL corrigido para path relativo: /api/v1 ($FIX_REASON)"
+            echo "[OK] NEXT_PUBLIC_API_URL corrigido para path relativo: /api/v1 ($FIX_REASON)"
         fi
     else
         # Verificar se está usando path relativo (recomendado)
         if echo "$CURRENT_URL" | grep -qE "^/api/v1$"; then
-            echo "✅ NEXT_PUBLIC_API_URL configurado corretamente (path relativo): $CURRENT_URL"
+            echo "[OK] NEXT_PUBLIC_API_URL configurado corretamente (path relativo): $CURRENT_URL"
         elif [ -n "$VM_IP" ] && echo "$CURRENT_URL" | grep -q "$VM_IP"; then
-            echo "✅ NEXT_PUBLIC_API_URL configurado corretamente (IP completo): $CURRENT_URL"
+            echo "[OK] NEXT_PUBLIC_API_URL configurado corretamente (IP completo): $CURRENT_URL"
         else
-            echo "⚠️  NEXT_PUBLIC_API_URL: $CURRENT_URL (verifique se está correto)"
+            echo "[WARNING] NEXT_PUBLIC_API_URL: $CURRENT_URL (verifique se está correto)"
         fi
     fi
 fi
@@ -419,7 +419,7 @@ ensure_var "AI_SERVICE_TYPE" "mock"
 # Garantir que a variável exista no .env mesmo que vazia (para documentação/clareza)
 if ! grep -q "^OPENAI_API_KEY=" "$ENV_FILE" 2>/dev/null; then
     echo "OPENAI_API_KEY=" >> "$ENV_FILE" 2>/dev/null || true
-    echo "✅ OPENAI_API_KEY adicionado (vazio)"
+    echo "[OK] OPENAI_API_KEY adicionado (vazio)"
 fi
 
 # Se a chave estiver presente, ativar modo real
@@ -427,7 +427,7 @@ OPENAI_VAL=$(grep "^OPENAI_API_KEY=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d'
 AI_TYPE_VAL=$(grep "^AI_SERVICE_TYPE=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d ' ' | tr -d '"' | tr -d "'" || echo "mock")
 if [ -n "$OPENAI_VAL" ] && [ "${AI_TYPE_VAL}" != "real" ]; then
     if sed_inplace "$ENV_FILE" "s|^AI_SERVICE_TYPE=.*|AI_SERVICE_TYPE=real|" 2>/dev/null; then
-        echo "✅ AI_SERVICE_TYPE habilitado: real (OPENAI_API_KEY presente)"
+        echo "[OK] AI_SERVICE_TYPE habilitado: real (OPENAI_API_KEY presente)"
     fi
 fi
 
@@ -436,7 +436,7 @@ chmod 600 "$ENV_FILE"
 
 echo ""
 echo "=========================================="
-echo "✅ .env Completo e Validado"
+echo "[OK] .env Completo e Validado"
 echo "=========================================="
 echo ""
 echo "Variáveis configuradas:"

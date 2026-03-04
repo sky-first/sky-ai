@@ -19,26 +19,26 @@ WARNINGS=0
 
 # Função auxiliar para logging
 log_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}ℹ  $1${NC}"
 }
 
 log_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[OK] $1${NC}"
     TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 log_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}[ERROR] $1${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
     WARNINGS=$((WARNINGS + 1))
 }
 
 echo "=========================================="
-echo "🧪 SIMULAÇÃO DE WORKFLOW GITHUB ACTIONS"
+echo " SIMULAÇÃO DE WORKFLOW GITHUB ACTIONS"
 echo "=========================================="
 echo ""
 
@@ -275,32 +275,32 @@ echo ""
 # RESUMO FINAL
 # ============================================
 echo "=========================================="
-echo "📊 RESUMO DOS TESTES"
+echo " RESUMO DOS TESTES"
 echo "=========================================="
 echo ""
-echo "✅ Testes Passados: $TESTS_PASSED"
-echo "❌ Testes Falhados: $TESTS_FAILED"
-echo "⚠️  Avisos: $WARNINGS"
+echo "[OK] Testes Passados: $TESTS_PASSED"
+echo "[ERROR] Testes Falhados: $TESTS_FAILED"
+echo "[WARNING] Avisos: $WARNINGS"
 echo ""
 
 TOTAL_TESTS=$((TESTS_PASSED + TESTS_FAILED + WARNINGS))
 
 if [ $TESTS_FAILED -eq 0 ]; then
     if [ $WARNINGS -eq 0 ]; then
-        echo -e "${GREEN}🎉 TODOS OS TESTES PASSARAM!${NC}"
+        echo -e "${GREEN} TODOS OS TESTES PASSARAM!${NC}"
         echo ""
-        echo "✅ O workflow está pronto para produção"
+        echo "[OK] O workflow está pronto para produção"
         exit 0
     else
-        echo -e "${YELLOW}⚠️  TESTES PASSARAM COM AVISOS${NC}"
+        echo -e "${YELLOW}[WARNING] TESTES PASSARAM COM AVISOS${NC}"
         echo ""
         echo "O workflow deve funcionar, mas recomenda-se revisar os avisos acima"
         exit 0
     fi
 else
-    echo -e "${RED}❌ ALGUNS TESTES FALHARAM${NC}"
+    echo -e "${RED}[ERROR] ALGUNS TESTES FALHARAM${NC}"
     echo ""
-    echo "🔴 CORREÇÕES NECESSÁRIAS antes de fazer deploy para produção"
+    echo " CORREÇÕES NECESSÁRIAS antes de fazer deploy para produção"
     echo ""
     exit 1
 fi
