@@ -38,12 +38,16 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     # Branding: Altera o título da aba de "SKY" para "TeamBlue"
     # O sub_filter substitui no corpo do HTML e no RSC (React Server Components)
-    # proxy_set_header Accept-Encoding "" impede que o backend comprima a resposta, permitindo o filtro
+    # Incluímos variantes com escapes (\" e \\") para capturar o estado de hidratação do React
     nginx.ingress.kubernetes.io/configuration-snippet: |
       proxy_set_header Accept-Encoding "";
       sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
       sub_filter '"children":"SKY"' '"children":"TeamBlue"';
+      sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
+      sub_filter '\\\"children\\\":\\\"SKY\\\"' '\\\"children\\\":\\\"TeamBlue\\\"';
       sub_filter '"title":"SKY"' '"title":"TeamBlue"';
+      sub_filter '\"title\":\"SKY\"' '\"title\":\"TeamBlue\"';
+      sub_filter '\\\"title\\\":\\\"SKY\\\"' '\\\"title\\\":\\\"TeamBlue\\\"';
       sub_filter_once off;
       sub_filter_types text/html text/javascript application/json text/x-component;
     # Favicon: server-snippet injeta no nível server{} para permitir novas locations
