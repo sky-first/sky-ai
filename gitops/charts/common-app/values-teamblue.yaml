@@ -36,9 +36,15 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-    # Favicon/Icon override: redireciona /icon.png e /favicon.ico para o logo TeamBlue
-    # O Next.js baked /icon.png em build-time; este snippet intercepta antes que chegue ao Next.js
+    # Branding: Altera o título da aba de "SKY" para "TeamBlue"
+    # O sub_filter substitui no corpo do HTML e no RSC (React Server Components)
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
+      sub_filter '{"children":"SKY"}' '{"children":"TeamBlue"}';
+      sub_filter_once off;
+      sub_filter_types text/html text/javascript application/json;
+    # Favicon: server-snippet injeta no nível server{} para permitir novas locations
+    nginx.ingress.kubernetes.io/server-snippet: |
       location = /icon.png {
         return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;
       }
