@@ -133,10 +133,25 @@ def _serialize_for_orchestrator(bundle: ContextBundle) -> str:
         for chunk in bundle.historical.questions_rag[:2]:  # Top 2
             parts.append(f"- {chunk}")
     
-    # Relationship hints
+    # Relationships — listar explicit com detalhes, inferred apenas contar
     if bundle.data.relationships and len(bundle.data.tables) > 1:
-        parts.append(f"\n[AVAILABLE: {len(bundle.data.relationships)} table relationships for JOINs]")
-    
+        explicit_rels = [r for r in bundle.data.relationships if getattr(r, "confidence", "inferred") == "explicit"]
+        inferred_rels = [r for r in bundle.data.relationships if getattr(r, "confidence", "inferred") != "explicit"]
+
+        if explicit_rels:
+            parts.append("\n[CLIENT-DEFINED TABLE RELATIONSHIPS — USE THESE FOR JOINS]")
+            for rel in explicit_rels:
+                label_str = f" ({rel.label})" if getattr(rel, "label", None) else ""
+                parts.append(
+                    f"- {rel.join_type} JOIN: {rel.from_table}.{rel.from_column}"
+                    f" = {rel.to_table}.{rel.to_column}{label_str}"
+                )
+        if inferred_rels:
+            parts.append(
+                f"[INFERRED RELATIONSHIPS (lower confidence, use only if above don't apply): "
+                f"{len(inferred_rels)} detected]"
+            )
+
     return "\n".join(parts)
 
 

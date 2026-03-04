@@ -395,6 +395,91 @@ async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str)
         log_event("ai_connection_metadata_load_error", {"connection_id": connection_id, "error": str(e)})
         return []
 
+
+async def _load_connection_relationships(
+    db: AsyncSession,
+    connection_id: str,
+    allowed_logical_names: Optional[List[str]] = None,
+) -> List[dict]:
+    """
+    Carrega os relacionamentos documentados pelo cliente da tabela connection_metadata.
+
+    Os relacionamentos são armazenados no campo JSON `relationships` dentro do registro
+    de ConnectionMetadata pelo backend (separado do campo `tables`).
+
+    Só retorna relacionamentos onde AMBAS as tabelas (from_table e to_table) estejam
+    na lista de tabelas autorizadas para o usuário (allowed_logical_names).
+    Garante que usuários sem acesso a uma tabela não veem os JOINs relacionados.
+
+    Args:
+        db: Sessão async do banco
+        connection_id: UUID da conexão
+        allowed_logical_names: logical_names das tabelas que o usuário tem acesso.
+            Se None ou vazio, retorna todos os relacionamentos sem filtro de permissão.
+
+    Returns:
+        Lista de dicts com: from_table, from_column, to_table, to_column,
+        join_type, label, confidence.
+    """
+    try:
+        result = await db.execute(
+            text(
+                "SELECT relationships FROM connection_metadata "
+                "WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+            ),
+            {"cid": connection_id},
+        )
+        raw = result.scalar_one_or_none()
+
+        if not raw or not isinstance(raw, list):
+            return []
+
+        relationships = [r for r in raw if isinstance(r, dict)]
+
+        # Filtro de permissão: ambas as tabelas devem ter acesso autorizado
+        if allowed_logical_names:
+            allowed_set = set(allowed_logical_names)
+            relationships = [
+                rel for rel in relationships
+                if rel.get("from_table") in allowed_set
+                and rel.get("to_table") in allowed_set
+            ]
+
+        log_event(
+            "connection_relationships_loaded",
+            {
+                "connection_id": connection_id,
+                "total": len(relationships),
+                "filtered_by_permission": allowed_logical_names is not None,
+            },
+        )
+        return relationships
+
+    except Exception as e:
+        error_msg = str(e)
+        # Se a coluna ainda não existe (migration pendente no backend), é esperado
+        if "UndefinedColumnError" in error_msg or "relationships" in error_msg:
+            log_event(
+                "connection_relationships_column_missing",
+                {
+                    "connection_id": connection_id,
+                    "hint": "Run backend migration to add 'relationships' column to connection_metadata",
+                },
+            )
+        else:
+            log_event(
+                "connection_relationships_load_error",
+                {"connection_id": connection_id, "error": error_msg[:300]},
+            )
+        # Rollback obrigatório: asyncpg entra em estado de erro após ProgrammingError
+        # Se não fizer rollback, todas as queries seguintes nesta sessão falharão
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return []
+
+
 async def _enrich_tables_with_ai_metadata(
     db: AsyncSession, 
     connection_id: str, 
@@ -2765,6 +2850,31 @@ async def _query_connection_inner(
             detail=f"Erro ao carregar configuração do agente: {str(e)}"
         )
 
+    # Carregar relacionamentos documentados pelo cliente (explicit_relationships)
+    # Filtrados pelas tabelas que o usuário tem acesso (segurança em camada)
+    explicit_relationships: List[dict] = []
+    try:
+        allowed_logical_names = [t.logical_name for t in agent_config.tables]
+        explicit_relationships = await _load_connection_relationships(
+            db=db,
+            connection_id=connection_id,
+            allowed_logical_names=allowed_logical_names,
+        )
+        log_event(
+            "api_query_explicit_relationships",
+            {
+                "connection_id": connection_id,
+                "count": len(explicit_relationships),
+            },
+        )
+    except Exception as e:
+        # Fail-safe: se falhar ao carregar, continua sem relacionamentos explícitos
+        log_event(
+            "api_query_explicit_relationships_error",
+            {"connection_id": connection_id, "error": str(e)[:200]},
+        )
+        explicit_relationships = []
+
     # Fast-path answers for catalog questions (avoid LLM/SQL for simple metadata requests).
     # This makes the UX consistent in both Portuguese and English.
     try:
@@ -2915,11 +3025,20 @@ async def _query_connection_inner(
     # Create User object (required by UserContext)
     # Use body user_id or random UUID if missing
     import uuid
-    u_id = body.user_id or uuid.uuid4()
+    raw_uid = body.user_id
+    if raw_uid:
+        try:
+            u_id = uuid.UUID(str(raw_uid)) if not isinstance(raw_uid, uuid.UUID) else raw_uid
+        except (ValueError, AttributeError):
+            # user_id não é UUID válido — gerar um determinístico a partir da string
+            u_id = uuid.uuid5(uuid.NAMESPACE_OID, str(raw_uid))
+    else:
+        u_id = uuid.uuid4()
+
     mock_user = User(
         id=u_id,
-        email="mock@example.com", # Placeholder
-        name="Mock User",        # Placeholder
+        email="mock@example.com",  # Placeholder
+        name="Mock User",          # Placeholder
         is_active=True
     )
 
@@ -2958,6 +3077,7 @@ async def _query_connection_inner(
             response_format=body.response_format,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
+            explicit_relationships=explicit_relationships or None,
         )
     except Exception as e:
         import traceback

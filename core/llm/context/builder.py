@@ -78,9 +78,13 @@ def build_context_bundle(
     )
     
     # 4. DATA CONTEXT
+    explicit_relationships = state.get("explicit_relationships")  # Definidos pelo cliente
     data_ctx = DataContext(
         tables=agent_config.tables,
-        relationships=detect_relationships(agent_config.tables),
+        relationships=detect_relationships(
+            agent_config.tables,
+            explicit_relationships=explicit_relationships,
+        ),
         total_tables=len(agent_config.tables),
         context_freshness="live"
     )
