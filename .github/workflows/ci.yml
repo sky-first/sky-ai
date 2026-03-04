@@ -478,7 +478,7 @@ jobs:
         if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
-          terraform init -input=false -backend-config=backend.hcl
+          terraform init -input=false -reconfigure -backend-config=backend.hcl
 
       - name: Select Workspace
         if: steps.changes.outputs.infra == 'true'
