@@ -766,6 +766,8 @@ jobs:
           set -euo pipefail
 
           echo "Initializing Terraform with backend configuration..."
+          # Limpar cache local para evitar conflitos de workspace entre envs (staging vs prod)
+          rm -rf .terraform .terraform.lock.hcl
 
           # Use -reconfigure to handle backend changes cleanly without prompts
           # This ensures init completes before workspace selection
@@ -2301,6 +2303,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Limpar cache local antes de re-inicializar no apply
+          rm -rf .terraform .terraform.lock.hcl
+
           # Reusing Plan's backend.hcl - use -reconfigure to force acceptance
           # This ensures Apply uses the exact same backend config as Plan without migration prompts
           if terraform init -input=false -reconfigure -backend-config=backend.hcl; then
@@ -2974,6 +2979,8 @@ jobs:
           set -euo pipefail
 
           echo "Initializing Terraform with backend configuration..."
+          # Limpar cache local antes do rollback
+          rm -rf .terraform .terraform.lock.hcl
 
           # Use -reconfigure to handle backend changes cleanly without prompts
           # This ensures init completes before workspace selection
