@@ -40,6 +40,8 @@ extraEnvFrom:
       name: teamblue-infra-secrets
 
 extraEnv:
+  - name: REDIS_URL
+    value: "redis://:sky-teamblue-stg-redis@redis.teamblue.svc.cluster.local:6379/0"
   - name: REDIS_HOST
     value: "redis"
   - name: REDIS_PORT
