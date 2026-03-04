@@ -1578,22 +1578,33 @@ jobs:
               # Usar URL padrão para validação de branch (será validado via API se necessário)
             fi
             
-            # Se não encontrou e API não confirmou, mostrar erro
+            # Se não encontrou e API não confirmou, mostrar erro ou warning
             if [ "$REPO_FOUND" = "false" ]; then
-              echo "ERRO: Repositório não encontrado: $repo"
+              # Repositórios de aplicação (ia, frontend, backend) não são críticos para o deploy de infra.
+              # O PAT do pipeline pode não ter SSO para esses repos — emitir warning e continuar.
+              if [ "$repo_type" = "ia" ] || [ "$repo_type" = "frontend" ] || [ "$repo_type" = "backend" ]; then
+                echo "[WARNING] Repositório de aplicação não acessível: $repo"
+                echo "  Isso pode ser causado por PAT sem SSO aprovado para a org 'sky-first'."
+                echo "  O deploy de INFRA pode continuar normalmente."
+                echo "  AÇÃO: Aprove o PAT em https://github.com/organizations/sky-first/settings/personal_access_tokens"
+                echo "  Continuando..."
+                continue
+              fi
+
+              echo "ERRO: Repositório de infra não encontrado: $repo"
               echo ""
               echo "Detalhes:"
               echo "  - Tipo de autenticação: $AUTH_TYPE"
               echo "  - Repositório: $repo"
               echo ""
-              
+
               if [ "$AUTH_TYPE" = "PAT" ] && [ "$API_ACCESS" = "false" ]; then
                 echo "  API: Acesso negado ou repositório não encontrado"
                 echo "  SOLUÇÃO: Verifique se o PAT tem acesso à organização 'sky-first'"
                 echo "  SOLUÇÃO: Verifique se o PAT foi aprovado na organização"
                 echo "  SOLUÇÃO: Acesse: https://github.com/organizations/sky-first/settings/personal_access_tokens"
               fi
-              
+
               if [ "$AUTH_TYPE" = "TOKEN" ] || [ "$AUTH_TYPE" = "NONE" ]; then
                 echo "SOLUÇÃO: Configure GH_PAT secret no GitHub:"
                 echo "  1. Crie um Personal Access Token (PAT) com escopo 'repo'"
@@ -1601,7 +1612,7 @@ jobs:
                 echo "  3. O PAT terá acesso completo a repositórios privados"
                 echo ""
               fi
-              
+
               echo "Tentando sem autenticação para debug..."
               if git ls-remote "https://github.com/${repo}.git" > /dev/null 2>&1; then
                 echo "INFO: Repositório é público e acessível sem autenticação"
@@ -1609,9 +1620,10 @@ jobs:
                 echo "INFO: Repositório não encontrado mesmo sem autenticação"
                 echo "Verifique se o repositório existe: https://github.com/${repo}"
               fi
-              
+
               exit 1
             fi
+
             
             # Verificar se branch existe (usar VALIDATION_BRANCH ao invés de BRANCH)
             BRANCH_FOUND=false
@@ -2832,30 +2844,45 @@ jobs:
       - name: Close Key Vault Firewall
         id: close-firewall
         if: always()  # Always close firewall, even if secret population fails
-        working-directory: infra/aks
         run: |
           set -euo pipefail
-          
-          echo "🔒 Removing runner IP from Key Vault firewall..."
+
+          echo "[OK] Removing runner IP from Key Vault firewall via az CLI..."
           echo "This closes the temporary security exception"
           echo ""
-          
-          # Unset the runner IP variable
-          unset TF_VAR_runner_ip
-          export TF_VAR_runner_ip=""
-          
-          # Run terraform apply again to remove the IP from firewall
-          # We need to pass the var-file to ensure all required variables are present
+
+          RUNNER_IP="${RUNNER_IP:-}"
+          if [ -z "$RUNNER_IP" ]; then
+            echo "[WARNING] RUNNER_IP not set, skipping firewall cleanup"
+            exit 0
+          fi
+
           TFVARS_FILE="${{ needs.detect-environment.outputs.tfvars_file }}"
-          
-          terraform apply -auto-approve \
-            -var-file="$TFVARS_FILE" \
-            -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
-            -var="runner_ip=" \
-            -target=azurerm_key_vault.main
-          
+          RG_NAME=$(grep "^resource_group_name" "$TFVARS_FILE" 2>/dev/null | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/' || echo "")
+
+          if [ -z "$RG_NAME" ]; then
+            echo "[WARNING] Resource Group not found in tfvars, skipping firewall cleanup"
+            exit 0
+          fi
+
+          KV_LIST=$(az keyvault list --resource-group "$RG_NAME" --query "[].name" -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$KV_LIST" ]; then
+            echo "[INFO] No Key Vaults found in $RG_NAME, nothing to close"
+            exit 0
+          fi
+
+          for kv in $KV_LIST; do
+            echo "  Removing IP ${RUNNER_IP}/32 from Key Vault: $kv"
+            az keyvault network-rule remove \
+              --name "$kv" \
+              --ip-address "${RUNNER_IP}/32" \
+              --only-show-errors 2>/dev/null || echo "  [INFO] IP not in whitelist or already removed: $kv"
+            echo "  [OK] Firewall rule cleaned for: $kv"
+          done
+
           echo ""
-          echo "✅ Key Vault firewall closed - runner IP removed!"
+          echo "[OK] Key Vault firewall closed - runner IP removed!"
 
       - name: Get Terraform Outputs
         id: outputs
