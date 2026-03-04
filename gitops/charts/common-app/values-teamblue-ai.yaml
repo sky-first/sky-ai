@@ -45,6 +45,10 @@ extraEnvFrom:
       name: teamblue-infra-secrets
 
 extraEnv:
+  - name: DATABASE_URL
+    value: "postgresql+asyncpg://postgres:sky-teamblue-stg-pass@postgres.teamblue.svc.cluster.local:5432/ai_saas_db"
+  - name: REDIS_URL
+    value: "redis://:sky-teamblue-stg-redis@redis.teamblue.svc.cluster.local:6379/0"
   - name: AI_PROVIDER
     value: "openai"
   - name: REDIS_HOST
