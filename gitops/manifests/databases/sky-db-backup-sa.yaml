@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sky-db-backup
+  namespace: teamblue
+  annotations:
+    azure.workload.identity/client-id: "3f3c6e93-7930-4faa-b2bb-f9b4aee6c6de"
