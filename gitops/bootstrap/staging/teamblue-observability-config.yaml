@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-teamblue-observability-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/observability
+    targetRevision: staging
+    helm:
+      values: |
+        namespace: monitoring
+        commonLabels:
+          release: kube-prometheus-stack
+          prometheus: staging  # Alinhamento com o seletor da Produção
+        serviceMonitors:
+          backend:
+            enabled: true
+            name: sky-teamblue-be
+            namespace: teamblue
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: common-app
+                app.kubernetes.io/instance: sky-teamblue-be
+            endpoints:
+              - port: http
+                path: /metrics
+          ai:
+            enabled: true
+            name: sky-teamblue-ai
+            namespace: teamblue
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: common-app
+                app.kubernetes.io/instance: sky-teamblue-ai-suite
+            endpoints:
+              - port: http
+                path: /metrics
+        podMonitors:
+          postgres:
+            enabled: true
+            name: sky-teamblue-postgres
+            namespace: teamblue
+            selector:
+              matchLabels:
+                app: postgres
+        grafanaDashboards:
+          enabled: true
+          labels:
+            grafana_dashboard: "1"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
