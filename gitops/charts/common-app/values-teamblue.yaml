@@ -33,9 +33,13 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Branding: Altera o título da aba de SKY para TeamBlue
+    # Como o título está hardcoded no build, usamos sub_filter para substituir no body
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
+      sub_filter '{"children":"SKY"}' '{"children":"TeamBlue"}';
+      sub_filter_once off;
+      sub_filter_types text/html text/javascript application/json;
     # Favicon/Icon override: server-snippet injeta no nível do server{} do NGINX
     # Intercepta /icon.png e /favicon.ico antes do Next.js para servir o logo TeamBlue
     nginx.ingress.kubernetes.io/server-snippet: |
