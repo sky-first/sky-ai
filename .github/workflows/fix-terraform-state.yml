@@ -1,4 +1,3 @@
----
 name: Fix Terraform State
 
 on:
@@ -59,7 +58,7 @@ jobs:
           CONTAINER: ${{ secrets.TF_BACKEND_CONTAINER }}
           ENV_SUFFIX: "${{ inputs.environment }}.tfstate"
         run: |
-           echo " NUCLEAR OPTION: Breaking leases for ALL blobs in container '$CONTAINER'..."
+           echo "☢️ NUCLEAR OPTION: Breaking leases for ALL blobs in container '$CONTAINER'..."
            # List ALL blobs. No filters. We need to unblock production.
            BLOBS=$(az storage blob list \
              --container-name "$CONTAINER" \
@@ -68,17 +67,17 @@ jobs:
              --query "[].name" -o tsv)
 
            if [ -z "$BLOBS" ]; then
-             echo "[WARNING]No blobs found in container '$CONTAINER'"
+             echo "⚠️ No blobs found in container '$CONTAINER'"
            fi
 
            for BLOB in $BLOBS; do
-             echo " Breaking lease for blob: $BLOB"
+             echo "🔨 Breaking lease for blob: $BLOB"
              az storage blob lease break \
                --blob-name "$BLOB" \
                --container-name "$CONTAINER" \
                --account-name "$STORAGE_ACCOUNT" \
-               --auth-mode login || echo "[WARNING]Failed to break lease for $BLOB (maybe none) - continuing..."
-
+               --auth-mode login || echo "⚠️ Failed to break lease for $BLOB (maybe none) - continuing..."
+               
              # Check for lock.info associated with this blob (just in case)
              LOCK_BLOB="$BLOB.lock.info"
              # No harm in trying to break it blindly
@@ -88,9 +87,9 @@ jobs:
                --account-name "$STORAGE_ACCOUNT" \
                --auth-mode login 2>/dev/null || true
            done
-
+           
            # Also break the generic .terraform.tfstate.lock.info
-           echo " Breaking generic lock info"
+           echo "🔨 Breaking generic lock info"
            az storage blob lease break \
              --blob-name ".terraform.tfstate.lock.info" \
              --container-name "$CONTAINER" \
@@ -106,14 +105,14 @@ jobs:
           ROLES=$(az role assignment list --assignee "$CLIENT_ID" --resource-group "$RG_NAME" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
 
           if echo "$ROLES" | grep -qE "Owner|User Access Administrator"; then
-            echo "[OK] Permission Verified."
+            echo "✅ Permission Verified."
           else
-            echo "[WARNING] WARNING: 'Owner' or 'User Access Administrator' role NOT found."
+            echo "⚠️  WARNING: 'Owner' or 'User Access Administrator' role NOT found."
             SUB_ROLES=$(az role assignment list --assignee "$CLIENT_ID" --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}" --query "[].roleDefinitionName" -o tsv 2>/dev/null || echo "")
             if echo "$SUB_ROLES" | grep -qE "Owner|User Access Administrator"; then
-               echo "[OK] Permission Verified (Inherited)."
+               echo "✅ Permission Verified (Inherited)."
             else
-               echo "[ERROR] CRITICAL ERROR: Pipeline Identity lacks management permissions."
+               echo "❌ CRITICAL ERROR: Pipeline Identity lacks management permissions."
             fi
           fi
 
@@ -167,18 +166,18 @@ jobs:
             local AZURE_ID="$2"
             local RESOURCE_NAME="$3"
             if terraform state show "$TF_ADDRESS" >/dev/null 2>&1; then
-              echo "  [OK] Already in state"
+              echo "  ✅ Already in state"
               return 0
             fi
             if terraform import -var-file="$TFVARS" "$TF_ADDRESS" "$AZURE_ID" 2>&1 | tee import-temp.log; then
-              echo "  [OK] Import successful"
+              echo "  ✅ Import successful"
               return 0
             else
               if grep -q "Cannot import non-existent" import-temp.log || grep -q "does not exist" import-temp.log || grep -q "was not found" import-temp.log; then
-                echo "  ℹ  Resource doesn't exist in Azure"
+                echo "  ℹ️  Resource doesn't exist in Azure"
                 return 0
               else
-                echo "  [ERROR] Import failed"
+                echo "  ❌ Import failed"
                 cat import-temp.log
                 return 1
               fi
@@ -187,18 +186,18 @@ jobs:
 
           # Minimal set of critical imports
           import_if_needed "azurerm_resource_group.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME" "Resource Group"
-
+          
           if az group show -n "$RG_NAME" >/dev/null 2>&1; then
             if az aks show -g "$RG_NAME" -n "$AKS_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_kubernetes_cluster.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME" "AKS Cluster"
-
+               
                NODE_POOL_NAME="userapps"
                import_if_needed "azurerm_kubernetes_cluster_node_pool.user_pool" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$NODE_POOL_NAME" "AKS User Node Pool"
 
                AI_NODE_POOL_NAME="aicpu16"
                import_if_needed "azurerm_kubernetes_cluster_node_pool.ai_turbo" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/agentPools/$AI_NODE_POOL_NAME" "AKS AI Node Pool"
             fi
-
+            
             # CRITICAL: Import Role Assignment Conflict
             SP_ID="ac642806-ae70-4e1d-a800-c8ed0f43ecd0"
             SCOPE="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME"
@@ -206,13 +205,13 @@ jobs:
             if [ -n "$RA_ID" ]; then
                 import_if_needed "azurerm_role_assignment.gh_actions_contributor" "$RA_ID" "GH Actions Contributor Role"
             fi
-
+            
             # Bastion networking imports
              PIP_NAME="bastion-pip-${ENV}"
              if az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_public_ip.bastion" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/publicIPAddresses/$PIP_NAME" "Bastion Public IP"
              fi
-
+             
              VNET_NAME="sky-aks-vnet-${ENV}"
              if az network vnet show -g "$RG_NAME" -n "$VNET_NAME" >/dev/null 2>&1; then
                import_if_needed "azurerm_virtual_network.aks" "/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Network/virtualNetworks/$VNET_NAME" "AKS VNet"
@@ -225,7 +224,7 @@ jobs:
           TFVARS="terraform.tfvars.${ENV}"
           echo "Refreshing Terraform state to sync with Azure..."
           terraform refresh -var-file="$TFVARS"
-          echo "[OK] State refreshed successfully"
+          echo "✅ State refreshed successfully"
 
       - name: Show State List
         run: |

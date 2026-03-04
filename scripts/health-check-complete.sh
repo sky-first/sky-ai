@@ -23,15 +23,15 @@ check_service() {
     echo -n "Verificando $name... "
     
     if eval "$check" &>/dev/null; then
-        echo -e "${GREEN}[OK] OK${NC}"
+        echo -e "${GREEN}✅ OK${NC}"
         return 0
     else
         if [ "$is_critical" = "true" ]; then
-            echo -e "${RED}[ERROR] FALHOU${NC}"
+            echo -e "${RED}❌ FALHOU${NC}"
             FAILED=$((FAILED + 1))
             return 1
         else
-            echo -e "${YELLOW}[WARNING] AVISO${NC}"
+            echo -e "${YELLOW}⚠️  AVISO${NC}"
             WARNINGS=$((WARNINGS + 1))
             return 0
         fi
@@ -58,14 +58,14 @@ fi
 
 # Verificar Docker
 if ! command -v docker &> /dev/null; then
-    echo -e "${RED}[ERROR] Docker não está instalado${NC}"
+    echo -e "${RED}❌ Docker não está instalado${NC}"
     exit 1
 fi
 
 # Verificar containers rodando
 echo -e "${BLUE}Verificando containers...${NC}"
 if ! $COMPOSE_CMD ps | grep -q "Up"; then
-    echo -e "${RED}[ERROR] Nenhum container está rodando${NC}"
+    echo -e "${RED}❌ Nenhum container está rodando${NC}"
     exit 1
 fi
 
@@ -116,13 +116,13 @@ fi
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 if [ $FAILED -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}[OK] Todos os serviços estão saudáveis${NC}"
+    echo -e "${GREEN}✅ Todos os serviços estão saudáveis${NC}"
     exit 0
 elif [ $FAILED -eq 0 ]; then
-    echo -e "${YELLOW}[WARNING] $WARNINGS aviso(s), mas serviços críticos OK${NC}"
+    echo -e "${YELLOW}⚠️  $WARNINGS aviso(s), mas serviços críticos OK${NC}"
     exit 0
 else
-    echo -e "${RED}[ERROR] $FAILED serviço(s) crítico(s) falharam${NC}"
+    echo -e "${RED}❌ $FAILED serviço(s) crítico(s) falharam${NC}"
     if [ $WARNINGS -gt 0 ]; then
         echo -e "${YELLOW}   + $WARNINGS aviso(s)${NC}"
     fi

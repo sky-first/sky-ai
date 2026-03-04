@@ -1,4 +1,3 @@
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -18,49 +17,11 @@ spec:
         # CRDs installed manually to avoid Helm annotation size limits
         crds:
           enabled: false
-
-        prometheusOperator:
-          prometheusConfigReloader:
-            resources:
-              requests:
-                cpu: 10m
-                memory: 50Mi
-              limits:
-                cpu: 50m
-                memory: 100Mi
-          resources:
-            requests:
-              cpu: 50m
-              memory: 100Mi
-            limits:
-              cpu: 100m
-              memory: 200Mi
-          admissionWebhooks:
-            patch:
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 50Mi
-                limits:
-                  cpu: 50m
-                  memory: 100Mi
-
+        
         # Grafana Configuration
         grafana:
           enabled: true
-          adminPassword: "SkyAdmin2026!"
-          # Override the local SQLite persistence of passwords
-          env:
-            GF_SECURITY_ADMIN_PASSWORD: "SkyAdmin2026!"
-            GF_AUTH_ANONYMOUS_ENABLED: "false"
-          # Resource constraints to satisfy Kyverno require-pod-resources policy
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 200m
-              memory: 500Mi
+          adminPassword: "admin" # TODO: Change in production!
           persistence:
             enabled: true
             size: 10Gi
@@ -69,29 +30,13 @@ spec:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             hosts:
               - grafana.135.18.146.170.nip.io
             path: /
             pathType: Prefix
           # Dashboards automáticos
-          initChownData:
-            enabled: true
-            resources:
-              requests:
-                cpu: 10m
-                memory: 50Mi
-              limits:
-                cpu: 50m
-                memory: 256Mi
           sidecar:
-            resources:
-              requests:
-                cpu: 10m
-                memory: 50Mi
-              limits:
-                cpu: 50m
-                memory: 256Mi
             dashboards:
               enabled: true
               defaultFolderName: "General"
@@ -109,7 +54,7 @@ spec:
                     matcherRegex: "traceID=(\\w+)"
                     name: TraceID
                     url: "$${__value.raw}"
-
+        
         # Prometheus Configuration
         prometheus:
           enabled: true
@@ -118,11 +63,11 @@ spec:
             retentionSize: "10GB"
             resources:
               requests:
-                cpu: 100m
-                memory: 1Gi
+                cpu: 200m
+                memory: 500Mi
               limits:
-                cpu: 500m
-                memory: 4Gi
+                cpu: 1000m
+                memory: 2Gi
             storageSpec:
               volumeClaimTemplate:
                 spec:
@@ -131,25 +76,24 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
-
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
             podMonitorSelectorNilUsesHelmValues: false
             podMonitorSelector: {}
-
+          
           # Ingress para Prometheus UI
           ingress:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             hosts:
               - prometheus.135.18.146.170.nip.io
             paths:
               - /
             pathType: Prefix
-
+        
         # Alertmanager Configuration
         alertmanager:
           enabled: true
@@ -170,48 +114,27 @@ spec:
                   resources:
                     requests:
                       storage: 5Gi
-            # Habilitar descoberta de AlertmanagerConfigs
-            alertmanagerConfigSelector:
-              matchLabels:
-                release: kube-prometheus-stack
-            alertmanagerConfigNamespaceSelector: {}
-
+          
           # Ingress para Alertmanager UI
           ingress:
             enabled: true
             ingressClassName: nginx
             annotations:
-              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24, 87.196.80.186/32"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             hosts:
               - alertmanager.135.18.146.170.nip.io
             paths:
               - /
             pathType: Prefix
-
+        
         # Node Exporter (métricas de nodes)
-        prometheus-node-exporter:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 50Mi
-            limits:
-              cpu: 100m
-              memory: 100Mi
         nodeExporter:
           enabled: true
-
+        
         # Kube State Metrics (métricas do cluster)
-        kube-state-metrics:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 50Mi
-            limits:
-              cpu: 100m
-              memory: 100Mi
         kubeStateMetrics:
           enabled: true
-
+        
         # Default Rules (alertas pré-configurados)
         defaultRules:
           create: true
@@ -239,11 +162,11 @@ spec:
             nodeExporterRecording: true
             prometheus: true
             prometheusOperator: true
-
+  
   destination:
     server: "https://kubernetes.default.svc"
     namespace: monitoring
-
+  
   syncPolicy:
     automated:
       prune: true

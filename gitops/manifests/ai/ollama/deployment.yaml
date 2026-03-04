@@ -1,4 +1,3 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,6 +16,17 @@ spec:
       labels:
         app: ollama
     spec:
+      # Ensure it runs on the AI CPU Node Pool
+      # Ensure it runs on the AI CPU Node Pool (Turbo)
+      nodeSelector:
+        sky-poc-type: ai-turbo
+        workload_type: ai-turbo
+      
+      tolerations:
+        - key: "sku"
+          operator: "Equal"
+          value: "cpu-turbo"
+          effect: "NoSchedule"
 
       containers:
         - name: ollama
@@ -36,7 +46,7 @@ spec:
               mountPath: /root/.ollama
             - name: init-scripts
               mountPath: /scripts
-
+          
           # Lifecycle hook to run setup script in background isn't ideal for main process.
           # Better to use postStart or just run it in the main command.
           # Using the command override pattern from the proposal:
@@ -46,14 +56,14 @@ spec:
               # Start server in background
               ollama serve &
               pid=$!
-
+              
               # Run setup script
               sleep 5
               /bin/bash /scripts/setup-models.sh
-
+              
               # Wait for server process
               wait $pid
-
+          
           # Probes adjusted for initial heavy download
           readinessProbe:
             httpGet:
@@ -62,7 +72,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
-
+          
           livenessProbe:
             httpGet:
               path: /api/tags
@@ -70,7 +80,7 @@ spec:
             initialDelaySeconds: 120 # Give 2 minutes for initial startup/download
             periodSeconds: 20
             failureThreshold: 5 # Total ~3-4 minutes tolerance
-
+            
       volumes:
         - name: ollama-data
           persistentVolumeClaim:

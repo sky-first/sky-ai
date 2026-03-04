@@ -1,4 +1,3 @@
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -39,7 +38,7 @@ spec:
                 prometheus: "prod"
             # PROTECTION: Max 10k series per job (cardinality limit)
             enforcedSampleLimit: 10000
-
+        
         grafana:
           enabled: true
           replicas: 1
@@ -60,7 +59,7 @@ spec:
               url: http://tempo:3100
               access: proxy
               isDefault: false
-
+        
         alertmanager:
           enabled: true
           config:
@@ -80,17 +79,17 @@ spec:
                 title: '{{ .GroupLabels.alertname }}'
                 text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
                 send_resolved: true
-
+        
         prometheus-node-exporter:
           enabled: true
-
+        
         kube-state-metrics:
           enabled: true
-
+  
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-
+  
   syncPolicy:
     automated:
       prune: true
@@ -126,7 +125,7 @@ spec:
             storageClassName: premium-rwo
           config:
             auth_enabled: false
-
+            
             # Rate limiting to prevent log bomb
             limits_config:
               enforce_metric_name: false
@@ -134,20 +133,20 @@ spec:
               reject_old_samples_max_age: 168h  # 7 days
               ingestion_rate_mb: 10  # 10MB/s max ingestion rate
               ingestion_burst_size_mb: 20
-
+              
               # Per-stream limits
               max_streams_per_user: 1000
               max_bytes_per_second: 10485760  # 10MB/s
-
+              
               # Per-tenant limits
               split_clients_filters: []
-
+            
             ingester:
               chunk_idle_period: 3m
               max_chunk_age: 1h
               max_streams_limit_bytes: 0
               max_streams_match_order: 0
-
+        
         promtail:
           enabled: true
           config:
@@ -156,12 +155,12 @@ spec:
               readline_rate_enabled: true
               readline_rate: 10000  # lines/sec per file
               readline_rate_drop: true  # drop lines if rate exceeded
-
+            
             clients:
             - url: http://loki:3100/loki/api/v1/push
               batchwait: 1s
               batchsize: 1048576  # 1MB batches
-
+              
             scrape_configs:
             - job_name: kubernetes-pods
               kubernetes_sd_configs:
@@ -173,7 +172,7 @@ spec:
               - source_labels: [__meta_kubernetes_namespace]
                 action: replace
                 target_label: namespace
-
+              
               # Drop logs from certain noisy pods
               metric_relabel_configs:
               - source_labels: [__meta_kubernetes_pod_name]
@@ -186,11 +185,11 @@ spec:
               - source_labels: [__meta_kubernetes_namespace]
                 action: replace
                 target_label: namespace
-
+  
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-
+  
   syncPolicy:
     automated:
       prune: true

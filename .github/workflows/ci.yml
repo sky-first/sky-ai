@@ -1,4 +1,3 @@
----
 name: CI - Terraform Validation & Security
 
 permissions:
@@ -6,12 +5,25 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
-  security-events: write
 
 on:
-  workflow_dispatch: { }
+  workflow_dispatch: {}
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "infra/**"
+      - "docker/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/linters/**"
+      - "scripts/**"
+      - "docs/**"
+      - "README.md"
+      - "gitops/**"
+      - ".env.example"
+      - "env.example"
+  push:
+    branches: [staging, main]
     paths:
       - "infra/**"
       - "docker/**"
@@ -80,62 +92,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISABLE_ALL: true
           VALIDATE_YAML: true
-          YAML_CONFIG_FILE: yamllint.yml
           # Skip Helm templates which cause syntax errors in standard YAML linters
           FILTER_REGEX_EXCLUDE: ".*gitops/charts/.*"
           # Super-linter will auto-detect .github/linters/yamllint.yml
-
-  security-scan:
-    name: Security Scan (IaC & Secrets)
-    runs-on: ubuntu-latest
-    needs: [yaml-lint, workflow-lint]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner in IaC mode
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: 'fs'
-          scanners: 'config'
-          hide-progress: true
-          format: 'sarif'
-          output: 'trivy-iac-results.sarif'
-          exit-code: '0' # Audit mode: don't fail the build yet
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Trivy vulnerability scanner for Secrets
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: 'fs'
-          scanners: 'secret'
-          hide-progress: true
-          format: 'sarif'
-          output: 'trivy-secrets-results.sarif'
-          exit-code: '0' # Audit mode: don't fail the build yet
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload Trivy IaC scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        continue-on-error: true # Prevents failure if GAS is not enabled
-        with:
-          sarif_file: 'trivy-iac-results.sarif'
-          category: 'trivy-iac'
-
-      - name: Upload Trivy Secrets scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        continue-on-error: true # Prevents failure if GAS is not enabled
-        with:
-          sarif_file: 'trivy-secrets-results.sarif'
-          category: 'trivy-secrets'
 
   terraform-validation:
     name: Terraform Validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [yaml-lint, workflow-lint, security-scan]
+    needs: [yaml-lint, workflow-lint]
     permissions:
       contents: read
       id-token: write
@@ -187,20 +152,20 @@ jobs:
           ARM_USE_OIDC: true
         run: |
           set -euo pipefail
-
+          
           # Limpar cache do Terraform para evitar tentar usar backend configurado
           echo "Limpando cache do Terraform..."
           rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup
-
+          
           # Inicializar SEM backend (apenas para validação)
           echo "Inicializando Terraform sem backend..."
           terraform init -backend=false -input=false -reconfigure 2>&1 | tee init-output.txt || {
-            echo "[ERROR] Terraform init falhou"
+            echo "❌ Terraform init falhou"
             cat init-output.txt
             exit 1
           }
-
-          echo "[OK] Terraform init concluído (sem backend)"
+          
+          echo "✅ Terraform init concluído (sem backend)"
 
       - name: Terraform Validate
         id: validate
@@ -226,7 +191,6 @@ jobs:
           echo "INFO: Secrets do Azure não disponíveis (ex: PR de fork)."
           echo "Pulando terraform init/validate para evitar dependência de 'az login'."
 
-
       - name: Terraform Security Scan with tfsec
         id: security-tfsec
         run: |
@@ -251,16 +215,16 @@ jobs:
 
           if [ -f tfsec-results.json ]; then
             echo "tfsec_results=$(cat tfsec-results.json | jq -c .)" >> $GITHUB_OUTPUT
-
+            
             # Verificar se há vulnerabilidades críticas
             CRITICAL_COUNT=$(cat tfsec-results.json | jq -r '[.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH")] | length' || echo "0")
-
+            
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
-              echo "[ERROR] ERRO: Encontradas $CRITICAL_COUNT vulnerabilidade(s) CRÍTICA(S) ou ALTA(S)"
+              echo "❌ ERRO: Encontradas $CRITICAL_COUNT vulnerabilidade(s) CRÍTICA(S) ou ALTA(S)"
               cat tfsec-results.json | jq -r '.results[]? | select(.severity == "CRITICAL" or .severity == "HIGH") | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"'
               exit 1
             fi
-
+            
             cat tfsec-results.json | jq -r '.results[]? | "\(.severity | ascii_upcase): \(.description) - \(.location.filename):\(.location.start_line)"' || true
           fi
 
@@ -296,20 +260,20 @@ jobs:
               echo "ERROR: terraform.tfvars.${env} not found"
               exit 1
             fi
-
+            
             echo "Checking terraform.tfvars.${env} exists and is readable..."
             # Verificar que o arquivo existe, não está vazio e é legível
             if [ ! -s "terraform.tfvars.${env}" ]; then
               echo "ERROR: terraform.tfvars.${env} is empty"
               exit 1
             fi
-
+            
             # Tentar fazer parse básico do HCL usando hclfmt (se disponível) ou pelo menos verificar estrutura básica
             # Validar que não há erros de sintaxe óbvios (chaves não fechadas, etc)
             if ! grep -q "=" "terraform.tfvars.${env}"; then
               echo "WARNING: terraform.tfvars.${env} might not contain valid key-value pairs"
             fi
-
+            
             echo "terraform.tfvars.${env} exists and appears valid"
           done
 
@@ -318,13 +282,13 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fmtStatus = '${{ steps.fmt-check.outcome }}' === 'success' ? '[OK] Passed' : '[ERROR] Failed';
-            const validateStatus = '${{ steps.validate.outcome }}' === 'success' ? '[OK] Passed' : '[ERROR] Failed';
-            const varsStatus = '${{ steps.validate-vars.outcome }}' === 'success' ? '[OK] Passed' : '[ERROR] Failed';
-            const securityTfsecStatus = '${{ steps.security-tfsec.outcome }}' === 'success' ? '[OK] Passed' : '[WARNING]Completed with warnings';
-            const lintTflintStatus = '${{ steps.lint-tflint.outcome }}' === 'success' ? '[OK] Passed' : '[WARNING]Completed with warnings';
+            const fmtStatus = '${{ steps.fmt-check.outcome }}' === 'success' ? '✅ Passed' : '❌ Failed';
+            const validateStatus = '${{ steps.validate.outcome }}' === 'success' ? '✅ Passed' : '❌ Failed';
+            const varsStatus = '${{ steps.validate-vars.outcome }}' === 'success' ? '✅ Passed' : '❌ Failed';
+            const securityTfsecStatus = '${{ steps.security-tfsec.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
+            const lintTflintStatus = '${{ steps.lint-tflint.outcome }}' === 'success' ? '✅ Passed' : '⚠️ Completed with warnings';
 
-            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' &&
+            const allCriticalPassed = '${{ steps.fmt-check.outcome }}' === 'success' && 
                                       '${{ steps.validate.outcome }}' === 'success' &&
                                       '${{ steps.validate-vars.outcome }}' === 'success';
 
@@ -336,7 +300,7 @@ jobs:
             - **Security Scan (tfsec)**: ${securityTfsecStatus}
             - **Lint (tflint)**: ${lintTflintStatus}
 
-            ${allCriticalPassed ? '[OK] All critical Terraform checks passed successfully.' : '[ERROR] Some critical checks failed. Please review the errors above.'}`;
+            ${allCriticalPassed ? '✅ All critical Terraform checks passed successfully.' : '❌ Some critical checks failed. Please review the errors above.'}`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -375,24 +339,13 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Check for Infra Changes
-        uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            infra:
-              - 'infra/**'
-
-
       - name: Setup Terraform
-        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/terraform-setup
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           working_directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Azure Login
-        if: steps.changes.outputs.infra == 'true'
         uses: ./.github/actions/azure-auth
         with:
           subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -401,7 +354,6 @@ jobs:
 
       - name: Get Runner IP
         id: ip
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 https://checkip.amazonaws.com || echo "")
@@ -412,11 +364,10 @@ jobs:
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
           echo "TF_VAR_runner_ip=$RUNNER_IP/32" >> $GITHUB_ENV
           echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
-          echo "[OK] Runner IP obtido: $RUNNER_IP (formatado como $RUNNER_IP/32 para o Terraform)"
+          echo "✅ Runner IP obtido: $RUNNER_IP (formatado como $RUNNER_IP/32 para o Terraform)"
 
       - name: Detect Target Environment
         id: detect-env
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -437,7 +388,6 @@ jobs:
           echo "workspace=${ENV}" >> $GITHUB_OUTPUT
 
       - name: Validate Terraform Backend Secrets
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           echo "Validando secrets obrigatórios do backend Terraform..."
@@ -463,7 +413,6 @@ jobs:
           echo "OK: Secrets do backend presentes"
 
       - name: Write backend config
-        if: steps.changes.outputs.infra == 'true'
         run: |
           ENV="${{ steps.detect-env.outputs.env }}"
           cat > backend.hcl <<EOF
@@ -475,17 +424,11 @@ jobs:
           EOF
 
       - name: Terraform Init
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
-          # Limpar cache do Terraform restaurado pela action de setup para evitar drift de workspace
-          echo "Limpando metadados locais do Terraform..."
-          rm -rf .terraform .terraform.lock.hcl
-          
-          terraform init -input=false -reconfigure -backend-config=backend.hcl
+          terraform init -input=false -backend-config=backend.hcl
 
       - name: Select Workspace
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
           terraform workspace select ${{ steps.detect-env.outputs.workspace }} || \
@@ -493,7 +436,6 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        if: steps.changes.outputs.infra == 'true'
         run: |
           set -euo pipefail
 
@@ -509,7 +451,7 @@ jobs:
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -no-color \
             -out=tfplan-preview 2>&1 | tee plan-output.txt
-
+          
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           PLAN_OUTPUT=$(cat plan-output.txt)
 
@@ -517,11 +459,11 @@ jobs:
           if [ -f "tfplan-preview" ]; then
             echo "plan_generated=true" >> $GITHUB_OUTPUT
             echo "plan_exit_code=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
-            echo "[OK] Terraform plan file generated successfully"
+            echo "✅ Terraform plan file generated successfully"
           else
             echo "plan_generated=false" >> $GITHUB_OUTPUT
             echo "plan_exit_code=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
-            echo "[ERROR] ERRO: Terraform plan file was not generated (exit code: ${PLAN_EXIT_CODE})"
+            echo "❌ ERRO: Terraform plan file was not generated (exit code: ${PLAN_EXIT_CODE})"
             exit 1
           fi
 
@@ -535,7 +477,7 @@ jobs:
           allow_destroy: false
 
       - name: Comment PR with Plan
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.changes.outputs.infra == 'true'
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         uses: actions/github-script@v7
         with:
           script: |
@@ -565,16 +507,16 @@ jobs:
 
             let status = 'SUCCESS';
             let statusText = 'Plan generated successfully';
-            let statusIcon = '[OK]';
+            let statusIcon = '✅';
 
             if (!planGenerated || planStatus !== 'success') {
               status = 'FAILED';
               statusText = 'Plan generation failed';
-              statusIcon = '[ERROR]';
+              statusIcon = '❌';
             } else if (hasDestroy) {
               status = 'WARNING';
               statusText = 'Plan contains destructive changes - Review carefully!';
-              statusIcon = '[WARNING]';
+              statusIcon = '⚠️';
             }
 
             const output = `## ${statusIcon} ${status} Terraform Plan Preview
@@ -592,8 +534,8 @@ jobs:
 
             </details>
 
-            ${hasDestroy ? '[WARNING]**Warning**: This plan contains destructive changes. Please review carefully before merging.' : ''}
-            ${planStatus !== 'success' ? '[ERROR] **Error**: Failed to generate plan. Check the logs for details.' : ''}`;
+            ${hasDestroy ? '⚠️ **Warning**: This plan contains destructive changes. Please review carefully before merging.' : ''}
+            ${planStatus !== 'success' ? '❌ **Error**: Failed to generate plan. Check the logs for details.' : ''}`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,

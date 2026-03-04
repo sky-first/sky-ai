@@ -10,7 +10,7 @@ REPO_OWNER="${REPO_OWNER:-sky-first}"
 GH_PAT="${GH_PAT:-}"
 
 echo "=========================================="
-echo " Deploy via Azure CLI Run Command"
+echo "🚀 Deploy via Azure CLI Run Command"
 echo "=========================================="
 echo ""
 echo "Resource Group: $RESOURCE_GROUP"
@@ -21,16 +21,16 @@ echo ""
 
 # Verificar Azure CLI
 if ! command -v az &> /dev/null; then
-    echo "[ERROR] Azure CLI não está instalado"
+    echo "❌ Azure CLI não está instalado"
     exit 1
 fi
 
 if ! az account show &> /dev/null; then
-    echo "[ERROR] Não está autenticado. Execute: az login"
+    echo "❌ Não está autenticado. Execute: az login"
     exit 1
 fi
 
-echo "[OK] Azure CLI autenticado"
+echo "✅ Azure CLI autenticado"
 echo ""
 
 # Script de deploy completo
@@ -72,7 +72,7 @@ clone_or_update() {
             url=$(echo "$url" | sed "s|https://github.com|https://${GH_PAT}@github.com|")
         fi
         git clone -b "$branch" "$url" "$name" || {
-            echo "[WARNING]Falha ao clonar $name, tentando sem branch..."
+            echo "⚠️ Falha ao clonar $name, tentando sem branch..."
             git clone "$url" "$name"
             cd "$name"
             git checkout "$branch" 2>/dev/null || true
@@ -82,7 +82,7 @@ clone_or_update() {
 }
 
 echo "=========================================="
-echo " Clonando/Atualizando Repositórios"
+echo "📦 Clonando/Atualizando Repositórios"
 echo "=========================================="
 
 clone_or_update "sky-poc-infra" "https://github.com/${REPO_OWNER}/sky-poc-infra.git" "staging"
@@ -92,7 +92,7 @@ clone_or_update "sky-poc-ai" "https://github.com/${REPO_OWNER}/sky-poc-ai.git" "
 
 echo ""
 echo "=========================================="
-echo " Configurando Ambiente"
+echo "⚙️ Configurando Ambiente"
 echo "=========================================="
 
 cd sky-poc-infra
@@ -102,11 +102,11 @@ if [ ! -f .env ]; then
     if [ -f env.example ]; then
         echo "Criando .env a partir de env.example..."
         cp env.example .env
-        echo "[WARNING]IMPORTANTE: Configure o arquivo .env antes de continuar!"
+        echo "⚠️ IMPORTANTE: Configure o arquivo .env antes de continuar!"
         echo "   Execute: nano .env"
         echo "   Ou edite via: az vm run-command invoke -g $RESOURCE_GROUP -n $VM_NAME --command-id RunShellScript --scripts 'nano /home/azureuser/projeto/sky-poc-infra/.env'"
     else
-        echo "[ERROR] env.example não encontrado"
+        echo "❌ env.example não encontrado"
         exit 1
     fi
 fi
@@ -114,23 +114,23 @@ fi
 # CRÍTICO: Validar configuração .env antes de continuar
 echo ""
 echo "=========================================="
-echo " Validando Configuração .env"
+echo "🔍 Validando Configuração .env"
 echo "=========================================="
 if [ -f scripts/validate-env.sh ]; then
     chmod +x scripts/validate-env.sh
     if ! bash scripts/validate-env.sh .env; then
         echo ""
-        echo "[ERROR] ERRO: Validação do .env falhou!"
+        echo "❌ ERRO: Validação do .env falhou!"
         echo "   Corrija os erros antes de continuar com o deploy."
         exit 1
     fi
 else
-    echo "[WARNING] Script de validação não encontrado (continuando sem validação)"
+    echo "⚠️  Script de validação não encontrado (continuando sem validação)"
 fi
 
 # Configurar NEXT_PUBLIC_API_URL - CRÍTICO: Garantir que sempre esteja configurado
 echo "=========================================="
-echo " Configurando NEXT_PUBLIC_API_URL"
+echo "🔧 Configurando NEXT_PUBLIC_API_URL"
 echo "=========================================="
 
 VM_IP=$(curl -s http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01 -H "Metadata:true" 2>/dev/null || echo "")
@@ -140,7 +140,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 if [ -z "$VM_IP" ]; then
-    echo "[ERROR] ERRO CRÍTICO: Não foi possível obter IP da VM"
+    echo "❌ ERRO CRÍTICO: Não foi possível obter IP da VM"
     echo "   Tentando métodos alternativos..."
     
     # Tentar extrair de Terraform output se disponível
@@ -152,12 +152,12 @@ if [ -z "$VM_IP" ]; then
 fi
 
 if [ -n "$VM_IP" ]; then
-    echo "[OK] IP da VM detectado: $VM_IP"
+    echo "✅ IP da VM detectado: $VM_IP"
     
     # Sempre garantir que NEXT_PUBLIC_API_URL está correto
     if ! grep -q "^NEXT_PUBLIC_API_URL=" .env 2>/dev/null; then
         echo "NEXT_PUBLIC_API_URL=http://${VM_IP}/api/v1" >> .env
-        echo "[OK] NEXT_PUBLIC_API_URL adicionado: http://${VM_IP}/api/v1"
+        echo "✅ NEXT_PUBLIC_API_URL adicionado: http://${VM_IP}/api/v1"
     else
         # Atualizar se necessário
         CURRENT_URL=$(grep "^NEXT_PUBLIC_API_URL=" .env | cut -d'=' -f2- | tr -d '"' || echo "")
@@ -165,13 +165,13 @@ if [ -n "$VM_IP" ]; then
         
         if [ "$CURRENT_URL" != "$EXPECTED_URL" ]; then
             sed -i "s|^NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=${EXPECTED_URL}|" .env
-            echo "[OK] NEXT_PUBLIC_API_URL atualizado: ${EXPECTED_URL}"
+            echo "✅ NEXT_PUBLIC_API_URL atualizado: ${EXPECTED_URL}"
         else
-            echo "[OK] NEXT_PUBLIC_API_URL já está correto: ${EXPECTED_URL}"
+            echo "✅ NEXT_PUBLIC_API_URL já está correto: ${EXPECTED_URL}"
         fi
     fi
 else
-    echo "[ERROR] ERRO CRÍTICO: Não foi possível obter IP da VM"
+    echo "❌ ERRO CRÍTICO: Não foi possível obter IP da VM"
     echo "   Configure manualmente no .env: NEXT_PUBLIC_API_URL=http://<IP_DA_VM>/api/v1"
     exit 1
 fi
@@ -179,34 +179,34 @@ echo ""
 
 # Configurar CORS dinamicamente antes de iniciar containers
 echo "=========================================="
-echo " Configurando CORS Dinamicamente"
+echo "🔧 Configurando CORS Dinamicamente"
 echo "=========================================="
 if [ -f scripts/azure/fix-nginx-cors-dynamic.sh ]; then
     chmod +x scripts/azure/fix-nginx-cors-dynamic.sh
     bash scripts/azure/fix-nginx-cors-dynamic.sh || {
-        echo "[WARNING] Aviso: Falha ao configurar CORS dinamicamente (continuando)"
+        echo "⚠️  Aviso: Falha ao configurar CORS dinamicamente (continuando)"
     }
 else
-    echo "[WARNING] Script fix-nginx-cors-dynamic.sh não encontrado (CORS pode não funcionar corretamente)"
+    echo "⚠️  Script fix-nginx-cors-dynamic.sh não encontrado (CORS pode não funcionar corretamente)"
 fi
 echo ""
 
 # Aplicar configuração nginx (HTTP-only se não houver certificados)
 echo "=========================================="
-echo " Aplicando Configuração Nginx"
+echo "🔧 Aplicando Configuração Nginx"
 echo "=========================================="
 if [ -f scripts/azure/apply-nginx-config.sh ]; then
     chmod +x scripts/azure/apply-nginx-config.sh
     bash scripts/azure/apply-nginx-config.sh || {
-        echo "[WARNING] Aviso: Falha ao aplicar configuração nginx (continuando)"
+        echo "⚠️  Aviso: Falha ao aplicar configuração nginx (continuando)"
     }
 else
-    echo "[WARNING] Script apply-nginx-config.sh não encontrado"
+    echo "⚠️  Script apply-nginx-config.sh não encontrado"
 fi
 echo ""
 
 echo "=========================================="
-echo " Iniciando Containers"
+echo "🐳 Iniciando Containers"
 echo "=========================================="
 
 # Parar containers existentes
@@ -216,7 +216,7 @@ sudo docker compose down || sudo docker-compose down || true
 # Build e start
 echo "Construindo e iniciando containers..."
 sudo docker compose up -d --build || {
-    echo "[ERROR] Falha ao iniciar containers"
+    echo "❌ Falha ao iniciar containers"
     echo "Logs:"
     sudo docker compose logs --tail=50
     exit 1
@@ -228,19 +228,19 @@ sleep 15
 
 echo ""
 echo "=========================================="
-echo "[OK] Status dos Containers"
+echo "✅ Status dos Containers"
 echo "=========================================="
 sudo docker compose ps
 
 echo ""
 echo "=========================================="
-echo " Logs do Proxy (últimas 20 linhas)"
+echo "📋 Logs do Proxy (últimas 20 linhas)"
 echo "=========================================="
 sudo docker compose logs proxy --tail=20 || sudo docker logs ai_saas_proxy --tail=20 2>/dev/null || echo "Proxy não encontrado"
 
 echo ""
 echo "=========================================="
-echo "[OK] Deploy Concluído"
+echo "✅ Deploy Concluído"
 echo "=========================================="
 EOF
 
@@ -268,7 +268,7 @@ OUTPUT=$(az vm run-command invoke \
 
 if [ $? -eq 0 ]; then
     echo "=========================================="
-    echo "[OK] Deploy executado"
+    echo "✅ Deploy executado"
     echo "=========================================="
     echo ""
     
@@ -277,7 +277,7 @@ if [ $? -eq 0 ]; then
     
     echo ""
     echo "=========================================="
-    echo " Próximos Passos"
+    echo "📋 Próximos Passos"
     echo "=========================================="
     echo ""
     echo "1. Verificar se containers estão rodando:"
@@ -290,7 +290,7 @@ if [ $? -eq 0 ]; then
     echo "   curl http://172.172.134.36/health"
     echo ""
 else
-    echo "[ERROR] ERRO ao executar deploy"
+    echo "❌ ERRO ao executar deploy"
     echo "$OUTPUT"
     exit 1
 fi

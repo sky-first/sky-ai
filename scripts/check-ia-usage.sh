@@ -38,12 +38,12 @@ if [ -d "$BACKEND_DIR/src" ]; then
     IMPORTS=$(grep -r "from.*ia\|import.*ia\|sky-poc-ai\|../ia\|../../ia" "$BACKEND_DIR/src" 2>/dev/null | head -10)
     
     if [ -n "$IMPORTS" ]; then
-        echo -e "${YELLOW}[WARNING] Referências ao IA encontradas:${NC}"
+        echo -e "${YELLOW}⚠️  Referências ao IA encontradas:${NC}"
         echo "$IMPORTS"
         echo ""
         FOUND_IMPORTS=1
     else
-        echo -e "${GREEN}[OK] Nenhuma referência direta ao IA encontrada no código${NC}"
+        echo -e "${GREEN}✅ Nenhuma referência direta ao IA encontrada no código${NC}"
     fi
 fi
 
@@ -55,15 +55,15 @@ if [ -f "$BACKEND_DIR/docker/Dockerfile" ]; then
     DOCKERFILE_IA=$(grep -i "ia\|ai" "$BACKEND_DIR/docker/Dockerfile" 2>/dev/null | grep -v "^#" | head -5)
     
     if [ -n "$DOCKERFILE_IA" ]; then
-        echo -e "${YELLOW}[WARNING] Referências ao IA no Dockerfile:${NC}"
+        echo -e "${YELLOW}⚠️  Referências ao IA no Dockerfile:${NC}"
         echo "$DOCKERFILE_IA"
         echo ""
         FOUND_IMPORTS=1
     else
-        echo -e "${GREEN}[OK] Dockerfile não referencia IA${NC}"
+        echo -e "${GREEN}✅ Dockerfile não referencia IA${NC}"
     fi
 else
-    echo -e "${YELLOW}[WARNING] Dockerfile não encontrado${NC}"
+    echo -e "${YELLOW}⚠️  Dockerfile não encontrado${NC}"
 fi
 
 # Verificar requirements.txt ou pyproject.toml
@@ -74,7 +74,7 @@ for file in "$BACKEND_DIR/requirements.txt" "$BACKEND_DIR/pyproject.toml" "$BACK
     if [ -f "$file" ]; then
         IA_DEPS=$(grep -i "ia\|ai" "$file" 2>/dev/null | grep -v "^#" | head -5)
         if [ -n "$IA_DEPS" ]; then
-            echo -e "${YELLOW}[WARNING] Referências ao IA em $(basename $file):${NC}"
+            echo -e "${YELLOW}⚠️  Referências ao IA em $(basename $file):${NC}"
             echo "$IA_DEPS"
             echo ""
             FOUND_IMPORTS=1
@@ -87,7 +87,7 @@ echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 if [ $FOUND_IMPORTS -eq 1 ]; then
-    echo -e "${YELLOW}[WARNING] CONCLUSÃO: Backend parece usar IA${NC}"
+    echo -e "${YELLOW}⚠️  CONCLUSÃO: Backend parece usar IA${NC}"
     echo ""
     echo -e "${BLUE}RECOMENDAÇÃO:${NC}"
     echo -e "${YELLOW}Adicionar volume no docker-compose.yml:${NC}"
@@ -97,7 +97,7 @@ if [ $FOUND_IMPORTS -eq 1 ]; then
     echo -e "${GREEN}    - ../sky-poc-ai:/app/ia:ro${NC}"
     echo ""
 else
-    echo -e "${GREEN}[OK] CONCLUSÃO: Backend não parece usar IA diretamente${NC}"
+    echo -e "${GREEN}✅ CONCLUSÃO: Backend não parece usar IA diretamente${NC}"
     echo -e "${GREEN}   Não é necessário montar como volume${NC}"
     echo ""
     echo -e "${BLUE}NOTA: Se IA for usado apenas como referência ou biblioteca,${NC}"

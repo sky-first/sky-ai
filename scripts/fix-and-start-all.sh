@@ -15,7 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}    Verificação e Correção Assertiva${NC}"
+echo -e "${CYAN}   🔧 Verificação e Correção Assertiva${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -58,45 +58,45 @@ except:
     return 1
 }
 
-echo -e "${BLUE}1. Verificando status atual...${NC}"
+echo -e "${BLUE}1️⃣ Verificando status atual...${NC}"
 STATUS=$(run_vm_command 'docker ps -a --format "{{.Names}}:{{.Status}}" | head -15')
 echo "$STATUS"
 echo ""
 
-echo -e "${BLUE}2. Identificando containers parados...${NC}"
+echo -e "${BLUE}2️⃣ Identificando containers parados...${NC}"
 STOPPED=$(run_vm_command 'docker ps -a --filter "status=exited" --format "{{.Names}}"')
 if [ -n "$STOPPED" ]; then
     echo "Containers parados encontrados:"
     echo "$STOPPED"
     echo ""
     
-    echo -e "${YELLOW}3. Iniciando containers parados...${NC}"
+    echo -e "${YELLOW}3️⃣ Iniciando containers parados...${NC}"
     for container in $STOPPED; do
         if [ -n "$container" ]; then
             echo -n "  Iniciando $container... "
             START_RESULT=$(run_vm_command "docker start $container 2>&1")
             if echo "$START_RESULT" | grep -q "$container"; then
-                echo -e "${GREEN}[OK]${NC}"
+                echo -e "${GREEN}✅${NC}"
             else
-                echo -e "${RED}[ERROR]${NC}"
+                echo -e "${RED}❌${NC}"
                 echo "    Erro: $START_RESULT"
             fi
         fi
     done
 else
-    echo -e "${GREEN}[OK] Nenhum container parado${NC}"
+    echo -e "${GREEN}✅ Nenhum container parado${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}4. Verificando containers críticos...${NC}"
+echo -e "${BLUE}4️⃣ Verificando containers críticos...${NC}"
 CRITICAL=("ai_saas_postgres_prod" "ai_saas_redis_prod" "ai_saas_backend_prod" "ai_saas_frontend_prod" "ai_saas_proxy")
 
 for container in "${CRITICAL[@]}"; do
     CONTAINER_STATUS=$(run_vm_command "docker ps --filter 'name=$container' --format '{{.Status}}'")
     if [ -n "$CONTAINER_STATUS" ]; then
-        echo -e "  ${GREEN}[OK] $container: $CONTAINER_STATUS${NC}"
+        echo -e "  ${GREEN}✅ $container: $CONTAINER_STATUS${NC}"
     else
-        echo -e "  ${RED}[ERROR] $container: NÃO ESTÁ RODANDO${NC}"
+        echo -e "  ${RED}❌ $container: NÃO ESTÁ RODANDO${NC}"
         echo -e "    ${YELLOW}Iniciando...${NC}"
         run_vm_command "docker start $container 2>&1"
         sleep 3
@@ -104,48 +104,48 @@ for container in "${CRITICAL[@]}"; do
 done
 echo ""
 
-echo -e "${BLUE}5. Aguardando serviços iniciarem (15 segundos)...${NC}"
+echo -e "${BLUE}5️⃣ Aguardando serviços iniciarem (15 segundos)...${NC}"
 sleep 15
 echo ""
 
-echo -e "${BLUE}6. Verificando portas expostas...${NC}"
+echo -e "${BLUE}6️⃣ Verificando portas expostas...${NC}"
 PORTS=$(run_vm_command 'docker ps --format "{{.Names}}: {{.Ports}}" | grep -E "(80|443|3000|8000)"')
 echo "$PORTS"
 echo ""
 
-echo -e "${BLUE}7. Testando conectividade...${NC}"
+echo -e "${BLUE}7️⃣ Testando conectividade...${NC}"
 echo -n "  Nginx localhost:80: "
 NGINX_TEST=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "ERRO"')
 if echo "$NGINX_TEST" | grep -qE "200|301|302|404"; then
-    echo -e "${GREEN}[OK] HTTP $NGINX_TEST${NC}"
+    echo -e "${GREEN}✅ HTTP $NGINX_TEST${NC}"
 else
-    echo -e "${RED}[ERROR] $NGINX_TEST${NC}"
+    echo -e "${RED}❌ $NGINX_TEST${NC}"
 fi
 
 echo -n "  Backend localhost:8000/health: "
 BACKEND_TEST=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health 2>&1 || echo "ERRO"')
 if echo "$BACKEND_TEST" | grep -qE "200|301|302"; then
-    echo -e "${GREEN}[OK] HTTP $BACKEND_TEST${NC}"
+    echo -e "${GREEN}✅ HTTP $BACKEND_TEST${NC}"
 else
-    echo -e "${RED}[ERROR] $BACKEND_TEST${NC}"
+    echo -e "${RED}❌ $BACKEND_TEST${NC}"
 fi
 
 echo -n "  Frontend (via nginx): "
 FRONTEND_TEST=$(run_vm_command 'curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "ERRO"')
 if echo "$FRONTEND_TEST" | grep -qE "200|301|302|404"; then
-    echo -e "${GREEN}[OK] HTTP $FRONTEND_TEST${NC}"
+    echo -e "${GREEN}✅ HTTP $FRONTEND_TEST${NC}"
 else
-    echo -e "${RED}[ERROR] $FRONTEND_TEST${NC}"
+    echo -e "${RED}❌ $FRONTEND_TEST${NC}"
 fi
 echo ""
 
-echo -e "${BLUE}8. Verificando logs do nginx (últimas 10 linhas)...${NC}"
+echo -e "${BLUE}8️⃣ Verificando logs do nginx (últimas 10 linhas)...${NC}"
 NGINX_LOGS=$(run_vm_command 'docker logs ai_saas_proxy --tail 10 2>&1')
 echo "$NGINX_LOGS" | tail -10
 echo ""
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}    RESUMO FINAL${NC}"
+echo -e "${CYAN}   📊 RESUMO FINAL${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -154,19 +154,19 @@ echo "$FINAL_STATUS"
 echo ""
 
 if echo "$NGINX_TEST" | grep -qE "200|301|302|404"; then
-    echo -e "${GREEN}[OK] Nginx está respondendo!${NC}"
+    echo -e "${GREEN}✅ Nginx está respondendo!${NC}"
     echo ""
-    echo -e "${BLUE}[INFO] Teste acessando: http://20.185.60.67${NC}"
+    echo -e "${BLUE}💡 Teste acessando: http://20.185.60.67${NC}"
     echo ""
     if ! echo "$NGINX_TEST" | grep -qE "200|301|302|404"; then
-        echo -e "${YELLOW}[WARNING] Se ainda houver ERR_CONNECTION_REFUSED:${NC}"
+        echo -e "${YELLOW}⚠️  Se ainda houver ERR_CONNECTION_REFUSED:${NC}"
         echo "   1. Verifique NSG no Azure Portal (portas 80/443)"
         echo "   2. Aguarde 1-2 minutos para propagação"
     fi
 else
-    echo -e "${RED}[ERROR] Nginx ainda não está respondendo${NC}"
+    echo -e "${RED}❌ Nginx ainda não está respondendo${NC}"
     echo ""
-    echo -e "${YELLOW}[INFO] Verifique:${NC}"
+    echo -e "${YELLOW}💡 Verifique:${NC}"
     echo "   - Logs: docker logs ai_saas_proxy"
     echo "   - Status: docker ps | grep proxy"
     echo "   - Portas: docker ps --filter name=proxy --format '{{.Ports}}'"

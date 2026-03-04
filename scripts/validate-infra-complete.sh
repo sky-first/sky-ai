@@ -21,12 +21,12 @@ ERRORS=0
 WARNINGS=0
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
-log_error() { echo -e "${RED}[]${NC} $1"; ERRORS=$((ERRORS + 1)); }
+log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[⚠]${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
+log_error() { echo -e "${RED}[✗]${NC} $1"; ERRORS=$((ERRORS + 1)); }
 log_section() { 
     echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; 
-    echo -e "${CYAN} $1${NC}"; 
+    echo -e "${CYAN}▶ $1${NC}"; 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; 
 }
 
@@ -388,15 +388,15 @@ echo -e "${BLUE}Avisos encontrados: ${YELLOW}$WARNINGS${NC}"
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}[OK] Validação completa: TUDO OK!${NC}"
+    echo -e "${GREEN}✅ Validação completa: TUDO OK!${NC}"
     echo -e "${GREEN}Pronto para deploy!${NC}"
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}[WARNING] Validação completa com $WARNINGS aviso(s)${NC}"
+    echo -e "${YELLOW}⚠️  Validação completa com $WARNINGS aviso(s)${NC}"
     echo -e "${YELLOW}Recomendado revisar avisos antes do deploy${NC}"
     exit 0
 else
-    echo -e "${RED}[ERROR] Validação falhou com $ERRORS erro(s)${NC}"
+    echo -e "${RED}❌ Validação falhou com $ERRORS erro(s)${NC}"
     echo -e "${RED}Corrija os erros antes de continuar${NC}"
     exit 1
 fi

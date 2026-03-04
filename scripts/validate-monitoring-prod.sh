@@ -9,26 +9,26 @@ set -e
 MONITORING_NS="monitoring"
 PROD_NS="prod"
 
-echo " Validando Stack de Monitoramento"
+echo "📊 Validando Stack de Monitoramento"
 echo ""
 
 # 1. Verificar Prometheus
-echo "1.  Verificando Prometheus..."
+echo "1️⃣  Verificando Prometheus..."
 echo ""
 kubectl get deployment -n $MONITORING_NS -l app.kubernetes.io/name=prometheus || {
-    echo "[ERROR] Prometheus não encontrado"
+    echo "❌ Prometheus não encontrado"
     exit 1
 }
 
 echo ""
 echo "Prometheus Pods:"
-kubectl get pods -n $MONITORING_NS -l app.kubernetes.io/name=prometheus -o wide || echo "[WARNING] Nenhum pod encontrado"
+kubectl get pods -n $MONITORING_NS -l app.kubernetes.io/name=prometheus -o wide || echo "⚠️  Nenhum pod encontrado"
 
 # 2. Verificar Grafana
 echo ""
-echo "2.  Verificando Grafana..."
+echo "2️⃣  Verificando Grafana..."
 echo ""
-kubectl get deployment -n $MONITORING_NS -l app.kubernetes.io/name=grafana -o wide || echo "[WARNING] Grafana não encontrado"
+kubectl get deployment -n $MONITORING_NS -l app.kubernetes.io/name=grafana -o wide || echo "⚠️  Grafana não encontrado"
 
 echo ""
 echo "Grafana acesso:"
@@ -40,53 +40,53 @@ if [ -n "$GRAFANA_POD" ]; then
     echo "  kubectl port-forward pod/$GRAFANA_POD 3000:3000 -n $MONITORING_NS"
     echo "  http://localhost:3000 (admin/prom-operator)"
 else
-    echo "[WARNING] Grafana Pod não encontrado"
+    echo "⚠️  Grafana Pod não encontrado"
 fi
 
 # 3. Verificar Loki
 echo ""
-echo "3.  Verificando Loki..."
+echo "3️⃣  Verificando Loki..."
 echo ""
-kubectl get deployment -n $MONITORING_NS -l app=loki -o wide || echo "[WARNING] Loki não encontrado"
+kubectl get deployment -n $MONITORING_NS -l app=loki -o wide || echo "⚠️  Loki não encontrado"
 
 echo ""
 echo "Loki Pods:"
-kubectl get pods -n $MONITORING_NS -l app=loki -o wide || echo "[WARNING] Nenhum pod encontrado"
+kubectl get pods -n $MONITORING_NS -l app=loki -o wide || echo "⚠️  Nenhum pod encontrado"
 
 # 4. Verificar Promtail
 echo ""
-echo "4.  Verificando Promtail (Log Collector)..."
+echo "4️⃣  Verificando Promtail (Log Collector)..."
 echo ""
-kubectl get daemonset -n $MONITORING_NS -l app=promtail -o wide || echo "[WARNING] Promtail não encontrado"
+kubectl get daemonset -n $MONITORING_NS -l app=promtail -o wide || echo "⚠️  Promtail não encontrado"
 
 # 5. Verificar AlertManager
 echo ""
-echo "5.  Verificando AlertManager..."
+echo "5️⃣  Verificando AlertManager..."
 echo ""
-kubectl get statefulset -n $MONITORING_NS -l app.kubernetes.io/name=alertmanager -o wide || echo "[WARNING] AlertManager não encontrado"
+kubectl get statefulset -n $MONITORING_NS -l app.kubernetes.io/name=alertmanager -o wide || echo "⚠️  AlertManager não encontrado"
 
 # 6. Verificar ServiceMonitors
 echo ""
-echo "6.  Verificando ServiceMonitors..."
+echo "6️⃣  Verificando ServiceMonitors..."
 echo ""
-kubectl get servicemonitors -n $PROD_NS || echo "[WARNING] Nenhum ServiceMonitor encontrado"
+kubectl get servicemonitors -n $PROD_NS || echo "⚠️  Nenhum ServiceMonitor encontrado"
 
 # 7. Verificar PrometheusRules
 echo ""
-echo "7.  Verificando PrometheusRules..."
+echo "7️⃣  Verificando PrometheusRules..."
 echo ""
-kubectl get prometheusrules -n $MONITORING_NS || echo "[WARNING] Nenhuma PrometheusRule encontrada"
+kubectl get prometheusrules -n $MONITORING_NS || echo "⚠️  Nenhuma PrometheusRule encontrada"
 
 # 8. Verificar storage
 echo ""
-echo "8.  Verificando Storage (PVCs)..."
+echo "8️⃣  Verificando Storage (PVCs)..."
 echo ""
-kubectl get pvc -n $MONITORING_NS || echo "[WARNING] Nenhum PVC encontrado"
+kubectl get pvc -n $MONITORING_NS || echo "⚠️  Nenhum PVC encontrado"
 
 # 9. Resumo
 echo ""
 echo "========================================="
-echo "[OK] Validação de Monitoring Completa!"
+echo "✅ Validação de Monitoring Completa!"
 echo "========================================="
 echo ""
 echo "Acessos:"

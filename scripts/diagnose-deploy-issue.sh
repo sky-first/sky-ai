@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo "=========================================="
-echo -e "${CYAN} DIAGNÓSTICO DE PROBLEMAS NO DEPLOY${NC}"
+echo -e "${CYAN}🔍 DIAGNÓSTICO DE PROBLEMAS NO DEPLOY${NC}"
 echo "=========================================="
 echo ""
 
@@ -22,7 +22,7 @@ WARNINGS=0
 ISSUES=()
 
 # 1. Verificar configurações dos tfvars
-echo "1. Verificando configurações..."
+echo "1️⃣ Verificando configurações..."
 echo ""
 
 check_tfvars() {
@@ -30,7 +30,7 @@ check_tfvars() {
     local file="infra/azure/terraform.tfvars.$env"
     
     if [ ! -f "$file" ]; then
-        echo -e "${RED}[ERROR]${NC} Arquivo não encontrado: $file"
+        echo -e "${RED}❌${NC} Arquivo não encontrado: $file"
         ((ERRORS++))
         return 1
     fi
@@ -40,43 +40,43 @@ check_tfvars() {
     # Resource Group
     RG=$(grep "^resource_group_name" "$file" | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ' || echo "")
     if [ -z "$RG" ]; then
-        echo -e "${RED}   [ERROR] resource_group_name não encontrado${NC}"
+        echo -e "${RED}   ❌ resource_group_name não encontrado${NC}"
         ((ERRORS++))
         ISSUES+=("$env: resource_group_name não definido")
     else
-        echo -e "${GREEN}   [OK] resource_group_name: $RG${NC}"
+        echo -e "${GREEN}   ✅ resource_group_name: $RG${NC}"
     fi
     
     # VM Name
     VM=$(grep "^vm_name" "$file" | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ' || echo "")
     if [ -z "$VM" ]; then
-        echo -e "${RED}   [ERROR] vm_name não encontrado${NC}"
+        echo -e "${RED}   ❌ vm_name não encontrado${NC}"
         ((ERRORS++))
         ISSUES+=("$env: vm_name não definido")
     else
-        echo -e "${GREEN}   [OK] vm_name: $VM${NC}"
+        echo -e "${GREEN}   ✅ vm_name: $VM${NC}"
     fi
     
     # Location
     LOC=$(grep "^location" "$file" | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ' || echo "")
     if [ -z "$LOC" ]; then
-        echo -e "${YELLOW}   [WARNING] location não encontrado (usará default)${NC}"
+        echo -e "${YELLOW}   ⚠️  location não encontrado (usará default)${NC}"
         ((WARNINGS++))
     else
-        echo -e "${GREEN}   [OK] location: $LOC${NC}"
+        echo -e "${GREEN}   ✅ location: $LOC${NC}"
     fi
     
     # Verificar se staging e prod usam mesmo Resource Group
     if [ "$env" = "prod" ] && [ -n "$RG" ]; then
         STAGING_RG=$(grep "^resource_group_name" "infra/azure/terraform.tfvars.staging" | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ' || echo "")
         if [ "$RG" != "$STAGING_RG" ]; then
-            echo -e "${YELLOW}   [WARNING] Resource Group diferente de staging!${NC}"
+            echo -e "${YELLOW}   ⚠️  Resource Group diferente de staging!${NC}"
             echo -e "${YELLOW}      Staging: $STAGING_RG${NC}"
             echo -e "${YELLOW}      Prod: $RG${NC}"
             ((WARNINGS++))
             ISSUES+=("Resource Groups diferentes entre staging e prod")
         else
-            echo -e "${GREEN}   [OK] Resource Group compartilhado: $RG${NC}"
+            echo -e "${GREEN}   ✅ Resource Group compartilhado: $RG${NC}"
         fi
     fi
     
@@ -87,27 +87,27 @@ check_tfvars "staging"
 check_tfvars "prod"
 
 # 2. Verificar main.tf
-echo "2. Verificando main.tf..."
+echo "2️⃣ Verificando main.tf..."
 echo ""
 
 if grep -q "ignore_changes = \[tags\]" infra/azure/main.tf; then
-    echo -e "${GREEN}[OK]${NC} lifecycle ignore_changes configurado no Resource Group"
+    echo -e "${GREEN}✅${NC} lifecycle ignore_changes configurado no Resource Group"
 else
-    echo -e "${YELLOW}[WARNING]${NC} lifecycle ignore_changes não encontrado (pode causar conflitos)"
+    echo -e "${YELLOW}⚠️${NC} lifecycle ignore_changes não encontrado (pode causar conflitos)"
     ((WARNINGS++))
     ISSUES+=("lifecycle ignore_changes não configurado")
 fi
 
 if grep -q "compartilhado entre múltiplos ambientes" infra/azure/main.tf; then
-    echo -e "${GREEN}[OK]${NC} Comentário sobre Resource Group compartilhado presente"
+    echo -e "${GREEN}✅${NC} Comentário sobre Resource Group compartilhado presente"
 else
-    echo -e "${YELLOW}[WARNING]${NC} Comentário sobre Resource Group compartilhado não encontrado"
+    echo -e "${YELLOW}⚠️${NC} Comentário sobre Resource Group compartilhado não encontrado"
 fi
 
 echo ""
 
 # 3. Verificar possíveis problemas conhecidos
-echo "3. Verificando problemas conhecidos..."
+echo "3️⃣ Verificando problemas conhecidos..."
 echo ""
 
 # Problema 1: Resource Group existe mas Terraform tenta criar
@@ -139,21 +139,21 @@ echo "   Verificar: Logs do step 'Terraform Init' no GitHub Actions"
 echo ""
 
 # 4. Verificar workflow
-echo "4. Verificando workflow deploy.yml..."
+echo "4️⃣ Verificando workflow deploy.yml..."
 echo ""
 
 if grep -q "Sync Existing Resources with Terraform State" .github/workflows/deploy.yml; then
-    echo -e "${GREEN}[OK]${NC} Step 'Sync Existing Resources' encontrado no workflow"
+    echo -e "${GREEN}✅${NC} Step 'Sync Existing Resources' encontrado no workflow"
 else
-    echo -e "${RED}[ERROR]${NC} Step 'Sync Existing Resources' NÃO encontrado!"
+    echo -e "${RED}❌${NC} Step 'Sync Existing Resources' NÃO encontrado!"
     ((ERRORS++))
     ISSUES+=("Step Sync Existing Resources não encontrado no workflow")
 fi
 
 if grep -q "terraform import.*azurerm_resource_group.main" .github/workflows/deploy.yml; then
-    echo -e "${GREEN}[OK]${NC} Comando terraform import para Resource Group encontrado"
+    echo -e "${GREEN}✅${NC} Comando terraform import para Resource Group encontrado"
 else
-    echo -e "${YELLOW}[WARNING]${NC} Comando terraform import não encontrado explicitamente"
+    echo -e "${YELLOW}⚠️${NC} Comando terraform import não encontrado explicitamente"
     ((WARNINGS++))
 fi
 
@@ -161,12 +161,12 @@ echo ""
 
 # 5. Resumo e recomendações
 echo "=========================================="
-echo -e "${CYAN} RESUMO${NC}"
+echo -e "${CYAN}📊 RESUMO${NC}"
 echo "=========================================="
 echo ""
 
 if [ ${#ISSUES[@]} -gt 0 ]; then
-    echo -e "${YELLOW}[WARNING] Problemas identificados:${NC}"
+    echo -e "${YELLOW}⚠️  Problemas identificados:${NC}"
     for issue in "${ISSUES[@]}"; do
         echo "   - $issue"
     done
@@ -174,7 +174,7 @@ if [ ${#ISSUES[@]} -gt 0 ]; then
 fi
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}[OK] Configuração parece correta!${NC}"
+    echo -e "${GREEN}✅ Configuração parece correta!${NC}"
     echo ""
     echo "Se ainda há erros no GitHub Actions, verifique:"
     echo "1. Logs do step 'Sync Existing Resources'"
@@ -189,7 +189,7 @@ if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
     echo "- Variáveis não passadas corretamente no terraform import"
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}[WARNING] Configuração tem avisos, mas pode funcionar${NC}"
+    echo -e "${YELLOW}⚠️  Configuração tem avisos, mas pode funcionar${NC}"
     echo ""
     echo "Recomendações:"
     for issue in "${ISSUES[@]}"; do
@@ -197,7 +197,7 @@ elif [ $ERRORS -eq 0 ]; then
     done
     exit 0
 else
-    echo -e "${RED}[ERROR] Configuração tem erros que precisam ser corrigidos!${NC}"
+    echo -e "${RED}❌ Configuração tem erros que precisam ser corrigidos!${NC}"
     echo ""
     echo "Erros encontrados:"
     for issue in "${ISSUES[@]}"; do

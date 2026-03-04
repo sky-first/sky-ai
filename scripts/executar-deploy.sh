@@ -12,7 +12,7 @@ export VM_IP=172.191.77.30
 export BRANCH=staging
 export SSH_KEY=~/.ssh/id_ed25519
 
-echo " Configurações:"
+echo "🚀 Configurações:"
 echo "  VM_IP: $VM_IP"
 echo "  BRANCH: $BRANCH"
 echo "  SSH_KEY: $SSH_KEY"
@@ -20,17 +20,17 @@ echo ""
 
 # Verificar se .env existe
 if [ ! -f "$PROJECT_DIR/.env" ]; then
-    echo "[ERROR] .env não encontrado!"
+    echo "❌ .env não encontrado!"
     echo "Execute primeiro: ./scripts/fix-env-secrets.sh"
     exit 1
 fi
 
-echo "[OK] .env encontrado"
+echo "✅ .env encontrado"
 
 # Verificar se GH_PAT está configurado (necessário para repositórios privados)
 if [ -z "${GH_PAT:-}" ]; then
     echo ""
-    echo "[WARNING] GH_PAT não configurado!"
+    echo "⚠️  GH_PAT não configurado!"
     echo "Repositórios são privados, configure o token:"
     echo "  export GH_PAT=ghp_seu_token_aqui"
     echo ""
@@ -45,11 +45,11 @@ if [ -z "${GH_PAT:-}" ]; then
         exit 1
     fi
 else
-    echo "[OK] GH_PAT configurado"
+    echo "✅ GH_PAT configurado"
 fi
 
 echo ""
-echo " Iniciando deploy..."
+echo "🚀 Iniciando deploy..."
 echo ""
 
 cd "$PROJECT_DIR"

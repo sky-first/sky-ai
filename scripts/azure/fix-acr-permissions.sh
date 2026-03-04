@@ -45,7 +45,7 @@ if [ -z "$ACR_ID" ]; then
     exit 1
 fi
 
-echo -e "${GREEN}[OK] Registro encontrado: $ACR_ID${NC}"
+echo -e "${GREEN}✅ Registro encontrado: $ACR_ID${NC}"
 
 # Obter o Service Principal Object ID
 echo "Buscando ID da App Registration..."
@@ -57,7 +57,7 @@ if [ -z "$SP_ID" ]; then
     exit 1
 fi
 
-echo -e "${GREEN}[OK] Service Principal ID: $SP_ID${NC}"
+echo -e "${GREEN}✅ Service Principal ID: $SP_ID${NC}"
 
 # Atribuir role AcrPush
 echo "Concedendo permissão AcrPush (leitura/escrita de imagens)..."
@@ -65,14 +65,14 @@ if az role assignment create \
     --assignee "$SP_ID" \
     --role "AcrPush" \
     --scope "$ACR_ID" 2>/dev/null; then
-    echo -e "${GREEN}[OK] Sucesso! Permissão AcrPush concedida.${NC}"
+    echo -e "${GREEN}✅ Sucesso! Permissão AcrPush concedida.${NC}"
 else
     # Verificando se já existe
     EXISTING=$(az role assignment list --assignee "$SP_ID" --scope "$ACR_ID" --role "AcrPush" --query "[].id" -o tsv 2>/dev/null || echo "")
     if [ -n "$EXISTING" ]; then
-        echo -e "${GREEN}[OK] Permissão já existe.${NC}"
+        echo -e "${GREEN}✅ Permissão já existe.${NC}"
     else
-        echo -e "${RED}[ERROR] Falha ao atribuir permissão. Verifique se você é 'Owner' ou 'User Access Administrator'.${NC}"
+        echo -e "${RED}❌ Falha ao atribuir permissão. Verifique se você é 'Owner' ou 'User Access Administrator'.${NC}"
         # Repete com erro visível
         az role assignment create --assignee "$SP_ID" --role "AcrPush" --scope "$ACR_ID"
     fi

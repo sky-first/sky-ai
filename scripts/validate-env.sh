@@ -21,19 +21,19 @@ WARNINGS=0
 
 # Função para log de erro
 log_error() {
-    echo -e "${RED}[ERROR] ERRO:${NC} $1" >&2
+    echo -e "${RED}❌ ERRO:${NC} $1" >&2
     ((ERRORS++))
 }
 
 # Função para log de aviso
 log_warning() {
-    echo -e "${YELLOW}[WARNING] AVISO:${NC} $1"
+    echo -e "${YELLOW}⚠️  AVISO:${NC} $1"
     ((WARNINGS++))
 }
 
 # Função para log de sucesso
 log_success() {
-    echo -e "${GREEN}[OK]${NC} $1"
+    echo -e "${GREEN}✅${NC} $1"
 }
 
 # Função para validar formato de URL
@@ -171,7 +171,7 @@ validate_next_public_api_url() {
 }
 
 echo "=========================================="
-echo " Validação de Configuração .env"
+echo "🔍 Validação de Configuração .env"
 echo "=========================================="
 echo ""
 echo "Arquivo: $ENV_FILE_PATH"
@@ -198,7 +198,7 @@ source "$ENV_FILE_PATH" 2>/dev/null || {
 set +a
 
 echo "=========================================="
-echo " Validando Variáveis Obrigatórias"
+echo "📋 Validando Variáveis Obrigatórias"
 echo "=========================================="
 echo ""
 
@@ -219,7 +219,7 @@ done
 
 echo ""
 echo "=========================================="
-echo " Validando Segurança"
+echo "🔐 Validando Segurança"
 echo "=========================================="
 echo ""
 
@@ -231,7 +231,7 @@ validate_password "${ENCRYPTION_KEY:-}" "ENCRYPTION_KEY" || true
 
 echo ""
 echo "=========================================="
-echo " Validando URLs e Conexões"
+echo "🔗 Validando URLs e Conexões"
 echo "=========================================="
 echo ""
 
@@ -252,21 +252,21 @@ fi
 
 echo ""
 echo "=========================================="
-echo " Resumo da Validação"
+echo "📊 Resumo da Validação"
 echo "=========================================="
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}[OK] Todas as validações passaram!${NC}"
+    echo -e "${GREEN}✅ Todas as validações passaram!${NC}"
     echo ""
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}[WARNING] Validação concluída com $WARNINGS aviso(s)${NC}"
-    echo -e "${GREEN}[OK] Nenhum erro crítico encontrado${NC}"
+    echo -e "${YELLOW}⚠️  Validação concluída com $WARNINGS aviso(s)${NC}"
+    echo -e "${GREEN}✅ Nenhum erro crítico encontrado${NC}"
     echo ""
     exit 0
 else
-    echo -e "${RED}[ERROR] Validação falhou com $ERRORS erro(s) e $WARNINGS aviso(s)${NC}"
+    echo -e "${RED}❌ Validação falhou com $ERRORS erro(s) e $WARNINGS aviso(s)${NC}"
     echo ""
     echo "Corrija os erros antes de continuar com o deploy."
     exit 1

@@ -21,7 +21,7 @@ if [ -z "$IP" ]; then
   exit 1
 fi
 
-echo "[OK] Seu IP público é: $IP"
+echo "✅ Seu IP público é: $IP"
 echo ""
 echo "Adicione este IP ao arquivo terraform.tfvars.prod:"
 echo ""

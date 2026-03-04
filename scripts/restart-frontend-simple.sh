@@ -7,7 +7,7 @@ set -eu
 RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
-echo " Reiniciando frontend..."
+echo "🔄 Reiniciando frontend..."
 az vm run-command invoke \
   --resource-group "$RESOURCE_GROUP" \
   --name "$VM_NAME" \
@@ -16,7 +16,7 @@ az vm run-command invoke \
     echo "=== REINICIANDO FRONTEND ==="
     docker restart ai_saas_frontend_prod
     echo ""
-    echo "[OK] Frontend reiniciado"
+    echo "✅ Frontend reiniciado"
     echo ""
     echo "Aguardando 20 segundos para o Next.js iniciar..."
     sleep 20
@@ -38,9 +38,9 @@ az vm run-command invoke \
   ' 2>&1
 
 echo ""
-echo "[OK] Verificação concluída!"
+echo "✅ Verificação concluída!"
 echo ""
-echo "[INFO] Se o frontend ainda não estiver respondendo:"
+echo "💡 Se o frontend ainda não estiver respondendo:"
 echo "   1. Verifique os logs acima para erros"
 echo "   2. O Next.js pode estar compilando (pode demorar alguns minutos)"
 echo "   3. Verifique recursos: docker stats ai_saas_frontend_prod"

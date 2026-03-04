@@ -18,7 +18,7 @@ data "azurerm_user_assigned_identity" "dns" {
 # Create Federated Credential for the AKS Cluster to use this Identity
 # This allows the ExternalDNS pod (ServiceAccount) to assume the Identity
 resource "azurerm_federated_identity_credential" "external_dns" {
-  name                = "fed-external-dns-${var.environment}-${terraform.workspace}"
+  name                = "fed-external-dns-${var.environment}"
   resource_group_name = var.external_dns_identity_resource_group
   parent_id           = data.azurerm_user_assigned_identity.dns.id
   audience            = ["api://AzureADTokenExchange"]

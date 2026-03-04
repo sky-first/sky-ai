@@ -55,9 +55,9 @@ tfplan*
 *.pem
 *.key
 !*.pub
-# Chaves privadas SSH organizadas (incluindo sufixos de ambiente)
-keys/**/id_rsa*
-keys/**/id_ed25519*
+# Chaves privadas SSH organizadas
+keys/**/id_rsa
+keys/**/id_ed25519
 keys/**/*_key
 keys/**/*.pem
 # Permitir chaves públicas

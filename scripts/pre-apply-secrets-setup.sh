@@ -122,7 +122,7 @@ az keyvault secret set \
     --name "grafana-admin-password" \
     --value "$GRAFANA_PASSWORD" \
     --output none
-log_info " grafana-admin-password adicionado"
+log_info "✓ grafana-admin-password adicionado"
 
 # 2. Slack Webhook (ou usar placeholder)
 log_info "Processando: slack-webhook-url"
@@ -133,7 +133,7 @@ az keyvault secret set \
     --name "slack-webhook-url" \
     --value "$SLACK_WEBHOOK" \
     --output none
-log_info " slack-webhook-url adicionado"
+log_info "✓ slack-webhook-url adicionado"
 
 # 3. JWT Secret Key
 log_info "Processando: jwt-secret-key"
@@ -143,7 +143,7 @@ az keyvault secret set \
     --name "jwt-secret-key" \
     --value "$JWT_SECRET" \
     --output none
-log_info " jwt-secret-key adicionado"
+log_info "✓ jwt-secret-key adicionado"
 
 # 4. Encryption Key
 log_info "Processando: encryption-key"
@@ -153,7 +153,7 @@ az keyvault secret set \
     --name "encryption-key" \
     --value "$ENCRYPTION_KEY" \
     --output none
-log_info " encryption-key adicionado"
+log_info "✓ encryption-key adicionado"
 
 # 5. OpenAI API Key
 log_info "Processando: openai-api-key"
@@ -163,7 +163,7 @@ az keyvault secret set \
     --name "openai-api-key" \
     --value "$OPENAI_KEY" \
     --output none
-log_info " openai-api-key adicionado"
+log_info "✓ openai-api-key adicionado"
 
 # 6. Database URL
 log_info "Processando: database-url"
@@ -173,7 +173,7 @@ az keyvault secret set \
     --name "database-url" \
     --value "$DB_URL" \
     --output none
-log_info " database-url adicionado"
+log_info "✓ database-url adicionado"
 
 # 7. Redis URL
 log_info "Processando: redis-url"
@@ -183,7 +183,7 @@ az keyvault secret set \
     --name "redis-url" \
     --value "$REDIS_URL" \
     --output none
-log_info " redis-url adicionado"
+log_info "✓ redis-url adicionado"
 
 # 8. Celery Broker URL
 log_info "Processando: celery-broker-url"
@@ -193,7 +193,7 @@ az keyvault secret set \
     --name "celery-broker-url" \
     --value "$CELERY_URL" \
     --output none
-log_info " celery-broker-url adicionado"
+log_info "✓ celery-broker-url adicionado"
 
 # ============================================================================
 # LISTAR SECRETS ADICIONADAS
@@ -210,7 +210,7 @@ az keyvault secret list \
 # ============================================================================
 
 echo ""
-log_info " Todas as secrets críticas foram adicionadas!"
+log_info "✓ Todas as secrets críticas foram adicionadas!"
 echo ""
 echo -e "${YELLOW}PRÓXIMOS PASSOS:${NC}"
 echo "1. Verificar que ClusterSecretStore aponta para o Key Vault correto:"

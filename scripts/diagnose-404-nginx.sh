@@ -11,7 +11,7 @@ HOST="${2:-workspace-stg.skyfirstlabs.com}"
 SERVICE_NAME="sky-fe-stg-common-app"
 
 echo "=========================================="
-echo " DIAGNÓSTICO: 404 Not Found - Nginx"
+echo "🔍 DIAGNÓSTICO: 404 Not Found - Nginx"
 echo "=========================================="
 echo ""
 echo "Namespace: $NAMESPACE"
@@ -30,25 +30,25 @@ WARNINGS=0
 
 # Função para log
 log_info() {
-    echo -e "${YELLOW}ℹ  $1${NC}"
+    echo -e "${YELLOW}ℹ️  $1${NC}"
 }
 
 log_success() {
-    echo -e "${GREEN}[OK] $1${NC}"
+    echo -e "${GREEN}✅ $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR] $1${NC}"
+    echo -e "${RED}❌ $1${NC}"
     ((ERRORS++))
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING] $1${NC}"
+    echo -e "${YELLOW}⚠️  $1${NC}"
     ((WARNINGS++))
 }
 
 echo "=========================================="
-echo "1.  Verificando Ingress"
+echo "1️⃣  Verificando Ingress"
 echo "=========================================="
 echo ""
 
@@ -111,7 +111,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "2.  Verificando Service"
+echo "2️⃣  Verificando Service"
 echo "=========================================="
 echo ""
 
@@ -142,7 +142,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "3.  Verificando Pods"
+echo "3️⃣  Verificando Pods"
 echo "=========================================="
 echo ""
 
@@ -186,7 +186,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "4.  Verificando Roteamento do Ingress"
+echo "4️⃣  Verificando Roteamento do Ingress"
 echo "=========================================="
 echo ""
 
@@ -210,7 +210,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "5.  Teste de Conectividade"
+echo "5️⃣  Teste de Conectividade"
 echo "=========================================="
 echo ""
 
@@ -229,7 +229,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo " RESUMO"
+echo "📊 RESUMO"
 echo "=========================================="
 echo ""
 echo "Erros encontrados: $ERRORS"
@@ -256,7 +256,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo " COMANDOS ÚTEIS"
+echo "🔧 COMANDOS ÚTEIS"
 echo "=========================================="
 echo ""
 echo "Ver logs do frontend:"
