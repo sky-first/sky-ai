@@ -69,9 +69,14 @@ extraEnv:
         name: sky-be-stg-secrets
         key: JWT_SECRET
   - name: REDIS_HOST
-    value: "redis" # Resolved via local service in teamblue namespace
+    value: "redis"
   - name: REDIS_PORT
     value: "6379"
+  - name: REDIS_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: redis-secret
+        key: redis-password
   - name: DEBUG
     value: "true"
   - name: AI_SERVICE_TYPE
