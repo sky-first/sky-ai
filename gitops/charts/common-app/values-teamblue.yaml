@@ -36,6 +36,15 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Favicon/Icon override: redireciona /icon.png e /favicon.ico para o logo TeamBlue
+    # O Next.js baked /icon.png em build-time; este snippet intercepta antes que chegue ao Next.js
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      location = /icon.png {
+        return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;
+      }
+      location = /favicon.ico {
+        return 301 https://skylokistagingqsfa9s.blob.core.windows.net/branding/teamblue/icon.png;
+      }
   hosts:
     - host: "plataform.teamblue-stg.skyfirstlabs.com"
       paths:
