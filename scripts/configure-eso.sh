@@ -43,7 +43,7 @@ echo "Updating $CSS_MANIFEST with Vault URL: $VAULT_URL"
 # Regex matches "vaultUrl: .*" and replaces it
 sed "s|vaultUrl: \".*\"|vaultUrl: \"$VAULT_URL\"|g" "$CSS_MANIFEST" > "${CSS_MANIFEST}.tmp" && mv "${CSS_MANIFEST}.tmp" "$CSS_MANIFEST"
 
-echo "[OK] Configuration updated!"
+echo "✅ Configuration updated!"
 echo "   - ESO Client ID: $ESO_CLIENT_ID"
 echo "   - Key Vault URL: $VAULT_URL"
 echo ""

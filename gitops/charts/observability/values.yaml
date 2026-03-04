@@ -1,4 +1,3 @@
----
 # =============================================================================
 # OBSERVABILITY CHART VALUES
 # Stack de observabilidade customizada para produção
@@ -182,7 +181,7 @@ prometheusRules:
           # CPU do container > 80%
           - alert: ContainerHighCPU
             expr: |
-              (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace, pod, container)
+              (sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (namespace, pod, container) 
               / sum(kube_pod_container_resource_limits{resource="cpu"}) by (namespace, pod, container)) * 100 > 80
             for: 10m
             labels:
@@ -195,7 +194,7 @@ prometheusRules:
           # Memória do container > 80%
           - alert: ContainerHighMemory
             expr: |
-              (sum(container_memory_working_set_bytes{container!=""}) by (namespace, pod, container)
+              (sum(container_memory_working_set_bytes{container!=""}) by (namespace, pod, container) 
               / sum(kube_pod_container_resource_limits{resource="memory"}) by (namespace, pod, container)) * 100 > 80
             for: 10m
             labels:
@@ -262,41 +261,6 @@ prometheusRules:
               summary: "Conexões de banco altas"
               description: "{{ $value | printf \"%.1f\" }}% das conexões em uso"
 
-      - name: argocd-system
-        rules:
-          # Alerta se uma aplicação do ArgoCD estiver fora de sincronia ou com erro
-          - alert: ArgoCDAppOutOfSync
-            expr: |
-              argocd_app_sync_status{sync_status!="Synced"} > 0
-            for: 15m
-            labels:
-              severity: critical
-              team: platform
-            annotations:
-              summary: "Aplicação ArgoCD {{ $labels.name }} fora de sincronia"
-              description: "A aplicação {{ $labels.name }} no namespace {{ $labels.dest_namespace }} falhou ao sincronizar nas últimas 15 horas."
-
-
-  # ---------------------------------------------
-  # ALERTAS DE BACKUP
-  # ---------------------------------------------
-  backup:
-    enabled: true
-    groups:
-      - name: database-backups
-        rules:
-          # Falha no Backup de Banco de Dados
-          - alert: DatabaseBackupFailed
-            expr: |
-              kube_job_status_failed{job_name=~"postgres-backup.*"} > 0
-            for: 1m
-            labels:
-              severity: critical
-              team: platform
-            annotations:
-              summary: "Falha Crítica: Backup do PostgreSQL no Staging falhou"
-              description: "O Job de backup 'postgres-backup' falhou. Verifique os logs imediatamente."
-
   # ---------------------------------------------
   # SRE GOLDEN SIGNALS
   # ---------------------------------------------
@@ -308,7 +272,7 @@ prometheusRules:
           # Disponibilidade < 99.9%
           - alert: ServiceAvailabilityLow
             expr: |
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service)
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
               / sum(rate(http_requests_total[1h])) by (service))) * 100 < 99.9
             for: 5m
             labels:
@@ -321,10 +285,10 @@ prometheusRules:
           # Error Budget queimando rápido
           - alert: ErrorBudgetBurning
             expr: |
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service)
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) by (service) 
               / sum(rate(http_requests_total[1h])) by (service))) < 0.999
               and
-              (1 - (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+              (1 - (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) 
               / sum(rate(http_requests_total[5m])) by (service))) < 0.99
             for: 2m
             labels:
@@ -340,25 +304,25 @@ prometheusRules:
 # -----------------------------------------------------------------------------
 grafanaDashboards:
   enabled: true
-
+  
   # Labels para o ConfigMap (necessário para o sidecar do Grafana)
   labels:
     grafana_dashboard: "1"
-
+  
   # Dashboards a serem criados
   dashboards:
     - name: cluster-overview
       folder: Kubernetes
       file: cluster-overview.json
-
+    
     - name: pods-workloads
       folder: Kubernetes
       file: pods-workloads.json
-
+    
     - name: backend-logs
       folder: Applications
       file: backend-logs.json
-
+    
     - name: sre-golden-signals
       folder: SRE
       file: sre-golden-signals.json

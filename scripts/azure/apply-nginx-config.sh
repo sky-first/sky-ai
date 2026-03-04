@@ -13,7 +13,7 @@ cd "$PROJECT_DIR" || {
     elif [ -d ~/projeto/poc-deploy ]; then
         cd ~/projeto/poc-deploy
     else
-        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
+        echo "❌ ERRO: Diretório do projeto não encontrado"
         exit 1
     fi
 }
@@ -24,7 +24,7 @@ NGINX_SECURE="docker/nginx/nginx.conf.secure"
 CERTS_DIR="certs"
 
 echo "=========================================="
-echo " Configurando Nginx"
+echo "🔧 Configurando Nginx"
 echo "=========================================="
 echo ""
 
@@ -35,15 +35,15 @@ mkdir -p docker/nginx
 HAS_CERTS=false
 if [ -d "$CERTS_DIR" ] && [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
     HAS_CERTS=true
-    echo "[OK] Certificados SSL encontrados em $CERTS_DIR"
+    echo "✅ Certificados SSL encontrados em $CERTS_DIR"
 else
-    echo "[WARNING] Certificados SSL não encontrados em $CERTS_DIR"
-    echo "[INFO] Dica: Execute scripts/azure/generate-self-signed-certs.sh para gerar certificados auto-assinados (POC)"
+    echo "⚠️  Certificados SSL não encontrados em $CERTS_DIR"
+    echo "💡 Dica: Execute scripts/azure/generate-self-signed-certs.sh para gerar certificados auto-assinados (POC)"
 fi
 
 # Aplicar configuração baseada na presença de certificados
 if [ "$HAS_CERTS" = "true" ]; then
-    echo " Aplicando configuração HTTPS..."
+    echo "🔒 Aplicando configuração HTTPS..."
     if [ -f "$NGINX_SECURE" ]; then
         # Fazer backup do nginx.conf atual
         if [ -f "$NGINX_CONF" ]; then
@@ -51,13 +51,13 @@ if [ "$HAS_CERTS" = "true" ]; then
         fi
         # Copiar nginx.conf.secure para nginx.conf
         cp "$NGINX_SECURE" "$NGINX_CONF"
-        echo "[OK] nginx.conf HTTPS aplicado (redirect HTTP->HTTPS habilitado)"
+        echo "✅ nginx.conf HTTPS aplicado (redirect HTTP->HTTPS habilitado)"
     else
-        echo "[ERROR] ERRO: $NGINX_SECURE não encontrado"
+        echo "❌ ERRO: $NGINX_SECURE não encontrado"
         exit 1
     fi
 else
-    echo "[WARNING] Certificados SSL não encontrados - usando configuração HTTP-only"
+    echo "⚠️  Certificados SSL não encontrados - usando configuração HTTP-only"
     if [ -f "$NGINX_HTTP_ONLY" ]; then
         echo "Aplicando configuração HTTP-only..."
         # Fazer backup do nginx.conf atual
@@ -66,7 +66,7 @@ else
         fi
         # Copiar nginx.conf.http-only para nginx.conf
         cp "$NGINX_HTTP_ONLY" "$NGINX_CONF"
-        echo "[OK] nginx.conf HTTP-only aplicado (sem redirect HTTPS)"
+        echo "✅ nginx.conf HTTP-only aplicado (sem redirect HTTPS)"
     else
         # Criar nginx.conf HTTP-only básico se não existir
         echo "Criando nginx.conf HTTP-only básico..."
@@ -99,7 +99,7 @@ server {
   }
 }
 NGINXEOF
-        echo "[OK] nginx.conf HTTP-only criado"
+        echo "✅ nginx.conf HTTP-only criado"
     fi
 fi
 
@@ -112,16 +112,16 @@ if docker run --rm \
     --add-host backend:127.0.0.1 \
     -v "$(pwd)/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
     nginx:1.25-alpine nginx -t 2>&1 | grep -q "successful"; then
-    echo "[OK] Configuração do nginx válida"
+    echo "✅ Configuração do nginx válida"
 else
-    echo "[ERROR] ERRO: Configuração do nginx inválida"
-    echo "[INFO] Dica: execute para ver o erro completo:"
+    echo "❌ ERRO: Configuração do nginx inválida"
+    echo "💡 Dica: execute para ver o erro completo:"
     echo "   docker run --rm --add-host frontend:127.0.0.1 --add-host backend:127.0.0.1 -v \"\$(pwd)/docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro\" nginx:1.25-alpine nginx -t"
     exit 1
 fi
 
 echo ""
 echo "=========================================="
-echo "[OK] Nginx Configurado"
+echo "✅ Nginx Configurado"
 echo "=========================================="
 

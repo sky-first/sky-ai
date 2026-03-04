@@ -56,10 +56,10 @@ PYEOF
 
 # Validar novamente com docker compose
 if docker compose config > /dev/null 2>&1; then
-    echo "[OK] YAML válido!"
+    echo "✅ YAML válido!"
     exit 0
 else
-    echo "[ERROR] YAML ainda inválido"
+    echo "❌ YAML ainda inválido"
     docker compose config 2>&1 | head -20
     exit 1
 fi

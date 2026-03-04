@@ -1,4 +1,3 @@
----
 {{- if .Values.migration.enabled -}}
 apiVersion: batch/v1
 kind: Job
@@ -8,9 +7,6 @@ metadata:
     {{- include "common-app.labels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-    {{- with .Values.migration.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
 spec:
   template:
     metadata:
@@ -31,10 +27,6 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: {{ .Values.migration.command | toJson }}
           args: {{ .Values.migration.args | toJson }}
-          {{- with .Values.migration.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
           env:
             {{- range $key, $val := .Values.envSecrets }}
             - name: {{ $key | replace "-" "_" | upper }}
@@ -52,8 +44,4 @@ spec:
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.extraEnvFrom }}
-          envFrom:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
 {{- end }}

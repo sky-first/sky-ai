@@ -12,7 +12,7 @@ echo ""
 IP=$(curl -s https://api.ipify.org 2>/dev/null || echo "ERRO")
 
 if [ "$IP" = "ERRO" ] || [ -z "$IP" ]; then
-  echo "[ERROR] Erro ao descobrir IP"
+  echo "❌ Erro ao descobrir IP"
   exit 1
 fi
 
@@ -30,11 +30,11 @@ Adicione ao terraform.tfvars.prod:
 
 EOF
 
-echo "[OK] Arquivo criado: $OUTPUT_FILE"
+echo "✅ Arquivo criado: $OUTPUT_FILE"
 echo ""
 echo "Conteúdo:"
 cat "$OUTPUT_FILE"
 echo ""
-echo " Compartilhe este arquivo com o time DevOps"
+echo "📧 Compartilhe este arquivo com o time DevOps"
 echo "   (via Slack, email, ou repositório privado)"
 

@@ -10,7 +10,7 @@ CERTS_DIR="${PROJECT_DIR}/certs"
 DOMAIN="${2:-localhost}"
 
 echo "=========================================="
-echo " Gerando Certificados SSL Auto-assinados"
+echo "🔐 Gerando Certificados SSL Auto-assinados"
 echo "=========================================="
 echo ""
 
@@ -19,14 +19,14 @@ mkdir -p "$CERTS_DIR"
 
 # Verificar se já existem certificados
 if [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
-    echo "[WARNING] Certificados já existem em $CERTS_DIR"
+    echo "⚠️  Certificados já existem em $CERTS_DIR"
     read -p "Deseja regenerar? (s/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Ss]$ ]]; then
-        echo "[OK] Mantendo certificados existentes"
+        echo "✅ Mantendo certificados existentes"
         exit 0
     fi
-    echo " Regenerando certificados..."
+    echo "🔄 Regenerando certificados..."
 fi
 
 # Gerar certificado auto-assinado válido por 365 dias
@@ -43,7 +43,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 # Criar fullchain.pem (mesmo que cert.pem para auto-assinado)
 if [ ! -f "$CERTS_DIR/fullchain.pem" ]; then
-    echo "[ERROR] ERRO: Falha ao gerar certificados"
+    echo "❌ ERRO: Falha ao gerar certificados"
     exit 1
 fi
 
@@ -52,14 +52,14 @@ chmod 600 "$CERTS_DIR/privkey.pem"
 chmod 644 "$CERTS_DIR/fullchain.pem"
 
 echo ""
-echo "[OK] Certificados gerados com sucesso!"
+echo "✅ Certificados gerados com sucesso!"
 echo "   - Certificado: $CERTS_DIR/fullchain.pem"
 echo "   - Chave privada: $CERTS_DIR/privkey.pem"
 echo ""
-echo "[WARNING] NOTA: Certificados auto-assinados gerarão aviso no navegador."
+echo "⚠️  NOTA: Certificados auto-assinados gerarão aviso no navegador."
 echo "   Para produção, use Let's Encrypt ou certificados válidos."
 echo ""
 echo "=========================================="
-echo "[OK] Certificados SSL Prontos"
+echo "✅ Certificados SSL Prontos"
 echo "=========================================="
 

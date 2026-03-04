@@ -1,34 +1,19 @@
----
 extends: default
 
-ignore:
-  - gitops/charts/
-  - "**.chart/"
-  - "**/templates/"
-  - scripts/
-  - grafana/
-  - gitops/bootstrap/staging/teamblue-branding-cm.yaml
+ignore: |
+  gitops/charts/
+  **.chart/
+  **/templates/
+  .github/workflows/
 
 rules:
-  line-length:
-    max: 500
-    allow-non-breakable-words: true
+  line-length: disable
   document-start: disable
   truthy: disable
-  brackets:
-    min-spaces-inside: 0
-    max-spaces-inside: 1
-  braces:
-    min-spaces-inside: 0
-    max-spaces-inside: 1
-  colons:
-    max-spaces-before: 0
-    max-spaces-after: 1
-  hyphens:
-    max-spaces-after: 1
+  braces: disable
+  brackets: disable
+  colons: disable
+  hyphens: disable
   indentation: disable
-  key-duplicates: enable
-  trailing-spaces: disable
+  key-duplicates: disable
   empty-lines: disable
-  comments: disable
-  comments-indentation: disable

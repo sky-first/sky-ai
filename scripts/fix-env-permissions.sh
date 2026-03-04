@@ -24,7 +24,7 @@ fi
 CURRENT_PERMS=$(stat -c "%a" "$ENV_FILE" 2>/dev/null || echo "000")
 
 if [ "$CURRENT_PERMS" = "600" ] || [ "$CURRENT_PERMS" = "400" ]; then
-    echo -e "${GREEN}[OK] Permissões corretas: $CURRENT_PERMS${NC}"
+    echo -e "${GREEN}✅ Permissões corretas: $CURRENT_PERMS${NC}"
     exit 0
 fi
 
@@ -35,9 +35,9 @@ chmod 600 "$ENV_FILE"
 
 NEW_PERMS=$(stat -c "%a" "$ENV_FILE" 2>/dev/null || echo "000")
 if [ "$NEW_PERMS" = "600" ]; then
-    echo -e "${GREEN}[OK] Permissões corrigidas: $NEW_PERMS${NC}"
+    echo -e "${GREEN}✅ Permissões corrigidas: $NEW_PERMS${NC}"
 else
-    echo -e "${RED}[ERROR] Erro ao corrigir permissões${NC}"
+    echo -e "${RED}❌ Erro ao corrigir permissões${NC}"
     exit 1
 fi
 

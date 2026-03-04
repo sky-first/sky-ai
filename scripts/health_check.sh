@@ -18,10 +18,10 @@ check_service() {
     local check_cmd=$2
     
     if eval "$check_cmd" > /dev/null 2>&1 || true; then
-        echo -e "${GREEN}${NC} $name"
+        echo -e "${GREEN}✓${NC} $name"
         return 0
     else
-        echo -e "${RED}${NC} $name"
+        echo -e "${RED}✗${NC} $name"
         EXIT_CODE=1
         return 1
     fi
@@ -32,10 +32,10 @@ check_service_warning() {
     local check_cmd=$2
     
     if eval "$check_cmd" > /dev/null 2>&1 || true; then
-        echo -e "${GREEN}${NC} $name"
+        echo -e "${GREEN}✓${NC} $name"
         return 0
     else
-        echo -e "${YELLOW}${NC} $name"
+        echo -e "${YELLOW}⚠${NC} $name"
         return 1
     fi
 }

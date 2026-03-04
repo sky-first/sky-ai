@@ -1,4 +1,3 @@
----
 name: 'Terraform Setup'
 description: 'Setup Terraform with version management and caching'
 inputs:

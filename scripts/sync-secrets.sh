@@ -38,4 +38,4 @@ kubectl create secret generic app-secrets \
     --from-literal=sentry-dsn="$SENTRY" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[OK] Secrets synced to namespace '$NAMESPACE'!"
+echo "✅ Secrets synced to namespace '$NAMESPACE'!"

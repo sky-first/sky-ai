@@ -49,17 +49,17 @@ if az monitor action-group show --resource-group "$RESOURCE_GROUP_NAME" --name "
     echo "Action Group existe no Azure: $ACTION_GROUP_NAME"
     
     if terraform state show azurerm_monitor_action_group.main > /dev/null 2>&1; then
-        echo "[OK] Action Group já está no estado do Terraform"
+        echo "✅ Action Group já está no estado do Terraform"
     else
         echo "Importando Action Group..."
         terraform import \
             -var-file="$TFVARS_FILE" \
             -var="subscription_id=${SUBSCRIPTION_ID}" \
             azurerm_monitor_action_group.main "$ACTION_GROUP_ID"
-        echo "[OK] Action Group importado com sucesso"
+        echo "✅ Action Group importado com sucesso"
     fi
 else
-    echo "ℹ  Action Group não existe no Azure: $ACTION_GROUP_NAME"
+    echo "ℹ️  Action Group não existe no Azure: $ACTION_GROUP_NAME"
 fi
 
 echo ""
@@ -83,7 +83,7 @@ if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PI
             NIC_ID=$(az network nic show --resource-group "$RESOURCE_GROUP_NAME" --name "$CURRENT_NIC_NAME" --query id -o tsv 2>/dev/null || echo "")
             if [ -n "$NIC_ID" ]; then
                 if terraform state show azurerm_network_interface.main > /dev/null 2>&1; then
-                    echo "[OK] NIC já está no estado do Terraform"
+                    echo "✅ NIC já está no estado do Terraform"
                 else
                     echo "Importando NIC existente: $CURRENT_NIC_NAME"
                     terraform import \
@@ -100,8 +100,8 @@ if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PI
         fi
 
         if [ -n "$CURRENT_NIC_NAME" ] && [ "$CURRENT_NIC_NAME" != "$EXPECTED_NIC" ]; then
-            echo "[WARNING] IP público está associado à NIC: $CURRENT_NIC_NAME (esperado: $EXPECTED_NIC)"
-            echo "  Desanexando IP público da NIC antiga..."
+            echo "⚠️  IP público está associado à NIC: $CURRENT_NIC_NAME (esperado: $EXPECTED_NIC)"
+            echo "➡️  Desanexando IP público da NIC antiga..."
             
             # Tentar desanexar
             if az network nic ip-config update \
@@ -109,19 +109,19 @@ if az network public-ip show --resource-group "$RESOURCE_GROUP_NAME" --name "$PI
                 --nic-name "$CURRENT_NIC_NAME" \
                 --name "internal" \
                 --remove public-ip-address 2>&1; then
-                echo "[OK] IP público desanexado da NIC antiga: $CURRENT_NIC_NAME"
+                echo "✅ IP público desanexado da NIC antiga: $CURRENT_NIC_NAME"
             else
-                echo "[WARNING] Aviso: Não foi possível desanexar IP público"
+                echo "⚠️  Aviso: Não foi possível desanexar IP público"
                 echo "   A NIC antiga pode estar em uso ou não existir mais"
             fi
         else
-            echo "[OK] IP público está associado à NIC correta ou não está associado"
+            echo "✅ IP público está associado à NIC correta ou não está associado"
         fi
     else
-        echo "[OK] IP público não está associado a nenhuma NIC"
+        echo "✅ IP público não está associado a nenhuma NIC"
     fi
 else
-    echo "ℹ  IP público não existe no Azure: $PIP_NAME"
+    echo "ℹ️  IP público não existe no Azure: $PIP_NAME"
 fi
 
 echo ""
@@ -129,7 +129,7 @@ echo "=== 3. Verificando estado do Terraform ==="
 terraform state list | grep -E "(azurerm_monitor_action_group.main|azurerm_network_interface.main)" || echo "Alguns recursos podem não estar no estado ainda"
 
 echo ""
-echo "[OK] Script de correção concluído!"
+echo "✅ Script de correção concluído!"
 echo ""
 echo "Próximos passos:"
 echo "1. Execute: terraform plan -var-file=\"$TFVARS_FILE\" -var=\"subscription_id=${SUBSCRIPTION_ID}\""

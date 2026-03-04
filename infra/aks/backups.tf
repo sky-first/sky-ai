@@ -50,7 +50,7 @@ resource "azurerm_storage_management_policy" "backup_lifecycle" {
   storage_account_id = azurerm_storage_account.db_backup.id
 
   rule {
-    name    = "environment_aware_retention"
+    name    = "ArchiveOldBackups"
     enabled = true
     filters {
       prefix_match = ["sql-backups/"]
@@ -58,8 +58,9 @@ resource "azurerm_storage_management_policy" "backup_lifecycle" {
     }
     actions {
       base_blob {
-        # Dynamically selects 30 for staging, 365 for prod
-        delete_after_days_since_modification_greater_than = var.backup_retention_days[var.environment]
+        tier_to_cool_after_days_since_modification_greater_than    = 30
+        tier_to_archive_after_days_since_modification_greater_than = 60
+        delete_after_days_since_modification_greater_than          = 90
       }
       snapshot {
         delete_after_days_since_creation_greater_than = 30
@@ -90,7 +91,7 @@ resource "azurerm_federated_identity_credential" "db_backup" {
   resource_group_name = var.resource_group_name
   audience            = ["api://AzureADTokenExchange"]
   # Use the production issuer URL discovered via CLI
-  issuer    = var.oidc_issuer_url != "" ? var.oidc_issuer_url : (var.environment == "prod" ? "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/a0bef504-bd1f-4c4f-91f7-4e40cc6782fd/" : "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/04bef504-bd1f-4c4f-91f7-4e40cc6782fd/")
+  issuer    = var.environment == "prod" ? "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/a0bef504-bd1f-4c4f-91f7-4e40cc6782fd/" : "https://eastus2.oic.prod-aks.azure.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/04bef504-bd1f-4c4f-91f7-4e40cc6782fd/"
   parent_id = azurerm_user_assigned_identity.db_backup.id
 
   # Links to the ServiceAccount in K8s

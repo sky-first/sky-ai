@@ -39,19 +39,19 @@ log_check() {
     
     case "$status" in
         "PASS")
-            echo -e "${GREEN}[OK] PASS${NC}: $message"
+            echo -e "${GREEN}✅ PASS${NC}: $message"
             ((PASSED_CHECKS++))
             ;;
         "FAIL")
-            echo -e "${RED}[ERROR] FAIL${NC}: $message"
+            echo -e "${RED}❌ FAIL${NC}: $message"
             ((FAILED_CHECKS++))
             ;;
         "WARN")
-            echo -e "${YELLOW}[WARNING] WARN${NC}: $message"
+            echo -e "${YELLOW}⚠️  WARN${NC}: $message"
             ((WARNING_CHECKS++))
             ;;
         "INFO")
-            echo -e "${BLUE}ℹ  INFO${NC}: $message"
+            echo -e "${BLUE}ℹ️  INFO${NC}: $message"
             ;;
     esac
 }
@@ -74,7 +74,7 @@ test_http() {
 
 # Verificar se IP foi fornecido
 if [ -z "$VM_IP" ]; then
-    log_section " Tentando Obter IP da VM Automaticamente"
+    log_section "🔍 Tentando Obter IP da VM Automaticamente"
     
     # Tentar via Terraform
     if [ -d "$PROJECT_DIR/infra/azure" ]; then
@@ -89,7 +89,7 @@ if [ -z "$VM_IP" ]; then
     fi
     
     if [ -z "$VM_IP" ]; then
-        echo -e "${RED}[ERROR] ERRO: IP da VM não fornecido e não foi possível obter automaticamente${NC}"
+        echo -e "${RED}❌ ERRO: IP da VM não fornecido e não foi possível obter automaticamente${NC}"
         echo ""
         echo "Forneça o IP manualmente:"
         echo "  $0 <VM_IP>"
@@ -103,7 +103,7 @@ if [ -z "$VM_IP" ]; then
 fi
 
 echo "=========================================="
-echo -e "${CYAN} VERIFICAÇÃO COMPLETA - FRONTEND/BACKEND${NC}"
+echo -e "${CYAN}🔍 VERIFICAÇÃO COMPLETA - FRONTEND/BACKEND${NC}"
 echo "=========================================="
 echo ""
 echo "VM IP: $VM_IP"
@@ -113,7 +113,7 @@ echo ""
 # ============================================
 # PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO
 # ============================================
-log_section " PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO"
+log_section "📋 PARTE 1: ANÁLISE ESTÁTICA DO CÓDIGO"
 
 echo "Verificando configurações arquiteturais..."
 echo ""
@@ -334,7 +334,7 @@ echo ""
 # ============================================
 # PARTE 2: TESTES DE CONECTIVIDADE
 # ============================================
-log_section " PARTE 2: TESTES DE CONECTIVIDADE"
+log_section "🌐 PARTE 2: TESTES DE CONECTIVIDADE"
 
 echo "Testando conectividade com a VM..."
 echo ""
@@ -418,7 +418,7 @@ echo ""
 # ============================================
 # PARTE 3: TESTES DE CORS
 # ============================================
-log_section " PARTE 3: TESTES DE CORS"
+log_section "🔐 PARTE 3: TESTES DE CORS"
 
 # 3.1 CORS Preflight (OPTIONS)
 log_check "INFO" "Testando CORS Preflight (OPTIONS)..."
@@ -475,7 +475,7 @@ echo ""
 # ============================================
 # PARTE 4: VERIFICAÇÃO DE ROTEAMENTO
 # ============================================
-log_section " PARTE 4: VERIFICAÇÃO DE ROTEAMENTO"
+log_section "🔄 PARTE 4: VERIFICAÇÃO DE ROTEAMENTO"
 
 # 4.1 Verificar se /api/v1/ roteia para backend
 log_check "INFO" "Verificando roteamento /api/v1/ → backend..."
@@ -523,7 +523,7 @@ echo ""
 # ============================================
 # PARTE 5: ANÁLISE DE CONTEÚDO
 # ============================================
-log_section " PARTE 5: ANÁLISE DE CONTEÚDO"
+log_section "📄 PARTE 5: ANÁLISE DE CONTEÚDO"
 
 # 5.1 Analisar resposta do frontend
 if [ -n "$ROOT_RESPONSE" ]; then
@@ -562,16 +562,16 @@ echo ""
 # ============================================
 # PARTE 6: RESUMO E RECOMENDAÇÕES
 # ============================================
-log_section " RESUMO FINAL"
+log_section "📊 RESUMO FINAL"
 
 echo "=========================================="
-echo " ESTATÍSTICAS"
+echo "📈 ESTATÍSTICAS"
 echo "=========================================="
 echo ""
 echo "Total de verificações: $TOTAL_CHECKS"
-echo -e "${GREEN}[OK] Passou: $PASSED_CHECKS${NC}"
-echo -e "${YELLOW}[WARNING] Avisos: $WARNING_CHECKS${NC}"
-echo -e "${RED}[ERROR] Falhou: $FAILED_CHECKS${NC}"
+echo -e "${GREEN}✅ Passou: $PASSED_CHECKS${NC}"
+echo -e "${YELLOW}⚠️  Avisos: $WARNING_CHECKS${NC}"
+echo -e "${RED}❌ Falhou: $FAILED_CHECKS${NC}"
 echo ""
 
 # Calcular porcentagem
@@ -583,22 +583,22 @@ fi
 
 # Conclusão
 echo "=========================================="
-echo " CONCLUSÃO"
+echo "🎯 CONCLUSÃO"
 echo "=========================================="
 echo ""
 
 if [ $FAILED_CHECKS -eq 0 ] && [ $WARNING_CHECKS -eq 0 ]; then
-    echo -e "${GREEN}[OK] TUDO FUNCIONANDO PERFEITAMENTE!${NC}"
+    echo -e "${GREEN}✅ TUDO FUNCIONANDO PERFEITAMENTE!${NC}"
     echo ""
     echo "Frontend e Backend estão conectados e funcionando corretamente."
     echo "Todas as verificações passaram sem erros ou avisos."
 elif [ $FAILED_CHECKS -eq 0 ]; then
-    echo -e "${YELLOW}[WARNING] FUNCIONANDO COM AVISOS${NC}"
+    echo -e "${YELLOW}⚠️  FUNCIONANDO COM AVISOS${NC}"
     echo ""
     echo "Frontend e Backend estão conectados e funcionando, mas há alguns avisos."
     echo "Recomenda-se verificar os pontos mencionados acima."
 else
-    echo -e "${RED}[ERROR] PROBLEMAS ENCONTRADOS${NC}"
+    echo -e "${RED}❌ PROBLEMAS ENCONTRADOS${NC}"
     echo ""
     echo "Há problemas que precisam ser corrigidos."
     echo "Verifique os erros acima e corrija antes de continuar."
@@ -606,7 +606,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo " RECOMENDAÇÕES"
+echo "🔧 RECOMENDAÇÕES"
 echo "=========================================="
 echo ""
 
@@ -634,7 +634,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "[OK] Verificação concluída"
+echo "✅ Verificação concluída"
 echo "=========================================="
 echo ""
 

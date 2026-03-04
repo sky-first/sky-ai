@@ -30,7 +30,7 @@ log_low() { echo -e "${BLUE}[LOW]${NC} $1"; LOW=$((LOW + 1)); }
 log_pass() { echo -e "${GREEN}[PASS]${NC} $1"; PASSED=$((PASSED + 1)); }
 log_section() { 
     echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; 
-    echo -e "${CYAN} $1${NC}"; 
+    echo -e "${CYAN}▶ $1${NC}"; 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"; 
 }
 
@@ -308,15 +308,15 @@ echo -e "${GREEN}PASSARAM: $PASSED${NC}"
 echo ""
 
 if [ $CRITICAL -gt 0 ]; then
-    echo -e "${RED}[ERROR] AUDITORIA FALHOU: $CRITICAL problema(s) CRÍTICO(S) encontrado(s)${NC}"
+    echo -e "${RED}❌ AUDITORIA FALHOU: $CRITICAL problema(s) CRÍTICO(S) encontrado(s)${NC}"
     echo -e "${RED}Corrija os problemas críticos antes de prosseguir para produção${NC}"
     exit 1
 elif [ $HIGH -gt 0 ]; then
-    echo -e "${YELLOW}[WARNING] AUDITORIA COM AVISOS: $HIGH problema(s) de ALTA prioridade${NC}"
+    echo -e "${YELLOW}⚠️  AUDITORIA COM AVISOS: $HIGH problema(s) de ALTA prioridade${NC}"
     echo -e "${YELLOW}Recomendado corrigir antes de produção${NC}"
     exit 0
 else
-    echo -e "${GREEN}[OK] AUDITORIA PASSOU${NC}"
+    echo -e "${GREEN}✅ AUDITORIA PASSOU${NC}"
     echo -e "${GREEN}Nenhum problema crítico ou de alta prioridade encontrado${NC}"
     exit 0
 fi

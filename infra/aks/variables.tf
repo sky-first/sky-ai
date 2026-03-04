@@ -77,6 +77,11 @@ variable "runner_ip" {
   default     = null
 }
 
+variable "key_vault_firewall_allow" {
+  description = "Temporarily allow all access to Key Vault (managed by pipeline during apply)"
+  type        = bool
+  default     = false
+}
 
 variable "authorized_ips" {
   description = "List of public IPs authorized to access the AKS API server"
@@ -96,19 +101,4 @@ variable "github_actions_sp_object_id" {
   type        = string
   default     = null
   nullable    = true
-}
-
-variable "backup_retention_days" {
-  description = "Retention period for backups in days per environment"
-  type        = map(number)
-  default = {
-    dev     = 7
-    staging = 30
-    prod    = 365
-  }
-}
-variable "oidc_issuer_url" {
-  description = "The OIDC Issuer URL for the AKS cluster (used for workload identity)"
-  type        = string
-  default     = "" # If empty, it will fallback to the dynamic cluster output in resources
 }

@@ -81,19 +81,19 @@ test_code() {
     # Compara resultados
     if [ "$NEW_STATUS" = "$expected_result" ]; then
         if [ "$OLD_STATUS" != "$NEW_STATUS" ]; then
-            echo -e "${GREEN}[OK] CORRIGIDO${NC} (antiga: ${OLD_STATUS}${OLD_RESULT:+/$OLD_RESULT}, nova: ${NEW_STATUS}${NEW_RESULT:+/$NEW_RESULT})"
+            echo -e "${GREEN}✅ CORRIGIDO${NC} (antiga: ${OLD_STATUS}${OLD_RESULT:+/$OLD_RESULT}, nova: ${NEW_STATUS}${NEW_RESULT:+/$NEW_RESULT})"
         else
-            echo -e "${GREEN}[OK] OK${NC} (ambas: ${NEW_STATUS}${NEW_RESULT:+/$NEW_RESULT})"
+            echo -e "${GREEN}✅ OK${NC} (ambas: ${NEW_STATUS}${NEW_RESULT:+/$NEW_RESULT})"
         fi
         return 0
     else
-        echo -e "${RED}[ERROR] FALHOU${NC} (esperado: $expected_result, obtido: $NEW_STATUS)"
+        echo -e "${RED}❌ FALHOU${NC} (esperado: $expected_result, obtido: $NEW_STATUS)"
         return 1
     fi
 }
 
 echo "=========================================="
-echo " Teste da função validate_http_code"
+echo "🧪 Teste da função validate_http_code"
 echo "=========================================="
 echo ""
 
@@ -123,10 +123,10 @@ test_code "600" "fail" "Código fora do range" || ((ERRORS++))
 echo ""
 echo "=========================================="
 if [ $ERRORS -eq 0 ]; then
-    echo -e "${GREEN}[OK] Todos os testes passaram!${NC}"
+    echo -e "${GREEN}✅ Todos os testes passaram!${NC}"
     exit 0
 else
-    echo -e "${RED}[ERROR] $ERRORS teste(s) falharam${NC}"
+    echo -e "${RED}❌ $ERRORS teste(s) falharam${NC}"
     exit 1
 fi
 

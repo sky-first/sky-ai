@@ -1,4 +1,3 @@
----
 name: Build and Deploy AI (GitOps)
 
 # Trigger on push to main or staging branches
@@ -21,85 +20,85 @@ jobs:
     name: Build & Update Manifests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Application Code
-        uses: actions/checkout@v3
+    - name: Checkout Application Code
+      uses: actions/checkout@v3
 
-      # Determined Environment based on Branch
-      - name: Set Environment Context
-        id: context
-        run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "ENV_NAME=prod" >> $GITHUB_ENV
-            echo "ACR_NAME=${{ env.ACR_NAME_PROD }}" >> $GITHUB_ENV
-            echo "TARGET_BRANCH=main" >> $GITHUB_ENV
-          else
-            echo "ENV_NAME=staging" >> $GITHUB_ENV
-            echo "ACR_NAME=${{ env.ACR_NAME_STAGING }}" >> $GITHUB_ENV
-            echo "TARGET_BRANCH=staging" >> $GITHUB_ENV
-          fi
-          # Short SHA for cleaner tags
-          echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> $GITHUB_ENV
+    # Determined Environment based on Branch
+    - name: Set Environment Context
+      id: context
+      run: |
+        if [[ "${{ github.ref_name }}" == "main" ]]; then
+          echo "ENV_NAME=prod" >> $GITHUB_ENV
+          echo "ACR_NAME=${{ env.ACR_NAME_PROD }}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=main" >> $GITHUB_ENV
+        else
+          echo "ENV_NAME=staging" >> $GITHUB_ENV
+          echo "ACR_NAME=${{ env.ACR_NAME_STAGING }}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=staging" >> $GITHUB_ENV
+        fi
+        # Short SHA for cleaner tags
+        echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Login to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
+    - name: Login to ACR
+      run: az acr login --name ${{ env.ACR_NAME }}
 
-      - name: Build and Push Docker Image
-        run: |
-          FULL_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:${{ env.IMAGE_TAG }}"
-          LATEST_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:latest"
+    - name: Build and Push Docker Image
+      run: |
+        FULL_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:${{ env.IMAGE_TAG }}"
+        LATEST_IMAGE_NAME="${{ env.ACR_NAME }}.azurecr.io/${{ env.APP_NAME }}:latest"
+        
+        docker build -t $FULL_IMAGE_NAME .
+        docker tag $FULL_IMAGE_NAME $LATEST_IMAGE_NAME
+        
+        docker push $FULL_IMAGE_NAME
+        docker push $LATEST_IMAGE_NAME
 
-          docker build -t $FULL_IMAGE_NAME .
-          docker tag $FULL_IMAGE_NAME $LATEST_IMAGE_NAME
+    # GitOps: Update Infrastructure Repository
+    - name: Checkout Infrastructure Repository
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.INFRA_REPO }}
+        token: ${{ secrets.GH_PAT }} # Requires Secret with Repo Scope
+        path: infra-repo
+        ref: ${{ env.TARGET_BRANCH }}
 
-          docker push $FULL_IMAGE_NAME
-          docker push $LATEST_IMAGE_NAME
+    - name: Update Kubernetes Manifests
+      run: |
+        cd infra-repo
+        
+        # Define files to update based on environment
+        if [[ "${{ env.ENV_NAME }}" == "prod" ]]; then
+          AI_FILE="gitops/bootstrap/prod/ai.yaml"
+          WORKER_FILE="gitops/bootstrap/prod/ai-worker.yaml"
+        else
+          AI_FILE="gitops/bootstrap/staging/ai.yaml"
+          WORKER_FILE="gitops/bootstrap/staging/ai-worker.yaml"
+        fi
+        
+        echo "Updating manifests for ${{ env.ENV_NAME }}..."
+        
+        # Use sed to replace the tag
+        # Regex explanation: Look for 'tag: "..."' and replace with 'tag: "NEW_TAG"'
+        sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $AI_FILE
+        sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $WORKER_FILE
+        
+        # Verify changes
+        grep "tag:" $AI_FILE
+        grep "tag:" $WORKER_FILE
 
-      # GitOps: Update Infrastructure Repository
-      - name: Checkout Infrastructure Repository
-        uses: actions/checkout@v3
-        with:
-          repository: ${{ env.INFRA_REPO }}
-          token: ${{ secrets.GH_PAT }} # Requires Secret with Repo Scope
-          path: infra-repo
-          ref: ${{ env.TARGET_BRANCH }}
-
-      - name: Update Kubernetes Manifests
-        run: |
-          cd infra-repo
-
-          # Define files to update based on environment
-          if [[ "${{ env.ENV_NAME }}" == "prod" ]]; then
-            AI_FILE="gitops/bootstrap/prod/ai.yaml"
-            WORKER_FILE="gitops/bootstrap/prod/ai-worker.yaml"
-          else
-            AI_FILE="gitops/bootstrap/staging/ai.yaml"
-            WORKER_FILE="gitops/bootstrap/staging/ai-worker.yaml"
-          fi
-
-          echo "Updating manifests for ${{ env.ENV_NAME }}..."
-
-          # Use sed to replace the tag
-          # Regex explanation: Look for 'tag: "..."' and replace with 'tag: "NEW_TAG"'
-          sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $AI_FILE
-          sed -i 's/tag: ".*"/tag: "${{ env.IMAGE_TAG }}"/' $WORKER_FILE
-
-          # Verify changes
-          grep "tag:" $AI_FILE
-          grep "tag:" $WORKER_FILE
-
-          # Commit and Push
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-
-          git add .
-          if git diff --staged --quiet; then
-            echo "No changes to commit. Manifests might already match."
-          else
-            git commit -m "GitOps: Update ${{ env.APP_NAME }} to ${{ env.IMAGE_TAG }} in ${{ env.ENV_NAME }}"
-            git push origin ${{ env.TARGET_BRANCH }}
-          fi
+        # Commit and Push
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        git add .
+        if git diff --staged --quiet; then
+          echo "No changes to commit. Manifests might already match."
+        else
+          git commit -m "GitOps: Update ${{ env.APP_NAME }} to ${{ env.IMAGE_TAG }} in ${{ env.ENV_NAME }}"
+          git push origin ${{ env.TARGET_BRANCH }}
+        fi

@@ -8,7 +8,7 @@ BASE_URL="${1:-http://127.0.0.1}"
 PATHS=("/login" "/dashboard")
 
 echo "=========================================="
-echo " Prewarm Frontend (Next.js via Nginx)"
+echo "🔥 Prewarm Frontend (Next.js via Nginx)"
 echo "Base URL: $BASE_URL"
 echo "=========================================="
 
@@ -27,13 +27,13 @@ for p in "${PATHS[@]}"; do
   done
 
   if [ "$ok" = "true" ]; then
-    echo "[OK] OK: $p"
+    echo "✅ OK: $p"
   else
-    echo "[WARNING] AVISO: $p não estabilizou em tempo (pode estar compilando ainda)."
+    echo "⚠️  AVISO: $p não estabilizou em tempo (pode estar compilando ainda)."
   fi
 done
 
 echo ""
-echo "[OK] Prewarm concluído"
+echo "✅ Prewarm concluído"
 
 

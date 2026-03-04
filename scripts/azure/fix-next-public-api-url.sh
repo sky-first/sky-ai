@@ -14,7 +14,7 @@ cd "$PROJECT_DIR" || {
     elif [ -d ~/projeto/poc-deploy ]; then
         cd ~/projeto/poc-deploy
     else
-        echo "[ERROR] ERRO: Diretório do projeto não encontrado"
+        echo "❌ ERRO: Diretório do projeto não encontrado"
         exit 1
     fi
 }
@@ -29,23 +29,23 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 log_info() {
-    echo -e "${BLUE}ℹ  $1${NC}"
+    echo -e "${BLUE}ℹ️  $1${NC}"
 }
 
 log_success() {
-    echo -e "${GREEN}[OK] $1${NC}"
+    echo -e "${GREEN}✅ $1${NC}"
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING] $1${NC}"
+    echo -e "${YELLOW}⚠️  $1${NC}"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR] $1${NC}"
+    echo -e "${RED}❌ $1${NC}"
 }
 
 echo "=========================================="
-echo " Correção de NEXT_PUBLIC_API_URL"
+echo "🔧 Correção de NEXT_PUBLIC_API_URL"
 echo "=========================================="
 echo ""
 
@@ -145,7 +145,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo " Resumo"
+echo "📋 Resumo"
 echo "=========================================="
 echo ""
 echo "Valor configurado: $(grep "^NEXT_PUBLIC_API_URL=" "$ENV_FILE" | cut -d'=' -f2- || echo 'não encontrado')"

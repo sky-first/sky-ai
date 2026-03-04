@@ -1,4 +1,3 @@
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -21,7 +20,16 @@ spec:
       values: |
         podAnnotations:
           rollout-trigger: "2026-02-02T09:32:31Z"
-        securityContext: {} # Usar configurações do values-sky-fe-stg.yaml
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         imagePullSecrets:
           - name: regcred
         image:
@@ -30,7 +38,20 @@ spec:
           port: 80
           targetPort: 3000
         ingress:
-          enabled: false
+          enabled: true
+          className: "nginx"
+          annotations:
+            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+          hosts:
+            - host: workspace-stg.skyfirstlabs.com
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: sky-fe-stg-tls
+              hosts:
+                - workspace-stg.skyfirstlabs.com
         probes:
           liveness:
             path: /
@@ -40,18 +61,11 @@ spec:
             initialDelaySeconds: 5
         autoscaling:
           enabled: true
-          minReplicas: 3
-          maxReplicas: 5
-          behavior:
-            scaleUp:
-              stabilizationWindowSeconds: 0
-              policies:
-                - type: Percent
-                  value: 100
-                  periodSeconds: 15
+          minReplicas: 2
+          maxReplicas: 10
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://workspace-stg.skyfirstlabs.com/api/v1"
+            value: "https://workspace-stg.skyfirstlabs.com/api"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging

@@ -5,7 +5,7 @@ set -eu
 RESOURCE_GROUP="${1:-skyfirstlabs-poc}"
 VM_NAME="${2:-skyfirstlabs-staging}"
 
-echo " Aplicando healthcheck na VM..."
+echo "🚀 Aplicando healthcheck na VM..."
 echo ""
 
 # Script completo em uma única chamada
@@ -13,18 +13,18 @@ APPLY_SCRIPT='#!/bin/bash
 set -eu
 
 cd /home/azureuser/projeto/sky-poc-infra 2>/dev/null || cd /home/azureuser/projeto/poc-deploy 2>/dev/null || {
-    echo "[ERROR] Diretório não encontrado"
+    echo "❌ Diretório não encontrado"
     exit 1
 }
 
-echo " Diretório: $(pwd)"
+echo "📁 Diretório: $(pwd)"
 echo ""
 
 # Verificar se healthcheck já existe
 if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-    echo "[OK] Healthcheck já existe no docker-compose.yml"
+    echo "✅ Healthcheck já existe no docker-compose.yml"
 else
-    echo "[WARNING] Aplicando healthcheck..."
+    echo "⚠️  Aplicando healthcheck..."
     
     # Fazer backup
     cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)
@@ -42,58 +42,58 @@ else
     
     # Verificar se foi aplicado
     if grep -A 10 "frontend:" docker-compose.yml | grep -q "healthcheck:"; then
-        echo "[OK] Healthcheck aplicado com sucesso"
+        echo "✅ Healthcheck aplicado com sucesso"
         grep -A 10 "frontend:" docker-compose.yml | grep -A 5 "healthcheck:" | head -6
     else
-        echo "[ERROR] Erro ao aplicar healthcheck"
+        echo "❌ Erro ao aplicar healthcheck"
         exit 1
     fi
 fi
 
 echo ""
-echo " Verificando depends_on do proxy..."
+echo "🔧 Verificando depends_on do proxy..."
 if grep -A 5 "proxy:" docker-compose.yml | grep -A 3 "depends_on:" | grep -q "service_healthy"; then
-    echo "[OK] depends_on já usa service_healthy"
+    echo "✅ depends_on já usa service_healthy"
 else
-    echo "[WARNING] Ajustando depends_on..."
+    echo "⚠️  Ajustando depends_on..."
     sed -i "s/condition: service_started/condition: service_healthy/g" docker-compose.yml
 fi
 
 echo ""
-echo " Aplicando correções (docker compose down/up)..."
+echo "🔄 Aplicando correções (docker compose down/up)..."
 docker compose down
 echo ""
 docker compose up -d
 echo ""
 
-echo " Aguardando 20 segundos para containers iniciarem..."
+echo "⏳ Aguardando 20 segundos para containers iniciarem..."
 sleep 20
 
 echo ""
-echo " Status dos containers:"
+echo "📊 Status dos containers:"
 docker ps --filter "name=ai_saas_frontend_prod\|ai_saas_proxy" --format "table {{.Names}}\t{{.Status}}"
 
 echo ""
-echo " Teste de conectividade:"
+echo "🧪 Teste de conectividade:"
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost 2>&1 || echo "000")
 echo "  HTTP Status: $HTTP_CODE"
 
 if echo "$HTTP_CODE" | grep -qE "200|301|302|307"; then
-    echo "  [OK] Nginx respondendo corretamente"
+    echo "  ✅ Nginx respondendo corretamente"
 else
-    echo "  [WARNING] Nginx ainda não está respondendo (pode estar inicializando)"
+    echo "  ⚠️  Nginx ainda não está respondendo (pode estar inicializando)"
 fi
 
 echo ""
-echo " Logs do frontend (últimas 5 linhas):"
+echo "📋 Logs do frontend (últimas 5 linhas):"
 docker logs ai_saas_frontend_prod --tail 5 2>&1 | tail -3
 
 echo ""
-echo " Logs do nginx (últimas 5 linhas):"
+echo "📋 Logs do nginx (últimas 5 linhas):"
 docker logs ai_saas_proxy --tail 5 2>&1 | tail -3
 
 echo ""
-echo "[OK] Correção aplicada e containers reiniciados"
+echo "✅ Correção aplicada e containers reiniciados"
 '
 
 # Converter para array (cada linha é um elemento)
@@ -111,7 +111,7 @@ OUTPUT=$(az vm run-command invoke \
 
 # Processar output
 if echo "$OUTPUT" | grep -q "Conflict"; then
-    echo "[WARNING] Comando anterior ainda em execução. Aguarde alguns minutos e tente novamente."
+    echo "⚠️  Comando anterior ainda em execução. Aguarde alguns minutos e tente novamente."
     exit 1
 fi
 
@@ -134,5 +134,5 @@ except Exception as e:
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "[OK] Deploy concluído"
+echo "✅ Deploy concluído"
 echo "═══════════════════════════════════════════════════════════"

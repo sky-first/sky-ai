@@ -15,47 +15,47 @@ if [ -d "$BASE/sky-poc-infra" ]; then
 elif [ -d "$BASE/poc-deploy" ]; then
     INFRA_DIR="$BASE/poc-deploy"
 else
-    echo "[ERROR] ERRO: Diretório de infraestrutura não encontrado"
+    echo "❌ ERRO: Diretório de infraestrutura não encontrado"
     echo "   Procurou em: $BASE/sky-poc-infra e $BASE/poc-deploy"
     exit 1
 fi
 
 cd "$INFRA_DIR"
-echo " Diretório: $INFRA_DIR"
+echo "📁 Diretório: $INFRA_DIR"
 echo ""
 
 # Verificar se .env existe
 if [ -f .env ]; then
-    echo "[OK] Arquivo .env existe"
+    echo "✅ Arquivo .env existe"
     ls -lh .env
     echo ""
-    echo " Primeiras linhas do .env (valores sensíveis ocultos):"
+    echo "📋 Primeiras linhas do .env (valores sensíveis ocultos):"
     head -20 .env | sed 's/=.*/=***/' || true
     echo ""
     exit 0
 fi
 
 # .env não existe, criar a partir de env.example
-echo "[WARNING] Arquivo .env NÃO existe"
+echo "⚠️  Arquivo .env NÃO existe"
 echo ""
 
 if [ ! -f env.example ]; then
-    echo "[ERROR] ERRO: env.example também não encontrado!"
+    echo "❌ ERRO: env.example também não encontrado!"
     echo "   Caminho esperado: $INFRA_DIR/env.example"
     ls -la "$INFRA_DIR" | head -20
     exit 1
 fi
 
-echo " Criando .env a partir de env.example..."
+echo "📝 Criando .env a partir de env.example..."
 cp env.example .env
 chmod 600 .env
 
-echo "[OK] .env criado com sucesso!"
+echo "✅ .env criado com sucesso!"
 echo ""
-echo " Verificando conteúdo:"
+echo "📋 Verificando conteúdo:"
 ls -lh .env
 echo ""
-echo "[WARNING] IMPORTANTE: Configure as variáveis sensíveis no .env:"
+echo "⚠️  IMPORTANTE: Configure as variáveis sensíveis no .env:"
 echo "   - POSTGRES_PASSWORD"
 echo "   - REDIS_PASSWORD"
 echo "   - JWT_SECRET_KEY"

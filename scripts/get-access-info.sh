@@ -17,24 +17,24 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}    Informações de Acesso - Aplicação Deployada${NC}"
+echo -e "${CYAN}   📍 Informações de Acesso - Aplicação Deployada${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
 # Verificar se está no diretório correto
 if [ ! -d "$TF_DIR" ]; then
-  echo -e "${RED}[ERROR] Diretório Terraform não encontrado: $TF_DIR${NC}"
+  echo -e "${RED}❌ Diretório Terraform não encontrado: $TF_DIR${NC}"
   echo -e "${YELLOW}   Execute este script do diretório raiz do projeto${NC}"
   exit 1
 fi
 
 # Obter IP público
-echo -e "${BLUE} Obtendo IP público da VM...${NC}"
+echo -e "${BLUE}🔍 Obtendo IP público da VM...${NC}"
 cd "$TF_DIR"
 
 # Verificar se o Terraform está inicializado
 if [ ! -f ".terraform/terraform.tfstate" ] && [ ! -f "terraform.tfstate" ]; then
-  echo -e "${YELLOW}[WARNING] Estado do Terraform não encontrado localmente${NC}"
+  echo -e "${YELLOW}⚠️  Estado do Terraform não encontrado localmente${NC}"
   echo ""
   echo -e "${BLUE}Opções para obter o IP:${NC}"
   echo ""
@@ -59,9 +59,9 @@ fi
 VM_IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "")
 
 if [ -z "$VM_IP" ]; then
-  echo -e "${YELLOW}[WARNING] Não foi possível obter IP do Terraform local${NC}"
+  echo -e "${YELLOW}⚠️  Não foi possível obter IP do Terraform local${NC}"
   echo ""
-  echo -e "${BLUE}[INFO] Como obter o IP:${NC}"
+  echo -e "${BLUE}💡 Como obter o IP:${NC}"
   echo ""
   echo -e "${CYAN}Opção 1: GitHub Actions${NC}"
   echo -e "   1. Acesse: https://github.com/sky-first/sky-poc-infra/actions"
@@ -80,22 +80,22 @@ if [ -z "$VM_IP" ]; then
   exit 0
 fi
 
-echo -e "${GREEN}[OK] IP Público encontrado: ${CYAN}$VM_IP${NC}"
+echo -e "${GREEN}✅ IP Público encontrado: ${CYAN}$VM_IP${NC}"
 echo ""
 
 # Testar conectividade
-echo -e "${BLUE} Testando conectividade...${NC}"
+echo -e "${BLUE}🔗 Testando conectividade...${NC}"
 if curl -s --connect-timeout 5 "http://$VM_IP" > /dev/null 2>&1; then
-  echo -e "${GREEN}[OK] VM está acessível!${NC}"
+  echo -e "${GREEN}✅ VM está acessível!${NC}"
 else
-  echo -e "${YELLOW}[WARNING] VM pode não estar totalmente pronta ainda${NC}"
+  echo -e "${YELLOW}⚠️  VM pode não estar totalmente pronta ainda${NC}"
   echo -e "${YELLOW}   Aguarde alguns minutos após o deploy${NC}"
 fi
 echo ""
 
 # Mostrar URLs de acesso
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN} URLs de Acesso:${NC}"
+echo -e "${GREEN}🌐 URLs de Acesso:${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${YELLOW}Frontend:${NC}  ${CYAN}http://$VM_IP${NC}"
@@ -103,12 +103,12 @@ echo -e "  ${YELLOW}API:${NC}       ${CYAN}http://$VM_IP/api/v1${NC}"
 echo -e "  ${YELLOW}Health:${NC}    ${CYAN}http://$VM_IP/api/v1/health${NC}"
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE} Informações Adicionais:${NC}"
+echo -e "${BLUE}📋 Informações Adicionais:${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${YELLOW}SSH:${NC}       ${CYAN}ssh azureuser@$VM_IP${NC}"
 echo -e "  ${YELLOW}PostgreSQL:${NC} ${CYAN}$VM_IP:5433${NC}"
 echo ""
-echo -e "${BLUE}[INFO] Dica:${NC} Copie e cole as URLs acima no navegador para acessar!"
+echo -e "${BLUE}💡 Dica:${NC} Copie e cole as URLs acima no navegador para acessar!"
 echo ""
 

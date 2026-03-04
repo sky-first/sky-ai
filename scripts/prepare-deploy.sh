@@ -55,7 +55,7 @@ if [ -z "${GH_PAT:-}" ]; then
 fi
 
 echo ""
-echo -e "${GREEN}[OK] Variáveis configuradas:${NC}"
+echo -e "${GREEN}✅ Variáveis configuradas:${NC}"
 echo "  VM_IP: $VM_IP"
 echo "  BRANCH: $BRANCH"
 if [ -n "${GH_PAT:-}" ]; then
@@ -83,7 +83,7 @@ if [ "$CONFIRM" != "s" ] && [ "$CONFIRM" != "S" ] && [ "$CONFIRM" != "y" ] && [ 
 fi
 
 echo ""
-echo " Executando deploy..."
+echo "🚀 Executando deploy..."
 echo ""
 
 cd "$PROJECT_DIR"
