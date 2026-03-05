@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-webhook-ingress
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    # No auth annotations here - this ingress is exclusively for the webhook
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - argocd.skyfirstlabs.com
+    secretName: argocd-server-tls
+  rules:
+  - host: argocd.skyfirstlabs.com
+    http:
+      paths:
+      - path: /api/webhook
+        pathType: Exact
+        backend:
+          service:
+            name: argocd-server
+            port:
+              number: 443

@@ -20,7 +20,17 @@ spec:
       values: |
         nameOverride: "sky-ai-worker-stg"
         podAnnotations:
-          rollout-trigger: "2026-01-30T08:42:40Z"
+          rollout-trigger: "2026-02-05T10:42:40Z"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
         
