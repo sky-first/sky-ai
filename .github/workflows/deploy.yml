@@ -144,11 +144,22 @@ jobs:
               fi
             fi
             
+            # Fallback: inferir environment a partir do branch se não fornecido no payload
+            # Garante resiliência a repos que não enviam o campo explicitamente
+            if [[ -z "$ENV" ]] || [[ "$ENV" == "null" ]]; then
+              if [[ "$BRANCH" == "main" ]]; then
+                ENV="prod"
+              elif [[ "$BRANCH" == "staging" ]]; then
+                ENV="staging"
+              fi
+              echo "INFO: environment não fornecido no payload - inferido do branch '$BRANCH' -> '$ENV'"
+            fi
+
             echo "Payload Environment: $ENV"
             echo "Payload Branch: $BRANCH"
             
             if [[ -z "$ENV" ]] || [[ "$ENV" == "null" ]]; then
-              echo "ERRO: environment não fornecido no payload"
+              echo "ERRO: environment não fornecido no payload e branch '$BRANCH' não mapeado (esperado: staging ou main)"
               exit 1
             fi
           elif [[ "${{ github.event_name }}" == "push" ]]; then
