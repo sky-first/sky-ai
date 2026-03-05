@@ -1,13 +1,15 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: sky-be-stg
+  name: sky-be-teamblue-stg
   namespace: argocd
   annotations:
+    # Image Updater: Monitora o ACR por imagens com SHA e faz write-back isolado
     argocd-image-updater.argoproj.io/image-list: sky-poc-backend=skyacrstagingj3minh.azurecr.io/sky-poc-backend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-sky-be-stg.yaml
+    # Escreve de volta em arquivo EXCLUSIVO do TeamBlue - sem afetar o Staging
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-teamblue-be-stg.yaml
 spec:
   project: default
   source:
@@ -16,23 +18,8 @@ spec:
     targetRevision: staging
     helm:
       valueFiles:
-        - values-sky-be-stg.yaml
+        - values-teamblue-be-stg.yaml
       values: |
-        podAnnotations:
-          rollout-trigger: "2026-02-02T09:26:49Z"
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          runAsGroup: 3000
-          fsGroup: 2000
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-            add:
-              - NET_BIND_SERVICE
-        replicaCount: 2
         imagePullSecrets:
           - name: regcred
         image:
@@ -48,19 +35,14 @@ spec:
             nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
-            - host: workspace-stg-api.skyfirstlabs.com
+            - host: teamblue-api.skyfirstlabs.com
               paths:
                 - path: /
                   pathType: Prefix
-            - host: workspace-stg.skyfirstlabs.com
-              paths:
-                - path: /api
-                  pathType: Prefix
           tls:
-            - secretName: sky-be-stg-tls
+            - secretName: sky-be-teamblue-tls
               hosts:
-                - workspace-stg-api.skyfirstlabs.com
-                - workspace-stg.skyfirstlabs.com
+                - teamblue-api.skyfirstlabs.com
         probes:
           liveness:
             path: /
@@ -68,26 +50,36 @@ spec:
           readiness:
             path: /
             initialDelaySeconds: 10
-        # Configure External Secret to fetch keys from Azure Key Vault
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - NET_BIND_SERVICE
+        replicaCount: 2
+        # External Secret com o ClusterSecretStore unificado
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault  # Unificado: azure-keyvault-staging removido para consistência
+            name: azure-keyvault
             kind: ClusterSecretStore
           target:
             creationPolicy: Owner
             template:
               engineVersion: v2
               data:
-                # Transform proper keys for the application check
                 jwt_secret_key: "{{ .jwt_secret_key }}"
                 encryption_key: "{{ .encryption_key }}"
                 openai_api_key: "{{ .openai_api_key }}"
                 redis_url: "{{ .redis_url }}"
-                # Derivando URLs do Celery a partir da redis_url do segredo
                 celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
                 celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
-                # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
           data:
             - secretKey: jwt_secret_key
@@ -105,42 +97,37 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
-
-        # Map the synced secrets to Env Vars in the container
         envSecrets:
-          # These keys will be present in the secret created by ExternalSecret
           jwt-secret-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: jwt_secret_key
           encryption-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: encryption_key
           openai-api-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: openai_api_key
           DATABASE_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: database_url
           REDIS_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: redis_url
           CELERY_BROKER_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: celery_broker_url
           CELERY_RESULT_BACKEND:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-teamblue-stg-common-app-secrets
             key: celery_result_backend
-            
         extraEnv:
-          - name: CORS_ORIGINS
-            value: "https://workspace-stg.skyfirstlabs.com,https://workspace-stg-ollama.skyfirstlabs.com"
           - name: REDIS_PORT
             value: "6379"
           - name: DEBUG
             value: "true"
-          # AI Service Configuration - CRITICAL for AI responses
           - name: AI_SERVICE_TYPE
             value: "real"
+          # AI_SERVICE_URL aponta intencionalmente para o staging (serviço compartilhado)
+          # Se o TeamBlue tiver AI própria, altere para: http://sky-ai-teamblue-common-app.teamblue.svc.cluster.local
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
         migration:
@@ -149,7 +136,7 @@ spec:
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:
     server: "https://kubernetes.default.svc"
-    namespace: staging
+    namespace: teamblue
   syncPolicy:
     automated:
       prune: true
@@ -162,4 +149,3 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-# Force refresh: Fri Feb  6 16:42:38 WET 2026

@@ -1,5 +1,5 @@
 image:
-  tag: "staging"
+  tag: "sha-latest-manual-reset"
 
 ingress:
   annotations:

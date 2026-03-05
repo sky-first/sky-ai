@@ -28,12 +28,14 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      ACR_LOGIN_SERVER: ${{ inputs.acr_name }}.azurecr.io
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Azure Login (OIDC)
-        uses: azure/login@v1
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -43,14 +45,14 @@ jobs:
         run: az acr login --name ${{ inputs.acr_name }}
 
       - name: Build and Push Docker Image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ${{ inputs.dockerfile_path }}
           push: true
+          # Crucial: Prefix 'sha-' is required by ArgoCD Image Updater regex
           tags: |
-            ${{ inputs.acr_name }}.azurecr.io/${{ inputs.app_name }}:${{ github.sha }}
-            ${{ inputs.acr_name }}.azurecr.io/${{ inputs.app_name }}:latest
+            ${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:sha-${{ github.sha }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.1.1
@@ -58,16 +60,14 @@ jobs:
       - name: Sign Image
         run: |
           cosign sign --yes --key azurekms://... \
-            ${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:${{ github.sha }}
-        # Note: Setting up Key Vault for Cosign KMS is an extra step.
-        # For now, we will skip the actual signing command or use ephemeral keys (OIDC mode)
-        # but keep the structure.
+            ${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:sha-${{ github.sha }}
+        # signing command skeleton kept as per original file
         if: false
 
       - name: Scan Image (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:${{ github.sha }}"
+          image-ref: "${{ env.ACR_LOGIN_SERVER }}/${{ inputs.app_name }}:sha-${{ github.sha }}"
           format: "table"
-          exit-code: "0" # Don't fail build yet, just report
+          exit-code: "0"
           ignore-unfixed: true

@@ -1,7 +1,7 @@
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:
-  name: azure-keyvault-staging
+  name: azure-keyvault
 spec:
   provider:
     azurekv:
@@ -19,7 +19,39 @@ metadata:
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: azure-keyvault-staging
+    name: azure-keyvault
+    kind: ClusterSecretStore
+  target:
+    name: regcred
+    template:
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: |
+          {
+            "auths": {
+              "skyacrstagingj3minh.azurecr.io": {
+                "username": "skyacrstagingj3minh",
+                "password": "{{ .password }}",
+                "auth": "{{ printf "skyacrstagingj3minh:%s" .password | b64enc }}"
+              }
+            }
+          }
+  data:
+  - secretKey: password
+    remoteRef:
+      key: acr-password
+---
+# regcred para o namespace teamblue (empresa isolada)
+# CRÍTICO: Sem isso, os pods do TeamBlue terão ImagePullBackOff
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: regcred
+  namespace: teamblue
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-keyvault
     kind: ClusterSecretStore
   target:
     name: regcred

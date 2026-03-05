@@ -1,0 +1,4 @@
+# TeamBlue Frontend Staging - Valores de Imagem
+# Gerenciado pelo ArgoCD Image Updater via write-back
+image:
+  tag: "sha-3f97925414d005076db111b9e3c67dde37a25cf4"

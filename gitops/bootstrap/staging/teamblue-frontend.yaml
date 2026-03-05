@@ -1,0 +1,83 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-fe-teamblue-stg
+  namespace: argocd
+  annotations:
+    # Image Updater: Monitora o ACR por imagens com SHA e faz write-back isolado
+    argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    # Escreve de volta em arquivo EXCLUSIVO do TeamBlue - sem afetar o Staging
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-teamblue-fe-stg.yaml
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: staging
+    helm:
+      valueFiles:
+        - values-teamblue-fe-stg.yaml
+      values: |
+        imagePullSecrets:
+          - name: regcred
+        image:
+          repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+        service:
+          port: 80
+          targetPort: 3000
+        ingress:
+          enabled: true
+          className: "nginx"
+          annotations:
+            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+          hosts:
+            - host: teamblue.skyfirstlabs.com
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: sky-fe-teamblue-tls
+              hosts:
+                - teamblue.skyfirstlabs.com
+        probes:
+          liveness:
+            path: /
+            initialDelaySeconds: 15
+          readiness:
+            path: /
+            initialDelaySeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 10
+        extraEnv:
+          - name: NEXT_PUBLIC_API_URL
+            value: "https://teamblue-api.skyfirstlabs.com"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: teamblue
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
