@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: oauth2-proxy
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: "https://oauth2-proxy.github.io/manifests"
+    targetRevision: "7.7.3"
+    chart: oauth2-proxy
+    helm:
+      values: |
+        config:
+          clientID: "to-be-loaded-from-secret"
+          clientSecret: "to-be-loaded-from-secret"
+          cookieSecret: "to-be-loaded-from-secret"
+          configFile: |-
+            provider = "oidc"
+            oidc_issuer_url = "https://login.microsoftonline.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/v2.0"
+            email_domains = [ "*" ]
+            cookie_secure = true
+            cookie_domain = ".skyfirstlabs.com"
+            whitelist_domains = [".skyfirstlabs.com"]
+            pass_user_headers = true
+            pass_authorization_header = true
+            pass_access_token = true
+            set_authorization_header = true
+            set_xauthrequest = true
+            # Required for cross-domain auth
+            cookie_samesite = "none" 
+        extraEnv:
+          - name: OAUTH2_PROXY_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: oauth2-proxy-creds
+                key: client-id
+          - name: OAUTH2_PROXY_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: oauth2-proxy-creds
+                key: client-secret
+          - name: OAUTH2_PROXY_COOKIE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: oauth2-proxy-creds
+                key: cookie-secret
+        ingress:
+          enabled: true
+          className: nginx
+          path: /oauth2
+          pathType: Prefix
+          hosts:
+            - auth.skyfirstlabs.com
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+          tls:
+            - secretName: oauth2-proxy-tls
+              hosts:
+                - auth.skyfirstlabs.com
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: ingress-nginx
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

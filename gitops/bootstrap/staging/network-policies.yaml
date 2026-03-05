@@ -123,12 +123,16 @@ spec:
   - Ingress
   - Egress
   
-  # INGRESS: Apenas backend
   ingress:
   - from:
+    # Permite tráfego do backend do Staging (mesmo namespace)
     - podSelector:
         matchLabels:
           app.kubernetes.io/instance: sky-be-stg
+    # Permite tráfego do namespace TeamBlue (Empresa isolada que consome a AI compartilhada)
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: teamblue
     ports:
     - protocol: TCP
       port: 8001

@@ -1,0 +1,17 @@
+# TeamBlue Backend Staging - Valores de Imagem
+# Gerenciado pelo ArgoCD Image Updater via write-back
+image:
+  tag: "sha-latest-manual-reset"
+
+extraEnv:
+  - name: CORS_ORIGINS
+    value: "https://teamblue.skyfirstlabs.com"
+  - name: REDIS_PORT
+    value: "6379"
+  - name: DEBUG
+    value: "true"
+  - name: AI_SERVICE_TYPE
+    value: "real"
+  # AI_SERVICE_URL aponta para o staging (compartilhado)
+  - name: AI_SERVICE_URL
+    value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
