@@ -39,7 +39,7 @@ on:
 # Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
 concurrency:
   group: terraform-deploy-${{ github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # Concurrency removed as per user request for immediate execution
 # WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
@@ -1145,6 +1145,7 @@ jobs:
           # Exit codes: 0 = sem mudanças, 1 = erro, 2 = há mudanças (esperado)
           set +e  # Desabilitar exit on error temporariamente
           terraform plan \
+            -lock-timeout=10m \
             -var-file="$TFVARS_FILE" \
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \
             -out=tfplan \
@@ -2823,7 +2824,8 @@ jobs:
           fi
 
           # Aplicar usando o plan file (mais seguro que -auto-approve)
-          terraform apply tfplan 2>&1 | tee apply-output.txt
+          # Best Practice: Adicionado -lock-timeout=10m para resiliência no apply
+          terraform apply -lock-timeout=10m tfplan 2>&1 | tee apply-output.txt
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
 
           if [ $APPLY_EXIT_CODE -ne 0 ]; then
