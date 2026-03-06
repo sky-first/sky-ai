@@ -41,7 +41,6 @@ spec:
           enabled: true
           className: "nginx"
           annotations:
-            nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32, 20.97.244.91/32, 169.155.237.0/24"
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
             - host: workspace-stg.skyfirstlabs.com
