@@ -6,6 +6,9 @@ image:
   repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
   tag: "sha-9ebc449"
 
+imagePullSecrets:
+  - name: regcred
+
 # Celery Worker não expõe porta HTTP
 service:
   enabled: false
