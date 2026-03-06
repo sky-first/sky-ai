@@ -5,11 +5,7 @@ metadata:
   namespace: argocd
   annotations:
     # Image Updater: Monitora o ACR por imagens com SHA e faz write-back isolado
-    argocd-image-updater.argoproj.io/image-list: sky-poc-backend=skyacrstagingj3minh.azurecr.io/sky-poc-backend:^sha-.*
-    argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
-    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
     # Escreve de volta em arquivo EXCLUSIVO do TeamBlue - sem afetar o Staging
-    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-teamblue-be-stg.yaml
 spec:
   project: default
   source:
