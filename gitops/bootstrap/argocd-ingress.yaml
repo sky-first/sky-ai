@@ -10,7 +10,6 @@ metadata:
     nginx.ingress.kubernetes.io/auth-signin: "https://auth.skyfirstlabs.com/oauth2/start?rd=$escaped_request_uri"
     nginx.ingress.kubernetes.io/auth-response-headers: "x-auth-request-user, x-auth-request-email"
     # Webhook exclusion moved to a separate Ingress object for best practices
-    # nginx.ingress.kubernetes.io/whitelist-source-range: "81.84.211.111/32,169.155.237.0/24"
 spec:
   ingressClassName: nginx
   tls:
