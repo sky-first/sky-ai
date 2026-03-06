@@ -223,7 +223,7 @@ jobs:
           ENV="${{ inputs.environment }}"
           TFVARS="terraform.tfvars.${ENV}"
           echo "Refreshing Terraform state to sync with Azure..."
-          terraform refresh -var-file="$TFVARS"
+          terraform refresh -lock-timeout=2m -var-file="$TFVARS"
           echo "✅ State refreshed successfully"
 
       - name: Show State List

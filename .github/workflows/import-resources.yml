@@ -61,7 +61,7 @@ jobs:
           EOF
       
       - name: Terraform Init
-        run: terraform init -reconfigure -backend-config=backend.hcl
+        run: terraform init -reconfigure -backend-config=backend.hcl -lock-timeout=2m
       
       - name: Select Workspace
         run: |
@@ -102,7 +102,7 @@ jobs:
             
             # Import
             echo "  📥 Importing..."
-            if terraform import "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
+            if terraform import -lock-timeout=10m "$tf_address" "$azure_id" 2>&1 | tee /tmp/import.log; then
               echo "  ✅ Import successful"
             else
               if grep -q "already managed" /tmp/import.log; then
