@@ -14,7 +14,7 @@ spec:
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: feature/cicd-automation-teamblue-stabilization-10x
+    targetRevision: staging
     helm:
       valueFiles:
         - values-teamblue-fe-stg.yaml
