@@ -41,11 +41,11 @@ spec:
                 - teamblue-api.skyfirstlabs.com
         probes:
           liveness:
-            path: /
-            initialDelaySeconds: 45
+            path: /health
+            initialDelaySeconds: 60
           readiness:
-            path: /
-            initialDelaySeconds: 10
+            path: /health
+            initialDelaySeconds: 20
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000

@@ -53,9 +53,22 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-teamblue-ai-worker-secrets
             key: celery_result_backend
-          DATABASE_URL:
-            name: sky-teamblue-ai-worker-secrets
-            key: database_url
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1024Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        probes:
+          liveness:
+            path: /health
+            initialDelaySeconds: 60
+          readiness:
+            path: /health
+            initialDelaySeconds: 20
   destination:
     server: "https://kubernetes.default.svc"
     namespace: teamblue
