@@ -8,7 +8,7 @@ metadata:
     argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: branch:feature/cicd-automation-teamblue-stabilization-10x://gitops/bootstrap/staging/teamblue-frontend.yaml
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/bootstrap/staging/teamblue-frontend.yaml
 spec:
   project: default
   source:
