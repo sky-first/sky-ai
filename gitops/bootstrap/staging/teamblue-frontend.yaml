@@ -35,13 +35,16 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
           hosts:
             - host: teamblue.skyfirstlabs.com
-              paths:
+              paths: &ingress_paths
                 - path: /
                   pathType: Prefix
+            - host: plataform.teamblue-stg.skyfirstlabs.com
+              paths: *ingress_paths
           tls:
             - secretName: sky-fe-teamblue-tls
               hosts:
                 - teamblue.skyfirstlabs.com
+                - plataform.teamblue-stg.skyfirstlabs.com
         probes:
           liveness:
             path: /

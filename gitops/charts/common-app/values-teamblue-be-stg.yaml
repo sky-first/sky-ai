@@ -1,7 +1,7 @@
 # TeamBlue Backend Staging - Valores de Imagem
 # Gerenciado pelo ArgoCD Image Updater via write-back
 image:
-  tag: "sha-latest-manual-reset"
+  tag: "sha-9ebc449"
 
 extraEnv:
   - name: CORS_ORIGINS

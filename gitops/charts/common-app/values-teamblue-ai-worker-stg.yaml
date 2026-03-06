@@ -1,0 +1,48 @@
+# TeamBlue AI Worker - Staging Configuration
+# Nível 10x: Desativando probes HTTP para processos de background (Celery)
+nameOverride: "sky-teamblue-ai-worker"
+
+image:
+  repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
+  tag: "sha-9ebc449"
+
+# Celery Worker não expõe porta HTTP
+service:
+  enabled: false
+ingress:
+  enabled: false
+
+probes:
+  liveness:
+    enabled: false
+  readiness:
+    enabled: false
+
+command: ["celery"]
+args:
+  ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+podAnnotations:
+  cost-center: "engineering"
+  owner: "data-first-engineering"
+
+extraEnv:
+  - name: REDIS_HOST
+    value: "redis"
+  - name: REDIS_PORT
+    value: "6379"
+  - name: DEBUG
+    value: "false"
+  - name: OLLAMA_BASE_URL
+    value: "http://localhost:11434"
+  - name: AI_SERVICE_TYPE
+    value: "real"
+  # URL da IA compartilhada do Staging
+  - name: AI_SERVICE_URL
+    value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
