@@ -5,7 +5,7 @@ image:
 
 extraEnv:
   - name: CORS_ORIGINS
-    value: "https://teamblue.skyfirstlabs.com"
+    value: "https://teamblue.skyfirstlabs.com,https://plataform.teamblue-stg.skyfirstlabs.com"
   - name: REDIS_PORT
     value: "6379"
   - name: DEBUG
@@ -15,3 +15,11 @@ extraEnv:
   # AI_SERVICE_URL aponta para o staging (compartilhado)
   - name: AI_SERVICE_URL
     value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
