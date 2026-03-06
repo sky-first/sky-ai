@@ -43,11 +43,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # Ignored because: When runner_ip is null, cluster becomes private (private_cluster_enabled = true)
     # Private clusters don't require authorized_ip_ranges (access is VNET-only via Bastion)
     # When runner_ip is provided, it is included in authorized_ip_ranges (restricted public access)
-    authorized_ip_ranges = distinct(compact(concat(
-      var.runner_ip != null ? [var.runner_ip] : [],
-      var.authorized_ips,
-      var.ssh_public_key != null ? [azurerm_public_ip.bastion[0].ip_address] : []
-    )))
+    # Acesso Cloud Native: Segurança transferida 100% para o Microsoft Entra ID (Identity-as-a-Perimeter)
+    # Ignorando whitelists legadas de IP; exigindo forte autenticação OIDC + RBAC.
+    authorized_ip_ranges = ["0.0.0.0/0"]
   }
   # Enable private cluster if no runner_ip is provided (more secure - VNET access only)
   # Private cluster requires access via Bastion or VPN, which is available in this setup
