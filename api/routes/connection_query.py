@@ -550,6 +550,7 @@ async def _filter_tables_by_permissions(
     space_id: str,
     tables: list[dict],
     crew_ids: Optional[List[str]] = None,
+    strict_mode: bool = False,
 ) -> list[dict]:
     """
     Filtra tabelas baseado em permissões (space_id + crew_ids).
@@ -564,6 +565,8 @@ async def _filter_tables_by_permissions(
         space_id: ID do space
         tables: Lista de tabelas do connection_metadata.tables
         crew_ids: Lista opcional de crew_ids para filtrar
+        strict_mode: Se True (modo colaborativo), falhas de permissão retornam lista vazia
+                     em vez de todas as tabelas. Previne vazamento de dados em modo crew.
         
     Returns:
         Lista filtrada de tabelas que o usuário tem permissão
@@ -633,8 +636,19 @@ async def _filter_tables_by_permissions(
             except Exception:
                 pass
 
-            # IMPORTANTE: Se a tabela não existe, retornamos todas as tabelas (sem filtro)
-            # Isso é o comportamento fallback seguro.
+            # SEGURANÇA: Em strict_mode (modo colaborativo), falha de DB => lista vazia.
+            # Em modo personal/fallback, retornar todas as tabelas.
+            if strict_mode:
+                log_event(
+                    "table_filter_strict_mode_db_error",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "crew_ids": crew_ids,
+                        "error": str(e)[:200],
+                    },
+                )
+                return []  # Fail-closed: não vazar dados de outras crews
             return tables
         
         # Filtrar tabelas baseado em allowed_table_names
@@ -650,11 +664,10 @@ async def _filter_tables_by_permissions(
             if full_name in allowed_table_names or name in allowed_table_names:
                 filtered_tables.append(t)
         
-        # Se não encontramos correspondências em table_metadata, retornar todas
-        # (pode ser que table_metadata não esteja populado ainda)
+        # Se não encontramos correspondências em table_metadata:
         if not filtered_tables and allowed_table_names:
-            # Se há allowed_table_names mas não encontramos match, pode ser problema de normalização
-            # Retornar todas por segurança
+            # Há allowed_table_names no DB mas nenhuma tabela do metadata coincide.
+            # Pode ser problema de normalização de nome (schema.table vs table).
             log_event(
                 "bootstrap_table_filter_no_matches",
                 {
@@ -663,22 +676,48 @@ async def _filter_tables_by_permissions(
                     "crew_ids": crew_ids,
                     "total_tables": len(tables),
                     "allowed_table_names_count": len(allowed_table_names),
+                    "strict_mode": strict_mode,
                 },
             )
-            return tables
+            # SEGURANÇA: Em strict_mode (modo colaborativo), problema de normalização
+            # NÃO deve abrir acesso a todas as tabelas — retornar vazio.
+            if strict_mode:
+                return []  # Fail-closed
+            return tables  # Modo personal: fail-open (sem dados de crew configurados)
         
-        return filtered_tables if filtered_tables else tables
+        # Se não há nenhum registro em table_metadata (tabela não configurada)
+        if not filtered_tables and not allowed_table_names:
+            # table_metadata não tem registros para este space/connection
+            # Em modo personal: retornar todas (sem restrições configuradas ainda)
+            # Em strict_mode: retornar vazio (política de negação por padrão)
+            if strict_mode:
+                log_event(
+                    "table_filter_strict_mode_no_metadata",
+                    {
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "crew_ids": crew_ids,
+                    },
+                )
+                return []  # Fail-closed
+            return tables
+
+        return filtered_tables
         
     except Exception as e:
-        # Se der erro ao filtrar, retornar todas as tabelas (fail-safe)
+        # Se der erro ao filtrar:
         log_event(
             "bootstrap_table_filter_error",
             {
                 "connection_id": connection_id,
                 "space_id": space_id,
                 "error": str(e)[:500],
+                "strict_mode": strict_mode,
             },
         )
+        # SEGURANÇA: Em strict_mode, erro => lista vazia (fail-closed)
+        if strict_mode:
+            return []
         return tables
 
 
@@ -703,12 +742,14 @@ async def _get_allowed_tables_for_validation(
             return []
         
         # Filtrar por permissões
+        # strict_mode=True quando há crew_ids (modo colaborativo) para evitar vazamento de dados
         filtered_tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=space_id,
             tables=all_tables,
-            crew_ids=crew_ids
+            crew_ids=crew_ids,
+            strict_mode=bool(crew_ids),  # Fail-closed quando restrito a crews específicas
         )
         
         # Extrair apenas nomes
@@ -1258,12 +1299,16 @@ async def chat_bootstrap(
         tables = all_tables
     else:
         # Modo collaborative: filtrar por permissões
+        # strict_mode=True quando há crew_ids específicos (modo colaborativo real)
+        # strict_mode=False quando não há crew_ids (guest, sem permissões configuradas)
+        is_strict = bool(resolved_crew_ids)  # strict quando tem crews definidos
         tables = await _filter_tables_by_permissions(
             db=db,
             connection_id=connection_id,
             space_id=body.space_id,
             tables=all_tables,
             crew_ids=resolved_crew_ids,
+            strict_mode=is_strict,
         )
     
     if not tables:
@@ -2060,10 +2105,32 @@ async def list_available_tables(
             )
             # Se falhar ao resolver, usar lista vazia (apenas dados públicos)
             resolved_crew_ids = []
-    
-    # Backend-compatible: list tables from `connection_metadata.tables`.
-    # Note: we currently do not enforce crew_id-level filtering here; that is handled by the product backend permissions.
+
+    # Load raw tables from connection_metadata
     raw_tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
+
+    # FIX 3: Apply crew-level permission filtering in collaborative mode.
+    # Previously, this endpoint resolved crew_ids but did NOT filter the tables.
+    # Now we enforce strict_mode=True when specific crews are active.
+    if not is_personal and resolved_crew_ids:
+        raw_tables = await _filter_tables_by_permissions(
+            db=db,
+            connection_id=connection_id,
+            space_id=space_id,
+            tables=raw_tables,
+            crew_ids=resolved_crew_ids,
+            strict_mode=True,  # fail-closed: collaborative mode must not expose other crews
+        )
+        log_event(
+            "api_list_tables_filtered_by_crew",
+            {
+                "connection_id": connection_id,
+                "space_id": space_id,
+                "crew_ids": resolved_crew_ids,
+                "num_tables_after_filter": len(raw_tables),
+            },
+        )
+
     tables_info = []
     for t in raw_tables:
         schema = str(t.get("schema") or "").strip()
@@ -2421,31 +2488,63 @@ async def query_connection(
         from core.llm.factory import create_embedding_provider
         from db.models import SemanticCacheRecord
         from sqlalchemy import text
-        
+
         # Só fazemos cache para requisições de resposta ou dashboard gerado,
         # desconsiderando vazamentos se houver comandos curtos muito vagos.
         if body.question and len(body.question.strip()) >= 10:
             embed_provider = create_embedding_provider()
             query_embedding = await embed_provider.embed_async([body.question])
             query_embedding = query_embedding[0]
-            
-            sql_stmt = """
-                SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity 
-                FROM semantic_cache
-                WHERE connection_id = :conn_id
-                AND (space_id = :space_id OR space_id IS NULL)
-                AND (1 - (embedding <=> :query_emb)) >= 0.95
-                ORDER BY similarity DESC
-                LIMIT 1
-            """
-            
-            db_res = await db.execute(text(sql_stmt), {
-                "query_emb": str(query_embedding),
-                "conn_id": connection_id,
-                "space_id": body.space_id
-            })
+
+            # FIX 2: Filter semantic cache by crew_id to prevent cross-crew data leakage.
+            # - In collaborative mode (crew_ids present): only return records cached for the
+            #   same crew (crew_id = active_crew) OR generic personal-mode records (crew_id IS NULL).
+            # - In personal mode (no crew restriction): only return records with crew_id IS NULL.
+            active_cache_crew = None
+            is_personal_cache = getattr(body, 'is_personal', True)
+            body_crew_ids = getattr(body, 'crew_ids', None) or []
+            if not is_personal_cache and len(body_crew_ids) == 1:
+                # Exactly one crew = strict collaborative mode; use it for cache isolation
+                active_cache_crew = body_crew_ids[0]
+
+            if active_cache_crew:
+                # Collaborative: match records cached for this specific crew
+                sql_stmt = """
+                    SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
+                    FROM semantic_cache
+                    WHERE connection_id = :conn_id
+                    AND (space_id = :space_id OR space_id IS NULL)
+                    AND crew_id = :crew_id
+                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    ORDER BY similarity DESC
+                    LIMIT 1
+                """
+                db_res = await db.execute(text(sql_stmt), {
+                    "query_emb": str(query_embedding),
+                    "conn_id": connection_id,
+                    "space_id": body.space_id,
+                    "crew_id": active_cache_crew,
+                })
+            else:
+                # Personal mode: only return records that have no crew restriction
+                sql_stmt = """
+                    SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
+                    FROM semantic_cache
+                    WHERE connection_id = :conn_id
+                    AND (space_id = :space_id OR space_id IS NULL)
+                    AND crew_id IS NULL
+                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    ORDER BY similarity DESC
+                    LIMIT 1
+                """
+                db_res = await db.execute(text(sql_stmt), {
+                    "query_emb": str(query_embedding),
+                    "conn_id": connection_id,
+                    "space_id": body.space_id,
+                })
+
             cache_row = db_res.first()
-            
+
             if cache_row:
                 cached_json, sim_score = cache_row
                 from core.logging_utils import log_event
@@ -2453,6 +2552,7 @@ async def query_connection(
                     "connection_id": connection_id,
                     "similarity_score": round(sim_score, 4),
                     "original_question": body.question[:50],
+                    "crew_id": active_cache_crew,  # for audit
                 })
                 return QueryResponse.model_validate(cached_json)
     except Exception as sc_err:
@@ -2467,9 +2567,12 @@ async def query_connection(
         if query_embedding and response.meta and getattr(response.meta, 'error', None) is None:
             # We don't cache errors from security/language blocks
             if response.answer and not response.answer.startswith("I'm sorry, but I only support questions"):
+                # FIX 2: Store crew_id so that we never return this cache entry to a different crew.
+                # active_cache_crew is already computed in the lookup block above.
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
+                    crew_id=active_cache_crew,  # None for personal mode, crew UUID for collaborative
                     question=body.question,
                     embedding=query_embedding,
                     response_json=response.model_dump(mode='json')
@@ -2667,7 +2770,7 @@ async def _query_connection_inner(
             # Load table metadata for dashboard generation
             tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
             tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
-            
+
             # Resolve crew_ids
             resolved_crew_ids = []
             if body.user_id:
@@ -2678,12 +2781,33 @@ async def _query_connection_inner(
                         user_id=UUID(body.user_id),
                         space_id=UUID(body.space_id) if body.space_id else None,
                         request_crew_ids=body.crew_ids,
-                        is_personal=False
+                        is_personal=getattr(body, 'is_personal', False)
                     )
                     resolved_crew_ids = [str(x) for x in (resolved or [])]
                 except Exception as e:
                     log_event("dashboard_direct_resolve_crew_error", {"error": str(e)})
-            
+
+            # FIX 4: Apply crew-level permission filter in collaborative mode.
+            # Previously the dashboard intent flow loaded all tables without filtering by crew.
+            is_collab = not getattr(body, 'is_personal', False)
+            if is_collab and resolved_crew_ids:
+                tables = await _filter_tables_by_permissions(
+                    db=db,
+                    connection_id=connection_id,
+                    space_id=body.space_id,
+                    tables=tables,
+                    crew_ids=resolved_crew_ids,
+                    strict_mode=True,  # fail-closed in collaborative mode
+                )
+                log_event(
+                    "dashboard_direct_tables_filtered_by_crew",
+                    {
+                        "connection_id": connection_id,
+                        "crew_ids": resolved_crew_ids,
+                        "num_tables_after_filter": len(tables),
+                    },
+                )
+
             # Generate schema summary
             max_tables_in_prompt = min(30, len(tables))
             logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
