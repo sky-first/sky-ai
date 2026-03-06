@@ -38,10 +38,10 @@ on:
 # Concurrency control: Ensure we don't have multiple Terraform operations for the same environment
 concurrency:
   group: terraform-deploy-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
-# Concurrency removed as per user request for immediate execution
-# WARNING: This may re-introduce state lock conflicts if multiple workflows run on the same environment
+# Concurrency restored to prevent state lock overlaps
+# Using cancel-in-progress: false to let the first apply finish smoothly and avoid killing Terraform mid-execution
 
 env:
   TERRAFORM_VERSION: "1.9.0"
