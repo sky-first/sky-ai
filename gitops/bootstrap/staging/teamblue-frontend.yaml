@@ -23,6 +23,7 @@ spec:
           - name: regcred
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
+          tag: sha-26d133b95cd0f2908ba9891903fffd0125284764
         service:
           port: 80
           targetPort: 3000

@@ -24,6 +24,7 @@ spec:
           - name: regcred
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
+          tag: sha-3b16b86e5c15eec62889da6eca34068f4f1bb671
           pullPolicy: Always
         service:
           port: 80
