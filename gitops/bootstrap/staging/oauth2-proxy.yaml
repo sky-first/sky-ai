@@ -13,6 +13,11 @@ spec:
     chart: oauth2-proxy
     helm:
       values: |
+        # Use extraEnv exclusively to avoid legacy config files
+        config: 
+          configFile: ""
+        extraArgs:
+          - --config=""
         extraEnv:
           - name: OAUTH2_PROXY_PROVIDER
             value: "oidc"
