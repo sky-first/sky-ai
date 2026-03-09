@@ -108,8 +108,6 @@ spec:
 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
-        # Map the synced secrets to Env Vars in the container
-        envSecrets:
           # These keys will be present in the secret created by ExternalSecret
           jwt-secret-key:
             name: sky-be-stg-secrets
