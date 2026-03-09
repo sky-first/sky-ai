@@ -13,11 +13,20 @@ spec:
     chart: oauth2-proxy
     helm:
       values: |
-        # Use extraEnv exclusively to avoid legacy config files
         config: 
-          configFile: ""
-        extraArgs:
-          - --config=""
+          configFile: |-
+            provider = "oidc"
+            oidc_issuer_url = "https://login.microsoftonline.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/v2.0"
+            email_domains = [ "*" ]
+            cookie_secure = true
+            cookie_samesite = "lax"
+            pass_user_headers = true
+            pass_authorization_header = true
+            pass_access_token = true
+            set_authorization_header = true
+            set_xauthrequest = true
+            cookie_domains = [".skyfirstlabs.com"]
+            whitelist_domains = [".skyfirstlabs.com"]
         extraEnv:
           - name: OAUTH2_PROXY_PROVIDER
             value: "oidc"
