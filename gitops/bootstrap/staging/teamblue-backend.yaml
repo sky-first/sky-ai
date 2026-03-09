@@ -36,8 +36,6 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
             nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-            nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$2
-            nginx.ingress.kubernetes.io/use-regex: "true"
           hosts:
             - host: teamblue-api.skyfirstlabs.com
               paths:
@@ -49,10 +47,9 @@ spec:
                   pathType: ImplementationSpecific
             - host: plataform.teamblue-stg.skyfirstlabs.com
               paths:
-                - path: /api/auth(/|$)(.*)
-                  pathType: ImplementationSpecific
-                - path: /api/v1(/|$)(.*)
-                  pathType: ImplementationSpecific
+                - path: /api
+                  pathType: Prefix
+
           tls:
             - secretName: sky-be-teamblue-tls
               hosts:
@@ -150,6 +147,14 @@ spec:
             value: "https://plataform.teamblue-stg.skyfirstlabs.com,https://teamblue.skyfirstlabs.com"
           - name: CORS_ALLOW_CREDENTIALS
             value: "true"
+          - name: WORKSPACE_ID
+            value: "teamblue"
+          - name: REFRESH_UI
+            value: "2026-03-09-v2"
+          - name: DATABASE_POOL_SIZE
+            value: "20"
+          - name: DATABASE_MAX_OVERFLOW
+            value: "20"
         migration:
           enabled: true
           command: ["/bin/sh", "-c"]

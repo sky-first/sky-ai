@@ -40,6 +40,7 @@ spec:
               sub_filter '"children":"SKY"' '"children":"TeamBlue"';
               sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
               sub_filter '">SKY<' '">TeamBlue<';
+              sub_filter '/icon.png' 'https://raw.githubusercontent.com/sky-first/sky-poc-infra/staging/assets/teamblue-favicon.png';
           hosts:
             - host: teamblue.skyfirstlabs.com
               paths: &ingress_paths
