@@ -87,9 +87,9 @@ spec:
             key: NEXTAUTH_SECRET
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://teamblue-api.skyfirstlabs.com"
+            value: "https://teamblue.skyfirstlabs.com"
           - name: NEXTAUTH_URL
-            value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+            value: "https://teamblue.skyfirstlabs.com"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: teamblue
