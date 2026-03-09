@@ -49,9 +49,7 @@ spec:
                   pathType: ImplementationSpecific
             - host: plataform.teamblue-stg.skyfirstlabs.com
               paths:
-                - path: /api/auth(/|$)(.*)
-                  pathType: ImplementationSpecific
-                - path: /api/v1(/|$)(.*)
+                - path: /api(/|$)(.*)
                   pathType: ImplementationSpecific
           tls:
             - secretName: sky-be-teamblue-tls
