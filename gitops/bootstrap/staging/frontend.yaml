@@ -42,6 +42,7 @@ spec:
           className: "nginx"
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
           hosts:
             - host: workspace-stg.skyfirstlabs.com
               paths:
