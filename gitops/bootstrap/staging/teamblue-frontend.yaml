@@ -33,6 +33,12 @@ spec:
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+            nginx.ingress.kubernetes.io/proxy-set-header: "Accept-Encoding ''"
+            nginx.ingress.kubernetes.io/configuration-snippet: |
+              sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
+              sub_filter '"children":"SKY"' '"children":"TeamBlue"';
+              sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
+              sub_filter '<link rel="icon" href="/favicon.ico"' '<link rel="icon" href="/favicons/teamblue.ico"';
           hosts:
             - host: teamblue.skyfirstlabs.com
               paths: &ingress_paths
@@ -87,9 +93,9 @@ spec:
             key: NEXTAUTH_SECRET
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
-            value: "https://teamblue.skyfirstlabs.com"
+            value: "https://plataform.teamblue-stg.skyfirstlabs.com"
           - name: NEXTAUTH_URL
-            value: "https://teamblue.skyfirstlabs.com"
+            value: "https://plataform.teamblue-stg.skyfirstlabs.com"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: teamblue
