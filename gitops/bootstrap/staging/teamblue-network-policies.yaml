@@ -61,6 +61,7 @@ spec:
 
   # AI Service (serviço compartilhado no namespace staging)
   # Acesso cross-namespace intencional - TeamBlue usa o AI do Staging
+  # NOTA: namespaceSelector + podSelector no mesmo bloco = operador AND (correto para cross-namespace)
   - to:
     - namespaceSelector:
         matchLabels:
@@ -71,6 +72,17 @@ spec:
     ports:
     - protocol: TCP
       port: 8001
+    - protocol: TCP
+      port: 80
+
+  # Celery/AI Workers no staging (para comunicação com o broker Redis compartilhado)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: staging
+    ports:
+    - protocol: TCP
+      port: 6379
 
   # External HTTPS (Azure Key Vault, OpenAI API, ACR)
   - to:
