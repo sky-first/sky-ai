@@ -36,19 +36,21 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
             nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+            nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$2
+            nginx.ingress.kubernetes.io/use-regex: "true"
           hosts:
             - host: teamblue-api.skyfirstlabs.com
               paths:
-                - path: /
-                  pathType: Prefix
+                - path: /api(/|$)(.*)
+                  pathType: ImplementationSpecific
             - host: teamblue.skyfirstlabs.com
               paths:
-                - path: /api
-                  pathType: Prefix
+                - path: /api(/|$)(.*)
+                  pathType: ImplementationSpecific
             - host: plataform.teamblue-stg.skyfirstlabs.com
               paths:
-                - path: /api
-                  pathType: Prefix
+                - path: /api(/|$)(.*)
+                  pathType: ImplementationSpecific
           tls:
             - secretName: sky-be-teamblue-tls
               hosts:

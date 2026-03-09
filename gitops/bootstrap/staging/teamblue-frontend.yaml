@@ -36,9 +36,10 @@ spec:
             nginx.ingress.kubernetes.io/proxy-set-header: "Accept-Encoding ''"
             nginx.ingress.kubernetes.io/configuration-snippet: |
               sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
+              sub_filter '<title>Sky</title>' '<title>TeamBlue</title>';
               sub_filter '"children":"SKY"' '"children":"TeamBlue"';
               sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
-              sub_filter '<link rel="icon" href="/favicon.ico"' '<link rel="icon" href="/favicons/teamblue.ico"';
+              sub_filter '">SKY<' '">TeamBlue<';
           hosts:
             - host: teamblue.skyfirstlabs.com
               paths: &ingress_paths
