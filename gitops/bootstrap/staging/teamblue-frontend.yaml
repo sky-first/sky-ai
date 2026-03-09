@@ -65,6 +65,25 @@ spec:
           enabled: true
           minReplicas: 2
           maxReplicas: 10
+        externalSecret:
+          enabled: true
+          secretStoreRef:
+            name: azure-keyvault
+            kind: ClusterSecretStore
+          target:
+            creationPolicy: Owner
+            template:
+              engineVersion: v2
+              data:
+                NEXTAUTH_SECRET: "{{ .nextauth_secret }}"
+          data:
+            - secretKey: nextauth_secret
+              remoteRef:
+                key: nextauth-secret
+        envSecrets:
+          NEXTAUTH_SECRET:
+            name: sky-fe-teamblue-stg-common-app-secrets
+            key: NEXTAUTH_SECRET
         extraEnv:
           - name: NEXT_PUBLIC_API_URL
             value: "https://teamblue-api.skyfirstlabs.com"

@@ -16,12 +16,15 @@ spec:
   - Ingress
   - Egress
 
-  # INGRESS: Apenas nginx-ingress pode enviar para o backend
+  # INGRESS: nginx-ingress e frontend podem enviar para o backend
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: ingress-nginx
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: sky-fe-teamblue-stg
     ports:
     - protocol: TCP
       port: 8000
@@ -117,3 +120,10 @@ spec:
     ports:
     - protocol: TCP
       port: 8000
+
+  # External HTTPS (Obrigatório para NextAuth Providers e API Pública Server-Side)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
