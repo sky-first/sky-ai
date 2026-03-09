@@ -22,15 +22,12 @@ spec:
             oidc_issuer_url = "https://login.microsoftonline.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/v2.0"
             email_domains = [ "*" ]
             cookie_secure = true
-            cookie_domains = [".skyfirstlabs.com"]
-            whitelist_domains = [".skyfirstlabs.com"]
+            cookie_samesite = "lax"
             pass_user_headers = true
             pass_authorization_header = true
             pass_access_token = true
             set_authorization_header = true
             set_xauthrequest = true
-            # Required for cross-domain auth
-            cookie_samesite = "none" 
         extraEnv:
           - name: OAUTH2_PROXY_CLIENT_ID
             valueFrom:
