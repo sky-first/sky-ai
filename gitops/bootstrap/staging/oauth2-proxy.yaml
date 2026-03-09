@@ -13,7 +13,6 @@ spec:
     chart: oauth2-proxy
     helm:
       values: |
-        # Use extraEnv exclusively to avoid legacy config files
         config: 
           configFile: |-
             provider = "oidc"
@@ -26,6 +25,8 @@ spec:
             pass_access_token = true
             set_authorization_header = true
             set_xauthrequest = true
+            cookie_domains = [".skyfirstlabs.com"]
+            whitelist_domains = [".skyfirstlabs.com"]
         extraEnv:
           - name: OAUTH2_PROXY_PROVIDER
             value: "oidc"
