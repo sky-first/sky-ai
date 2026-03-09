@@ -13,7 +13,7 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "en": "I cannot process sensitive personal information. Please rephrase your question without including personal data."
     },
     "TECHNICAL_ERROR": {
-        "en": "There was a technical error while querying the database."
+        "en": "I couldn't find any data to answer this question. This usually happens if the data is outside your Space or Crew's authorized access."
     },
     "NO_DATA_FOUND": {
         "en": "Sorry, I couldn't find any data about {topic}. Please try rephrasing."

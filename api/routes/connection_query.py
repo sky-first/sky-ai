@@ -1291,25 +1291,19 @@ async def chat_bootstrap(
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
     # ✅ NOVA: Filtrar tabelas por permissões (agnóstico, funciona para qualquer domínio)
-    # Em modo personal (is_personal=True), resolved_crew_ids pode ser None ou vazio
-    # Nesse caso, retornamos todas as tabelas (usuário tem acesso a tudo)
-    # Em modo collaborative, filtramos baseado em resolved_crew_ids
-    if body.is_personal:
-        # Modo personal: usar todas as tabelas (usuário tem acesso a todos os crews)
-        tables = all_tables
-    else:
-        # Modo collaborative: filtrar por permissões
-        # strict_mode=True quando há crew_ids específicos (modo colaborativo real)
-        # strict_mode=False quando não há crew_ids (guest, sem permissões configuradas)
-        is_strict = bool(resolved_crew_ids)  # strict quando tem crews definidos
-        tables = await _filter_tables_by_permissions(
-            db=db,
-            connection_id=connection_id,
-            space_id=body.space_id,
-            tables=all_tables,
-            crew_ids=resolved_crew_ids,
-            strict_mode=is_strict,
-        )
+    # Filtramos sempre, garantindo que o usuário só veja sugestões para dados que ele tem permissão.
+    # No modo personal, `resolved_crew_ids` contém todas as crews do usuário.
+    # No modo collaborative, contém apenas a crew ativa.
+    is_strict = not bool(body.is_personal) # modo colaborativo = strict
+    
+    tables = await _filter_tables_by_permissions(
+        db=db,
+        connection_id=connection_id,
+        space_id=body.space_id,
+        tables=all_tables,
+        crew_ids=resolved_crew_ids,
+        strict_mode=is_strict,
+    )
     
     if not tables:
         # Se após filtrar não há tabelas, retornar fallback
@@ -1888,6 +1882,19 @@ async def dashboards_plan(
             max_tables_in_prompt = min(30, len(logical_tables))
         else:
             tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
+            
+            # 🔥 SECURITY FIX: Filtrar tabelas por permissões de Crew antes do enrichment e do LLM.
+            # Isso impede que o Davinci planeje widgets usando tabelas não autorizadas.
+            is_strict = not bool(getattr(body, "is_personal", False))
+            tables = await _filter_tables_by_permissions(
+                db=db,
+                connection_id=connection_id,
+                space_id=body.space_id,
+                tables=tables,
+                crew_ids=resolved_crew_ids,
+                strict_mode=is_strict,
+            )
+
             # ✅ Enrich with AI metadata (date ranges!)
             tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
 
@@ -2184,6 +2191,7 @@ async def load_agent_config_from_connection(
     space_id: str,
     connection_id: str,
     crew_ids: Optional[List[str]] = None,
+    authorized_tables: Optional[List[str]] = None,
 ) -> AgentConfig:
     """
     Carrega TableMetadata e monta AgentConfig automaticamente para uma conexão.
@@ -2233,6 +2241,25 @@ async def load_agent_config_from_connection(
             project_id = None
             if isinstance(config, dict):
                 project_id = config.get("project_id") or config.get("gcp_project_id")
+
+            # 🔥 SECURITY FIX: Filtrar tabelas recuperadas via JSON do connection_metadata
+            # Se authorized_tables for fornecido (Backend), essa é a fonte absoluta de permissão.
+            if authorized_tables is not None:
+                tables_json = [
+                    t for t in tables_json 
+                    if str(t.get("name") or "").strip() in authorized_tables
+                ]
+                logger.info(f"Filtro estrito via authorized_tables. Tabelas retidas: {len(tables_json)}")
+            # Caso contrário, fallback para a checagem falha de crew_id no DB (apenas log/alert ou legacy)
+            elif crew_ids is not None:
+                tables_json = await _filter_tables_by_permissions(
+                    db=db,
+                    connection_id=connection_id,
+                    space_id=space_id,
+                    tables=tables_json,
+                    crew_ids=crew_ids,
+                    strict_mode=True,
+                )
 
             table_schemas: list[TableSchema] = []
             for t in tables_json:
@@ -2943,6 +2970,7 @@ async def _query_connection_inner(
             space_id=body.space_id,
             connection_id=connection_id,
             crew_ids=crew_ids if crew_ids else None,
+            authorized_tables=body.authorized_tables,
         )
         
         log_event(
@@ -3785,6 +3813,7 @@ async def _stream_connection_query(
                 space_id=body.space_id,
                 connection_id=connection_id,
                 crew_ids=crew_ids if crew_ids else None,
+                authorized_tables=body.authorized_tables,
             )
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
