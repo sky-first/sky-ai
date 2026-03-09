@@ -146,6 +146,15 @@ spec:
     - protocol: UDP
       port: 53
   
+  # Postgres (internal) - Added for SQL Generation execution
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+
   # Redis (celery)
   - to:
     - podSelector:
