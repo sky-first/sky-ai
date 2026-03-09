@@ -14,9 +14,9 @@ spec:
     helm:
       values: |
         config:
-          clientID: "to-be-loaded-from-secret"
-          clientSecret: "to-be-loaded-from-secret"
-          cookieSecret: "to-be-loaded-from-secret"
+          clientID: "OAUTH2_PROXY_CLIENT_ID"
+          clientSecret: "OAUTH2_PROXY_CLIENT_SECRET"
+          cookieSecret: "OAUTH2_PROXY_COOKIE_SECRET"
           configFile: |-
             provider = "oidc"
             oidc_issuer_url = "https://login.microsoftonline.com/a1b3ce06-b7ba-4d99-8a26-3347ab865f36/v2.0"
