@@ -449,6 +449,7 @@ jobs:
           # Executar terraform plan com tratamento de lock
           set +e
           terraform plan \
+            -lock-timeout=3m \
             -var-file=${{ steps.detect-env.outputs.tfvars }} \
             -var="subscription_id=${ARM_SUBSCRIPTION_ID}" \
             -var="runner_ip=${{ steps.ip.outputs.runner_ip }}" \

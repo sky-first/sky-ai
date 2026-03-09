@@ -44,6 +44,8 @@ spec:
           className: "nginx"
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+            nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
           hosts:
             - host: workspace-stg-ollama.skyfirstlabs.com
               paths:
