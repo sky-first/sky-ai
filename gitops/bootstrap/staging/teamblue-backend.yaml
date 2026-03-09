@@ -132,6 +132,12 @@ spec:
           # Se o TeamBlue tiver AI própria, altere para: http://sky-ai-teamblue-common-app.teamblue.svc.cluster.local
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
+          # CORS: Origens permitidas para aceitar requisições cross-origin do frontend
+          # Sem isso o FastAPI bloqueia PUT/POST/PATCH com 403 Forbidden
+          - name: ALLOWED_ORIGINS
+            value: "https://plataform.teamblue-stg.skyfirstlabs.com,https://teamblue.skyfirstlabs.com"
+          - name: CORS_ALLOW_CREDENTIALS
+            value: "true"
         migration:
           enabled: true
           command: ["/bin/sh", "-c"]

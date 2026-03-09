@@ -33,7 +33,7 @@ spec:
               - ALL
         image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
-          tag: sha-9ebc449
+          tag: sha-6f6c8b54a2098db2aa2128894876fa3b0b98e15e
           pullPolicy: IfNotPresent
         
         # O Worker não precisa de Ingress nem Service
