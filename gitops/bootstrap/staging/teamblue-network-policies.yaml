@@ -83,7 +83,8 @@ spec:
 
   # External HTTPS (Azure Key Vault, OpenAI API, ACR)
   - to:
-    - namespaceSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: TCP
       port: 443
@@ -132,7 +133,8 @@ spec:
 
   # External HTTPS (Obrigatório para NextAuth Providers e API Pública Server-Side)
   - to:
-    - namespaceSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: TCP
       port: 443
