@@ -53,6 +53,12 @@ class QueryRequest(BaseModel):
         description="List of datasets/tables manually selected by the user. If provided, the orchestrator will use only these tables instead of choosing automatically."
     )
     
+    # ✅ NEW: Strictly authorized tables by the backend
+    authorized_tables: Optional[List[str]] = Field(
+        default=None,
+        description="List of strictly authorized tables computed by the backend. If provided, the AI Engine will completely ignore any table not in this list."
+    )
+    
     # ✅ NEW: Dynamic security configuration (sent by backend)
     security_config: Optional[SecurityConfig] = Field(
         default=None,
