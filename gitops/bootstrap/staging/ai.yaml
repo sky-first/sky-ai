@@ -55,6 +55,13 @@ spec:
             - secretName: sky-ai-stg-tls
               hosts:
                 - workspace-stg-ollama.skyfirstlabs.com
+        resources:
+          requests:
+            cpu: 300m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
         probes:
           liveness:
             path: /docs
@@ -117,6 +124,13 @@ spec:
             
         migration:
           enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           command: ["python3", "-c"]
           args: 
             - |
