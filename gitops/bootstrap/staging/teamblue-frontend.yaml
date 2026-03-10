@@ -35,10 +35,10 @@ spec:
             nginx.ingress.kubernetes.io/configuration-snippet: |
               sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
               sub_filter '<title>Sky</title>' '<title>TeamBlue</title>';
-              sub_filter '"children":"SKY"' '"children":"TeamBlue"';
-              sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
               sub_filter '">SKY<' '">TeamBlue<';
-              sub_filter '/icon.png' 'https://raw.githubusercontent.com/sky-first/sky-poc-infra/staging/assets/teamblue-favicon.png';
+              sub_filter '"SKY"' '"TeamBlue"';
+              sub_filter '/icon.png' 'https://raw.githubusercontent.com/sky-first/sky-poc-infra/staging/assets/teamblue-favicon-circular.png?v=2';
+              sub_filter '/favicon.ico' 'https://raw.githubusercontent.com/sky-first/sky-poc-infra/staging/assets/teamblue-favicon-circular.png?v=2';
           hosts:
             - host: teamblue.skyfirstlabs.com
               paths: &ingress_paths
