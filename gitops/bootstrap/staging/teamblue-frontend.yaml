@@ -8,13 +8,13 @@ metadata:
     argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
-    argocd-image-updater.argoproj.io/write-back-target: branch:DO2025-1029-erro-403-simulacao-cliente://gitops/bootstrap/staging/teamblue-frontend.yaml
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/bootstrap/staging/teamblue-frontend.yaml
 spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
     path: gitops/charts/common-app
-    targetRevision: DO2025-1029-erro-403-simulacao-cliente
+    targetRevision: staging
     helm:
       valueFiles:
         - values-teamblue-fe-stg.yaml
