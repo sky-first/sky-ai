@@ -47,12 +47,9 @@ spec:
     - protocol: TCP
       port: 5432
 
-  # Redis (cache compartilhado - namespace staging)
+  # Redis (cache isolado ou compartilhado no mesmo namespace)
   - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: staging
-      podSelector:
+    - podSelector:
         matchLabels:
           app: redis
     ports:
