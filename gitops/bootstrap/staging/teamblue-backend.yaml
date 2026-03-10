@@ -54,6 +54,13 @@ spec:
             - secretName: sky-be-teamblue-tls
               hosts:
                 - teamblue-api.skyfirstlabs.com
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
         probes:
           liveness:
             path: /health
@@ -157,6 +164,13 @@ spec:
             value: "20"
         migration:
           enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
           command: ["/bin/sh", "-c"]
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:

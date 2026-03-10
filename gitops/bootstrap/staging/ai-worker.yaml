@@ -41,6 +41,13 @@ spec:
           enabled: false
         ingress:
           enabled: false
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
         probes:
           liveness:
             enabled: false
