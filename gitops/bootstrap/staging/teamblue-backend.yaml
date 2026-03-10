@@ -36,6 +36,8 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
             nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+            # Fix AI 403 Forbidden: Desabilita regra de SQL Injection para prompts da IA
+            nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
           hosts:
             - host: teamblue-api.skyfirstlabs.com
               paths:
