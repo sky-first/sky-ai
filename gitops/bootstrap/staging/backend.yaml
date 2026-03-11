@@ -94,7 +94,7 @@ spec:
             kind: ClusterSecretStore
           target:
             creationPolicy: Owner
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             template:
               engineVersion: v2
               data:
