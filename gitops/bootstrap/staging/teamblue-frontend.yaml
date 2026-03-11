@@ -35,7 +35,6 @@ spec:
             nginx.ingress.kubernetes.io/proxy-set-header: "Accept-Encoding ''"
             nginx.ingress.kubernetes.io/configuration-snippet: |
               proxy_set_header Accept-Encoding "";
-              proxy_buffering on;
               sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
               sub_filter '<title>Sky</title>' '<title>TeamBlue</title>';
               sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
