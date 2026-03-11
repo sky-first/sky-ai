@@ -37,8 +37,8 @@ spec:
               proxy_set_header Accept-Encoding "";
               sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
               sub_filter '<title>Sky</title>' '<title>TeamBlue</title>';
-              sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
-              sub_filter '\"children\":\"Sky\"' '\"children\":\"TeamBlue\"';
+              sub_filter '"children":"SKY"' '"children":"TeamBlue"';
+              sub_filter '"children":"Sky"' '"children":"TeamBlue"';
               sub_filter '">SKY<' '">TeamBlue<';
               sub_filter '"SKY"' '"TeamBlue"';
               sub_filter '/icon.png' 'https://skybkpstagingol4bzp.blob.core.windows.net/public-assets/teamblue-favicon.png?v=1';
