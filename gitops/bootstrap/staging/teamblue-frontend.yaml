@@ -33,14 +33,18 @@ spec:
             nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
             nginx.ingress.kubernetes.io/proxy-set-header: "Accept-Encoding ''"
             nginx.ingress.kubernetes.io/configuration-snippet: |
+              proxy_set_header Accept-Encoding "";
+              proxy_buffering on;
               sub_filter '<title>SKY</title>' '<title>TeamBlue</title>';
               sub_filter '<title>Sky</title>' '<title>TeamBlue</title>';
+              sub_filter '\"children\":\"SKY\"' '\"children\":\"TeamBlue\"';
+              sub_filter '\"children\":\"Sky\"' '\"children\":\"TeamBlue\"';
               sub_filter '">SKY<' '">TeamBlue<';
               sub_filter '"SKY"' '"TeamBlue"';
-              sub_filter '/icon.png' 'https://skybkpstagingol4bzp.blob.core.windows.net/public-assets/teamblue-favicon.png';
-              sub_filter '/favicon.ico' 'https://skybkpstagingol4bzp.blob.core.windows.net/public-assets/teamblue-favicon.png';
+              sub_filter '/icon.png' 'https://skybkpstagingol4bzp.blob.core.windows.net/public-assets/teamblue-favicon.png?v=1';
+              sub_filter '/favicon.ico' 'https://skybkpstagingol4bzp.blob.core.windows.net/public-assets/teamblue-favicon.png?v=1';
               sub_filter_once off;
-              sub_filter_types *;
+              sub_filter_types text/html application/json;
           hosts:
             - host: teamblue.skyfirstlabs.com
               paths: &ingress_paths
