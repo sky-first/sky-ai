@@ -117,25 +117,25 @@ spec:
         envSecrets:
           # These keys will be present in the secret created by ExternalSecret
           jwt-secret-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: jwt_secret_key
           encryption-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: encryption_key
           openai-api-key:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: openai_api_key
           DATABASE_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: database_url
           REDIS_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: redis_url
           CELERY_BROKER_URL:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: celery_broker_url
           CELERY_RESULT_BACKEND:
-            name: sky-be-stg-common-app-secrets
+            name: sky-be-stg-secrets
             key: celery_result_backend
             
         extraEnv:
