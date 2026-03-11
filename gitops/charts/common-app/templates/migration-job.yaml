@@ -27,6 +27,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: {{ .Values.migration.command | toJson }}
           args: {{ .Values.migration.args | toJson }}
+          {{- with .Values.migration.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             {{- range $key, $val := .Values.envSecrets }}
             - name: {{ $key | replace "-" "_" | upper }}

@@ -80,6 +80,13 @@ migration:
   enabled: false
   command: ["/bin/sh", "-c"]
   args: ["echo 'No migration configured'"]
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
 # Environment Secrets (Managed by GitOps or manually)
 # Values provided here will be base64 encoded into a Secret

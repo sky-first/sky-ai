@@ -56,7 +56,7 @@ spec:
                 - path: /api
                   pathType: Prefix
           tls:
-            - secretName: sky-be-stg-tls
+            - secretName: sky-fe-stg-tls
               hosts:
                 - workspace-stg-api.skyfirstlabs.com
                 - workspace-stg.skyfirstlabs.com
@@ -66,7 +66,7 @@ spec:
             memory: 256Mi
           limits:
             cpu: 500m
-            memory: 512Mi
+            memory: 1024Mi
         probes:
           liveness:
             path: /
@@ -74,6 +74,18 @@ spec:
           readiness:
             path: /
             initialDelaySeconds: 10
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          fsGroup: 2000
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 1000
         # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
           enabled: true
@@ -116,13 +128,13 @@ spec:
         # Map the synced secrets to Env Vars in the container
         envSecrets:
           # These keys will be present in the secret created by ExternalSecret
-          jwt-secret-key:
+          jwt_secret_key:
             name: sky-be-stg-secrets
             key: jwt_secret_key
-          encryption-key:
+          encryption_key:
             name: sky-be-stg-secrets
             key: encryption_key
-          openai-api-key:
+          openai_api_key:
             name: sky-be-stg-secrets
             key: openai_api_key
           DATABASE_URL:
@@ -154,11 +166,18 @@ spec:
           enabled: true
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             limits:
-              cpu: 200m
+              cpu: 500m
               memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
           command: ["/bin/sh", "-c"]
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:
