@@ -21,6 +21,7 @@ spec:
       values: |
         imagePullSecrets:
           - name: regcred
+        image:
           repository: skyacrstagingj3minh.azurecr.io/sky-poc-frontend
         service:
           port: 80
