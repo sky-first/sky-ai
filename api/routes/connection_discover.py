@@ -91,6 +91,7 @@ async def discover_tables(
     connection_id: str,
     background_tasks: BackgroundTasks,
     space_id: Optional[str] = Query(None, description="Optional space ID for scoping"),
+    table_names: Optional[List[str]] = Query(None, description="Optional list of specific tables to sync (granular sync)"),
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
     auto_generate_embeddings: bool = True,  # ✅ ENABLED: Auto-generate embeddings on discover
@@ -120,21 +121,23 @@ async def discover_tables(
                         if auto_generate_embeddings:
                             try:
                                 # Ingerir metadados na tabela table_metadata (se necessário)
-                                await run_metadata_ingestion(
-                                    db=bg_db,
-                                    connection_id=connection_id,
-                                    space_id=space_id,
-                                    crew_id=None,
-                                )
-                                # Gerar embeddings
-                                embedding_provider = create_embedding_provider()
-                                await run_metadata_embeddings(
-                                    db=bg_db,
-                                    connection_id=connection_id,
-                                    space_id=space_id,
-                                    crew_id=None,
-                                    embedding_provider=embedding_provider,
-                                )
+                                    await run_metadata_ingestion(
+                                        db=bg_db,
+                                        connection_id=connection_id,
+                                        space_id=space_id,
+                                        crew_id=None,
+                                        table_names=table_names,
+                                    )
+                                    # Gerar embeddings
+                                    embedding_provider = create_embedding_provider()
+                                    await run_metadata_embeddings(
+                                        db=bg_db,
+                                        connection_id=connection_id,
+                                        space_id=space_id,
+                                        crew_id=None,
+                                        embedding_provider=embedding_provider,
+                                        table_names=table_names,
+                                    )
                                 # ✅ OPTION 1: Enrich with date ranges
                                 from core.ingestion.enrichment import enrich_table_date_ranges
                                 await enrich_table_date_ranges(db=bg_db, connection_id=connection_id)
@@ -185,6 +188,7 @@ async def discover_tables(
                     connection_id=connection_id,
                     space_id=space_id,
                     crew_id=None,
+                    table_names=table_names,
                 )
                 
                 # Gerar embeddings
@@ -195,6 +199,7 @@ async def discover_tables(
                     space_id=space_id,
                     crew_id=None,
                     embedding_provider=embedding_provider,
+                    table_names=table_names,
                 )
                 
                 # ✅ OPTION 1: Enrich with date ranges

@@ -77,6 +77,7 @@ async def run_metadata_ingestion(
     connection_id: str,
     space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
+    table_names: Optional[List[str]] = None,
 ) -> int:
     """
     Executa apenas a ingestão de metadados (INFORMATION_SCHEMA -> TableMetadata)
@@ -93,6 +94,7 @@ async def run_metadata_ingestion(
         data_connection=dc,
         space=space,
         crew_id=crew_id,
+        table_names=table_names,
     )
 
     log_event(
@@ -122,6 +124,7 @@ async def run_metadata_embeddings(
     space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
     embedding_provider: Optional[EmbeddingProvider] = None,
+    table_names: Optional[List[str]] = None,
 ) -> int:
     """
     Cria embeddings de metadados (TableMetadata -> EmbeddingRecord) para uma conexão específica.
@@ -137,6 +140,7 @@ async def run_metadata_embeddings(
         space_id=space.id if space else None,
         crew_id=crew_id,
         data_connection_id=dc.id,
+        table_names=table_names,
     )
 
     log_event(

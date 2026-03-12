@@ -294,6 +294,7 @@ async def ingest_from_connection_metadata_cache(
     data_connection: DataConnection,
     space: Optional[Space] = None,
     crew_id: Optional[str] = None,
+    table_names: Optional[List[str]] = None,
 ) -> int:
     """
     Normaliza os dados já existentes em `connection_metadata` para `table_metadata`.
@@ -335,6 +336,9 @@ async def ingest_from_connection_metadata_cache(
     else:
         subquery_tm = subquery_tm.where(TableMetadata.crew_id.is_(None))
         
+    if table_names:
+        subquery_tm = subquery_tm.where(TableMetadata.table_name.in_(table_names))
+        
     delete_embeddings_stmt = delete(EmbeddingRecord).where(
         EmbeddingRecord.table_metadata_id.in_(subquery_tm)
     )
@@ -353,6 +357,9 @@ async def ingest_from_connection_metadata_cache(
         delete_stmt = delete_stmt.where(TableMetadata.crew_id == crew_id)
     else:
         delete_stmt = delete_stmt.where(TableMetadata.crew_id.is_(None))
+
+    if table_names:
+        delete_stmt = delete_stmt.where(TableMetadata.table_name.in_(table_names))
 
     await db.execute(delete_stmt)
 
@@ -382,6 +389,10 @@ async def ingest_from_connection_metadata_cache(
         original_table_name = table_name
         if table_name and "." in table_name:
             table_name = table_name.split(".")[-1]
+            
+        # Granular filter: skip if table_names is provided and this table is not in it
+        if table_names and table_name not in table_names and original_table_name not in table_names:
+            continue
             
         columns = table_info.get('columns', [])
         
