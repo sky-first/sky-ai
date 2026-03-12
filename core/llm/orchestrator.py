@@ -757,7 +757,9 @@ def run_orchestrator(
         )
 
     # Detectar relacionamentos entre tabelas
-    relationships = detect_relationships(agent_config.tables)
+    # NEW: Pass explicit relationships from state (loaded from backend)
+    explicit_rels = state.get("explicit_relationships") or []
+    relationships = detect_relationships(agent_config.tables, explicit_relationships=explicit_rels)
 
     # Obter instruções personalizadas do estado
     instructions = state.get("instructions")
