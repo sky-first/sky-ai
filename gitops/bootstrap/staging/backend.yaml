@@ -48,6 +48,8 @@ spec:
           className: "nginx"
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+            nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
           hosts:
             - host: workspace-stg-api.skyfirstlabs.com
               paths:
@@ -126,6 +128,19 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
+            # Auth0/Okta Integration (DO2025-1043)
+            - secretKey: auth0_domain
+              remoteRef:
+                key: auth0-domain
+            - secretKey: auth0_client_id
+              remoteRef:
+                key: auth0-client-id
+            - secretKey: auth0_client_secret
+              remoteRef:
+                key: auth0-client-secret
+            - secretKey: auth0_audience
+              remoteRef:
+                key: auth0-audience
 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
@@ -151,6 +166,19 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-be-stg-common-app-secrets
             key: celery_result_backend
+          # Auth0 Identity Integration
+          AUTH0_DOMAIN:
+            name: sky-be-stg-common-app-secrets
+            key: auth0_domain
+          AUTH0_CLIENT_ID:
+            name: sky-be-stg-common-app-secrets
+            key: auth0_client_id
+          AUTH0_CLIENT_SECRET:
+            name: sky-be-stg-common-app-secrets
+            key: auth0_client_secret
+          AUTH0_AUDIENCE:
+            name: sky-be-stg-common-app-secrets
+            key: auth0_audience
             
         extraEnv:
           - name: CORS_ORIGINS
