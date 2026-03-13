@@ -56,12 +56,12 @@ resource "azurerm_storage_container" "config_backups" {
 
 # 3.2 Immutability Policies (WORM)
 resource "azurerm_storage_container_immutability_policy" "sql_immutability" {
-  storage_container_id_resource_manager_id = azurerm_storage_container.sql_backups.resource_manager_id
+  storage_container_id_resource_manager_id   = azurerm_storage_container.sql_backups.resource_manager_id
   immutability_period_since_creation_in_days = 7
 }
 
 resource "azurerm_storage_container_immutability_policy" "config_immutability" {
-  storage_container_id_resource_manager_id = azurerm_storage_container.config_backups.resource_manager_id
+  storage_container_id_resource_manager_id   = azurerm_storage_container.config_backups.resource_manager_id
   immutability_period_since_creation_in_days = 7
 }
 
