@@ -15,8 +15,7 @@ resource "azurerm_storage_account" "db_backup" {
   account_replication_type = "GRS" # Geo-Redundant for Production resilience
   min_tls_version          = "TLS1_2"
 
-  # Immutability & Protection
-  is_version_level_immutability_supported = true
+  # Immutability & Protection enabled via container policies
 
   # Immutability & Protection
   blob_properties {
@@ -56,13 +55,13 @@ resource "azurerm_storage_container" "config_backups" {
 
 # 3.2 Immutability Policies (WORM)
 resource "azurerm_storage_container_immutability_policy" "sql_immutability" {
-  storage_container_id_resource_manager_id   = azurerm_storage_container.sql_backups.resource_manager_id
-  immutability_period_since_creation_in_days = 7
+  storage_container_resource_manager_id = azurerm_storage_container.sql_backups.resource_manager_id
+  immutability_period_in_days           = 7
 }
 
 resource "azurerm_storage_container_immutability_policy" "config_immutability" {
-  storage_container_id_resource_manager_id   = azurerm_storage_container.config_backups.resource_manager_id
-  immutability_period_since_creation_in_days = 7
+  storage_container_resource_manager_id = azurerm_storage_container.config_backups.resource_manager_id
+  immutability_period_in_days           = 7
 }
 
 # 4. Lifecycle Management Policy
