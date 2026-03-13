@@ -121,23 +121,23 @@ async def discover_tables(
                         if auto_generate_embeddings:
                             try:
                                 # Ingerir metadados na tabela table_metadata (se necessário)
-                                    await run_metadata_ingestion(
-                                        db=bg_db,
-                                        connection_id=connection_id,
-                                        space_id=space_id,
-                                        crew_id=None,
-                                        table_names=table_names,
-                                    )
-                                    # Gerar embeddings
-                                    embedding_provider = create_embedding_provider()
-                                    await run_metadata_embeddings(
-                                        db=bg_db,
-                                        connection_id=connection_id,
-                                        space_id=space_id,
-                                        crew_id=None,
-                                        embedding_provider=embedding_provider,
-                                        table_names=table_names,
-                                    )
+                                await run_metadata_ingestion(
+                                    db=bg_db,
+                                    connection_id=connection_id,
+                                    space_id=space_id,
+                                    crew_id=None,
+                                    table_names=table_names,
+                                )
+                                # Gerar embeddings
+                                embedding_provider = create_embedding_provider()
+                                await run_metadata_embeddings(
+                                    db=bg_db,
+                                    connection_id=connection_id,
+                                    space_id=space_id,
+                                    crew_id=None,
+                                    embedding_provider=embedding_provider,
+                                    table_names=table_names,
+                                )
                                 # ✅ OPTION 1: Enrich with date ranges
                                 from core.ingestion.enrichment import enrich_table_date_ranges
                                 await enrich_table_date_ranges(db=bg_db, connection_id=connection_id)
