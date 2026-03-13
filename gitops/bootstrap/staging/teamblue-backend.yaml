@@ -59,18 +59,18 @@ spec:
                 - teamblue-api.skyfirstlabs.com
         resources:
           requests:
-            cpu: 200m
-            memory: 512Mi
+            cpu: 100m
+            memory: 256Mi
           limits:
-            cpu: 200m
-            memory: 512Mi
+            cpu: 500m
+            memory: 1024Mi
         probes:
           liveness:
-            path: /health
-            initialDelaySeconds: 60
+            path: /
+            initialDelaySeconds: 45
           readiness:
-            path: /health
-            initialDelaySeconds: 20
+            path: /
+            initialDelaySeconds: 10
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -196,10 +196,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 128Mi
             limits:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 500m
+              memory: 256Mi
           command: ["/bin/sh", "-c"]
           args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
   destination:
