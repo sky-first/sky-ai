@@ -1,0 +1,30 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sky-backup-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: backup-alerts
+    rules:
+    - alert: DatabaseBackupFailed
+      expr: kube_job_status_failed{job_name=~"sky-db-backup.*"} > 0
+      for: 5m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: "Falha no Backup do Banco de Dados"
+        description: "O Job de backup diário falhou. Verifique os logs do Pod no namespace prod."
+
+    - alert: ConfigBackupFailed
+      expr: kube_job_status_failed{job_name=~"sky-config-backup.*"} > 0
+      for: 5m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: "Falha no Backup de Configurações"
+        description: "O Job de backup de manifestos falhou. Verifique o CronJob sky-config-backup."

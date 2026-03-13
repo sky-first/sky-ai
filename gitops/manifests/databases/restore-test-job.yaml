@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sky-fire-drill-restore-test
+  namespace: staging
+  annotations:
+    argocd.argoproj.io/hook: PostSync # Pode ser usado como hook ou manual
+spec:
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: sky-db-backup # Reutiliza a SA com permissão de storage
+      restartPolicy: Never
+      containers:
+      - name: fire-drill
+        image: skyacrprodel5zpw.azurecr.io/bitnami/postgresql:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          # Instalar az cli
+          apt-get update && apt-get install -y curl
+          curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+          STORAGE_ACCOUNT="skybkpprod8ooz9z"
+          CONTAINER_NAME="sql-backups"
+          
+          echo "🔍 Localizando backup mais recente..."
+          LATEST_BACKUP=$(az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --auth-mode login --query "[].name" -o tsv | sort -r | head -n 1)
+          
+          echo "📂 Backup mais recente: $LATEST_BACKUP"
+          
+          echo "📥 Baixando..."
+          az storage blob download --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --name "$LATEST_BACKUP" --file /tmp/latest.dump --auth-mode login
+
+          echo "🚀 Restaurando em STAGING para teste de integridade..."
+          PGPASSWORD=$POSTGRES_PASSWORD pg_restore -h postgresql -U sky -d ai_saas_db --clean --if-exists --no-owner /tmp/latest.dump
+          
+          echo "📊 Validando contagem básica de tabelas..."
+          TABLE_COUNT=$(PGPASSWORD=$POSTGRES_PASSWORD psql -h postgresql -U sky -d ai_saas_db -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+          echo "Tabelas restauradas: $TABLE_COUNT"
+          
+          if [ "$TABLE_COUNT" -gt 0 ]; then
+            echo "✅ FIRE DRILL CONCLUÍDO COM SUCESSO!"
+          else
+            echo "❌ ERRO: Restore parece vazio."
+            exit 1
+          fi
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql
+              key: postgres-password
+        - name: AZURE_CLIENT_ID
+          value: "fe7a5318-f7d1-4191-9fe2-477534fd8b02"
+        - name: AZURE_TENANT_ID
+          value: "a1b3ce06-b7ba-4d99-8a26-3347ab865f36"
