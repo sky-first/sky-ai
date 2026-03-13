@@ -60,9 +60,10 @@ spec:
     - protocol: TCP
       port: 8001
   
-  # External HTTPS (OpenAI, etc)
+  # External HTTPS (OpenAI, Auth0, etc)
   - to:
-    - namespaceSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: TCP
       port: 443
@@ -166,7 +167,8 @@ spec:
   
   # External HTTPS (OpenAI)
   - to:
-    - namespaceSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: TCP
       port: 443
