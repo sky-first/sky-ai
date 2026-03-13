@@ -102,6 +102,11 @@ spec:
                 celery_broker_url: "redis://:{{ .redis_password }}@redis.teamblue.svc.cluster.local:6379/1"
                 celery_result_backend: "redis://:{{ .redis_password }}@redis.teamblue.svc.cluster.local:6379/2"
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                # Auth0 Keys
+                auth0_domain: "{{ .auth0_domain }}"
+                auth0_client_id: "{{ .auth0_client_id }}"
+                auth0_client_secret: "{{ .auth0_client_secret }}"
+                auth0_audience: "{{ .auth0_audience }}"
           data:
             - secretKey: jwt_secret_key
               remoteRef:
