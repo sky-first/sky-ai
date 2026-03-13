@@ -10,7 +10,6 @@ metadata:
 spec:
   template:
     metadata:
-      name: {{ include "common-app.fullname" . }}-migrate
       labels:
         {{- include "common-app.selectorLabels" . | nindent 8 }}
     spec:
