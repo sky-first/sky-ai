@@ -57,6 +57,7 @@ spec:
             - secretName: sky-be-teamblue-tls
               hosts:
                 - teamblue-api.skyfirstlabs.com
+                - plataform.teamblue-stg.skyfirstlabs.com
         resources:
           requests:
             cpu: 100m

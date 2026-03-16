@@ -69,7 +69,7 @@ spec:
                 memory: 500Mi
               limits:
                 cpu: 1000m
-                memory: 2Gi
+                memory: 4Gi
             storageSpec:
               volumeClaimTemplate:
                 spec:
@@ -78,6 +78,12 @@ spec:
                   resources:
                     requests:
                       storage: 20Gi
+            # Extended survival for WAL replay
+            containers:
+              - name: prometheus
+                livenessProbe:
+                  failureThreshold: 60
+                  periodSeconds: 5
             # Service Monitors - monitorar apps do staging
             serviceMonitorSelectorNilUsesHelmValues: false
             serviceMonitorSelector: {}
