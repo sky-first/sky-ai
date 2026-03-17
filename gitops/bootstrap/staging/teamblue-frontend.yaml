@@ -7,6 +7,8 @@ metadata:
     # Escreve de volta em arquivo EXCLUSIVO do TeamBlue - sem afetar o Staging
     argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
+    argocd-image-updater.argoproj.io/sky-poc-frontend.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/sky-poc-frontend.helm.image-tag: image.tag
     argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
     argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-teamblue-fe-stg.yaml
 spec:
