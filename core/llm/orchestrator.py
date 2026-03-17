@@ -11,7 +11,7 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import detect_language
 from core.logging_utils import log_event
 from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
-from core.rag.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import build_retrieval_context_for_question, build_retrieval_context_for_question_sync
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
@@ -603,7 +603,7 @@ def run_orchestrator(
             crew_ids = state.get("crew_ids") or []
 
             if space_id:
-                retrieval_context = build_retrieval_context_for_question(
+                retrieval_context = build_retrieval_context_for_question_sync(
                     db=db,
                     embedding_provider=embedding_provider,
                     space_id=space_id,

@@ -194,16 +194,7 @@ class EmbeddingRecord(Base):
 
 # ========== LANGGRAPH CHECKPOINTS ==========
 
-class Checkpoint(Base):
-    __tablename__ = "checkpoints"
-
-    thread_id = Column(String, primary_key=True)
-    checkpoint_id = Column(String, primary_key=True)
-    parent_id = Column(String, nullable=True)
-    checkpoint = Column(JSON, nullable=False)  # Binary serialized state
-    metadata_ = Column("metadata", JSON, nullable=True)  # Renamed to avoid reserved word conflict if needed, or mapped
-
-    created_at = Column(DateTime, default=datetime.utcnow)
+# LangGraph checkpoints are managed by core.agents.checkpoint_manager (native tables)
 
 
 class ChatHistory(Base):

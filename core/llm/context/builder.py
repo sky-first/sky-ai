@@ -50,14 +50,14 @@ def build_context_bundle(
     """
     question = state.get("question", "")
     
-    # 1. USER CONTEXT
     user_ctx = UserContext(
         user_id=state.get("user_id", ""),
+        space_ids=state.get("space_ids", [state.get("space_id")] if state.get("space_id") else []),
+        is_personal=state.get("is_personal", False),
         platform_role=state.get("platform_role", "user"),
         crew_role=state.get("crew_role", "guest"),
-        role_label=state.get("role_label"), # New field for display roles like CFO
         locale=state.get("locale", "en"),
-        permissions=state.get("permissions", [])
+        role_label=state.get("role_label"),
     )
     
     # 2. CREW CONTEXT
@@ -89,81 +89,51 @@ def build_context_bundle(
         context_freshness="live"
     )
     
-    # 5. HISTORICAL CONTEXT (Multi-layer RAG — execução PARALELA)
-    try:
-        from core.rag.multi_layer import retrieve_all_layers_sync
-
-        # Get embedding provider from state if available
-        embedding_provider = state.get("_embedding_provider")
-        space_id = state.get("space_id")
-
-        if embedding_provider:
-            # Executa as 5 camadas em paralelo via asyncio.gather
-            rag_results = retrieve_all_layers_sync(
-                question=question,
-                tables=agent_config.tables,
-                embedding_provider=embedding_provider,
-                db=db,
-                space_id=space_id,
-            )
+    # 5. HISTORICAL CONTEXT (Consome o RAG pré-carregado no state)
+    retrieval_context = state.get("retrieval_context", [])
+    
+    rag_results = {
+        "schema_rag": [],
+        "metrics_rag": [],
+        "questions_rag": [],
+        "comments_rag": [],
+        "glossary_rag": [],
+        "strategy_rag": [],
+        "governance_rag": [],
+    }
+    
+    # Distribui os chunks baseados nos prefixos criados pelo _format_records
+    for chunk in retrieval_context:
+        if "[TABLE METADATA]" in chunk:
+            rag_results["schema_rag"].append(chunk)
+        elif "[BUSINESS CONTEXT]" in chunk:
+            rag_results["strategy_rag"].append(chunk)
+        elif "[DOCUMENT]" in chunk:
+            rag_results["strategy_rag"].append(chunk) # Documentos enriquecem estratégia
+        elif "[GLOSSARY]" in chunk:
+            rag_results["glossary_rag"].append(chunk)
         else:
-            rag_results = {
-                "schema_rag": [],
-                "metrics_rag": [],
-                "questions_rag": [],
-                "comments_rag": [],
-                "glossary_rag": [],
-                "catalog_rag": [],
-                "analytics_rag": [],
-                "strategy_rag": [],
-                "governance_rag": [],
-                "enterprise_rag": [],
-                "signals_rag": [],
-            }
+            # Fallback para schema se não for reconhecido (comportamento legado)
+            rag_results["schema_rag"].append(chunk)
 
-        historical_ctx = HistoricalContext(
-            schema_rag=rag_results["schema_rag"],
-            metrics_rag=rag_results["metrics_rag"],
-            questions_rag=rag_results["questions_rag"],
-            comments_rag=rag_results["comments_rag"],
-            glossary_rag=rag_results["glossary_rag"],
-            catalog_rag=rag_results.get("catalog_rag", []),
-            analytics_rag=rag_results.get("analytics_rag", []),
-            strategy_rag=rag_results.get("strategy_rag", []),
-            governance_rag=rag_results.get("governance_rag", []),
-            enterprise_rag=rag_results.get("enterprise_rag", []),
-            signals_rag=rag_results.get("signals_rag", []),
-            chat_history=state.get("chat_history", [])[-4:]  # Last 4 messages only
-        )
+    historical_ctx = HistoricalContext(
+        schema_rag=rag_results["schema_rag"],
+        metrics_rag=rag_results["metrics_rag"],
+        questions_rag=rag_results["questions_rag"],
+        comments_rag=rag_results["comments_rag"],
+        glossary_rag=rag_results["glossary_rag"],
+        strategy_rag=rag_results["strategy_rag"],
+        governance_rag=rag_results["governance_rag"],
+        chat_history=state.get("chat_history", [])[-4:]  # Last 4 messages only
+    )
 
-        log_event(
-            "multi_layer_rag_retrieved",
-            {
-                "schema_chunks": len(historical_ctx.schema_rag),
-                "metrics_chunks": len(historical_ctx.metrics_rag),
-                "questions_chunks": len(historical_ctx.questions_rag),
-                "comments_chunks": len(historical_ctx.comments_rag),
-                "glossary_chunks": len(historical_ctx.glossary_rag),
-                "catalog_chunks": len(historical_ctx.catalog_rag),
-                "analytics_chunks": len(historical_ctx.analytics_rag),
-                "strategy_chunks": len(historical_ctx.strategy_rag),
-                "governance_chunks": len(historical_ctx.governance_rag),
-                "enterprise_chunks": len(historical_ctx.enterprise_rag),
-                "signals_chunks": len(historical_ctx.signals_rag),
-                "total_chunks": historical_ctx.total_chunks(),
-            }
-        )
-    except Exception as e:
-        # Fallback to simple retrieval context
-        log_event(
-            "multi_layer_rag_error",
-            {"error": str(e)[:300]}
-        )
-        retrieval_chunks = state.get("retrieval_context", [])
-        historical_ctx = HistoricalContext(
-            schema_rag=retrieval_chunks[:3] if retrieval_chunks else [],
-            chat_history=state.get("chat_history", [])[-4:]
-        )
+    log_event(
+        "context_rag_processed",
+        {
+            "total_chunks": len(retrieval_context),
+            "strategy_chunks": len(historical_ctx.strategy_rag),
+        }
+    )
     
     # Create bundle
     bundle = ContextBundle(

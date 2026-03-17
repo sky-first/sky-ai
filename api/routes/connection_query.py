@@ -63,7 +63,7 @@ from core.llm.factory import (
     create_embedding_provider,
 )
 from core.rag.vector_store import search_embeddings_async
-from core.agents.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
@@ -3058,8 +3058,6 @@ async def _query_connection_inner(
             )
         )
         
-        # Log available tables for debug
-        print(f"DEBUG: Available Logical Tables: {logical_tables}")
 
     except Exception:
         # Never fail the main query path due to these heuristics.
