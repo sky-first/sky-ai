@@ -7,6 +7,7 @@ spec:
   project: default
   source:
     repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    # Realigned to staging branch to ensure DevOps best practices (GitOps Alignment)
     targetRevision: staging
     path: gitops/bootstrap
   destination:
