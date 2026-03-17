@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "common-app.labels" . | nindent 4 }}
   annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   template:
