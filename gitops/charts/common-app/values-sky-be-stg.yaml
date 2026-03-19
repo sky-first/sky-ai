@@ -1,5 +1,5 @@
 image:
-  tag: "sha-latest-manual-reset"
+  tag: "sha-6990364094b46accd9740991ac513cc807332c3a"
 
 ingress:
   annotations:
