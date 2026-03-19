@@ -256,6 +256,18 @@ def _serialize_for_formatter(bundle: ContextBundle) -> str:
         parts.append("[FORMAT: Highlight comparisons and differences]")
     elif bundle.query.intent == "analytical":
         parts.append("[FORMAT: Provide insights and trends]")
+
+    # Strategy & Business RAG (Critical for answering without data/SQL)
+    if bundle.historical.strategy_rag:
+        parts.append("\n[BUSINESS CONTEXT & STRATEGIC PILLARS]")
+        for chunk in bundle.historical.strategy_rag[:5]: # Top 5 for formatter
+            parts.append(f"- {chunk}")
+
+    # Glossary (Helps with terminology in the answer)
+    if bundle.historical.glossary_rag:
+        parts.append("\n[TERMINOLOGY]")
+        for chunk in bundle.historical.glossary_rag[:2]:
+            parts.append(f"- {chunk}")
     
     return "\n".join(parts) if parts else ""
 

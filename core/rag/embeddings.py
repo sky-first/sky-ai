@@ -169,6 +169,7 @@ async def create_embeddings_for_table_metadata(
     space_id: Optional[str] = None,
     crew_id: Optional[str] = None,
     data_connection_id: Optional[str] = None,
+    table_names: Optional[List[str]] = None,
     limit: Optional[int] = None,
     batch_size: int = 20,
     delay_between_batches: float = 1.0,
@@ -190,6 +191,9 @@ async def create_embeddings_for_table_metadata(
 
     if data_connection_id:
         query = query.filter(TableMetadata.data_connection_id == data_connection_id)
+
+    if table_names:
+        query = query.filter(TableMetadata.table_name.in_(table_names))
 
     if limit:
         query = query.limit(limit)

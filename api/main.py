@@ -13,6 +13,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
 
 from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import data_ingestion, pipeline, widget_titles  # noqa: E402
+from api.routes import knowledge_graph  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -127,3 +128,6 @@ app.include_router(pipeline.router)
 
 # Widget routes (title suggestions)
 app.include_router(widget_titles.router)
+
+# Knowledge Graph / Enterprise Relationship Context
+app.include_router(knowledge_graph.router)

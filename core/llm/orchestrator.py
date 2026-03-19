@@ -11,7 +11,7 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import detect_language
 from core.logging_utils import log_event
 from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
-from core.rag.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import build_retrieval_context_for_question, build_retrieval_context_for_question_sync
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
@@ -603,7 +603,7 @@ def run_orchestrator(
             crew_ids = state.get("crew_ids") or []
 
             if space_id:
-                retrieval_context = build_retrieval_context_for_question(
+                retrieval_context = build_retrieval_context_for_question_sync(
                     db=db,
                     embedding_provider=embedding_provider,
                     space_id=space_id,
@@ -684,9 +684,13 @@ def run_orchestrator(
                 },
             )
 
-    # 🎯 Otimização: Se há apenas 1 tabela disponível (já filtrada por permissões no backend),
-    #                 escolher automaticamente sem consultar o LLM
-    if len(agent_config.tables) == 1:
+    # 🎯 Otimização Legada: Se há apenas 1 tabela disponível, no modo Agentic RAG 
+    # queremos que o agente PENSE antes, pois ele pode precisar de outros contextos.
+    # Só fazemos o auto-select se o Agentic RAG não estiver disponível.
+    chat_model = getattr(llm, "_chat", None)
+    can_use_agentic = chat_model is not None and hasattr(chat_model, "bind_tools")
+
+    if not can_use_agentic and len(agent_config.tables) == 1:
         table = agent_config.tables[0]
         state["chosen_table"] = table.logical_name
         state["chosen_table_physical"] = table.physical_name
@@ -697,13 +701,12 @@ def run_orchestrator(
             "orchestrator_auto_selected_single_table",
             {
                 "agent_id": agent_config.id,
-                "question": question[:200],
                 "chosen_logical": table.logical_name,
-                "chosen_physical": table.physical_name,
-                "reason": "Only one table available (backend-authorized)",
+                "reason": "Legacy auto-select (Single Table)",
             },
         )
-        return state  # ✅ Retorna imediatamente
+        return state 
+
 
     # 🎯 NEW: Build Context Bundle (if enabled)
     use_context_bundle = getattr(settings, "use_context_bundle", False)
@@ -757,7 +760,9 @@ def run_orchestrator(
         )
 
     # Detectar relacionamentos entre tabelas
-    relationships = detect_relationships(agent_config.tables)
+    # NEW: Pass explicit relationships from state (loaded from backend)
+    explicit_rels = state.get("explicit_relationships") or []
+    relationships = detect_relationships(agent_config.tables, explicit_relationships=explicit_rels)
 
     # Obter instruções personalizadas do estado
     instructions = state.get("instructions")
@@ -839,86 +844,128 @@ def run_orchestrator(
 
     # SEMPRE permitir múltiplas tabelas - deixar o LLM decidir baseado no contexto
     # Isso melhora a capacidade de responder perguntas complexas que precisam de JOINs
-    if len(agent_config.tables) > 1:
-        # Modo inteligente: sempre permite múltiplas tabelas
-        system_msg = {
-            "role": "system",
-            "content": (
+    chat_model = getattr(llm, "_chat", None)
+    use_agentic_rag = chat_model is not None and hasattr(chat_model, "bind_tools")
+
+    if use_agentic_rag:
+        try:
+            from langgraph.prebuilt import create_react_agent
+            from core.llm.tools import ToolFactory
+            from langchain_core.messages import HumanMessage
+            
+            # Instanciar as ferramentas
+            tools = [
+                ToolFactory.create_metadata_tool(agent_config),
+                ToolFactory.create_strategy_tool(db, embedding_provider, state.get("space_id", ""), state.get("crew_ids", [])),
+                ToolFactory.create_signals_tool(db, embedding_provider, state.get("space_id", ""), state.get("crew_ids", []))
+            ]
+            
+            # A "Regra de Ouro" rigorosa (System Prompt Agentic)
+            agentic_system_msg = (
                 f"{role_context_block}"
                 f"{user_profile_block}"
-                "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
-                "from the list to answer the user's question.\n\n"
-                f"Rules:\n"
-                f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
-                f"- If the question requires data from multiple tables (e.g., comparing data, "
-                f"  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
-                f"- If the question can be answered with a single table, choose ONE table.\n"
-                f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
-                f"- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
-                f"- Use the additional semantic context and available relationships to make the best choice.\n"
+                "You are a Senior Data Analyst Orchestrator. Your primary job is to choose ONE OR MORE logical tables from the database to answer the user's question.\n\n"
+                "🛡️ THE GOLDEN RULES:\n"
+                "1. Your ONLY source of truth for the database structure is the 'search_database_metadata' tool.\n"
+                "2. It is STRICTLY FORBIDDEN to assume column names or table existence without consulting the metadata tool first, even if you think you know the name (e.g., do not assume 'sales', verify if it's 'fct_sales').\n"
+                "3. Use the 'search_corporate_strategy' tool ONLY if the user asks about business goals, targets, OKRs, or long-term strategy.\n"
+                "4. Use the 'search_market_signals' tool ONLY if the user asks about anomalies, market events, news, or sudden drops/spikes.\n"
+                "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n\n"
+                "FINAL OUTPUT FORMAT:\n"
+                "After thinking and using the tools, finish your response with ONLY the logical table name(s) you chose, separated by commas. (e.g., 'table1, table2')\n"
+                "Just give the table names at the very end of your thought process.\n\n"
                 f"{preferred_tables_hint}\n"
-                f"Conversation Handling:\n"
-                f'- If the user question is a fragment or follow-up (e.g., "And in RJ?", "How about last month?"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n'
-                f"- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
+                f"Conversation Handling: Infer missing contexts from PREVIOUS CONVERSATION.\n"
                 f"{relationships_info}"
                 f"{instructions_block}"
-            ),
-        }
-
-        user_msg = {
-            "role": "user",
-            "content": (
+            )
+            
+            user_prompt = (
                 f"User question:\n{question}\n\n"
-                f"Available tables:\n{tables_summary}"
-                f"{context_block}"
-                f"{relationships_info}"
-                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
-                "\nRespond with the logical table name(s) needed, separated by commas if multiple "
-                "(for example: 'table1' or 'table1, table2' or 'orders, products')."
-            ),
-        }
+                f"{context_block}\n"
+                "Remember: Use your tools to investigate, think step-by-step, and end your response with the logical table name(s) needed."
+            )
+            
+            # Loop Agentic (ReAct)
+            react_agent = create_react_agent(chat_model, tools=tools, state_modifier=agentic_system_msg)
+            result = react_agent.invoke({"messages": [HumanMessage(content=user_prompt)]})
+            final_msg_content = result["messages"][-1].content
+            
+            # Salvar o rationale (Chain of Thought) no state para streaming futuro
+            state["plan"] = final_msg_content
+            
+            # Criar um mock para manter compatibilidade com o parser legado _extract_table_choice
+            class RawResponseMimic:
+                def __init__(self, content):
+                    self.content = content
+            raw = RawResponseMimic(content=final_msg_content)
+            
+            log_event("orchestrator_agentic_rag_success", {"agent_id": agent_config.id})
+
+            
+        except Exception as e:
+            state["answer"] = "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
+            state["error"] = str(e)
+            log_event("orchestrator_agentic_llm_error", {"agent_id": agent_config.id, "error": str(e)[:500]})
+            return state
+
     else:
-        # Modo tabela única (quando há apenas uma tabela disponível)
-        system_msg = {
-            "role": "system",
-            "content": (
-                f"{role_context_block}"
-                f"{user_profile_block}"
-                "You are a routing assistant. Your job is to choose the logical table "
-                "from the list to answer the user's question.\n\n"
-                "Rules:\n"
-                "- Choose the logical table name from the list.\n"
-                "- Answer with ONLY the logical table name, nothing else.\n"
-                "- Use the additional semantic context when it clearly points to the table.\n"
-                f"{instructions_block}"
-            ),
-        }
+        # Fallback Legacy (RAG Estático / Ollama local sem tools suporte)
+        if len(agent_config.tables) > 1:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    f"{role_context_block}"
+                    f"{user_profile_block}"
+                    "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
+                    "from the list to answer the user's question.\n\n"
+                    f"Rules:\n"
+                    f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
+                    f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
+                    f"{preferred_tables_hint}\n"
+                    f"{relationships_info}"
+                    f"{instructions_block}"
+                ),
+            }
 
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Available tables:\n{tables_summary}"
-                f"{context_block}\n\n"
-                "Respond with ONLY the logical table name."
-            ),
-        }
+            user_msg = {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Available tables:\n{tables_summary}"
+                    f"{context_block}"
+                    f"{relationships_info}"
+                    "\nRespond with the logical table name(s) needed, separated by commas if multiple."
+                ),
+            }
+        else:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    f"{role_context_block}"
+                    "You are a routing assistant. Your job is to choose the logical table.\n\n"
+                    "Rules:\n- Answer with ONLY the logical table name, nothing else.\n"
+                ),
+            }
 
-    try:
-        raw = llm.invoke([system_msg, user_msg])
-        print(
-            f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}"
-        )
-    except Exception as e:
-        state["answer"] = (
-            "Error consulting the AI orchestrator. Please try again later."
-        )
-        state["error"] = str(e)
-        log_event(
-            "orchestrator_llm_error",
-            {"agent_id": agent_config.id, "error": str(e)[:500]},
-        )
-        return state
+            user_msg = {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Available tables:\n{tables_summary}"
+                    f"{context_block}\n\n"
+                    "Respond with ONLY the logical table name."
+                ),
+            }
+
+        try:
+            raw = llm.invoke([system_msg, user_msg])
+            print(f"DEBUG ORCHESTRATOR LEGACY RAW: {raw.content if hasattr(raw, 'content') else raw}")
+        except Exception as e:
+            state["answer"] = "Error consulting the AI orchestrator. Please try again later."
+            state["error"] = str(e)
+            log_event("orchestrator_llm_error", {"agent_id": agent_config.id, "error": str(e)[:500]})
+            return state
 
     # Extrair escolha(s) de tabela(s)
     # Sempre tentar extrair múltiplas tabelas quando há mais de uma disponível

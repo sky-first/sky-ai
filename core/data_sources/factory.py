@@ -99,7 +99,7 @@ class DataSourceFactory:
             )
             return APISource(ds_cfg, label=f"api:{conn.id}")
 
-        elif ds_type == "postgres":
+        elif ds_type in ["postgres", "postgresql"]:
             # Espera em config:
             # { "dsn": "postgresql+psycopg2://user:pass@host:port/dbname" }
             dsn = cfg_dict.get("dsn")

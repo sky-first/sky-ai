@@ -133,7 +133,7 @@ class OllamaProvider:
             from langchain_community.chat_models import ChatOllama
         
         self.model_name = model
-        self.llm = ChatOllama(
+        self._chat = ChatOllama(
             base_url=base_url,
             model=model,
             temperature=temperature,
@@ -195,7 +195,7 @@ class OllamaProvider:
         
         try:
             # Invoke ChatOllama directly (it handles prompting)
-            resp = self.llm.invoke(lc_msgs)
+            resp = self._chat.invoke(lc_msgs)
             
             # Wrapper para manter contrato .content
             class ResponseWrapper:
@@ -230,7 +230,7 @@ class OllamaProvider:
         lc_msgs = self._convert_messages(messages)
         
         try:
-            for chunk in self.llm.stream(lc_msgs):
+            for chunk in self._chat.stream(lc_msgs):
                 if chunk.content:
                     yield chunk.content
             

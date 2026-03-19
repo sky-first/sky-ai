@@ -117,9 +117,10 @@ def build_formatter_prompt(
             "content": (
                 f"{context_text}\n\n"
                 f"QUESTION: {question}\n\n"
-                f"STATUS: This request cannot be fulfilled as stated.\n"
+                f"STATUS: This request cannot be fulfilled via a database query.\n"
                 f"REASON: {impossible_reason}\n\n"
-                "Explain to the user why this cannot be answered concisely."
+                "Check the BUSINESS CONTEXT provided above. If the answer is available there (e.g. strategic pillars), "
+                "answer the question in English using that information. If not, explain concisely why it cannot be answered."
             )
         }
     elif not has_data:
@@ -128,8 +129,9 @@ def build_formatter_prompt(
             "content": (
                 f"{context_text}\n\n"
                 f"QUESTION: {question}\n\n"
-                f"RESULT: No data found\n\n"
-                "Explain that no data matches the query criteria."
+                "IMPORTANT: No data was found in the SQL database, BUT you MUST check the [BUSINESS CONTEXT & STRATEGIC PILLARS] section above. "
+                "If the answer to the question is contained in those strategic pillars or business context chunks, "
+                "PROVIDE THE ANSWER directly based on that information. Do not apologize for the lack of SQL data if the RAG context has the answer."
             )
         }
     else:

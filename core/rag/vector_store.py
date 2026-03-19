@@ -63,18 +63,20 @@ def _build_embedding_base_query(
     query = select(EmbeddingRecord)
     
     if connection_id:
-        # join para filtrar por connection
-        query = query.join(TableMetadata, EmbeddingRecord.table_metadata_id == TableMetadata.id)
+        # join opcional para incluir records sem tabela (knowledge graph, docs)
+        query = query.outerjoin(TableMetadata, EmbeddingRecord.table_metadata_id == TableMetadata.id)
         
-        # Filtro principal: (Space Local OR Global) AND Connection correta
-        # Isso garante que só vemos globais PERTENCENTES a esta conexão
+        # Filtro principal: (Space Local OR Global) AND (Pertence à Connection OR Não tem Tabela)
         query = query.filter(
             and_(
                 or_(
                     EmbeddingRecord.space_id == space_id,
                     EmbeddingRecord.space_id.is_(None)
                 ),
-                TableMetadata.data_connection_id == connection_id
+                or_(
+                    TableMetadata.data_connection_id == connection_id,
+                    EmbeddingRecord.table_metadata_id.is_(None)
+                )
             )
         )
     else:
@@ -183,6 +185,7 @@ async def search_embeddings_async(
         {
             "space_id": space_id,
             "connection_id": connection_id,
+            "query": query_text[:100],
             "num_results": len(results),
             "pgvector_enabled": pgvector_available,
         },

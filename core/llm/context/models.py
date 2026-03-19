@@ -17,25 +17,22 @@ from core.sql.relationships import TableRelationship
 class UserContext:
     """
     User identity and preferences.
-    
-    Used for role-based reasoning and personalization.
+    User-specific identification and preferences.
     """
     user_id: str
-    platform_role: str = "user"  # admin/user/viewer
-    crew_role: str = "guest"     # commander/navigator/explorer/guest
-    role_label: Optional[str] = None # Display label like "CFO", "Lead Scientist"
+    space_ids: List[str] = field(default_factory=list)  # Supporting multiple spaces for "Personal" mode
+    is_personal: bool = False
+    platform_role: str = "user"
+    crew_role: str = "guest"
     locale: str = "en"
-    permissions: List[str] = field(default_factory=list)
+    role_label: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dict for logging/debugging"""
         return {
             "user_id": self.user_id,
-            "platform_role": self.platform_role,
-            "crew_role": self.crew_role,
-            "role_label": self.role_label,
-            "locale": self.locale,
-            "permissions": self.permissions,
+            "space_ids": self.space_ids,
+            "is_personal": self.is_personal,
         }
 
 

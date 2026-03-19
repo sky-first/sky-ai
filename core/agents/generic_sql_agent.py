@@ -506,6 +506,7 @@ def run_agent_once(
             "permissions_count": len(state.get("permissions") or []),
             "has_error": bool(final_state.get("error")),
             "has_answer": bool(final_state.get("answer")),
+            "has_plan": bool(final_state.get("plan")),
         },
     )
 
