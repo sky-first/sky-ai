@@ -355,8 +355,13 @@ def _build_multiple_schemas_text(
     if join_info:
         lines.append("=== JOIN RELATIONSHIPS ===\n")
         for rel in join_info:
+            # Incluir label e join_type para dar contexto semântico à IA
+            label = rel.get("label")
+            label_text = f" (Context: {label})" if label else ""
+            join_type = rel.get("join_type", "INNER").upper()
+            
             lines.append(
-                f"{rel['from_table']}.{rel['from_column']} -> {rel['to_table']}.{rel['to_column']}"
+                f"{rel['from_table']}.{rel['from_column']} -> {rel['to_table']}.{rel['to_column']}{label_text} | Type: {join_type}"
             )
         lines.append("\nUse these relationships to create JOIN clauses in your SQL query.")
     

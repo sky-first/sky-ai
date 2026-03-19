@@ -63,7 +63,7 @@ from core.llm.factory import (
     create_embedding_provider,
 )
 from core.rag.vector_store import search_embeddings_async
-from core.agents.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
@@ -2261,6 +2261,58 @@ async def load_agent_config_from_connection(
                     strict_mode=True,
                 )
 
+            # ✅ ENRICH with user-defined descriptions from table_metadata
+            # This allows users to add semantic descriptions to tables/columns via UI
+            # and have the AI use them for better table selection.
+            try:
+                desc_result = await db.execute(
+                    text("""
+                        SELECT table_name, column_name, description
+                        FROM table_metadata
+                        WHERE data_connection_id = :conn_id
+                          AND space_id = :space_id
+                          AND description IS NOT NULL
+                    """),
+                    {"conn_id": connection_id, "space_id": space_id},
+                )
+                desc_rows = desc_result.fetchall()
+                if desc_rows:
+                    # Build lookup: { table_name -> { col_name -> description, "_table_" -> description } }
+                    desc_lookup: dict = {}
+                    for row in desc_rows:
+                        tname, cname, desc = row[0], row[1], row[2]
+                        if tname not in desc_lookup:
+                            desc_lookup[tname] = {}
+                        if cname:
+                            desc_lookup[tname][cname] = desc
+                        else:
+                            desc_lookup[tname]["_table_"] = desc
+
+                    # Inject descriptions into tables_json
+                    for t in tables_json:
+                        tname = str(t.get("name") or "").strip()
+                        if tname in desc_lookup:
+                            # Inject table-level description (use first column desc as fallback)
+                            if "_table_" in desc_lookup[tname]:
+                                t["description"] = desc_lookup[tname]["_table_"]
+                            elif not t.get("description"):
+                                # Use first non-null column desc as table description
+                                first_desc = next(iter(desc_lookup[tname].values()), None)
+                                if first_desc:
+                                    t["description"] = first_desc
+                            # Inject column-level descriptions
+                            for col in (t.get("columns") or []):
+                                cname = str(col.get("name") or "").strip()
+                                if cname in desc_lookup.get(tname, {}):
+                                    col["description"] = desc_lookup[tname][cname]
+
+                    log_event("load_agent_config_descriptions_enriched", {
+                        "connection_id": connection_id,
+                        "tables_enriched": list(desc_lookup.keys()),
+                    })
+            except Exception as desc_err:
+                log_event("load_agent_config_descriptions_enrich_error", {"error": str(desc_err)[:300]})
+
             table_schemas: list[TableSchema] = []
             for t in tables_json:
                 if not isinstance(t, dict):
@@ -2457,10 +2509,18 @@ async def load_agent_config_from_connection(
         else:
             physical_name = table_name
 
+        # Tentar inferir descrição da tabela (usando a primeira disponível nas colunas)
+        table_desc = None
+        for c in columns:
+            if c.get("description"):
+                table_desc = c.get("description")
+                break
+
         table_schemas.append(
             TableSchema(
                 logical_name=_normalize_logical_name(table_name),
                 physical_name=physical_name,
+                description=table_desc,
                 columns=[
                      {
                          "name": c["column_name"],
@@ -2472,7 +2532,13 @@ async def load_agent_config_from_connection(
                 ],
             )
         )
+
     
+    # DEBUG: Log description of planets table
+    for t in table_schemas:
+        if t.logical_name == "planets":
+            log_event("debug_planets_metadata", {"logical_name": t.logical_name, "description": t.description, "num_cols": len(t.columns)})
+
     agent = AgentConfig(
         id=f"agent-conn-{connection_id}",
         name=f"Agent for connection {connection_id}",
@@ -2480,6 +2546,7 @@ async def load_agent_config_from_connection(
         dialect=dialect,  # 🔥 Pass correct dialect
         extra={"project_id": project_id}
     )
+
     
     log_event(
         "load_agent_config_complete",
@@ -2581,6 +2648,7 @@ async def query_connection(
                     "original_question": body.question[:50],
                     "crew_id": active_cache_crew,  # for audit
                 })
+                # return QueryResponse.model_validate(cached_json) # Temporarily disabled for verification
                 return QueryResponse.model_validate(cached_json)
     except Exception as sc_err:
         from core.logging_utils import log_event
@@ -3058,8 +3126,6 @@ async def _query_connection_inner(
             )
         )
         
-        # Log available tables for debug
-        print(f"DEBUG: Available Logical Tables: {logical_tables}")
 
     except Exception:
         # Never fail the main query path due to these heuristics.
@@ -3606,6 +3672,7 @@ async def _query_connection_inner(
         title=final_state.get("generated_title"), # Populate title from agent state
         num_rows=len(data),
         error=error,
+        plan=final_state.get("plan"),
     )
     
     log_event(

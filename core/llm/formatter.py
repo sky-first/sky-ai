@@ -146,8 +146,9 @@ def run_formatter(
     impossible_reason = state.get("impossible_reason")
     
     # ✅ FIX: Preserve Orchestrator answer if already present (e.g. refusals, conversational)
-    # This prevents overwriting valid answers with "No data found".
-    if state.get("answer") and not data:
+    # UNLESS we have RAG context that might provide a better answer.
+    retrieval_context = state.get("retrieval_context") or []
+    if state.get("answer") and not data and not retrieval_context:
         log_event(
             "formatter_skipped_preservation",
             {
@@ -205,9 +206,22 @@ def run_formatter(
         )
         return state
 
-    # 2) Caso o especialista tenha marcado como IMPOSSIBLE
-    if impossible_reason and not data:
-        # Tenta ser amigável quando não entende/não encontra dados
+    # 2) Caso o especialista tenha marcado como IMPOSSIBLE ou não houver dados,
+    # mas temos contexto de recuperação (RAG), usamos o LLM para tentar responder.
+    retrieval_context = state.get("retrieval_context") or []
+    
+    if (impossible_reason or not data) and retrieval_context:
+        log_event(
+            "formatter_using_rag_fallback",
+            {
+                "agent_id": agent_config.id,
+                "impossible_reason": impossible_reason,
+                "num_rag_chunks": len(retrieval_context),
+            }
+        )
+        # Prossegue para o passo 4 (invocação do LLM)
+    elif impossible_reason and not data:
+        # Tenta ser amigável quando não entende/não encontra dados e NÃO TEM RAG
         topic = _extract_topic(question)
         state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
         
@@ -222,8 +236,8 @@ def run_formatter(
         )
         return state
 
-    # 3) Sem dados e sem impossible_reason → resposta simples
-    if not data:
+    # 3) Sem dados e sem impossible_reason e NÃO TEM RAG -> resposta simples
+    if not data and not retrieval_context:
         topic = _extract_topic(question)
         state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
         log_event(
@@ -266,9 +280,11 @@ def run_formatter(
         context_bundle=context_bundle,
         question=question,
         sql=state.get("sql", "N/A"),
-        data_preview=sample_json,
-        stats_summary=stats_text,
-        has_data=True,
+        data_preview=sample_json if data else "[]",
+        stats_summary=stats_text if data else None,
+        has_data=bool(data),
+        is_impossible=bool(impossible_reason),
+        impossible_reason=impossible_reason or "",
         response_format=state.get("response_format"),
         length_guidance=length_guidance,
         extra_instructions=state.get("instructions")
