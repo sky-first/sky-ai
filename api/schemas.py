@@ -82,6 +82,7 @@ class QueryResultMeta(BaseModel):
     num_rows: int = 0
     error: Optional[str] = None
     rag_context: Optional[List[str]] = None # Debug info
+    plan: Optional[str] = None # AI reasoning/rationale (Chain of Thought)
     # ✅ NEW: Dashboard plan for direct generation (Phase 1)
     dashboard_plan: Optional[Dict[str, Any]] = Field(
         default=None,

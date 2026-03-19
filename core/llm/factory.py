@@ -45,11 +45,11 @@ def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[i
             num_ctx=getattr(settings, "ollama_num_ctx_orchestrator", 4096)
         )
     else:
-        # OpenAI Strategy
-        return ChatOpenAI(
+        # OpenAI Strategy utilizing the proper wrapper for tools support
+        from core.llm.providers import LangChainChatOpenAIProvider
+        return LangChainChatOpenAIProvider(
             model=settings.llm_model_orchestrator,
-            temperature=0.0,
-            openai_api_key=settings.openai_api_key
+            temperature=0.0
         )
 
 
@@ -66,10 +66,10 @@ def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int
         )
     else:
         # OpenAI Strategy
-        return ChatOpenAI(
+        from core.llm.providers import LangChainChatOpenAIProvider
+        return LangChainChatOpenAIProvider(
             model=settings.llm_model_specialist,
-            temperature=0.0,
-            openai_api_key=settings.openai_api_key
+            temperature=0.0
         )
 
 
@@ -88,10 +88,10 @@ def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int]
         )
     else:
         # OpenAI Strategy
-        return ChatOpenAI(
+        from core.llm.providers import LangChainChatOpenAIProvider
+        return LangChainChatOpenAIProvider(
             model=settings.llm_model_formatter,
-            temperature=temp,
-            openai_api_key=settings.openai_api_key
+            temperature=temp
         )
 
 
