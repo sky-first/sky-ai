@@ -1,4 +1,5 @@
 image:
+  repository: "skyacrstagingj3minh.azurecr.io/sky-poc-frontend"
   tag: "sha-65fb2f25663c17a43287b6eef4861d15d522c193"
 
 ingress:
@@ -12,7 +13,7 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-    - host: platform.teamblue-stg.skyfirstlabs.com
+    - host: plataform.teamblue-stg.skyfirstlabs.com
       paths:
         - path: /
           pathType: Prefix
@@ -20,7 +21,7 @@ ingress:
     - secretName: teamblue-fe-stg-tls
       hosts:
         - teamblue.skyfirstlabs.com
-        - platform.teamblue-stg.skyfirstlabs.com
+        - plataform.teamblue-stg.skyfirstlabs.com
 
 service:
   port: 80
@@ -30,6 +31,6 @@ replicaCount: 1
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://platform.teamblue-stg.skyfirstlabs.com"
+    value: "https://teamblue-api.skyfirstlabs.com/api"
   - name: NEXTAUTH_URL
-    value: "https://platform.teamblue-stg.skyfirstlabs.com"
+    value: "https://plataform.teamblue-stg.skyfirstlabs.com"

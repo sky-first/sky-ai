@@ -1,4 +1,5 @@
 image:
+  repository: "skyacrstagingj3minh.azurecr.io/sky-poc-frontend"
   tag: "sha-65fb2f25663c17a43287b6eef4861d15d522c193"
 
 ingress:
@@ -31,4 +32,4 @@ resources:
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://workspace-stg.skyfirstlabs.com/api"
+    value: "https://api-stg.skyfirstlabs.com"
