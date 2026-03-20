@@ -18,18 +18,10 @@ ingress:
       paths:
         - path: /()(.*)
           pathType: ImplementationSpecific
-          backend:
-            service:
-              name: sky-fe-stg-common-app
-              port:
-                number: 80
         - path: /api(/|$)(.*)
           pathType: ImplementationSpecific
-          backend:
-            service:
-              name: sky-be-stg-common-app
-              port:
-                number: 80
+          serviceName: sky-be-stg-common-app
+          servicePort: 80
   tls:
     - secretName: sky-fe-stg-tls
       hosts:
