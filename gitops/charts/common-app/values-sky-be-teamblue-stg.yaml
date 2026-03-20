@@ -38,10 +38,12 @@ envSecrets:
   CELERY_BROKER_URL: "redis://:hGuSngF6G6jOPv8ddSYHxbiQ@redis.teamblue.svc.cluster.local:6379/1"
   AUTH0_DOMAIN: "sky-first.auth0.com"
   AUTH0_AUDIENCE: "https://api.skyfirst.com"
+  AI_SERVICE_TYPE: "real"
+  AI_SERVICE_URL: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
+  DEBUG: "true"
 
 replicaCount: 1
 
-# Ajuste de Probes para dar tempo ao app de inicializar
 livenessProbe:
   initialDelaySeconds: 60
   periodSeconds: 10
