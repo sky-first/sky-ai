@@ -12,7 +12,7 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-    - host: plataform.teamblue-stg.skyfirstlabs.com
+    - host: platform.teamblue-stg.skyfirstlabs.com
       paths:
         - path: /
           pathType: Prefix
@@ -20,7 +20,7 @@ ingress:
     - secretName: teamblue-fe-stg-tls
       hosts:
         - teamblue.skyfirstlabs.com
-        - plataform.teamblue-stg.skyfirstlabs.com
+        - platform.teamblue-stg.skyfirstlabs.com
 
 service:
   port: 80
@@ -30,6 +30,6 @@ replicaCount: 1
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+    value: "https://platform.teamblue-stg.skyfirstlabs.com"
   - name: NEXTAUTH_URL
-    value: "https://plataform.teamblue-stg.skyfirstlabs.com"
+    value: "https://platform.teamblue-stg.skyfirstlabs.com"
