@@ -11,6 +11,7 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rewrite-target: /api$uri
     nginx.ingress.kubernetes.io/configuration-snippet: |
       set $cors_origin "";
       if ($http_origin ~* "^https?://(workspace-stg|plataform\.teamblue-stg)\.skyfirstlabs\.com$") {
