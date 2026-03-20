@@ -22,20 +22,11 @@ ingress:
   hosts:
     - host: teamblue-api.skyfirstlabs.com
       paths:
-        - path: /api(/|$)(.*)
-          pathType: ImplementationSpecific
-    - host: teamblue.skyfirstlabs.com
-      paths:
-        - path: /api(/|$)(.*)
-          pathType: ImplementationSpecific
-    - host: plataform.teamblue-stg.skyfirstlabs.com
-      paths:
         - path: /api
           pathType: Prefix
   tls:
     - secretName: sky-be-teamblue-tls
       hosts:
         - teamblue-api.skyfirstlabs.com
-        - plataform.teamblue-stg.skyfirstlabs.com
 
 replicaCount: 1
