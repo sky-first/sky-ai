@@ -12,11 +12,24 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
   hosts:
     - host: workspace-stg.skyfirstlabs.com
       paths:
-        - path: /
-          pathType: Prefix
+        - path: /()(.*)
+          pathType: ImplementationSpecific
+          backend:
+            service:
+              name: sky-fe-stg-common-app
+              port:
+                number: 80
+        - path: /api(/|$)(.*)
+          pathType: ImplementationSpecific
+          backend:
+            service:
+              name: sky-be-stg-common-app
+              port:
+                number: 80
   tls:
     - secretName: sky-fe-stg-tls
       hosts:
@@ -27,13 +40,9 @@ service:
   targetPort: 3000
 
 replicaCount: 1
-resources:
-  requests:
-    cpu: 20m
-    memory: 128Mi
-  limits:
-    memory: 128Mi
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://api-stg.skyfirstlabs.com/api"
+    value: "/api"
+  - name: NEXTAUTH_URL
+    value: "https://workspace-stg.skyfirstlabs.com"
