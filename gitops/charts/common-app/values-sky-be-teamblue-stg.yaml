@@ -11,11 +11,13 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/rewrite-target: /api$uri
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^/api/(.*)$ /api/$1 break;
+      rewrite ^/(?!api)(.*)$ /api/$1 break;
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "https://plataform.teamblue-stg.skyfirstlabs.com"
     nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
-    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,X-Correlation-ID"
     nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
     nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
@@ -23,28 +25,18 @@ ingress:
   hosts:
     - host: teamblue-api.skyfirstlabs.com
       paths:
-        - path: /api
+        - path: /
           pathType: Prefix
   tls:
     - secretName: sky-be-teamblue-tls
       hosts:
         - teamblue-api.skyfirstlabs.com
 
-extraEnv:
-  - name: DATABASE_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-teamblue-ai-worker-secrets
-        key: database_url
-  - name: REDIS_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-teamblue-ai-worker-secrets
-        key: redis_url
-  - name: CELERY_BROKER_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-teamblue-ai-worker-secrets
-        key: celery_broker_url
+envSecrets:
+  DATABASE_URL: "postgresql+asyncpg://postgres:mDul04QjKzrSO72B@postgres:5432/ai_saas_db"
+  REDIS_URL: "redis://:hGuSngF6G6jOPv8ddSYHxbiQ@redis:6379/0"
+  CELERY_BROKER_URL: "redis://:hGuSngF6G6jOPv8ddSYHxbiQ@redis:6379/1"
+  AUTH0_DOMAIN: "sky-first.auth0.com"
+  AUTH0_AUDIENCE: "https://api.skyfirst.com"
 
 replicaCount: 1
