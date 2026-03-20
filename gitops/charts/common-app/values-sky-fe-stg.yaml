@@ -36,4 +36,4 @@ resources:
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
-    value: "https://api-stg.skyfirstlabs.com"
+    value: "https://api-stg.skyfirstlabs.com/api"

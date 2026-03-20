@@ -22,7 +22,7 @@ ingress:
   hosts:
     - host: api-stg.skyfirstlabs.com
       paths:
-        - path: /
+        - path: /api
           pathType: Prefix
   tls:
     - secretName: sky-be-stg-tls
