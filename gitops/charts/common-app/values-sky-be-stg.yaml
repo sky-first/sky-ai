@@ -24,7 +24,7 @@ ingress:
         - path: /api
           pathType: Prefix
   tls:
-    - secretName: sky-fe-stg-tls
+    - secretName: sky-be-stg-tls
       hosts:
         - api-stg.skyfirstlabs.com
-        - workspace-stg.skyfirstlabs.com
+        - workspace-stg-api.skyfirstlabs.com
