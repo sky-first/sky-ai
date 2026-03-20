@@ -3,12 +3,28 @@ image:
 
 ingress:
   enabled: true
-  # IMPORTANTE: Template usa .Values.ingress.host (singular)
-  host: api-stg.skyfirstlabs.com
-  tlsSecret: "sky-tls-secret"
+  className: "nginx"
   annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "https://workspace-stg.skyfirstlabs.com, https://platform.teamblue-stg.skyfirstlabs.com"
     nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform"
     nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+  hosts:
+    - host: api-stg.skyfirstlabs.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: workspace-stg.skyfirstlabs.com
+      paths:
+        - path: /api
+          pathType: Prefix
+  tls:
+    - secretName: sky-fe-stg-tls
+      hosts:
+        - api-stg.skyfirstlabs.com
+        - workspace-stg.skyfirstlabs.com
