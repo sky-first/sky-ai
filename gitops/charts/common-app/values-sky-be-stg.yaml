@@ -19,10 +19,6 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-    - host: workspace-stg.skyfirstlabs.com
-      paths:
-        - path: /api
-          pathType: Prefix
   tls:
     - secretName: sky-be-stg-tls
       hosts:
