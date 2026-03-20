@@ -3,16 +3,12 @@ image:
 
 ingress:
   enabled: true
+  # IMPORTANTE: Template usa .Values.ingress.host (singular)
+  host: api-stg.skyfirstlabs.com
+  tlsSecret: "sky-tls-secret"
   annotations:
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "https://workspace-stg.skyfirstlabs.com, https://platform.teamblue-stg.skyfirstlabs.com"
     nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform"
     nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
-    # REMOVIDO cert-manager para usar o certificado WILD-CARD manual que funciona no Front
-  tlsSecret: "sky-tls-secret"
-  hosts:
-    - host: api-stg.skyfirstlabs.com
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
