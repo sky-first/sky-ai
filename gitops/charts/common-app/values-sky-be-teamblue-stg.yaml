@@ -40,10 +40,19 @@ envSecrets:
   AUTH0_AUDIENCE: "https://api.skyfirst.com"
 
 replicaCount: 1
+
+# Ajuste de Probes para dar tempo ao app de inicializar
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 10
+readinessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 10
+
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 200m
+    memory: 512Mi
   limits:
-    cpu: 500m
-    memory: 1024Mi
+    cpu: 1000m
+    memory: 2048Mi
