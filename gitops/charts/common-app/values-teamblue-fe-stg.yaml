@@ -17,7 +17,7 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: sky-be-teamblue-tls
+    - secretName: teamblue-fe-stg-tls
       hosts:
         - teamblue.skyfirstlabs.com
         - plataform.teamblue-stg.skyfirstlabs.com
@@ -26,11 +26,7 @@ service:
   port: 80
   targetPort: 3000
 
-replicaCount: 2
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
+replicaCount: 1
 
 extraEnv:
   - name: NEXT_PUBLIC_API_URL
