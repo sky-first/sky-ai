@@ -1,6 +1,10 @@
 image:
   repository: "skyacrstagingj3minh.azurecr.io/sky-poc-backend"
   tag: "sha-6990364094b46accd9740991ac513cc807332c3a"
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: regcred
 
 ingress:
   enabled: true
