@@ -29,4 +29,21 @@ ingress:
       hosts:
         - teamblue-api.skyfirstlabs.com
 
+extraEnv:
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-teamblue-ai-worker-secrets
+        key: database_url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-teamblue-ai-worker-secrets
+        key: redis_url
+  - name: CELERY_BROKER_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-teamblue-ai-worker-secrets
+        key: celery_broker_url
+
 replicaCount: 1

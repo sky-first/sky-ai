@@ -46,6 +46,23 @@ ingress:
       hosts:
         - api-stg.skyfirstlabs.com
 
+extraEnv:
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-ai-stg-common-app-secrets
+        key: database_url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-ai-stg-common-app-secrets
+        key: redis_url
+  - name: CELERY_BROKER_URL
+    valueFrom:
+      secretKeyRef:
+        name: sky-ai-stg-common-app-secrets
+        key: celery_broker_url
+
 replicaCount: 1
 resources:
   requests:
