@@ -1,24 +1,6 @@
-head: head: Trying: No such file or directory
-head: Trying: No such file or directory
-head: to: No such file or directory
-head: find: No such file or directory
-head: what: No such file or directory
-head: triggers: No such file or directory
-to: No such file or directory
-head: find: No such file or directory
-head: what: No such file or directory
-head: triggers: No such file or directory
-head: 401: No such file or directory
-head: in: No such file or directory
-head: the: No such file or directory
-head: repo: No such file or directory
-head: code: No such file or directory
-head: 401: No such file or directory
-head: in: No such file or directory
-head: the: No such file or directory
-head: repo: No such file or directory
-head: code: No such file or directory
-head: if: No such file or directory
-head: possiblehead: if: No such file or directory
-head: possible: No such file or directory
-: No such file or directory
+error: expected 'logs [-f] [-p] (POD | TYPE/NAME) [-c CONTAINER]'.
+POD or TYPE/NAME is a required argument for the logs command
+See 'kubectl logs -h' for help and examples
+error: expected 'logs [-f] [-p] (POD | TYPE/NAME) [-c CONTAINER]'.
+POD or TYPE/NAME is a required argument for the logs command
+See 'kubectl logs -h' for help and examples
