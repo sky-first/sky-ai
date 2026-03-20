@@ -1,2 +1,32 @@
 image:
-  tag: "sha-3f97925414d005076db111b9e3c67dde37a25cf4"
+  tag: "sha-65fb2f25663c17a43287b6eef4861d15d522c193"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+  hosts:
+    - host: workspace-stg.skyfirstlabs.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: sky-fe-stg-tls
+      hosts:
+        - workspace-stg.skyfirstlabs.com
+
+service:
+  port: 80
+  targetPort: 3000
+
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+
+extraEnv:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://workspace-stg.skyfirstlabs.com/api"
