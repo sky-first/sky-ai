@@ -1,25 +1,36 @@
-# TeamBlue Backend Staging - Valores de Imagem
-# Gerenciado pelo ArgoCD Image Updater via write-back
 image:
-  tag: "sha-9ebc449"
+  tag: "sha-6990364094b46accd9740991ac513cc807332c3a"
 
-extraEnv:
-  - name: CORS_ORIGINS
-    value: "https://teamblue.skyfirstlabs.com,https://plataform.teamblue-stg.skyfirstlabs.com"
-  - name: REDIS_PORT
-    value: "6379"
-  - name: DEBUG
-    value: "true"
-  - name: AI_SERVICE_TYPE
-    value: "real"
-  # AI_SERVICE_URL aponta para o staging (compartilhado)
-  - name: AI_SERVICE_URL
-    value: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://workspace-stg.skyfirstlabs.com, https://plataform.teamblue-stg.skyfirstlabs.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+  hosts:
+    - host: teamblue-api.skyfirstlabs.com
+      paths:
+        - path: /api(/|$)(.*)
+          pathType: ImplementationSpecific
+    - host: teamblue.skyfirstlabs.com
+      paths:
+        - path: /api(/|$)(.*)
+          pathType: ImplementationSpecific
+    - host: plataform.teamblue-stg.skyfirstlabs.com
+      paths:
+        - path: /api
+          pathType: Prefix
+  tls:
+    - secretName: sky-be-teamblue-tls
+      hosts:
+        - teamblue-api.skyfirstlabs.com
+        - plataform.teamblue-stg.skyfirstlabs.com
 
-resources:
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-  requests:
-    cpu: 250m
-    memory: 256Mi
+replicaCount: 1

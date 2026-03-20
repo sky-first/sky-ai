@@ -27,4 +27,12 @@ ingress:
     - secretName: sky-be-stg-tls
       hosts:
         - api-stg.skyfirstlabs.com
-        - workspace-stg-api.skyfirstlabs.com
+
+replicaCount: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
