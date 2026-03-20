@@ -11,8 +11,11 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/rewrite-target: /api$uri
+    # Rewrite inteligente: se começar com /api, mantém. Se não, adiciona.
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^/api/(.*)$ /api/$1 break;
+      rewrite ^/(?!api)(.*)$ /api/$1 break;
+      
       set $cors_origin "";
       if ($http_origin ~* "^https?://(workspace-stg|plataform\.teamblue-stg)\.skyfirstlabs\.com$") {
           set $cors_origin $http_origin;
@@ -22,7 +25,7 @@ ingress:
           add_header 'Access-Control-Allow-Origin' "$cors_origin" always;
           add_header 'Access-Control-Allow-Credentials' 'true' always;
           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-          add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id' always;
+          add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,X-Correlation-ID' always;
           add_header 'Access-Control-Max-Age' 1728000;
           add_header 'Content-Type' 'text/plain charset=UTF-8';
           add_header 'Content-Length' 0;
@@ -32,7 +35,7 @@ ingress:
       add_header 'Access-Control-Allow-Origin' "$cors_origin" always;
       add_header 'Access-Control-Allow-Credentials' 'true' always;
       add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-      add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id' always;
+      add_header 'Access-Control-Allow-Headers' 'DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,X-Correlation-ID' always;
     nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
     nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
@@ -46,22 +49,15 @@ ingress:
       hosts:
         - api-stg.skyfirstlabs.com
 
-extraEnv:
-  - name: DATABASE_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-ai-stg-common-app-secrets
-        key: database_url
-  - name: REDIS_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-ai-stg-common-app-secrets
-        key: redis_url
-  - name: CELERY_BROKER_URL
-    valueFrom:
-      secretKeyRef:
-        name: sky-ai-stg-common-app-secrets
-        key: celery_broker_url
+# Injetando as variáveis diretamente para que o Helm crie o segredo sky-be-stg-common-app-secrets
+envSecrets:
+  DATABASE_URL: "postgresql+asyncpg://postgres:mDul04QjKzrSO72B@postgres:5432/ai_saas_db"
+  REDIS_URL: "redis://:hGuSngF6G6jOPv8ddSYHxbiQ@redis:6379/0"
+  CELERY_BROKER_URL: "redis://:hGuSngF6G6jOPv8ddSYHxbiQ@redis:6379/1"
+  JWT_SECRET_KEY: "REDACTED_IF_KNOWN_BUT_USING_DEFAULT_FROM_POC"
+  # Adicionando Auth0 como placeholder se necessário para passar no middleware
+  AUTH0_DOMAIN: "sky-first.auth0.com"
+  AUTH0_AUDIENCE: "https://api.skyfirst.com"
 
 replicaCount: 1
 resources:

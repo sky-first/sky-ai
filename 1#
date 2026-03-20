@@ -1,14 +1,24 @@
-base64: invalid argument Verifying
-Usage:	base64 [-Ddh] [-b num] [-i in_file] [-o out_file]
-  -b, --break       break encoded output up into lines of length num
-  -D, -d, --decode  decode input
-  -h, --help        display this message
-  -i, --input       input file (default: "-" for stdin)
-  -o, --output      output file (default: "-" for stdout)
-base64: invalid argument Verifying
-Usage:	base64 [-Ddh] [-b num] [-i in_file] [-o out_file]
-  -b, --break       break encoded output up into lines of length num
-  -D, -d, --decode  decode input
-  -h, --help        display this message
-  -i, --input       input file (default: "-" for stdin)
-  -o, --output      output file (default: "-" for stdout)
+head: head: Trying: No such file or directory
+head: Trying: No such file or directory
+head: to: No such file or directory
+head: find: No such file or directory
+head: what: No such file or directory
+head: triggers: No such file or directory
+to: No such file or directory
+head: find: No such file or directory
+head: what: No such file or directory
+head: triggers: No such file or directory
+head: 401: No such file or directory
+head: in: No such file or directory
+head: the: No such file or directory
+head: repo: No such file or directory
+head: code: No such file or directory
+head: 401: No such file or directory
+head: in: No such file or directory
+head: the: No such file or directory
+head: repo: No such file or directory
+head: code: No such file or directory
+head: if: No such file or directory
+head: possiblehead: if: No such file or directory
+head: possible: No such file or directory
+: No such file or directory
