@@ -40,3 +40,10 @@ envSecrets:
   AUTH0_AUDIENCE: "https://api.skyfirst.com"
 
 replicaCount: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
