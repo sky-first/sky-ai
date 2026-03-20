@@ -17,6 +17,9 @@ ingress:
     nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,X-Correlation-ID"
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($http_origin ~* "plataform.teamblue-stg.skyfirstlabs.com") {
+          proxy_pass http://sky-be-teamblue-stg-common-app.teamblue.svc.cluster.local:80;
+      }
       rewrite ^/api/(.*)$ /api/$1 break;
       rewrite ^/(?!api)(.*)$ /api/$1 break;
     nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
