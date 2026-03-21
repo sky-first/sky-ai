@@ -1,6 +1,6 @@
 image:
   repository: "skyacrstagingj3minh.azurecr.io/sky-poc-frontend"
-  tag: "sha-65fb2f25663c17a43287b6eef4861d15d522c193"
+  tag: "sha-973ae09"
   pullPolicy: Always
 
 imagePullSecrets:
