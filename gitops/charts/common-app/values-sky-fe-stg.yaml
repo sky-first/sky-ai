@@ -12,14 +12,13 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
   hosts:
     - host: workspace-stg.skyfirstlabs.com
       paths:
-        - path: /()(.*)
-          pathType: ImplementationSpecific
-        - path: /api(/|$)(.*)
-          pathType: ImplementationSpecific
+        - path: /
+          pathType: Prefix
+        - path: /api
+          pathType: Prefix
           serviceName: sky-be-stg-common-app
           servicePort: 80
   tls:
