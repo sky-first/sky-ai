@@ -145,20 +145,86 @@ def build_metadata_text(tm: TableMetadata) -> str:
     desc = tm.description or ""
     nullable = "nullable" if tm.is_nullable else "not nullable"
     extra = tm.extra or {}
-    extra_str = ", ".join(f"{k}={v}" for k, v in extra.items()) if extra else ""
-
+    
     parts = [
         f"Table: {tm.table_name}",
         f"Column: {tm.column_name}",
         f"Type: {tm.data_type}",
         f"Nullability: {nullable}",
     ]
+    
+    # Adicionar info de Chaves de forma natural para o RAG
+    if extra.get("is_primary_key"):
+        parts.append("This is a Primary Key (unique identifier).")
+    if extra.get("is_foreign_key"):
+        parts.append("This is a Foreign Key (links this table to another table).")
+        
     if desc:
         parts.append(f"Description: {desc}")
-    if extra_str:
-        parts.append(f"Extra: {extra_str}")
+        
+    # Outros extras
+    other_extras = {k: v for k, v in extra.items() if k not in ["is_primary_key", "is_foreign_key", "original_name"]}
+    if other_extras:
+        extra_str = ", ".join(f"{k}={v}" for k, v in other_extras.items())
+        parts.append(f"Additional Metadata: {extra_str}")
 
     return " | ".join(parts)
+
+
+def build_strategy_text(request: any) -> str:
+    """
+    Constrói um texto rico para Pillar, Objective (Goal), OKR, Key Result, Cycle, Initiative ou Risk (Assumption).
+    """
+    entity_type = request.entity_type
+    name = request.name or ""
+    description = request.description or ""
+    details = request.entity_details or {}
+    
+    # Mapeamento amigável para o RAG
+    display_type = entity_type.replace('_', ' ').title()
+    if entity_type == "strategic_objective":
+        display_type = "Strategic Goal / Objective"
+    elif entity_type == "strategy_assumption":
+        display_type = "Strategic Risk / Assumption"
+    
+    parts = [
+        f"Type: {display_type}",
+        f"Name: {name}",
+    ]
+    if description:
+        parts.append(f"Description: {description}")
+    
+    # Adicionar detalhes genéricos
+    for key, value in details.items():
+        if value and key not in ["name", "description"]:
+            parts.append(f"{key.replace('_', ' ').title()}: {value}")
+        
+    return " | ".join(parts)
+
+
+def build_signal_text(request: any) -> str:
+    """
+    Constrói um texto rico para Signal Event.
+    """
+    parts = [
+        f"Type: Intelligence Signal / Event",
+        f"Category: {request.category}",
+        f"Nature: {request.nature}",
+    ]
+    if request.name:
+        parts.append(f"Title: {request.name}")
+    if request.description:
+        parts.append(f"Description: {request.description}")
+        
+    if request.sub_type:
+        parts.append(f"Sub-type: {request.sub_type}")
+    if request.start_date:
+        parts.append(f"Date: {request.start_date}")
+    if request.confidence:
+        parts.append(f"Confidence: {request.confidence}")
+        
+    return " | ".join(parts)
+
 
 
 # ========= GERA EMBEDDINGS DE METADADOS =========
