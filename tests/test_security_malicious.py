@@ -366,7 +366,7 @@ PROGRESSIVE_ESCALATION_TESTS = [
 # ============================================================================
 
 
-async def test_prompt_injection(test_case: Dict) -> Dict:
+async def run_prompt_injection(test_case: Dict) -> Dict:
     """Testa um caso de prompt injection"""
     print(f"\n🔴 Testando {test_case['id']}: {test_case['category']}")
     print(f"   Pergunta: {test_case['question'][:80]}...")
@@ -454,7 +454,7 @@ async def test_prompt_injection(test_case: Dict) -> Dict:
         await db.close()
 
 
-async def test_sql_malicious(test_case: Dict) -> Dict:
+async def run_sql_malicious(test_case: Dict) -> Dict:
     """Testa um caso de SQL malicioso"""
     print(f"\n🔴 Testando {test_case['id']}: {test_case['category']}")
     print(f"   Pergunta: {test_case['question'][:80]}...")
@@ -580,7 +580,7 @@ async def test_sql_malicious(test_case: Dict) -> Dict:
         db.close()
 
 
-async def test_progressive_escalation(test_case: Dict) -> Dict:
+async def run_progressive_escalation(test_case: Dict) -> Dict:
     """Testa uma sequência de perguntas para detectar escalação"""
     print(f"\n🔴 Testando {test_case['id']}: {test_case['category']}")
     print(f"   Sequência de {len(test_case['sequence'])} perguntas")
@@ -675,7 +675,7 @@ async def main():
     print("📝 CATEGORIA 1: PROMPT INJECTION (20 testes)")
     print("=" * 80)
     for test in PROMPT_INJECTION_TESTS:
-        result = await test_prompt_injection(test)
+        result = await run_prompt_injection(test)
         all_results["prompt_injection"].append(result)
         print(f"   {result['status']} - {result['reason']}")
         await asyncio.sleep(0.3)
@@ -685,7 +685,7 @@ async def main():
     print("📝 CATEGORIA 2: SQL MALICIOSO (15 testes)")
     print("=" * 80)
     for test in SQL_MALICIOUS_TESTS:
-        result = await test_sql_malicious(test)
+        result = await run_sql_malicious(test)
         all_results["sql_malicious"].append(result)
         print(f"   {result['status']} - {result['reason']}")
         await asyncio.sleep(0.3)
@@ -695,7 +695,7 @@ async def main():
     print("📝 CATEGORIA 3: PROGRESSIVE ESCALATION (2 testes)")
     print("=" * 80)
     for test in PROGRESSIVE_ESCALATION_TESTS:
-        result = await test_progressive_escalation(test)
+        result = await run_progressive_escalation(test)
         all_results["progressive_escalation"].append(result)
         print(f"   {result['status']} - {result['reason']}")
         await asyncio.sleep(1.0)

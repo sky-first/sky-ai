@@ -40,7 +40,7 @@ QUESTIONS = [
 ]
 
 
-async def test_question(client: httpx.AsyncClient,
+async def run_test_case(client: httpx.AsyncClient,
                         question: str, index: int) -> Dict[str, Any]:
     """Tests a question and returns the result."""
     start_time = time.time()
@@ -117,7 +117,7 @@ async def run_tests():
 
     async with httpx.AsyncClient() as client:
         for i, question in enumerate(QUESTIONS):
-            result = await test_question(client, question, i)
+            result = await run_test_case(client, question, i)
             results.append(result)
 
             status_icon = "✅" if result["status"] == "SUCCESS" else "❌"

@@ -18,13 +18,14 @@ Arquitetura dos Agentes:
 """
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from core.auth.models import User, UserContext # Import User specifically
 from db.models import Space, Crew, UserPermission, DataConnection, ChatHistory
 from db.session import engine
 from sqlalchemy import text, select, desc
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import NoResultFound
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -3797,6 +3798,8 @@ async def _stream_connection_query(
         from core.security.audit_manager import AuditManager
         from core.llm.factory import create_llm_orchestrator
         
+        thread_id = body.thread_id or f"conn_{connection_id}_{int(time.time())}"
+        
         # Criar provider LLM para avaliação de segurança
         llm_provider = create_llm_orchestrator()
         
@@ -3805,7 +3808,7 @@ async def _stream_connection_query(
             question=body.question,
             user_id=body.user_id,
             connection_id=connection_id,
-            thread_id=body.thread_id,
+            thread_id=thread_id,
             llm_provider=llm_provider
         )
         
@@ -3820,18 +3823,21 @@ async def _stream_connection_query(
             
             # Auditoria legada para streaming
             esc_info = security_report.scan_details.get("escalation", {})
+            escalation_score = int(esc_info.get("score", 0))
+            escalation_detected = (security_report.blocked_by == "PROGRESSIVE_ESCALATION")
+
             log_query_audit(
                 connection_id=connection_id,
                 user_id=body.user_id,
                 space_id=body.space_id,
                 crew_ids=body.crew_ids,
-                thread_id=body.thread_id,
+                thread_id=thread_id,
                 question=security_report.redacted_prompt,
                 pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
                 pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
                 prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
-                progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
-                progressive_escalation_score=int(esc_info.get("score", 0)),
+                progressive_escalation_detected=escalation_detected,
+                progressive_escalation_score=escalation_score,
             )
             
             # Enviar como resposta normal para o frontend exibir corretamente
@@ -3839,6 +3845,11 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': error_code}, 'data_sample': []})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
+
+        # Extract escalation values for later use if not blocked
+        esc_info_later = security_report.scan_details.get("escalation", {})
+        escalation_score = int(esc_info_later.get("score", 0))
+        escalation_detected = (security_report.blocked_by == "PROGRESSIVE_ESCALATION")
 
         # Verificar se conexão existe
         result = await db.execute(

@@ -11,16 +11,17 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from sqlalchemy import text
-from db.base import SessionLocal, engine
+from db.base import SyncSessionLocal, sync_engine as engine
 from db.models import EmbeddingRecord
+import argparse
 
-def check_embeddings():
+def check_embeddings(args):
     """Verifica se há embeddings no banco"""
     print("="*60)
     print("VERIFICAÇÃO DE EMBEDDINGS")
     print("="*60)
     
-    db = SessionLocal()
+    db = SyncSessionLocal()
     try:
         # Verificar se a tabela existe
         try:
@@ -74,7 +75,8 @@ def check_embeddings():
         
         for row in result:
             space_id, total_count, num_crews, num_metadata = row
-            print(f"  Space {space_id[:8]}...: {total_count} embeddings, {num_crews} crews, {num_metadata} metadados")
+            space_id_str = str(space_id) if space_id else "None"
+            print(f"  Space {space_id_str[:8]}...: {total_count} embeddings, {num_crews} crews, {num_metadata} metadados")
         
         # Estatísticas por tipo (kind)
         print("\n📋 Estatísticas por tipo (kind):")
@@ -108,13 +110,29 @@ def check_embeddings():
             print("   A busca será feita apenas por filtro (sem similaridade vetorial)")
         
         # Amostra de embeddings
-        print("\n📝 Amostra de embeddings (primeiros 5):")
-        samples = db.query(EmbeddingRecord).limit(5).all()
+        print("\n📝 Amostra de embeddings:")
+        query = db.query(EmbeddingRecord)
+        
+        # Filtro por tabela se fornecido
+        if getattr(args, 'table', None):
+            print(f"  (Filtrando por tabela: {args.table})")
+            query = query.filter(text("metadata->>'table_name' = :table")).params(table=args.table)
+        
+        samples = query.limit(args.limit).all()
         for i, emb in enumerate(samples, 1):
             meta = emb.extra_metadata or {}
             kind = meta.get("kind", "unknown")
-            text_preview = (emb.text or "")[:80]
-            print(f"  {i}. [{kind}] {text_preview}...")
+            table = meta.get("table_name", "N/A")
+            column = meta.get("column_name", "N/A")
+            
+            if args.verbose:
+                text_display = emb.text
+            else:
+                text_display = (emb.text or "")[:100] + "..."
+                
+            print(f"  {i}. [{kind}] Table: {table} | Column: {column}")
+            print(f"     Text: {text_display}")
+            print("-" * 40)
         
     except Exception as e:
         print(f"❌ Erro ao verificar embeddings: {e}")
@@ -126,5 +144,11 @@ def check_embeddings():
     print("\n" + "="*60)
 
 if __name__ == "__main__":
-    check_embeddings()
+    parser = argparse.ArgumentParser(description="Verifica os embeddings no banco de dados")
+    parser.add_argument("--table", type=str, help="Filtrar por nome da tabela")
+    parser.add_argument("--limit", type=int, default=10, help="Limite de amostras a exibir (padrão: 10)")
+    parser.add_argument("--verbose", action="store_true", help="Mostrar o texto completo do embedding")
+    args = parser.parse_args()
+    
+    check_embeddings(args)
 
