@@ -1,7 +1,7 @@
 # core/ingestion/service.py
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

@@ -109,9 +109,9 @@ class AdvancedSQLValidator:
         
         # Validar colunas (se allowed_columns fornecido)
         if self.allowed_columns:
-            columns_used = self._extract_columns(statement, connection_type)
+            columns_used = self._extract_columns(statement, dialect)
             for col_ref in columns_used:
-                table_name, col_name = self._split_column_reference(col_ref, connection_type)
+                table_name, col_name = self._split_column_reference(col_ref, dialect)
                 if table_name and col_name:
                     # Normalizar nome da tabela para buscar em allowed_columns
                     table_key = table_name.lower().strip()

@@ -14,7 +14,7 @@ SPACE_ID = "ff9fc8ae-15c1-48f2-a12b-191a2c904a3d"
 CREW_IDS = ["5354e712-1096-4846-ab7f-62bf3d2a7aa9"]
 
 
-async def test_query(question: str, expected_blocked: bool = False):
+async def run_security_query(question: str, expected_blocked: bool = False):
     """Testa uma pergunta no endpoint /query"""
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -57,7 +57,7 @@ async def main():
     ]
 
     for q in legitimate_questions:
-        await test_query(q, expected_blocked=False)
+        await run_security_query(q, expected_blocked=False)
 
     print("\n🚫 Perguntas maliciosas (devem ser bloqueadas):")
     malicious_questions = [
@@ -68,7 +68,7 @@ async def main():
     ]
 
     for q in malicious_questions:
-        await test_query(q, expected_blocked=True)
+        await run_security_query(q, expected_blocked=True)
 
     print("\n✅ Testes concluídos!")
 

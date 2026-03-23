@@ -611,7 +611,7 @@ def get_unique_user_id(test_id: str) -> str:
     return f"{BASE_USER_ID}-{h}"
 
 
-async def test_single_case(test_case: Dict, category_name: str) -> Dict:
+async def run_aggressive_test_case(test_case: Dict, category_name: str) -> Dict:
     """Testa um único caso e retorna resultado"""
     test_id = test_case["id"]
     question = test_case["question"]
@@ -837,7 +837,7 @@ async def run_test_category(tests: List[Dict], category_name: str) -> List[Dict]
     """Executa todos os testes de uma categoria"""
     results = []
     for test in tests:
-        result = await test_single_case(test, category_name)
+        result = await run_aggressive_test_case(test, category_name)
         results.append(result)
         print(f"   {result['status']} - {result['reason']}")
         await asyncio.sleep(0.5)  # Evitar rate limit
