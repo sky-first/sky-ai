@@ -166,8 +166,8 @@ async def discover_tables(
                             },
                         )
             
-            import asyncio
-            background_tasks.add_task(lambda: asyncio.run(_discover_and_embed()))
+            background_tasks.add_task(_discover_and_embed)
+
             return {
                 "message": "Discovery scheduled (backend catalog source-of-truth).",
                 "connection_id": connection_id,
