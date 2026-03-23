@@ -6,7 +6,7 @@ Optimized for fast, conversational output (~1-2s on CPU).
 """
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from core.llm.context.models import ContextBundle
 from core.llm.context.serializers import serialize_for_prompt
 

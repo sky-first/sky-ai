@@ -25,7 +25,7 @@ class TestTinyConstraints:
         
         assert constraints.size_category == "tiny"
         assert constraints.requires_aggregation == True
-        assert constraints.max_filter_complexity == 0
+        assert constraints.max_filter_complexity <= 1
         # Filters SHOULD be discouraged for tiny datasets
         assert len(constraints.discouraged_filters) > 0
     

@@ -548,7 +548,7 @@ def start_audit_flusher():
 
 def stop_audit_flusher():
     """Para o flush (chamar no shutdown)"""
-    global _flusher_running, _flusher_task
+    global _flusher_running
     _flusher_running = False
     
     # Cancelar task se existir
