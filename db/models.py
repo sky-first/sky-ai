@@ -278,14 +278,22 @@ class UniverseInsight(Base):
     
     # "general" para Universe Intelligence amplo, "mission" para monitoramento específico
     insight_type = Column(String, nullable=False, default="general")
-    mission_id = Column(String, nullable=True) # Referência à missão se for do tipo mission
-    
+    mission_id = Column(String, nullable=True)   # Referência à missão se for do tipo mission
+
+    # Classificação tripla — alimenta os 3 cards da UI
+    # "insight" | "opportunity" | "risk"
+    category = Column(String(20), nullable=False, default="insight")
+
     title = Column(String, nullable=False)
     insight = Column(Text, nullable=False)
     impact_level = Column(String, nullable=False)  # low | medium | high
     suggested_action = Column(Text, nullable=True)
-    source_tables = Column(JSON, nullable=True)  # Lista de nomes das tabelas utilizadas
-    
+    source_tables = Column(JSON, nullable=True)   # Lista de nomes das tabelas utilizadas
+
+    # Dados estruturados para gráfico no modo "mix"
+    # Formato: [{"label": "Jan", "value": 1200}, ...] — null se não houver série
+    chart_data = Column(JSON, nullable=True)
+
     # Hash para busca rápida de duplicatas (ex: hash(title + insight))
     content_hash = Column(String, nullable=True, index=True)
     
@@ -293,3 +301,37 @@ class UniverseInsight(Base):
 
     space = relationship("Space")
     data_connection = relationship("DataConnection")
+
+
+# ========== CONFIGURAÇÃO GLOBAL DO UNIVERSE ==========
+
+class UniverseGlobalConfig(Base):
+    """
+    Configuração global do Universe Intelligence.
+    Define escopo (Spaces/Crews), cadência, formato de saída e estado ativo.
+    No MVP existe uma única configuração ativa para toda a plataforma.
+    """
+    __tablename__ = "universe_global_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+
+    # Escopo — quais Spaces e Crews o agente deve investigar
+    # Formato JSON: List[str] de UUIDs
+    target_spaces = Column(JSON, nullable=False, default=list)
+    target_crews  = Column(JSON, nullable=False, default=list)
+    # Regra: se target_crews == [] → considera todos os crews do Space selecionado
+
+    # Cadência — frequência de execução em dias
+    # 1=Daily | 3=Every 3 days | 7=Weekly | 14=Bi-weekly
+    frequency_days = Column(Integer, nullable=False, default=7)
+    last_run_at    = Column(DateTime, nullable=True)
+
+    # Formato de entrega na UI
+    # "text"  → texto curto apenas
+    # "mix"   → texto curto + chart_data (quando disponível)
+    output_format = Column(String(10), nullable=False, default="text")
+
+    # Controle
+    is_enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

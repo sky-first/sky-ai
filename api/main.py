@@ -130,3 +130,7 @@ app.include_router(widget_titles.router)
 
 # Knowledge Graph (Strategy, Signals & Enterprise Context)
 app.include_router(knowledge_graph.router)
+
+# Universe Intelligence (Global Config, Insights, Trigger)
+from api.routes import universe  # noqa: E402
+app.include_router(universe.router)

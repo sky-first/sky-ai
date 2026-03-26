@@ -22,13 +22,16 @@ class DataAnalystAgent:
         data_source: BaseDataSource,
         db_session_factory: Any,
         embedding_provider: EmbeddingProvider,
+        output_format: str = "text",   # "text" | "mix"
     ) -> Dict[str, Any]:
         """
         Consumes the hypothesis, executes the SQL, and creates a Preliminary Insight with a 'Tchan' tone.
+        output_format:
+          - "text" → short text only, no chart_data
+          - "mix"  → text + chart_data (structured series for chart rendering in the UI)
         """
         
         # 1. Execute the standard Query flow (NLP -> SQL -> Data)
-        # Specific dataset hint for BigQuery if detected
         table_prefix_hint = "IMPORTANT: Use the prefix 'billing_silver.' on all tables (e.g., billing_silver.table)." if agent_config.dialect == "bigquery" else ""
         
         sql_instr = f"""
@@ -57,9 +60,22 @@ class DataAnalystAgent:
                 "raw_state": final_state
             }
 
-        # 2. Create the Preliminary Insight with an impactful voice tone (Tchan)
+        # 2. Build prompt based on output_format
         data_sample = json.dumps(final_state["data"][:10], indent=2)
-        
+        is_mix = output_format == "mix"
+
+        chart_data_instruction = ""
+        chart_data_field = ""
+        if is_mix:
+            chart_data_instruction = """
+CHART DATA (only for mix format):
+If the raw data contains a numeric series (time-series, ranking, or grouped values), extract it as chart_data.
+chart_data format: [{"label": "string (date, name, or category)", "value": number}, ...]
+If there is no meaningful series to chart, set chart_data to null."""
+            chart_data_field = '  "chart_data": [{"label": "...", "value": 0}] | null'
+        else:
+            chart_data_field = '  "chart_data": null'
+
         prompt = f"""
 You are the Analyst Agent of Universe Intelligence. You received the raw data below as a response for the investigation: "{hypothesis}".
 
@@ -70,22 +86,30 @@ YOUR TASK:
 Interpret the numbers and create a "Preliminary Insight".
 Use the "Tchan" voice tone: intuitive, impactful, direct, and creating curiosity or a sense of urgency.
 Do not just report facts; explain WHY this matters.
+{chart_data_instruction}
 IMPORTANT: THE ENTIRE RESPONSE MUST BE IN ENGLISH.
 
 OUTPUT FORMAT (JSON):
 {{
   "title": "Short and Impactful Title",
-  "insight": "Your explanation with Tchan tone",
+  "insight": "Your explanation with Tchan tone (2-3 sentences max)",
   "impact_level": "low|medium|high",
   "suggested_action": "What should the user do about it?",
-  "source_tables": ["list", "of", "tables"]
+  "source_tables": ["list", "of", "tables"],
+{chart_data_field}
 }}
 """
         messages = [{"role": "system", "content": prompt}]
         response = self.llm_formatter.invoke(messages)
         
         try:
-            insight_json = json.loads(response.content.strip())
+            raw = response.content.strip()
+            # strip markdown code blocks if present
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            insight_json = json.loads(raw.strip())
             return {
                 "success": True,
                 "insight": insight_json,
@@ -101,7 +125,8 @@ OUTPUT FORMAT (JSON):
                     "insight": response.content,
                     "impact_level": "medium",
                     "suggested_action": "Check the detailed data.",
-                    "source_tables": final_state.get("chosen_tables", [])
+                    "source_tables": final_state.get("chosen_tables", []),
+                    "chart_data": None
                 },
                 "raw_data": final_state["data"],
                 "sql": final_state.get("sql")

@@ -9,6 +9,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    include=["core.ingestion.tasks", "core.agents.universe.tasks"],
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",

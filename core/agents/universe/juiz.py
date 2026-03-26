@@ -47,13 +47,19 @@ FILTER CRITERIA:
 2. UTILITY: Does this help the user make a strategic decision or is it just a curious but useless fact?
 3. OBVIOUS FACT: Is this something everyone already knows? (e.g., "We sell more on weekends"). If it is obvious, reject it.
 
+CLASSIFICATION RULES (only if approved=true):
+- "risk"        → negative anomaly, drop, churn risk, overdue payments, alert, loss.
+- "opportunity" → growth potential, recoverable inactive customer, optimization, upsell.
+- "insight"     → relevant but neutral fact, confirmed trend, statistical pattern.
+
 IMPORTANT: THE ENTIRE RESPONSE MUST BE IN ENGLISH.
 
 DECISION:
 Return a JSON:
 {{
   "approved": true | false,
-  "reason": "Brief explanation of your decision"
+  "reason": "Brief explanation of your decision",
+  "category": "insight" | "opportunity" | "risk"
 }}
 """
         messages = [{"role": "system", "content": prompt}]
@@ -63,8 +69,9 @@ Return a JSON:
             decision = json.loads(response.content.strip())
             if decision.get("approved"):
                 insight_preliminar["content_hash"] = current_hash
+                insight_preliminar["category"] = decision.get("category", "insight")
                 return insight_preliminar
             return None
         except Exception:
-            # Em caso de erro no parse do juiz, por segurança, rejeitamos
+            # On parse error, reject by default for safety
             return None

@@ -49,11 +49,13 @@ class UniverseDiscoveryManager:
             data_connection_id=conn_id,
             insight_type=type,
             mission_id=mission_id,
+            category=insight_data.get("category", "insight"),
             title=insight_data.get("title"),
             insight=insight_data.get("insight"),
             impact_level=insight_data.get("impact_level", "medium"),
             suggested_action=insight_data.get("suggested_action"),
             source_tables=insight_data.get("source_tables"),
+            chart_data=insight_data.get("chart_data"),
             content_hash=insight_data.get("content_hash")
         )
         self.db.add(new_insight)
@@ -68,6 +70,7 @@ class UniverseDiscoveryManager:
         data_source: BaseDataSource,
         embedding_provider: EmbeddingProvider,
         db_session_factory: Any,
+        output_format: str = "text",  # "text" | "mix"
     ) -> Optional[Dict]:
         """Executa o ciclo de descoberta proativa geral (Universe Intelligence)."""
         
@@ -107,7 +110,8 @@ class UniverseDiscoveryManager:
             agent_config=agent_config,
             data_source=data_source,
             db_session_factory=db_session_factory,
-            embedding_provider=embedding_provider
+            embedding_provider=embedding_provider,
+            output_format=output_format
         )
         
         if not analysis_result["success"]:
@@ -142,6 +146,7 @@ class UniverseDiscoveryManager:
         data_source: BaseDataSource,
         embedding_provider: EmbeddingProvider,
         db_session_factory: Any,
+        output_format: str = "text",  # "text" | "mix"
     ) -> Optional[Dict]:
         """Executa o ciclo de descoberta focado em uma Missão específica."""
         
@@ -161,7 +166,8 @@ class UniverseDiscoveryManager:
             agent_config=agent_config,
             data_source=data_source,
             db_session_factory=db_session_factory,
-            embedding_provider=embedding_provider
+            embedding_provider=embedding_provider,
+            output_format=output_format
         )
         
         if not analysis_result["success"]:
