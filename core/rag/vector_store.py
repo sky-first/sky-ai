@@ -201,10 +201,12 @@ def search_embeddings(
     crew_ids: Optional[List[str]],
     query_text: str,
     top_k: int = 20,
+    connection_id: Optional[str] = None,
 ) -> List[EmbeddingRecord]:
     """
     Versão síncrona de search_embeddings.
     Faz busca semântica em EmbeddingRecord usando pgvector (se disponível).
+    Suporta busca global se connection_id for fornecido.
     """
     if crew_ids is None:
         crew_ids = []
@@ -218,36 +220,28 @@ def search_embeddings(
             "search_embeddings_no_pgvector",
             {
                 "space_id": space_id,
-                "crew_ids": crew_ids,
-                "query_preview": query_text[:200],
+                "connection_id": connection_id,
                 "fallback": "simple_filter",
             },
         )
         
-        q = (
-            db.query(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.limit(top_k)
+        
+        try:
+            result = db.execute(query)
+            results: List[EmbeddingRecord] = list(result.scalars().all())
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            
+            log_event(
+                "search_embeddings_fallback_error",
+                {"space_id": space_id, "error": str(e)[:500]},
             )
-            .limit(top_k)
-        )
-        
-        results: List[EmbeddingRecord] = q.all()
-        
-        log_event(
-            "search_embeddings_fallback",
-            {
-                "space_id": space_id,
-                "crew_ids": crew_ids,
-                "query_preview": query_text[:200],
-                "top_k": top_k,
-                "num_results": len(results),
-            },
-        )
+            return []
         
         return results
 
@@ -255,20 +249,12 @@ def search_embeddings(
     query_vec = embedding_provider.embed([query_text])[0]
 
     try:
-        q = (
-            db.query(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
-            .limit(top_k)
-        )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
+        query = query.limit(top_k)
 
-        results: List[EmbeddingRecord] = q.all()
+        result = db.execute(query)
+        results: List[EmbeddingRecord] = list(result.scalars().all())
     except Exception as e:
         log_event(
             "search_embeddings_vector_error",
@@ -279,25 +265,25 @@ def search_embeddings(
             },
         )
         
-        q = (
-            db.query(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .limit(top_k)
-        )
+        query = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query = query.limit(top_k)
         
-        results: List[EmbeddingRecord] = q.all()
+        try:
+            result = db.execute(query)
+            results: List[EmbeddingRecord] = list(result.scalars().all())
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            
+            return []
 
     log_event(
         "search_embeddings",
         {
             "space_id": space_id,
-            "crew_ids": crew_ids,
+            "connection_id": connection_id,
             "query_preview": query_text[:200],
             "top_k": top_k,
             "num_results": len(results),

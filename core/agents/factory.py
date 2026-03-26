@@ -156,8 +156,16 @@ def build_agent_config_for_user_space(
         # nome lógico amigável
         logical_name = _normalize_logical_name(table_name)
 
-        # nome físico (se modelo tiver um campo dedicado, usa; caso contrário, usa table_name)
+        # nome físico
         physical_name = getattr(group_rows[0], "physical_name", table_name)
+        
+        # ✅ PRAGMÁTICO: No BigQuery, o nome físico PRECISA do prefixo do dataset
+        # Tenta extrair o dataset do config da conexão se for bigquery
+        if dialect == Dialect.BIGQUERY:
+            conn_config = getattr(group_rows[0].data_connection, "config", {}) or {}
+            dataset = conn_config.get("dataset")
+            if dataset and "." not in physical_name:
+                physical_name = f"{dataset}.{physical_name}"
 
         # descrição da tabela (se houver no metadata)
         table_desc = getattr(group_rows[0], "table_description", None) or \

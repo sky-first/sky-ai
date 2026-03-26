@@ -263,3 +263,33 @@ class SemanticCacheRecord(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# ========== UNIVERSE INTELLIGENCE ==========
+
+class UniverseInsight(Base):
+    """
+    Armazena insights gerados proativamente pelos agentes do Universe Intelligence.
+    Serve para histórico do usuário e para o Agente Juiz evitar duplicidade.
+    """
+    __tablename__ = "universe_insights"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
+    data_connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=True)
+    
+    # "general" para Universe Intelligence amplo, "mission" para monitoramento específico
+    insight_type = Column(String, nullable=False, default="general")
+    mission_id = Column(String, nullable=True) # Referência à missão se for do tipo mission
+    
+    title = Column(String, nullable=False)
+    insight = Column(Text, nullable=False)
+    impact_level = Column(String, nullable=False)  # low | medium | high
+    suggested_action = Column(Text, nullable=True)
+    source_tables = Column(JSON, nullable=True)  # Lista de nomes das tabelas utilizadas
+    
+    # Hash para busca rápida de duplicatas (ex: hash(title + insight))
+    content_hash = Column(String, nullable=True, index=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    space = relationship("Space")
+    data_connection = relationship("DataConnection")
