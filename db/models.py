@@ -15,8 +15,9 @@ from sqlalchemy import (
     JSON,
     Integer,
     Text,
+    Float,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import (
     declarative_base,
     relationship,
@@ -335,3 +336,88 @@ class UniverseGlobalConfig(Base):
     is_enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ========== SECURITY AUDIT MODELS ==========
+
+class QueryAuditLog(Base):
+    """
+    Logs every query processed by the AI system for auditing and security analysis.
+    """
+    __tablename__ = "query_audit_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    
+    connection_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    user_id = Column(String(255), index=True)
+    space_id = Column(UUID(as_uuid=True), index=True)
+    crew_ids = Column(ARRAY(Text))
+    thread_id = Column(String(255), index=True)
+    
+    platform_role = Column(String(50))
+    crew_role = Column(String(50))
+    
+    question = Column(Text, nullable=False)
+    sql_generated = Column(Text)
+    sql_executed = Column(Text)
+    sql_validated = Column(Boolean)
+    validation_error = Column(Text)
+    
+    num_rows = Column(Integer)
+    execution_time_ms = Column(Integer)
+    has_error = Column(Boolean)
+    error_message = Column(Text)
+    
+    was_rate_limited = Column(Boolean, default=False)
+    prompt_injection_detected = Column(Boolean, default=False, index=True)
+    prompt_injection_pattern = Column(Text)
+    
+    progressive_escalation_score = Column(Integer, default=0)
+    progressive_escalation_detected = Column(Boolean, default=False, index=True)
+    
+    detected_language = Column(String(10))
+    chosen_tables = Column(ARRAY(Text))
+    answer_preview = Column(Text)
+    
+    # PII Fields
+    pii_detected_in_prompt = Column(Boolean, default=False, index=True)
+    pii_detected_in_response = Column(Boolean, default=False, index=True)
+    pii_types = Column(ARRAY(Text))
+    pii_severity = Column(String(10))
+    pii_patterns_matched = Column(ARRAY(Text))
+    pii_blocked = Column(Boolean, default=False, index=True)
+
+
+class SecurityAlert(Base):
+    """
+    Stores security alerts (e.g., PII detection, prompt injection).
+    """
+    __tablename__ = "security_alerts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    
+    user_id = Column(String(255), index=True)
+    connection_id = Column(UUID(as_uuid=True))
+    alert_type = Column(String(50), index=True)
+    severity = Column(String(20), index=True)
+    details = Column(JSONB)
+
+
+class PromptSecurityAudit(Base):
+    """
+    Detailed audit for prompt security scans.
+    """
+    __tablename__ = "prompt_security_audit"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    
+    connection_id = Column(UUID(as_uuid=True), index=True)
+    user_id = Column(String(255), index=True)
+    prompt_text_redacted = Column(Text)
+    security_status = Column(String(20), index=True)
+    blocked_by = Column(String(50))
+    risk_score = Column(Float)
+    scan_details = Column(JSONB)

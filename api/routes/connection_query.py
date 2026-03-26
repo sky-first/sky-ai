@@ -2654,6 +2654,12 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+        # Crucial: Rollback logic to prevent "InFailedSQLTransactionError"
+        # Since we use asyncpg, any failed query poisons the whole transaction.
+        try:
+            await db.rollback()
+        except:
+            pass
 
     # ✅ EXECUTE INNER LLM PIPELINE
     response = await _query_connection_inner(connection_id, body, db)

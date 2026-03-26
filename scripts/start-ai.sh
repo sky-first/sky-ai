@@ -77,6 +77,17 @@ if ! docker ps | grep -q sky_poc_postgres; then
     echo "   Continuing..."
 fi
 
+# Run schema fixes and migrations
+echo "🛠️  Running database schema fixes..."
+export PYTHONPATH=$PYTHONPATH:.
+if [ -d "venv" ]; then
+    venv/bin/python3 scripts/fix_db_schema.py
+elif [ -d ".venv" ]; then
+    .venv/bin/python3 scripts/fix_db_schema.py
+else
+    python3 scripts/fix_db_schema.py
+fi
+
 # Run uvicorn
 echo "🌐 Starting server on port 8001..."
 if [ -d "venv" ]; then
