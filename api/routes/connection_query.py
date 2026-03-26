@@ -2654,6 +2654,12 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+        # ✅ FIX: Rollback the session if the cache query failed (e.g. vector type mismatch)
+        # Prevents the subsequent inner query from failing with "transaction aborted"
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     # ✅ EXECUTE INNER LLM PIPELINE
     response = await _query_connection_inner(connection_id, body, db)
@@ -2678,6 +2684,11 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
+        # ✅ FIX: Rollback the session if the cache store failed
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     return response
 
