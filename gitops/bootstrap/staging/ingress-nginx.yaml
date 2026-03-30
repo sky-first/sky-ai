@@ -16,14 +16,38 @@ spec:
             annotations:
               service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /login
             externalTrafficPolicy: Local
+          # Permite que o promtail colete logs do controller (Loki/Warn/Error).
+          # O promtail usa o annotation `promtail.io/scrape=true` como filtro.
+          podAnnotations:
+            promtail.io/scrape: "true"
           config:
             # Enable Ingress snippets for path rewrites
             allow-snippet-annotations: "true"
             # Enable ModSecurity WAF
             enable-modsecurity: "true"
             enable-owasp-modsecurity-crs: "true"
+            # Nota: `modsecurity-snippet` injeta de forma limitada no nginx.conf.
+            # O audit completo é garantido via override do /etc/nginx/modsecurity/modsecurity.conf (ConfigMap mount).
             modsecurity-snippet: |
-              SecRuleEngine DetectionOnly
+              SecRuleEngine On
+          extraVolumes:
+            - name: modsecurity-audit-config
+              configMap:
+                name: ingress-nginx-modsecurity-audit
+                items:
+                  - key: modsecurity.conf
+                    path: modsecurity.conf
+                  - key: nginx-modsecurity.conf
+                    path: nginx-modsecurity.conf
+          extraVolumeMounts:
+            - name: modsecurity-audit-config
+              mountPath: /etc/nginx/modsecurity/modsecurity.conf
+              subPath: modsecurity.conf
+              readOnly: true
+            - name: modsecurity-audit-config
+              mountPath: /etc/nginx/owasp-modsecurity-crs/nginx-modsecurity.conf
+              subPath: nginx-modsecurity.conf
+              readOnly: true
           resources:
             requests:
               cpu: 100m

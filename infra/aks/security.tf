@@ -30,7 +30,7 @@ resource "azurerm_key_vault" "main" {
     # Temporarily allow runner IP during secret population
     # This is removed after secrets are created via a second Terraform apply
     # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
-    ip_rules = var.runner_ip != "" ? [var.runner_ip] : []
+    ip_rules = compact([var.runner_ip])
   }
 
   # Allow Terraform to manage network rules
