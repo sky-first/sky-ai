@@ -8,7 +8,7 @@ data:
   # O objetivo é tornar o WAF observável (rule id + host/uri) via stdout/stderr do controller.
   modsecurity.conf: |
     # -- Rule engine initialization ----------------------------------------------
-    SecRuleEngine DetectionOnly
+    SecRuleEngine On
 
     # -- Request body handling ---------------------------------------------------
     SecRequestBodyAccess On
