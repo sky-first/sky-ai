@@ -43,10 +43,21 @@ envSecrets:
   DEBUG: "true"
 
 replicaCount: 1
+
+# Security hardening: run as non-root user
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsReadOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 200m
+    memory: 512Mi
   limits:
-    cpu: 500m
-    memory: 1024Mi
+    cpu: 1000m
+    memory: 2Gi
