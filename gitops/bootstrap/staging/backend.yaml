@@ -50,8 +50,10 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
             nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
-            # Fix AI 403 Forbidden e Verbos HTTP REST: Desabilita regras que bloqueiam payloads de API (PUT, SQLi false positives)
-            nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100 911100"
+            # TECHNICAL DEBT RESOLVIDO: 942100 (SQLi) reativado globalmente.
+            # Bypass URI-específico para /api/dashboards agora gerenciado via
+            # ConfigMap modsecurity-exclusions (OWASP CRS REQUEST-900 mechanism).
+            nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 911100"
           hosts:
             - host: workspace-stg-api.skyfirstlabs.com
               paths:
