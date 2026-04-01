@@ -46,6 +46,10 @@ spec:
           className: "nginx"
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt-prod
+            # Bypasses: Permite verbos REST (PUT/DELETE) globais, mas isenta SQLi (942100) estritamente na rota de Dashboards
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRuleRemoveById 911100
+              SecRule REQUEST_URI "@rx ^/api/dashboards" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=942100"
           hosts:
             - host: workspace-prd-api.skyfirstlabs.com
               paths:

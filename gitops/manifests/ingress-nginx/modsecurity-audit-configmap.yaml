@@ -31,7 +31,8 @@ data:
   nginx-modsecurity.conf: |
     Include /etc/nginx/modsecurity/modsecurity.conf
     Include /etc/nginx/owasp-modsecurity-crs/crs-setup.conf
-    Include /etc/nginx/owasp-modsecurity-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
+    # Exclusões cirúrgicas por URI (false positives). Montado via ConfigMap modsecurity-exclusions.
+    Include /etc/nginx/modsecurity/exclusions/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
     Include /etc/nginx/owasp-modsecurity-crs/rules/REQUEST-901-INITIALIZATION.conf
     Include /etc/nginx/owasp-modsecurity-crs/rules/REQUEST-903.9001-DRUPAL-EXCLUSION-RULES.conf
     Include /etc/nginx/owasp-modsecurity-crs/rules/REQUEST-903.9002-WORDPRESS-EXCLUSION-RULES.conf

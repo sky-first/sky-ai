@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-modsecurity-exclusions
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: waf-tuning
+data:
+  # Arquivo de exclusões antes do CRS (mecanismo oficial OWASP CRS).
+  # Este arquivo sobrescreve REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf no nginx-modsecurity.conf.
+  # Referência: https://coreruleset.org/docs/concepts/false_positives_tuning/
+  REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf: |
+    # ===========================================================================
+    # OWASP CRS — Exclusões Cirúrgicas por URI (False Positive Tuning)
+    # Mantidas ANTES do carregamento das regras para ordem de avaliação correta.
+    # ===========================================================================
+
+    # ---------------------------------------------------------------------------
+    # Bypass: /api/dashboards — Widget Builder (SQLi False Positive)
+    # Motivo: O endpoint recebe JSON complexo com strings de query de banco de dados
+    # legítimas para configuração de Widgets (ex: filtros com aspas e igualdades).
+    # Risco controlado: a camada de autenticação JWT já protege o endpoint.
+    # Task: DO2025-1073
+    # ---------------------------------------------------------------------------
+    SecRule REQUEST_URI "@beginsWith /api/dashboards" \
+        "id:1000,\
+        phase:1,\
+        pass,\
+        nolog,\
+        ctl:ruleRemoveById=942100,\
+        ctl:ruleRemoveById=942110,\
+        ctl:ruleRemoveById=942120,\
+        ctl:ruleRemoveById=942130,\
+        ctl:ruleRemoveById=942150,\
+        ctl:ruleRemoveById=942160,\
+        ctl:ruleRemoveById=942190,\
+        ctl:ruleRemoveById=942200,\
+        ctl:ruleRemoveById=942230,\
+        ctl:ruleRemoveById=942260,\
+        ctl:ruleRemoveById=942300,\
+        ctl:ruleRemoveById=942310,\
+        ctl:ruleRemoveById=942320,\
+        ctl:ruleRemoveById=942330,\
+        ctl:ruleRemoveById=942340,\
+        ctl:ruleRemoveById=942361,\
+        ctl:ruleRemoveById=942370,\
+        ctl:ruleRemoveById=942380,\
+        ctl:ruleRemoveById=942390,\
+        ctl:ruleRemoveById=942400,\
+        ctl:ruleRemoveById=942410,\
+        ctl:ruleRemoveById=942430,\
+        ctl:ruleRemoveById=942440,\
+        ctl:ruleRemoveById=942450"

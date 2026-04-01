@@ -39,6 +39,13 @@ spec:
                     path: modsecurity.conf
                   - key: nginx-modsecurity.conf
                     path: nginx-modsecurity.conf
+            # Volume com regras de exclusão cirúrgica por URI (false positives tuning).
+            - name: modsecurity-exclusions
+              configMap:
+                name: ingress-nginx-modsecurity-exclusions
+                items:
+                  - key: REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
+                    path: REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
           extraVolumeMounts:
             - name: modsecurity-audit-config
               mountPath: /etc/nginx/modsecurity/modsecurity.conf
@@ -47,6 +54,11 @@ spec:
             - name: modsecurity-audit-config
               mountPath: /etc/nginx/owasp-modsecurity-crs/nginx-modsecurity.conf
               subPath: nginx-modsecurity.conf
+              readOnly: true
+            # Monta exclusões no path incluso pelo nginx-modsecurity.conf.
+            - name: modsecurity-exclusions
+              mountPath: /etc/nginx/modsecurity/exclusions/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
+              subPath: REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
               readOnly: true
           resources:
             requests:
