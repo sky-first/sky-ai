@@ -22,8 +22,27 @@ spec:
             # Enable ModSecurity WAF
             enable-modsecurity: "true"
             enable-owasp-modsecurity-crs: "true"
+            # O audit completo é garantido via override do /etc/nginx/modsecurity/modsecurity.conf (ConfigMap mount).
             modsecurity-snippet: |
-              SecRuleEngine DetectionOnly
+              SecRuleEngine On
+          extraVolumes:
+            - name: modsecurity-audit-config
+              configMap:
+                name: ingress-nginx-modsecurity-audit
+                items:
+                  - key: modsecurity.conf
+                    path: modsecurity.conf
+                  - key: nginx-modsecurity.conf
+                    path: nginx-modsecurity.conf
+          extraVolumeMounts:
+            - name: modsecurity-audit-config
+              mountPath: /etc/nginx/modsecurity/modsecurity.conf
+              subPath: modsecurity.conf
+              readOnly: true
+            - name: modsecurity-audit-config
+              mountPath: /etc/nginx/owasp-modsecurity-crs/nginx-modsecurity.conf
+              subPath: nginx-modsecurity.conf
+              readOnly: true
           resources:
             requests:
               cpu: 100m

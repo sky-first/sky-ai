@@ -46,6 +46,9 @@ spec:
             cert-manager.io/cluster-issuer: letsencrypt-prod
             nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
             nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+            # SRE Tuning: Previne que prompts da IA que contêm código/SQL não disparem o WAF
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRuleRemoveById 941160 941100 942100 942200 920420
           hosts:
             - host: workspace-stg-ollama.skyfirstlabs.com
               paths:

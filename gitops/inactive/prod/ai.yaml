@@ -50,6 +50,11 @@ spec:
         ingress:
           enabled: true
           className: "nginx"
+          annotations:
+            # SRE Tuning: Previne que prompts da IA que contém SQL ou Javascript disparem o WAF.
+            # 941160, 941100 (XSS) / 942100, 942200 (SQLi heurístico) / 920420 (Content-Type fallback)
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRuleRemoveById 941160 941100 942100 942200 920420
           hosts:
             - host: workspace-prd-ollama.skyfirstlabs.com
               paths:
