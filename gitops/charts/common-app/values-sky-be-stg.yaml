@@ -19,7 +19,6 @@ ingress:
     nginx.ingress.kubernetes.io/configuration-snippet: |
       rewrite ^/api/(.*)$ /api/$1 break;
       rewrite ^/(?!api)(.*)$ /api/$1 break;
-    nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
     nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
   hosts:
