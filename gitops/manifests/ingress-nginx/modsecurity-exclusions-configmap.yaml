@@ -53,3 +53,14 @@ data:
         ctl:ruleRemoveById=942430,\
         ctl:ruleRemoveById=942440,\
         ctl:ruleRemoveById=942450"
+    # ---------------------------------------------------------------------------
+    # GLOBAL BYPASS for Sky Smoke Test Engine
+    # Purpose: Prevent WAF from blocking internal automated smoke tests.
+    # Identifying via a custom User-Agent defined in scripts/smoke-test.sh.
+    # ---------------------------------------------------------------------------
+    SecRule REQUEST_HEADERS:User-Agent "@streq SkySmokeTest/1.0 (DevOps-Engine)" \
+        "id:1001,\
+        phase:1,\
+        pass,\
+        nolog,\
+        ctl:ruleEngine=Off"

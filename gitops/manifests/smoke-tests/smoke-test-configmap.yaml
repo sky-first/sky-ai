@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sky-smoke-test-job
+  # namespace removido para permitir reuso via ArgoCD
+  annotations:
+    argocd.argoproj.io/hook: PreSync # Garante que o script está lá antes do Job rodar
+data:
+  smoke-test.sh: |
+    #!/bin/sh
+    set -eu
+    
+    # Cores (simplificadas para shell sh)
+    GREEN='\033[0;32m'
+    RED='\033[0;31m'
+    NC='\033[0m'
+    
+    MAX_RETRIES=${MAX_RETRIES:-3}
+    RETRY_DELAY=${RETRY_DELAY:-5}
+    
+    run_check() {
+      local name=$1
+      local url=$2
+      local attempt=1
+      
+      echo "Checking $name: $url"
+      while [ $attempt -le $MAX_RETRIES ]; do
+        CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
+        if [ "$CODE" = "200" ]; then
+          echo "${GREEN}OK: $name (HTTP $CODE)${NC}"
+          return 0
+        fi
+        echo "Attempt $attempt failed (HTTP $CODE). Retrying in ${RETRY_DELAY}s..."
+        sleep $RETRY_DELAY
+        attempt=$((attempt + 1))
+      done
+      echo "${RED}FAILED: $name (Last HTTP $CODE)${NC}"
+      return 1
+    }
+
+    EXIT_CODE=0
+    run_check "Backend-API" "$BACKEND_URL" || EXIT_CODE=1
+    run_check "Frontend-UI" "$FRONTEND_URL" || EXIT_CODE=1
+    
+    exit $EXIT_CODE

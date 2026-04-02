@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sky-smoke-test-job-prod
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      containers:
+      - name: smoke-test
+        image: curlimages/curl:latest
+        command: ["/bin/sh", "/scripts/smoke-test.sh"]
+        env:
+        - name: BACKEND_URL
+          value: "https://workspace-prd-api.skyfirstlabs.com/api/health"
+        - name: FRONTEND_URL
+          value: "https://workspace-prd.skyfirstlabs.com/"
+        - name: MAX_RETRIES
+          value: "5"
+        - name: RETRY_DELAY
+          value: "15" # Delay maior para prod (mais conservador)
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: sky-smoke-test-script # Reutiliza o nome do CM no namespace prod
+          defaultMode: 0777
+      restartPolicy: Never
+  backoffLimit: 0

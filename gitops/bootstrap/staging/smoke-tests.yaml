@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-smoke-tests-stg
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/manifests/smoke-tests
+    targetRevision: staging
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
