@@ -95,6 +95,20 @@ class Settings(BaseSettings):
     # Embedding Model (OpenAI)
     embedding_model: str = "text-embedding-3-large"
     
+    # JWT Secret (shared with backend for service-to-service auth)
+    jwt_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("JWT_SECRET_KEY", "jwt_secret_key"),
+        description="JWT secret for generating service tokens to call backend API.",
+    )
+
+    # Backend API (sky-poc-backend) — for strategy, signals, relationships
+    backend_url: str = Field(
+        default="http://localhost:8000/api/v1",
+        validation_alias=AliasChoices("BACKEND_URL", "backend_url"),
+        description="URL of the sky-poc-backend API. Used by multi-agent specialists for strategy/signals/context data.",
+    )
+
     # Security
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"

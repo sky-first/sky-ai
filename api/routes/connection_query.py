@@ -2653,6 +2653,11 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+        # Rollback the aborted transaction so subsequent queries work
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     # ✅ EXECUTE INNER LLM PIPELINE
     response = await _query_connection_inner(connection_id, body, db)
@@ -2677,6 +2682,10 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     return response
 
@@ -3330,6 +3339,13 @@ async def _query_connection_inner(
     # Persist the interaction (User Q + AI A) asynchronously
     if query_thread_id:
         try:
+            # Ensure clean transaction state — previous operations (semantic cache,
+            # audit flush, etc.) may have left the transaction aborted.
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
             # Save User Message
             user_msg = ChatHistory(
                 thread_id=query_thread_id,
@@ -3337,7 +3353,7 @@ async def _query_connection_inner(
                 content=body.question
             )
             db.add(user_msg)
-            
+
             # Save AI Response
             # Only save if there's a meaningful answer
             ai_text = final_state.get("answer")
@@ -3352,11 +3368,14 @@ async def _query_connection_inner(
                     }
                 )
                 db.add(ai_msg)
-            
+
             await db.commit()
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
-            # Non-blocking error
+            try:
+                await db.rollback()
+            except Exception:
+                pass
     
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
@@ -3973,8 +3992,9 @@ async def _stream_connection_query(
                 llm_specialist=llm_specialist,
                 llm_formatter=llm_formatter,
             )
-            # thread_id já definido acima
-            
+            # Derive thread_id for LangGraph config
+            thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}-stream"
+
             # Executar até o specialist (orchestrator -> specialist)
             # Não executamos o formatter ainda, vamos fazer streaming dela
             final_state = None
