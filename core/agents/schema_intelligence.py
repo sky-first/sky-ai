@@ -289,7 +289,9 @@ class AnalyticTableFilter:
              return True
              
         if any(name.endswith(s) for s in cls.SYSTEM_SUFFIXES):
-            if allow_logs and ("log" in s or "audit" in s):
+            # If we matched a suffix, we check if it's one of the log/audit suffixes
+            # and if we allow logs. If so, we DON'T exclude it.
+            if allow_logs and any(name.endswith(s) for s in cls.SYSTEM_SUFFIXES if "log" in s or "audit" in s):
                 return False
             return True
             

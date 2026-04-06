@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
 from core.agents.generic_sql_agent import TableSchema
-from core.sql.relationships import TableRelationship
+from core.sql.relationships import TableRelationship as Relationship
 
 
 @dataclass

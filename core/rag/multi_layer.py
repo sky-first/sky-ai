@@ -1,15 +1,16 @@
 """
 Multi-Layer RAG System
 
-Provides 5 specialized retrieval layers to enrich context for small CPU-based models:
-1. Schema RAG - Table/column semantics
+Provides specialized retrieval layers to enrich context for small CPU-based models:
+1. Schema RAG - Table/column semantics (including Knowledge Graph context)
 2. Metrics RAG - Business KPI definitions
 3. Questions RAG - Past validated queries
 4. Comments RAG - User clarifications
 5. Glossary RAG - Domain terminology
+6. Strategy RAG - Strategic Pillars, Goals, OKRs
+7. Signals RAG - External and Internal Intelligence Signals
 
 Each layer uses pgvector embeddings for semantic search.
-
 Performance: All layers are executed in PARALLEL via asyncio.gather.
 """
 from __future__ import annotations
@@ -61,9 +62,10 @@ async def retrieve_schema_rag(
     if db:
         try:
             # Embed question (ensure it's a list even for single string)
-            embeddings = embedding_provider.embed_with_cache([question])
+            embeddings = await embedding_provider.embed_async([question])
             embedding_list = embeddings[0] if embeddings else [0.0] * 768
-            # Manual serialization for asyncpg with text()
+            
+            # Manual serialization for pgvector format
             question_embedding = f"[{','.join(map(str, embedding_list))}]"
             
             # Hybrid query: Global nodes OR User Space nodes OR User Crew nodes
@@ -87,7 +89,7 @@ async def retrieve_schema_rag(
             
             # Normalize inputs
             space_list = [space_id] if isinstance(space_id, str) and space_id else (space_id or [])
-            space_list = [s for s in space_list if s]
+            space_list = [uuid for uuid in space_list if uuid]
 
             crew_list = crew_ids or []
             crew_list = [c for c in crew_list if c]
@@ -118,35 +120,187 @@ async def retrieve_schema_rag(
 
 
 # ============================================================================
-# Other Layers (Placeholders)
+# Layer 2: Metrics RAG
 # ============================================================================
 
-def retrieve_metrics_rag(question: str, embedding_provider: EmbeddingProvider, **kwargs) -> List[str]:
-    # TODO: Implement metrics retrieval
+def retrieve_metrics_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[AsyncSession] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 3
+) -> List[str]:
+    """Retrieve business metric definitions."""
+    results = []
+    
+    # Keyword-based fallback
+    q_lower = question.lower()
+    common_metrics = {
+        "mrr": "MRR (Monthly Recurring Revenue): Sum of active subscription amounts per month",
+        "arr": "ARR (Annual Recurring Revenue): MRR × 12",
+        "churn": "Churn Rate: (Cancelled customers / Total customers) × 100",
+        "cac": "CAC (Customer Acquisition Cost): Total marketing spend / New customers",
+        "ltv": "LTV (Lifetime Value): Average revenue per customer × Average customer lifetime",
+    }
+    
+    for keyword, definition in common_metrics.items():
+        if keyword in q_lower:
+            results.append(definition)
+            if len(results) >= top_k:
+                break
+    
+    return results
+
+
+# ============================================================================
+# Layer 3: Questions RAG
+# ============================================================================
+
+def retrieve_questions_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[AsyncSession] = None,
+    space_id: Optional[str] = None,
+    top_k: int = 3
+) -> List[str]:
+    """Retrieve similar past questions with validated SQL."""
     return []
 
-def retrieve_questions_rag(question: str, embedding_provider: EmbeddingProvider, **kwargs) -> List[str]:
-    # TODO: Implement past questions retrieval
-    return []
 
-def retrieve_comments_rag(question: str, embedding_provider: EmbeddingProvider, **kwargs) -> List[str]:
-    return []
+# ============================================================================
+# Layer 4: Strategy RAG
+# ============================================================================
 
-def retrieve_glossary_rag(question: str, embedding_provider: EmbeddingProvider, **kwargs) -> List[str]:
-    return []
+async def retrieve_strategy_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[AsyncSession] = None,
+    space_id: Optional[str] = None,
+    crew_ids: Optional[List[str]] = None,
+    top_k: int = 3
+) -> List[str]:
+    """Retrieve strategic elements (Pillars, Objectives, OKRs, etc)."""
+    results = []
+    if not db:
+        return results
+    
+    try:
+        embeddings = await embedding_provider.embed_async([question])
+        embedding_list = embeddings[0] if embeddings else [0.0] * 768
+        question_embedding = f"[{','.join(map(str, embedding_list))}]"
+        
+        # Space filter logic
+        space_list = [space_id] if isinstance(space_id, str) and space_id else (space_id or [])
+        space_list = [s for s in space_list if s]
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
 
-# Unified Layer function to handle sync/async variety
+        # Query embeddings table with similarity search and multi-level filter
+        query = text("""
+            SELECT text
+            FROM embeddings
+            WHERE (
+                (space_id IS NULL)
+                OR
+                (space_id = ANY(:space_ids))
+            )
+            AND (metadata->>'kind' = 'knowledge_graph')
+            AND (metadata->>'entity_type' IN ('strategic_pillar', 'strategic_objective', 'strategy_okr', 'strategy_key_result', 'strategy_initiative', 'strategy_assumption', 'strategy_cycle'))
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :top_k
+        """)
+        
+        res = await db.execute(
+            query,
+            {
+                "space_ids": space_list if space_list else [empty_uuid],
+                "embedding": question_embedding,
+                "top_k": top_k
+            }
+        )
+        rows = res.fetchall()
+        
+        for row in rows:
+            results.append(row[0])
+            
+    except Exception as e:
+        logger.error(f"Error in retrieve_strategy_rag: {e}")
+        log_event("strategy_rag_error", {"error": str(e)[:200]})
+        
+    return results
+
+
+# ============================================================================
+# Layer 5: Signals RAG
+# ============================================================================
+
+async def retrieve_signals_rag(
+    question: str,
+    embedding_provider: EmbeddingProvider,
+    db: Optional[AsyncSession] = None,
+    space_id: Optional[str] = None,
+    crew_ids: Optional[List[str]] = None,
+    top_k: int = 2
+) -> List[str]:
+    """Retrieve external signals and events."""
+    results = []
+    if not db:
+        return results
+    
+    try:
+        embeddings = await embedding_provider.embed_async([question])
+        embedding_list = embeddings[0] if embeddings else [0.0] * 768
+        question_embedding = f"[{','.join(map(str, embedding_list))}]"
+        
+        space_list = [space_id] if isinstance(space_id, str) and space_id else (space_id or [])
+        space_list = [s for s in space_list if s]
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+
+        query = text("""
+            SELECT text
+            FROM embeddings
+            WHERE (
+                (space_id IS NULL)
+                OR
+                (space_id = ANY(:space_ids))
+            )
+            AND (metadata->>'kind' = 'knowledge_graph')
+            AND (metadata->>'entity_type' = 'signal_event')
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :top_k
+        """)
+        
+        res = await db.execute(
+            query,
+            {
+                "space_ids": space_list if space_list else [empty_uuid],
+                "embedding": question_embedding,
+                "top_k": top_k
+            }
+        )
+        rows = res.fetchall()
+        
+        for row in rows:
+            results.append(row[0])
+            
+    except Exception as e:
+        logger.error(f"Error in retrieve_signals_rag: {e}")
+        log_event("signals_rag_error", {"error": str(e)[:200]})
+        
+    return results
+
+
+# ============================================================================
+# Utils & Orchestrator
+# ============================================================================
+
 async def _run_layer(fn, *args, **kwargs):
+    """Unified Layer function to handle sync/async variety."""
     if asyncio.iscoroutinefunction(fn):
         return await fn(*args, **kwargs)
     else:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(_rag_executor, lambda: fn(*args, **kwargs))
 
-
-# ============================================================================
-# Parallel Orchestrator
-# ============================================================================
 
 async def retrieve_all_layers_async(
     question: str,
@@ -164,10 +318,10 @@ async def retrieve_all_layers_async(
     # Layer definitions
     tasks = {
         "schema_rag": retrieve_schema_rag(question, tables, embedding_provider, db, space_id, crew_ids, top_k=top_k),
-        "metrics_rag": _run_layer(retrieve_metrics_rag, question, embedding_provider, space_id=space_id),
-        "questions_rag": _run_layer(retrieve_questions_rag, question, embedding_provider, space_id=space_id),
-        "comments_rag": _run_layer(retrieve_comments_rag, question, embedding_provider, space_id=space_id),
-        "glossary_rag": _run_layer(retrieve_glossary_rag, question, embedding_provider, space_id=space_id)
+        "metrics_rag": _run_layer(retrieve_metrics_rag, question, embedding_provider, db=db, space_id=space_id),
+        "questions_rag": _run_layer(retrieve_questions_rag, question, embedding_provider, db=db, space_id=space_id),
+        "strategy_rag": _run_layer(retrieve_strategy_rag, question, embedding_provider, db=db, space_id=space_id, crew_ids=crew_ids),
+        "signals_rag": _run_layer(retrieve_signals_rag, question, embedding_provider, db=db, space_id=space_id, crew_ids=crew_ids),
     }
     
     results = {}

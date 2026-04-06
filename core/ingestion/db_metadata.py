@@ -410,6 +410,14 @@ async def ingest_from_connection_metadata_cache(
             if not col_name:
                 continue
 
+            # ✅ NEW: Pick up description from JSON metadata sent by the backend
+            table_desc = table_info.get('description') or table_info.get('desc')
+            
+            # Use column-level description if available, otherwise fallback to table description
+            column_desc = None
+            if isinstance(col, dict):
+                column_desc = col.get('description') or col.get('desc')
+                
             tm = TableMetadata(
                 data_connection_id=data_connection.id,
                 space_id=space.id if space else None,
@@ -418,7 +426,7 @@ async def ingest_from_connection_metadata_cache(
                 column_name=col_name,
                 data_type=col_type,
                 is_nullable=is_nullable,
-                description=None,
+                description=column_desc or table_desc, # Priority to column desc
                 extra={"original_name": original_table_name},
                 created_at=now,
             )

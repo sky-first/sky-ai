@@ -56,7 +56,7 @@ def test_sqlcoder():
 Generate a SQL query to answer: How many users were created in 2024?
 
 ### Database Schema
-Table: {schema['physical_name']}
+Table: {schema.physical_name}
 Columns:
   - id (INTEGER)
   - name (VARCHAR)
@@ -86,7 +86,7 @@ Columns:
         # Validações básicas
         assert "SELECT" in sql.upper(), "SQL deve conter SELECT"
         assert "LIMIT" in sql.upper(), "SQL deve conter LIMIT"
-        assert schema['physical_name'] in sql, "SQL deve usar tabela correta"
+        assert schema.physical_name in sql, "SQL deve usar tabela correta"
 
         print("✅ Validações passaram!")
         return True

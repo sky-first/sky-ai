@@ -3,12 +3,11 @@ name: CI PR Gate - AI Service
 on:
   pull_request:
     branches: [staging, main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - 'Dockerfile'
-      - '.github/workflows/ci-pr-gate.yml'
+    # Filtro inteligente FinOps: Executa para tudo, EXCETO para puras restrições literárias/documentação
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
 
 concurrency:
   group: ci-ai-${{ github.event.pull_request.number || github.ref }}
@@ -32,11 +31,11 @@ jobs:
           pip install black flake8
 
       - name: Check Formatting (Black)
-        continue-on-error: true
+        continue-on-error: true  # Mantido temporariamente para não quebrar CI puramente em estilos espaçados
         run: black --check .
 
       - name: Lint (Flake8)
-        continue-on-error: true
+        # REMOVIDO continue-on-error. Falhas estáticas de compilação vão brecar pipeline.
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   security-scan:
@@ -51,7 +50,7 @@ jobs:
           python-version: '3.11'
 
       - name: Static Analysis (Bandit)
-        continue-on-error: true
+        # REMOVIDO continue-on-error. Vulnerabilidades Python cruas agora gerarão falha de build!
         run: |
           pip install bandit
           bandit -r src/ -ll
@@ -77,7 +76,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TESTING: "True"
-      OPENAI_API_KEY: "sk-dummy-key-for-unit-tests"
       OLLAMA_BASE_URL: "http://localhost:11434"
       PYTHONPATH: src
     steps:
