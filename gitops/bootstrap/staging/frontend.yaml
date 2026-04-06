@@ -4,6 +4,7 @@ metadata:
   name: sky-fe-stg
   namespace: argocd
   annotations:
+    # GitOps Evolution: Usando ArgoCD Image Updater nativo
     argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=skyacrstagingj3minh.azurecr.io/sky-poc-frontend:^sha-.*
     argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
     argocd-image-updater.argoproj.io/sky-poc-frontend.helm.image-name: image.repository
@@ -89,4 +90,4 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-# Force refresh: Sat Feb 7 16:05:00 WET 2026
+# Sync trigger: Mon Apr 6 16:52:00 WET 2026

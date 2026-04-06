@@ -20,3 +20,4 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+# Force refresh to restore visibility: Mon Apr 6 16:51:00 WET 2026

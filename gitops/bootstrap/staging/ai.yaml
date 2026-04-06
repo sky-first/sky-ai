@@ -76,8 +76,8 @@ spec:
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault  # Unificado: azure-keyvault-staging removido
-            kind: ClusterSecretStore
+            name: azure-keyvault-staging  # REVERT: Uso do store namespaced para evitar bloqueio de firewall
+            kind: SecretStore
           target:
             creationPolicy: Owner
             name: sky-ai-stg-common-app-secrets
@@ -210,4 +210,4 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-# Force refresh: Fri Feb  6 16:42:38 WET 2026
+# Force refresh: Mon Apr 6 17:00:00 WET 2026

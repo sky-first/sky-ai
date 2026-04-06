@@ -98,8 +98,8 @@ spec:
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault  # Unificado: azure-keyvault-staging removido para consistência
-            kind: ClusterSecretStore
+            name: azure-keyvault-staging  # REVERT: Uso do store namespaced para evitar bloqueio de firewall
+            kind: SecretStore
           target:
             creationPolicy: Owner
             name: sky-be-stg-common-app-secrets
@@ -158,7 +158,7 @@ spec:
             - secretKey: auth0_audience
               remoteRef:
                 key: auth0-audience
-
+ 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
           # These keys will be present in the secret created by ExternalSecret
@@ -245,4 +245,4 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-# Force refresh: Fri Feb  6 16:42:38 WET 2026
+# Force refresh: Mon Apr 6 16:50:00 WET 2026
