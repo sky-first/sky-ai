@@ -57,12 +57,12 @@ spec:
         command: ["celery"]
         args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
         
-        # Reutilizar os segredos da IA
+        # Configure External Secret to fetch keys from Azure Key Vault
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault  # Unificado: azure-keyvault-staging removido
-            kind: ClusterSecretStore
+            name: azure-keyvault-staging  # REVERT: Uso do store namespaced para evitar bloqueio de firewall
+            kind: SecretStore
           target:
             name: sky-ai-worker-stg-secrets
             template:
@@ -124,3 +124,4 @@ spec:
     automated:
       prune: true
       selfHeal: true
+# Force re-sync: Mon Apr 6 17:00:00 WET 2026
