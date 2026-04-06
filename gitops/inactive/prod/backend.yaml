@@ -85,6 +85,9 @@ spec:
                 celery_result_backend: "{{ .redis_url | replace \"@redis\" \"@redis-master\" | replace \"/0\" \"/2\" }}"
                 # Crucial Fix: Ensure asyncpg driver is used and keys match Migration Job expectations
                 database_url: "{{ .database_url | replace \"@postgres\" \"@postgresql\" | replace \"postgres:\" \"sky:\" }}"
+                google_client_id: "{{ .google_client_id }}"
+                google_client_secret: "{{ .google_client_secret }}"
+                google_redirect_uri: "{{ .google_redirect_uri }}"
           data:
             - secretKey: jwt_secret_key
               remoteRef:
@@ -101,6 +104,16 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
+            # Google SSO
+            - secretKey: google_client_id
+              remoteRef:
+                key: google-client-id
+            - secretKey: google_client_secret
+              remoteRef:
+                key: google-client-secret
+            - secretKey: google_redirect_uri
+              remoteRef:
+                key: google-redirect-uri
 
         # Map the synced secrets to Env Vars in the container
         envSecrets:
@@ -126,6 +139,16 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-be-prd-common-app-secrets
             key: celery_result_backend
+          # Google SSO
+          GOOGLE_CLIENT_ID:
+            name: sky-be-prd-common-app-secrets
+            key: google_client_id
+          GOOGLE_CLIENT_SECRET:
+            name: sky-be-prd-common-app-secrets
+            key: google_client_secret
+          GOOGLE_REDIRECT_URI:
+            name: sky-be-prd-common-app-secrets
+            key: google_redirect_uri
             
         autoscaling:
           enabled: true

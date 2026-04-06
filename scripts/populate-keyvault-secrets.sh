@@ -123,6 +123,22 @@ set_secret "encryption-key" "$ENCRYPTION_KEY"
 set_secret "openai-api-key" "sk-placeholder-replace-me"
 set_secret "qdrant-url" "http://qdrant:6333"
 
+# Google OAuth credentials (required for SSO login)
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+GOOGLE_REDIRECT_URI="${GOOGLE_REDIRECT_URI:-}"
+
+if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+    set_secret "google-client-id" "$GOOGLE_CLIENT_ID"
+    set_secret "google-client-secret" "$GOOGLE_CLIENT_SECRET"
+    set_secret "google-redirect-uri" "${GOOGLE_REDIRECT_URI:-https://workspace-stg.skyfirstlabs.com/login/sso/callback}"
+else
+    echo "  ⚠️  GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — skipping Google SSO secrets"
+    echo "     Export them before running this script:"
+    echo "     export GOOGLE_CLIENT_ID=<your-client-id>"
+    echo "     export GOOGLE_CLIENT_SECRET=<your-client-secret>"
+fi
+
 echo ""
 echo "🎉 All secrets successfully populated in Key Vault!"
 echo ""
@@ -132,10 +148,12 @@ echo "🔍 Verifying secrets..."
 SECRET_COUNT=$(az keyvault secret list --vault-name "$KEY_VAULT_NAME" --query "length(@)" -o tsv)
 echo "  Total secrets in vault: $SECRET_COUNT"
 
-if [ "$SECRET_COUNT" -ge 8 ]; then
+if [ "$SECRET_COUNT" -ge 11 ]; then
     echo "  ✅ All expected secrets are present"
+elif [ "$SECRET_COUNT" -ge 8 ]; then
+    echo "  ⚠️  Core secrets present but Google SSO secrets may be missing ($SECRET_COUNT/11)"
 else
-    echo "  ⚠️  Expected at least 8 secrets, found $SECRET_COUNT"
+    echo "  ⚠️  Expected at least 11 secrets, found $SECRET_COUNT"
 fi
 
 echo ""

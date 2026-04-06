@@ -2840,16 +2840,20 @@ jobs:
       - name: Populate Key Vault Secrets
         id: populate-secrets
         working-directory: infra/aks
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
         run: |
           set -euo pipefail
-          
+
           echo "🔐 Populating Key Vault secrets via Azure CLI..."
           echo "This bypasses firewall restrictions since Azure CLI is a trusted service"
           echo ""
-          
+
           chmod +x ../../scripts/populate-keyvault-secrets.sh
           ../../scripts/populate-keyvault-secrets.sh
-          
+
           echo ""
           echo "✅ Key Vault secrets population complete!"
 
