@@ -98,8 +98,8 @@ spec:
         externalSecret:
           enabled: true
           secretStoreRef:
-            name: azure-keyvault-staging  # REVERT: Uso do store namespaced para evitar bloqueio de firewall
-            kind: SecretStore
+            name: azure-keyvault
+            kind: ClusterSecretStore
           target:
             creationPolicy: Owner
             name: sky-be-stg-common-app-secrets
