@@ -84,6 +84,11 @@ class AgentState(TypedDict, total=False):
     # Saída final
     answer: Optional[str]
 
+    # Multi-agent intent classification
+    intent: Optional[str]  # "data" | "strategy" | "signals" | "context" | "mixed"
+    strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
+    signals_data: Optional[List[Dict[str, Any]]]  # Raw signals from backend
+
 
 # ==================== CONFIG DO AGENTE ====================
 
@@ -148,6 +153,7 @@ def build_generic_sql_graph(
     llm_specialist: LLMProvider,
     llm_formatter: LLMProvider,
     checkpointer: Optional[Any] = None,
+    backend_client: Optional[Any] = None,
 ):
     """
     Sistema de Query - Executor de Perguntas
@@ -348,21 +354,285 @@ def build_generic_sql_graph(
         )
         return new_state
 
+    # ── Multi-agent: Intent Classifier Node ──────────────────
+    def intent_classifier_node(state: AgentState) -> AgentState:
+        """
+        Entry node: classifies the question intent to route to the right specialist.
+        Fast regex first, LLM fallback for ambiguous cases.
+        """
+        from core.intent.question_intent import classify_question_intent
+        has_tables = len(agent_config.tables) > 0
+        intent = classify_question_intent(
+            question=state.get("question", ""),
+            has_data_sources=has_tables,
+        )
+        print(f"[INTENT_CLASSIFIER] question='{state.get('question', '')[:60]}' -> intent={intent.value} (has_tables={has_tables})")
+        log_event("intent_classified", {
+            "question": state.get("question", "")[:100],
+            "intent": intent.value,
+            "has_data_sources": has_tables,
+        })
+        state["intent"] = intent.value
+        return state
+
+    # ── Multi-agent: Strategy Specialist Node ──────────────
+    def strategy_specialist_node(state: AgentState) -> AgentState:
+        """Answers questions about OKRs, goals, pillars, strategy."""
+        from core.llm.strategy_specialist import run_strategy_specialist
+        from core.llm.factory import create_llm_formatter
+        # Use formatter-class LLM (cheaper, good at synthesis)
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_formatter(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_formatter
+        client = backend_client
+        if client is None:
+            from core.clients.backend_client import get_backend_client
+            client = get_backend_client()
+        return run_strategy_specialist(state=state, llm=dynamic_llm, backend_client=client)
+
+    # ── Multi-agent: Mixed Dispatch Node (Phase D) ──────────
+    def mixed_dispatch_node(state: AgentState) -> AgentState:
+        """
+        Handles 'mixed' intent: decomposes the question into sub-queries,
+        runs multiple specialists (with dependency resolution), and merges results.
+        """
+        from core.agents.interpreter import create_query_plan, resolve_execution_order
+        from core.llm.organizer import run_organizer
+        from core.llm.factory import create_llm_formatter
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        question = state.get("question", "")
+        creativity = state.get("creativity")
+        length = state.get("length")
+        dynamic_llm = create_llm_formatter(creativity=creativity, length=length) if (creativity is not None or length is not None) else llm_formatter
+
+        client = backend_client
+        if client is None:
+            from core.clients.backend_client import get_backend_client
+            client = get_backend_client()
+
+        # Step 1: Create query plan via the Interpreter
+        plan = create_query_plan(question, dynamic_llm)
+
+        # Step 2: Build specialist runner functions
+        def run_specialist_by_name(name: str, sub_question: str, context: dict = None) -> Dict[str, Any]:
+            """Run a single specialist and return its result."""
+            sub_state = dict(state)
+            sub_state["question"] = sub_question
+            if context:
+                # Inject context from previous specialist (e.g., strategy targets for data queries)
+                sub_state["instructions"] = (sub_state.get("instructions") or "") + f"\n\nContext from previous analysis:\n{json.dumps(context, default=str)[:1000]}"
+
+            try:
+                if name == "strategy":
+                    from core.llm.strategy_specialist import run_strategy_specialist
+                    result = run_strategy_specialist(sub_state, dynamic_llm, client)
+                elif name == "events":
+                    from core.llm.events_specialist import run_events_specialist
+                    result = run_events_specialist(sub_state, dynamic_llm, client)
+                elif name == "relationships":
+                    from core.llm.relationships_specialist import run_relationships_specialist
+                    result = run_relationships_specialist(sub_state, dynamic_llm, client)
+                elif name == "people":
+                    from core.llm.people_specialist import run_people_specialist
+                    result = run_people_specialist(sub_state, dynamic_llm, client)
+                elif name == "widgets":
+                    from core.llm.widgets_specialist import run_widgets_specialist
+                    result = run_widgets_specialist(sub_state, dynamic_llm, client)
+                elif name == "data":
+                    # For data specialist, run the existing orchestrator + specialist pipeline
+                    from core.llm.orchestrator import run_orchestrator
+                    from core.llm.specialist import run_specialist as run_sql_specialist
+                    from core.llm.factory import create_llm_orchestrator, create_llm_specialist
+                    orch_llm = create_llm_orchestrator(creativity=creativity, length=length) if (creativity is not None or length is not None) else llm_orchestrator
+                    spec_llm = create_llm_specialist(creativity=creativity, length=length) if (creativity is not None or length is not None) else llm_specialist
+                    db = db_session_factory()
+                    try:
+                        orch_result = run_orchestrator(state=sub_state, agent_config=agent_config, llm=orch_llm, db=db, embedding_provider=embedding_provider)
+                        sql_result = run_sql_specialist(state=orch_result, agent_config=agent_config, data_source=data_source, llm=spec_llm)
+                        result = sql_result
+                    finally:
+                        db.close()
+                else:
+                    return {"answer": f"Unknown specialist: {name}", "data": [], "error": "unknown_specialist"}
+
+                return {
+                    "answer": result.get("answer", ""),
+                    "data": result.get("data", []),
+                    "sql": result.get("sql"),
+                    "error": result.get("error"),
+                    "strategy_data": result.get("strategy_data"),
+                    "signals_data": result.get("signals_data"),
+                }
+            except Exception as e:
+                logger.error(f"Mixed dispatch: specialist '{name}' failed: {e}")
+                return {"answer": "", "data": [], "error": str(e)}
+
+        import json
+        # Step 3: Execute waves (respecting dependencies)
+        waves = resolve_execution_order(plan)
+        specialist_results: Dict[str, Dict[str, Any]] = {}
+
+        for wave_idx, wave in enumerate(waves):
+            log_event("mixed_dispatch_wave", {
+                "wave": wave_idx,
+                "specialists": [sq.specialist for sq in wave],
+            })
+
+            # Run specialists in this wave in parallel
+            if len(wave) == 1:
+                sq = wave[0]
+                context = {}
+                for dep in sq.depends_on:
+                    if dep in specialist_results:
+                        context[dep] = specialist_results[dep].get("answer", "")
+                specialist_results[sq.specialist] = run_specialist_by_name(sq.specialist, sq.sub_question, context or None)
+            else:
+                with ThreadPoolExecutor(max_workers=min(len(wave), 4)) as executor:
+                    futures = {}
+                    for sq in wave:
+                        context = {}
+                        for dep in sq.depends_on:
+                            if dep in specialist_results:
+                                context[dep] = specialist_results[dep].get("answer", "")
+                        futures[executor.submit(run_specialist_by_name, sq.specialist, sq.sub_question, context or None)] = sq.specialist
+
+                    for future in as_completed(futures):
+                        name = futures[future]
+                        try:
+                            specialist_results[name] = future.result()
+                        except Exception as e:
+                            specialist_results[name] = {"answer": "", "data": [], "error": str(e)}
+
+        # Step 4: Merge with the Organizer
+        answer = run_organizer(
+            question=question,
+            specialist_results=specialist_results,
+            merge_strategy=plan.merge_strategy,
+            llm=dynamic_llm,
+        )
+
+        log_event("mixed_dispatch_done", {
+            "question": question[:100],
+            "specialists_used": list(specialist_results.keys()),
+            "answer_preview": answer[:200] if answer else "",
+        })
+
+        state["answer"] = answer
+        state["data"] = []
+        state["sql"] = None
+        state["generated_title"] = f"Analysis: {question[:50]}"
+        return state
+
+    # ── Multi-agent: Relationships Specialist Node ───────────
+    def relationships_specialist_node(state: AgentState) -> AgentState:
+        """Answers about cross-space/department connections and impacts."""
+        from core.llm.relationships_specialist import run_relationships_specialist
+        from core.llm.factory import create_llm_formatter
+        dynamic_llm = create_llm_formatter(creativity=state.get("creativity"), length=state.get("length")) if state.get("creativity") is not None or state.get("length") is not None else llm_formatter
+        client = backend_client or __import__("core.clients.backend_client", fromlist=["get_backend_client"]).get_backend_client()
+        return run_relationships_specialist(state=state, llm=dynamic_llm, backend_client=client)
+
+    # ── Multi-agent: People Specialist Node ────────────────
+    def people_specialist_node(state: AgentState) -> AgentState:
+        """Answers about teams, users, crew membership, activity."""
+        from core.llm.people_specialist import run_people_specialist
+        from core.llm.factory import create_llm_formatter
+        dynamic_llm = create_llm_formatter(creativity=state.get("creativity"), length=state.get("length")) if state.get("creativity") is not None or state.get("length") is not None else llm_formatter
+        client = backend_client or __import__("core.clients.backend_client", fromlist=["get_backend_client"]).get_backend_client()
+        return run_people_specialist(state=state, llm=dynamic_llm, backend_client=client)
+
+    # ── Multi-agent: Widgets & History Specialist Node ─────
+    def widgets_specialist_node(state: AgentState) -> AgentState:
+        """Answers about existing dashboards, widgets, past AI insights."""
+        from core.llm.widgets_specialist import run_widgets_specialist
+        from core.llm.factory import create_llm_formatter
+        dynamic_llm = create_llm_formatter(creativity=state.get("creativity"), length=state.get("length")) if state.get("creativity") is not None or state.get("length") is not None else llm_formatter
+        client = backend_client or __import__("core.clients.backend_client", fromlist=["get_backend_client"]).get_backend_client()
+        return run_widgets_specialist(state=state, llm=dynamic_llm, backend_client=client)
+
+    # ── Multi-agent: Events Specialist Node ──────────────────
+    def events_specialist_node(state: AgentState) -> AgentState:
+        """Answers questions about market signals, events, trends."""
+        from core.llm.events_specialist import run_events_specialist
+        from core.llm.factory import create_llm_formatter
+        creativity = state.get("creativity")
+        length = state.get("length")
+        if creativity is not None or length is not None:
+            dynamic_llm = create_llm_formatter(creativity=creativity, length=length)
+        else:
+            dynamic_llm = llm_formatter
+        client = backend_client
+        if client is None:
+            from core.clients.backend_client import get_backend_client
+            client = get_backend_client()
+        return run_events_specialist(state=state, llm=dynamic_llm, backend_client=client)
+
+    # ── Build the Graph ────────────────────────────────────
     graph = StateGraph(AgentState)
 
+    # Register all nodes
+    graph.add_node("intent_classifier", intent_classifier_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("specialist", specialist_node)
     graph.add_node("parallel_specialist", parallel_specialist_node)
     graph.add_node("merger", merger_node)
     graph.add_node("formatter", formatter_node)
+    graph.add_node("strategy_specialist", strategy_specialist_node)
+    graph.add_node("events_specialist", events_specialist_node)
+    graph.add_node("relationships_specialist", relationships_specialist_node)
+    graph.add_node("people_specialist", people_specialist_node)
+    graph.add_node("widgets_specialist", widgets_specialist_node)
+    graph.add_node("mixed_dispatch", mixed_dispatch_node)
+
+    # ── Routing: Intent -> Specialist ──────────────────────
+    def route_by_intent(state: AgentState):
+        intent = state.get("intent", "data")
+        routing = {
+            "strategy": "strategy_specialist",
+            "signals": "events_specialist",
+            "relationships": "relationships_specialist",
+            "people": "people_specialist",
+            "widgets": "widgets_specialist",
+            "mixed": "mixed_dispatch",
+        }
+        return routing.get(intent, "orchestrator")
 
     def route_orchestrator(state: AgentState):
         if state.get("is_multi_source", False):
             return "parallel_specialist"
         return "specialist"
 
-    graph.set_entry_point("orchestrator")
-    
+    # Entry point: always classify intent first
+    graph.set_entry_point("intent_classifier")
+
+    # Intent router → strategy specialist OR data pipeline
+    graph.add_conditional_edges(
+        "intent_classifier",
+        route_by_intent,
+        {
+            "strategy_specialist": "strategy_specialist",
+            "events_specialist": "events_specialist",
+            "relationships_specialist": "relationships_specialist",
+            "people_specialist": "people_specialist",
+            "widgets_specialist": "widgets_specialist",
+            "mixed_dispatch": "mixed_dispatch",
+            "orchestrator": "orchestrator",
+        }
+    )
+
+    # Non-data specialists -> END (skip formatter — answer is already set by each specialist)
+    graph.add_edge("strategy_specialist", END)
+    graph.add_edge("events_specialist", END)
+    graph.add_edge("relationships_specialist", END)
+    graph.add_edge("people_specialist", END)
+    graph.add_edge("widgets_specialist", END)
+    graph.add_edge("mixed_dispatch", END)
+
+    # Data pipeline (existing, unchanged)
     graph.add_conditional_edges(
         "orchestrator",
         route_orchestrator,
@@ -371,7 +641,7 @@ def build_generic_sql_graph(
             "parallel_specialist": "parallel_specialist"
         }
     )
-    
+
     graph.add_edge("specialist", "formatter")
     graph.add_edge("parallel_specialist", "merger")
     graph.add_edge("merger", "formatter")
@@ -476,6 +746,10 @@ def run_agent_once(
     # Use checkpointer context manager to acquire and release connection
     from core.agents.checkpoint_manager import get_checkpointer
     
+    # Multi-agent: get backend client for strategy/signals specialists
+    from core.clients.backend_client import get_backend_client
+    _backend_client = get_backend_client()
+
     with get_checkpointer() as checkpointer:
         app = build_generic_sql_graph(
             agent_config=agent_config,
@@ -486,6 +760,7 @@ def run_agent_once(
             llm_specialist=llm_specialist,
             llm_formatter=llm_formatter,
             checkpointer=checkpointer,
+            backend_client=_backend_client,
         )
 
         final_state: AgentState = app.invoke(
