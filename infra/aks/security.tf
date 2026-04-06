@@ -22,15 +22,14 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = true
 
   network_acls {
-    # Restricted access: AKS Subnet + Runner IP (temporary for secret population)
-    default_action             = "Deny"          # Always deny by default for security
-    bypass                     = "AzureServices" # Allows other Azure services
-    virtual_network_subnet_ids = [azurerm_subnet.aks.id]
-
-    # Temporarily allow runner IP during secret population
-    # This is removed after secrets are created via a second Terraform apply
-    # See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
-    ip_rules = compact([var.runner_ip])
+    # Zero Trust Identity Model: Entra ID RBAC is the single security boundary.
+    # Network firewall is disabled — any authenticated identity with the correct
+    # RBAC role can access secrets from any network (Mac, CI/CD, Kubernetes).
+    # This eliminates the runner_ip workaround and simplifies operations.
+    default_action             = "Allow"
+    bypass                     = "AzureServices"
+    virtual_network_subnet_ids = []
+    ip_rules                   = []
   }
 
   # Allow Terraform to manage network rules
@@ -128,10 +127,10 @@ resource "random_password" "encryption_key" {
   special = false
 }
 
-# NOTE: Secrets are NOT created via Terraform due to firewall limitations
-# Instead, they are populated via Azure CLI in the GitHub Actions workflow
-# See: .github/workflows/deploy.yml (populate-key-vault-secrets step)
-# This approach works because Azure CLI is recognized as a trusted service
+# Secrets can now be created via any authenticated Entra ID principal:
+# - Locally via: az keyvault secret set --vault-name <name> ...
+# - GitHub Actions via Service Principal (OIDC)
+# - Terraform (azurerm_key_vault_secret) — no longer blocked by firewall
 
 # Outputs are now in outputs.tf
 
