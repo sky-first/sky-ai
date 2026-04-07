@@ -1,6 +1,6 @@
 image:
   repository: "skyacrstagingj3minh.azurecr.io/sky-poc-backend"
-  tag: "sha-6990364094b46accd9740991ac513cc807332c3a"
+  tag: "sha-4e7dc518f8f4720270eb18842201edce3398811c"
   pullPolicy: Always
 
 imagePullSecrets:
@@ -40,6 +40,32 @@ envSecrets:
   AI_SERVICE_TYPE: "real"
   AI_SERVICE_URL: "http://sky-ai-stg-common-app.staging.svc.cluster.local"
   DEBUG: "true"
+
+  # Mapped from ExternalSecret keys (synced from Azure Key Vault).
+  # Required by the Universe Intelligence backend (PR #139).
+  JWT_SECRET_KEY:
+    name: sky-be-stg-common-app-secrets
+    key: jwt_secret_key
+  ENCRYPTION_KEY:
+    name: sky-be-stg-common-app-secrets
+    key: encryption_key
+  OPENAI_API_KEY:
+    name: sky-be-stg-common-app-secrets
+    key: openai_api_key
+  CELERY_RESULT_BACKEND:
+    name: sky-be-stg-common-app-secrets
+    key: celery_result_backend
+
+  # Google SSO (the only login method going forward)
+  GOOGLE_CLIENT_ID:
+    name: sky-be-stg-common-app-secrets
+    key: google_client_id
+  GOOGLE_CLIENT_SECRET:
+    name: sky-be-stg-common-app-secrets
+    key: google_client_secret
+  GOOGLE_REDIRECT_URI:
+    name: sky-be-stg-common-app-secrets
+    key: google_redirect_uri
 
 replicaCount: 1
 
