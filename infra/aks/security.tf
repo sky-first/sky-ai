@@ -34,7 +34,7 @@ resource "azurerm_key_vault" "main" {
     # See: docs/decisions/2026-04-07-keyvault-network-policy.md (TODO)
     # Original Zero Trust note from PR #374: identity is the security boundary,
     # network firewall is disabled to eliminate runner_ip workaround.
-    # tfsec:ignore:azure-keyvault-no-public-access Allow-by-default is intentional under the hybrid security model documented above. Staging KV uses RBAC as the single boundary; production KV will use Deny+allowlist when it exists.
+    # tfsec:ignore:azure-keyvault-specify-network-acl Allow-by-default is intentional under the hybrid security model documented above. Staging KV uses RBAC as the single boundary; production KV will use Deny+allowlist when it exists.
     default_action             = "Allow"
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = []

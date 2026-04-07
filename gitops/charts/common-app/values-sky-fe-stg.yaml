@@ -11,7 +11,17 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 942100"
+    # OAuth callback URLs from Google contain a `code` parameter that includes
+    # forward slashes, plus signs, and long base64-like strings (e.g.
+    # `code=4/0Aci98E_IyLr1IM...`). The OWASP CRS heuristics for path traversal,
+    # SQL injection and encoding evasion all add small scores against this, and
+    # the cumulative anomaly score (rule 949110) reaches the deny threshold.
+    # Result: 403 Forbidden BEFORE the request reaches the Next.js callback
+    # page that needs to read the code. Disable the rule engine specifically
+    # for the SSO callback URI. CSRF is still protected by OAuth `state`.
+    nginx.ingress.kubernetes.io/modsecurity-snippet: |
+      SecRuleRemoveById 942100
+      SecRule REQUEST_URI "@beginsWith /login/sso/callback" "id:1010,phase:1,pass,nolog,ctl:ruleEngine=Off"
   hosts:
     - host: workspace-stg.skyfirstlabs.com
       paths:

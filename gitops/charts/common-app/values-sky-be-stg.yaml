@@ -42,6 +42,15 @@ ingress:
       rewrite ^/(?!api)(.*)$ /api/$1 break;
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
     nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    # When the FE callback page exchanges the OAuth `code` for a token it
+    # POSTs/GETs the BE at /api/auth/sso/google/callback (or /api/v1/...).
+    # The `code` from Google triggers the same OWASP CRS heuristics that
+    # blocked the FE callback page. Disable the rule engine for the SSO
+    # callback URIs on this ingress as well. Both legacy and v1 prefixes
+    # are listed because the rewrite above happens AFTER ModSecurity runs.
+    nginx.ingress.kubernetes.io/modsecurity-snippet: |
+      SecRule REQUEST_URI "@beginsWith /api/auth/sso/" "id:1011,phase:1,pass,nolog,ctl:ruleEngine=Off"
+      SecRule REQUEST_URI "@beginsWith /api/v1/auth/sso/" "id:1012,phase:1,pass,nolog,ctl:ruleEngine=Off"
   hosts:
     - host: api-stg.skyfirstlabs.com
       paths:
