@@ -3,6 +3,19 @@ image:
   tag: "sha-4e7dc518f8f4720270eb18842201edce3398811c"
   pullPolicy: Always
 
+# Override the Dockerfile CMD so uvicorn trusts X-Forwarded-Proto from
+# nginx-ingress. Without --proxy-headers, request.base_url returns http://
+# even though the user came in over HTTPS, which produces an http://
+# redirect_uri in the Google OAuth flow and triggers redirect_uri_mismatch.
+command: ["uvicorn"]
+args:
+  - "src.main:app"
+  - "--host=0.0.0.0"
+  - "--port=8000"
+  - "--workers=4"
+  - "--proxy-headers"
+  - "--forwarded-allow-ips=*"
+
 imagePullSecrets:
   - name: regcred
 
