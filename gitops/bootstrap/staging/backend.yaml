@@ -54,7 +54,20 @@ spec:
             # TECHNICAL DEBT RESOLVIDO: 942100 (SQLi) reativado globalmente.
             # Bypass URI-específico para /api/dashboards agora gerenciado via
             # ConfigMap modsecurity-exclusions (OWASP CRS REQUEST-900 mechanism).
-            nginx.ingress.kubernetes.io/modsecurity-snippet: "SecRuleRemoveById 911100"
+            #
+            # SSO callback bypass: when the FE callback page exchanges the
+            # OAuth `code` for a token it calls /api/auth/sso/google/callback.
+            # The Google `code` (e.g. `4/0Aci98E_IyLr1IM...`) trips OWASP CRS
+            # rules for path traversal, encoding evasion and SQLi, and the
+            # cumulative anomaly score (rule 949110) reaches the deny threshold.
+            # Disable the rule engine for the SSO callback URIs only. CSRF is
+            # still protected by OAuth `state` validation in the BE handler.
+            # Both legacy and v1 prefixes listed because the rewrite from #377
+            # happens AFTER ModSecurity runs.
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRuleRemoveById 911100
+              SecRule REQUEST_URI "@beginsWith /api/auth/sso/" "id:1011,phase:1,pass,nolog,ctl:ruleEngine=Off"
+              SecRule REQUEST_URI "@beginsWith /api/v1/auth/sso/" "id:1012,phase:1,pass,nolog,ctl:ruleEngine=Off"
           hosts:
             - host: workspace-stg-api.skyfirstlabs.com
               paths:
