@@ -37,9 +37,10 @@ spec:
           enabled: false
         imagePullSecrets:
           - name: regcred
-        image:
-          repository: skyacrstagingj3minh.azurecr.io/sky-poc-backend
-          pullPolicy: Always
+        # NOTE: image.repository / image.tag / image.pullPolicy are owned by
+        # values-sky-be-stg.yaml. Re-declaring them here is redundant and was
+        # masking PR #375 — the empty `tag` here merged with the values file's
+        # tag in unpredictable ways. Source of truth is the values file.
         service:
           port: 80
           targetPort: 8000
@@ -229,7 +230,11 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
           command: ["/bin/sh", "-c"]
-          args: ["alembic upgrade head || echo 'Migration already applied or failed'"]
+          # Fail loudly if alembic fails. The previous `|| echo 'Sucesso'`
+          # masked migration errors and let the deploy proceed against a
+          # broken DB. With this, the migration Job exits non-zero on
+          # failure, ArgoCD aborts the sync, and the old BE keeps serving.
+          args: ["alembic upgrade head"]
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging

@@ -30,6 +30,14 @@ ingress:
     nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS, DELETE"
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Correlation-Id,X-Correlation-ID"
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      # Map legacy /api/auth/sso/* to /api/v1/auth/sso/* — the BE auth middleware
+      # only exempts the v1 path from the JWT check, but the frontend (and the
+      # routes the same router exposes under both prefixes via main.py) target
+      # the legacy path. Without this rewrite the SSO login attempt is rejected
+      # with 401 "Missing authorization header" before it ever reaches the
+      # handler. Long-term fix: add /api/auth/sso/ to public_paths in the BE
+      # middleware (sky-poc-backend src/api/middleware/auth.py).
+      rewrite ^/api/auth/sso/(.*)$ /api/v1/auth/sso/$1 break;
       rewrite ^/api/(.*)$ /api/$1 break;
       rewrite ^/(?!api)(.*)$ /api/$1 break;
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"

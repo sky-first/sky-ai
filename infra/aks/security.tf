@@ -22,10 +22,19 @@ resource "azurerm_key_vault" "main" {
   enable_rbac_authorization = true
 
   network_acls {
-    # Zero Trust Identity Model: Entra ID RBAC is the single security boundary.
-    # Network firewall is disabled — any authenticated identity with the correct
-    # RBAC role can access secrets from any network (Mac, CI/CD, Kubernetes).
-    # This eliminates the runner_ip workaround and simplifies operations.
+    # Hybrid Security Model decision (2026-04-07):
+    # - STAGING (this KV): Allow + RBAC. Zero Trust by identity, no network ACL.
+    #   Justification: small distributed team, POC stage, no regulated data.
+    #   The operational cost of maintaining IP allowlists for every dev laptop
+    #   and CI runner outweighs the marginal security benefit at this scale.
+    #   Hardening required to make this safe: MFA + Conditional Access + PIM
+    #   for elevated roles + audit logs to SIEM.
+    # - PRODUCTION (future KV): Deny + RBAC. Defense in depth for real customer
+    #   data, compliance posture for audits.
+    # See: docs/decisions/2026-04-07-keyvault-network-policy.md (TODO)
+    # Original Zero Trust note from PR #374: identity is the security boundary,
+    # network firewall is disabled to eliminate runner_ip workaround.
+    # tfsec:ignore:azure-keyvault-no-public-access Allow-by-default is intentional under the hybrid security model documented above. Staging KV uses RBAC as the single boundary; production KV will use Deny+allowlist when it exists.
     default_action             = "Allow"
     bypass                     = "AzureServices"
     virtual_network_subnet_ids = []
