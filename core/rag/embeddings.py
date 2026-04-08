@@ -371,4 +371,20 @@ async def create_embeddings_for_table_metadata(
         },
     )
 
+
     return created
+
+
+def get_embedding_provider() -> EmbeddingProvider:
+    """
+    Factory function to return the correct embedding provider based on settings.
+    """
+    from config.settings import settings
+    
+    provider_type = settings.ai_provider.lower()
+    
+    if provider_type == "openai":
+        return OpenAIEmbeddingProvider()
+    
+    # Default to Ollama
+    return OllamaEmbeddingProvider()

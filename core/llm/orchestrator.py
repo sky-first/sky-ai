@@ -603,6 +603,10 @@ def run_orchestrator(
             crew_ids = state.get("crew_ids") or []
 
             if space_id:
+                connection_id = None
+                if agent_config.tables:
+                    connection_id = agent_config.tables[0].data_connection_id
+                
                 retrieval_context = build_retrieval_context_for_question_sync(
                     db=db,
                     embedding_provider=embedding_provider,
@@ -610,6 +614,7 @@ def run_orchestrator(
                     crew_ids=crew_ids,
                     question=question,
                     top_k=15,
+                    connection_id=connection_id,
                 )
                 state["retrieval_context"] = retrieval_context
                 log_event(

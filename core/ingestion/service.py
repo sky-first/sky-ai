@@ -12,6 +12,7 @@ from core.rag.embeddings import (
     EmbeddingProvider,
     OllamaEmbeddingProvider,
     create_embeddings_for_table_metadata,
+    get_embedding_provider,
 )
 from core.logging_utils import log_event
 
@@ -132,7 +133,7 @@ async def run_metadata_embeddings(
     dc, space = await _get_connection_and_space(db, connection_id, space_id)
 
     if embedding_provider is None:
-        embedding_provider = OllamaEmbeddingProvider()
+        embedding_provider = get_embedding_provider()
 
     created = await create_embeddings_for_table_metadata(
         db=db,
@@ -170,7 +171,7 @@ async def run_full_refresh_for_connection(
     Retorna um resumo com contagens.
     """
     if embedding_provider is None:
-        embedding_provider = OllamaEmbeddingProvider()
+        embedding_provider = get_embedding_provider()
 
     inserted = await run_metadata_ingestion(
         db=db,

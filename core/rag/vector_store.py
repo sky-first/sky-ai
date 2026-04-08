@@ -201,6 +201,7 @@ def search_embeddings(
     crew_ids: Optional[List[str]],
     query_text: str,
     top_k: int = 20,
+    connection_id: Optional[str] = None,
 ) -> List[EmbeddingRecord]:
     """
     Versão síncrona de search_embeddings.
@@ -255,20 +256,18 @@ def search_embeddings(
     query_vec = embedding_provider.embed([query_text])[0]
 
     try:
-        q = (
-            db.query(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
-            .limit(top_k)
-        )
-
-        results: List[EmbeddingRecord] = q.all()
+        # Use a mesma lógica de construção de query do async
+        from sqlalchemy.orm import Query
+        
+        # Converter Select para Query legada (ORM) se necessário ou usar Session.execute
+        # Para manter compatibilidade com o resto do código sync que usa db.query:
+        query_obj = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        
+        # O _build_embedding_base_query retorna um objeto 'select'. 
+        # No SQLAlchemy 2.0 (sync), podemos usar db.scalars(query).all()
+        
+        # Executar a query e obter os resultados
+        results = list(db.execute(query_obj).scalars().all())
     except Exception as e:
         log_event(
             "search_embeddings_vector_error",
@@ -279,25 +278,15 @@ def search_embeddings(
             },
         )
         
-        q = (
-            db.query(EmbeddingRecord)
-            .filter(EmbeddingRecord.space_id == space_id)
-            .filter(
-                or_(
-                    EmbeddingRecord.crew_id.is_(None),
-                    EmbeddingRecord.crew_id.in_(crew_ids) if crew_ids else False,
-                )
-            )
-            .limit(top_k)
-        )
-        
-        results: List[EmbeddingRecord] = q.all()
+        query_obj = _build_embedding_base_query(space_id, crew_ids, connection_id)
+        query_obj = query_obj.limit(top_k)
+        results = list(db.execute(query_obj).scalars().all())
 
     log_event(
         "search_embeddings",
         {
             "space_id": space_id,
-            "crew_ids": crew_ids,
+            "connection_id": connection_id,
             "query_preview": query_text[:200],
             "top_k": top_k,
             "num_results": len(results),
