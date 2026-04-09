@@ -468,7 +468,7 @@ def build_generic_sql_graph(
                     "signals_data": result.get("signals_data"),
                 }
             except Exception as e:
-                logger.error(f"Mixed dispatch: specialist '{name}' failed: {e}")
+                log_event("mixed_dispatch_specialist_error", {"specialist": name, "error": str(e)})
                 return {"answer": "", "data": [], "error": str(e)}
 
         import json
