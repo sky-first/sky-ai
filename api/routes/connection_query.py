@@ -2649,8 +2649,15 @@ async def query_connection(
                     "original_question": body.question[:50],
                     "crew_id": active_cache_crew,  # for audit
                 })
-                # return QueryResponse.model_validate(cached_json) # Temporarily disabled for verification
-                return QueryResponse.model_validate(cached_json)
+                cached_response = QueryResponse.model_validate(cached_json)
+                # Last-mile: apply format transform + infer widget type from raw cached data
+                cached_response.data_sample = _transform_data_for_format(
+                    cached_response.data_sample, body.response_format
+                )
+                cached_response.recommended_widget_type = _infer_widget_type(
+                    cached_response.data_sample, body.response_format
+                )
+                return cached_response
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
@@ -2664,17 +2671,15 @@ async def query_connection(
     # ✅ EXECUTE INNER LLM PIPELINE
     response = await _query_connection_inner(connection_id, body, db)
 
-    # ✅ SEMANTIC CACHE LAYER (Store)
+    # ✅ SEMANTIC CACHE LAYER (Store) — always stores raw data_sample (no format transform yet)
     try:
         if query_embedding and response.meta and getattr(response.meta, 'error', None) is None:
             # We don't cache errors from security/language blocks
             if response.answer and not response.answer.startswith("I'm sorry, but I only support questions"):
-                # FIX 2: Store crew_id so that we never return this cache entry to a different crew.
-                # active_cache_crew is already computed in the lookup block above.
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
-                    crew_id=active_cache_crew,  # None for personal mode, crew UUID for collaborative
+                    crew_id=active_cache_crew,
                     question=body.question,
                     embedding=query_embedding,
                     response_json=response.model_dump(mode='json')
@@ -2684,11 +2689,14 @@ async def query_connection(
     except Exception as sc_err:
         from core.logging_utils import log_event
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
-        # ✅ FIX: Rollback the session if the cache store failed
         try:
             await db.rollback()
         except Exception:
             pass
+
+    # Last-mile: apply format transform + infer widget type (runs for both cache miss and pipeline)
+    response.data_sample = _transform_data_for_format(response.data_sample, body.response_format)
+    response.recommended_widget_type = _infer_widget_type(response.data_sample, body.response_format)
 
     return response
 
@@ -3525,8 +3533,9 @@ async def _query_connection_inner(
         },
     )
     
+    # Raw sample — transform runs at the outer layer (after cache or pipeline)
     data_sample = data[:15] if isinstance(data, list) else []
-    
+
     # ✅ CAMADA 4: Detecção de PII na resposta
     from core.security.pii_scanner import (
         scan_text_for_pii,
@@ -4126,12 +4135,13 @@ async def _stream_connection_query(
             data = final_state.get("data") or []
             detected_language = final_state.get("detected_language")
             # lang = _ensure_language(question, detected_language) # Removed redundant call
-            
-            data_sample = data[:15]
-            serialized_sample = _serialize_for_json(data_sample)
+
+            # Raw sample for stats (formatter LLM needs original rows, not chart/kpi wrappers)
+            raw_sample = data[:15]
+            serialized_sample = _serialize_for_json(raw_sample)
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
-            stats_text = _compute_basic_stats(data_sample)
-            
+            stats_text = _compute_basic_stats(raw_sample)
+
             system_msg = {
                 "role": "system",
                 "content": (
@@ -4184,20 +4194,24 @@ async def _stream_connection_query(
             chosen_table = final_state.get("chosen_table")
             chosen_tables = final_state.get("chosen_tables")
             sql = final_state.get("sql")
-            
+
             chosen_datasets = chosen_tables if chosen_tables else ([chosen_table] if chosen_table else [])
-            
+
+            # Last-mile: transform raw sample and infer widget type
+            formatted_sample = _transform_data_for_format(raw_sample, body.response_format)
+            recommended_widget_type = _infer_widget_type(formatted_sample, body.response_format)
+
             meta = {
                 "detected_language": lang,
                 "chosen_table": chosen_table,
                 "chosen_datasets": chosen_datasets if chosen_datasets else None,
                 "sql": sql,
-                "title": final_state.get("generated_title"), # Populate title from agent state
+                "title": final_state.get("generated_title"),
                 "num_rows": len(data),
                 "error": None,
             }
-            
-            yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': data_sample})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': formatted_sample, 'recommended_widget_type': recommended_widget_type})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
             # ✅ AUDITORIA (stream): registrar ao final
@@ -4295,6 +4309,79 @@ def _serialize_for_json(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _serialize_for_json(v) for k, v in obj.items()}
     return obj
+
+def _infer_widget_type(data: List[Dict[str, Any]], response_format: Optional[str]) -> Optional[str]:
+    """
+    Infers the best widget type from data shape.
+    If response_format is explicitly set (and not 'text'), returns it as-is.
+    Otherwise auto-detects from the structure of the rows.
+    Returns None when there's no data or widget context.
+    """
+    if not data:
+        return None
+    if response_format and response_format != "text":
+        return response_format
+    first_row = data[0]
+    keys = list(first_row.keys())
+    numeric_cols = [k for k, v in first_row.items() if isinstance(v, (int, float))]
+    string_cols = [k for k, v in first_row.items() if isinstance(v, str)]
+    if len(data) == 1 and len(numeric_cols) == 1:
+        return "kpi"
+    if len(numeric_cols) >= 1 and len(string_cols) >= 1:
+        return "chart"
+    if len(keys) > 1:
+        return "table"
+    return "text"
+
+
+def _transform_data_for_format(data: List[Dict[str, Any]], response_format: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Transforms raw SQL rows into a structure appropriate for the widget type.
+
+    - "kpi"   → [{ "value": <num>, "label": "<col>" }]
+    - "chart" → [{ "labels": [...], "datasets": [{ "label": "...", "data": [...] }] }]
+    - "table" → [{ "columns": [...], "rows": [...] }]
+    - anything else → raw rows (unchanged)
+    """
+    if not data or not response_format or response_format == "text":
+        return data
+
+    if response_format == "kpi":
+        first_row = data[0]
+        numeric_col = next(
+            (k for k, v in first_row.items() if isinstance(v, (int, float))), None
+        )
+        if numeric_col is None:
+            return data
+        return [{
+            "value": first_row[numeric_col],
+            "label": numeric_col.replace("_", " ").title(),
+        }]
+
+    if response_format == "chart":
+        keys = list(data[0].keys())
+        label_col = next((k for k in keys if isinstance(data[0][k], str)), keys[0])
+        value_col = next(
+            (k for k in keys if k != label_col and isinstance(data[0][k], (int, float))),
+            keys[-1],
+        )
+        return [{
+            "labels": [_serialize_for_json(row.get(label_col)) for row in data],
+            "datasets": [{
+                "label": value_col.replace("_", " ").title(),
+                "data": [_serialize_for_json(row.get(value_col)) for row in data],
+            }],
+        }]
+
+    if response_format == "table":
+        columns = list(data[0].keys())
+        return [{
+            "columns": columns,
+            "rows": [list(row.values()) for row in data],
+        }]
+
+    return data
+
 
 def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
     """Compute basic stats for context."""
