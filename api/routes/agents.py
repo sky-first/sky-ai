@@ -17,7 +17,7 @@ from core.llm.factory import (
     create_llm_formatter,
     create_embedding_provider,
 )
-from core.agents.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.auth.service import resolve_crew_ids_for_context
 from core.logging_utils import log_event
 from db.session import get_db
