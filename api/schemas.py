@@ -97,6 +97,10 @@ class QueryResponse(BaseModel):
         description="Sample of returned data (max 15 rows).",
     )
     meta: QueryResultMeta
+    recommended_widget_type: Optional[str] = Field(
+        default=None,
+        description="Suggested widget type (kpi/chart/table/text). Populated when response_format is present.",
+    )
 
 
 class ChatBootstrapSuggestion(BaseModel):

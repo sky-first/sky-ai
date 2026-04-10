@@ -52,7 +52,12 @@ async def fix_schema():
         from core.security.audit import _ensure_audit_table_async
         # We need a hack here because _ensure_audit_table_async creates its own session
         # But for this script, we can just call it (it handles CREATE TABLE IF NOT EXISTS)
-        
+
+        # 4. Ensure audit log columns added in later migrations exist
+        await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
+        await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
+        logger.info("Audit log columns ensured (platform_role, crew_role).")
+
     await engine.dispose()
     
     # Call the original ensure function to create tables

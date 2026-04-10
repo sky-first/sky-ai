@@ -101,7 +101,7 @@ class BackendClient:
         if category:
             params["category"] = category
         try:
-            r = self._http.get("/signal-events", params=params)
+            r = self._http.get("/signal-events/", params=params)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -120,7 +120,7 @@ class BackendClient:
         if category:
             params["category"] = category
         try:
-            r = self._http.get("/intelligence/signals", params=params)
+            r = self._http.get("/intelligence/signals/", params=params)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -132,7 +132,7 @@ class BackendClient:
     def get_enterprise_relationships(self) -> List[Dict[str, Any]]:
         """GET /enterprise/relationships — cross-space semantic relationships."""
         try:
-            r = self._http.get("/enterprise/relationships")
+            r = self._http.get("/enterprise/relationships/")
             r.raise_for_status()
             return r.json()
         except Exception as e:

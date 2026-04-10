@@ -248,6 +248,7 @@ async def _ensure_audit_table_async() -> None:
             # --- Migrations para colunas novas (Best-effort) ---
             await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
             await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
+            await db.commit()
             
             # --- Tabela security_alerts ---
             await db.execute(

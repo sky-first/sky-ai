@@ -368,41 +368,59 @@ def run_orchestrator(
         return state
     # 🧠 CONTEXT RECALL: Handle short follow-up confirmations
     # Handles: "yes", "sure", "show me" -> uses first suggestion
+    # Handles: "1", "2", "3" -> uses the corresponding numbered suggestion
     last_suggestions = state.get("last_suggestions")
     if last_suggestions and len(question.split()) <= 4:
-        q_lower = question.lower()
-        # ONLY English affirmations
-        affirmations = [
-            "yes",
-            "sure",
-            "ok",
-            "okay",
-            "please",
-            "confirm",
-            "show me",
-            "do it",
-            "i want to see",
-            "go ahead",
-        ]
+        q_lower = question.strip().lower()
 
-        # Check for affirmations (fuzzy match)
-        is_affirmation = any(w == q_lower for w in affirmations) or (
-            q_lower in affirmations
-        )
+        # Check for numeric selection (1, 2, 3)
+        numeric_map = {"1": 0, "2": 1, "3": 2}
+        if q_lower in numeric_map:
+            idx = numeric_map[q_lower]
+            if idx < len(last_suggestions):
+                original_q = question
+                question = last_suggestions[idx]
+                state["question"] = question
+                log_event(
+                    "orchestrator_context_recall",
+                    {
+                        "original": original_q,
+                        "replaced_with": question,
+                        "reason": "numeric_selection",
+                        "index": idx,
+                    },
+                )
+        else:
+            # ONLY English affirmations -> uses first suggestion
+            affirmations = [
+                "yes",
+                "sure",
+                "ok",
+                "okay",
+                "please",
+                "confirm",
+                "show me",
+                "do it",
+                "i want to see",
+                "go ahead",
+            ]
 
-        if is_affirmation:
-            # Replace question with the first suggestion
-            original_q = question
-            question = last_suggestions[0]
-            state["question"] = question  # Update state
-            log_event(
-                "orchestrator_context_recall",
-                {
-                    "original": original_q,
-                    "replaced_with": question,
-                    "reason": "affirmation_match",
-                },
+            is_affirmation = any(w == q_lower for w in affirmations) or (
+                q_lower in affirmations
             )
+
+            if is_affirmation:
+                original_q = question
+                question = last_suggestions[0]
+                state["question"] = question
+                log_event(
+                    "orchestrator_context_recall",
+                    {
+                        "original": original_q,
+                        "replaced_with": question,
+                        "reason": "affirmation_match",
+                    },
+                )
 
     # 🔤 Detecção de idioma
     try:
