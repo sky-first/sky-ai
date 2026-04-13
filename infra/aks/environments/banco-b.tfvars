@@ -12,8 +12,8 @@ aks_cluster_name    = "sky-aks-banco-b"
 dns_prefix          = "sky-banco-b"
 location            = "eastus2"
 
-vnet_address_space  = ["10.20.0.0/16"]
-service_cidr        = "10.21.0.0/16"
+vnet_address_space = ["10.20.0.0/16"]
+service_cidr       = "10.21.0.0/16"
 
 admin_username = "azureuser"
 

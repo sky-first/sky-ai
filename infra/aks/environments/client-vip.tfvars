@@ -27,16 +27,16 @@ kubernetes_version = "1.29"
 enable_geo_dr = true
 
 # Região secundária (par da eastus2 na Azure)
-dr_location             = "centralus"
-dr_resource_group_name  = "sky-aks-vip-dr-rg"
-dr_vnet_address_space   = "10.6.0.0/16"
+dr_location            = "centralus"
+dr_resource_group_name = "sky-aks-vip-dr-rg"
+dr_vnet_address_space  = "10.6.0.0/16"
 
 # PostgreSQL Flexible Server SKU — 2 vCPUs, 8GB RAM
 # Aumentar para GP_Standard_D4s_v3 (4 vCPUs) se carga aumentar
-dr_postgres_sku    = "GP_Standard_D2s_v3"
+dr_postgres_sku = "GP_Standard_D2s_v3"
 
 # Redis Premium capacity — 1=6GB, 2=13GB, 3=26GB
-dr_redis_capacity  = 1
+dr_redis_capacity = 1
 
 # Azure Front Door origins
 # primary: hostname do Load Balancer do ingress-nginx em eastus2
