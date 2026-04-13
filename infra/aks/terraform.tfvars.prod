@@ -32,3 +32,11 @@ allowed_ssh_ips = [
 
 # GitHub Actions Service Principal (for CI/CD Key Vault access)
 github_actions_sp_object_id = "ac642806-ae70-4e1d-a800-c8ed0f43ecd0"
+
+# =============================================================================
+# Geo-Disaster Recovery (DO2025-1044)
+# Mantido em false — prod padrão NÃO inclui DR.
+# Ativar apenas em ambientes de clientes VIP (environments/client-vip.tfvars).
+# Custo adicional: $0.
+# =============================================================================
+enable_geo_dr = false

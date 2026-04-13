@@ -102,3 +102,63 @@ variable "github_actions_sp_object_id" {
   default     = null
   nullable    = true
 }
+
+# =============================================================================
+# Geo-Disaster Recovery (DO2025-1044)
+# =============================================================================
+# Todas as variáveis abaixo são usadas EXCLUSIVAMENTE pelo dr.tf.
+# Não têm efeito nenhum quando enable_geo_dr = false (padrão).
+# =============================================================================
+
+variable "enable_geo_dr" {
+  description = <<-EOT
+    Ativa a infraestrutura de Geo-Disaster Recovery.
+    false (padrão): staging e prod não são afetados. Custo: $0.
+    true:           provisiona todos os recursos de DR na região secundária.
+                    Usar apenas em ambientes de clientes VIP.
+  EOT
+  type    = bool
+  default = false
+}
+
+variable "dr_location" {
+  description = "Região Azure secundária para o DR (deve ser par da região primária)"
+  type        = string
+  default     = "centralus"
+}
+
+variable "dr_resource_group_name" {
+  description = "Nome do Resource Group de DR. Se vazio, usa '{resource_group_name}-dr'"
+  type        = string
+  default     = ""
+}
+
+variable "dr_vnet_address_space" {
+  description = "CIDR do VNet secundário. Não deve sobrepor com vnet_address_space da região primária"
+  type        = string
+  default     = "10.3.0.0/16"
+}
+
+variable "dr_postgres_sku" {
+  description = "SKU do PostgreSQL Flexible Server (primary + replica)"
+  type        = string
+  default     = "GP_Standard_D2s_v3" # 2 vCPUs, 8GB RAM — ajustar conforme carga do cliente
+}
+
+variable "dr_redis_capacity" {
+  description = "Capacidade do Redis Premium (1=6GB, 2=13GB, 3=26GB)"
+  type        = number
+  default     = 1
+}
+
+variable "dr_primary_origin_hostname" {
+  description = "Hostname do ingress primário (eastus2) para o Azure Front Door. Ex: workspace-api.skyfirstlabs.com"
+  type        = string
+  default     = ""
+}
+
+variable "dr_secondary_origin_hostname" {
+  description = "Hostname do ingress secundário (centralus) para o Azure Front Door. Ex: workspace-dr-api.skyfirstlabs.com"
+  type        = string
+  default     = ""
+}

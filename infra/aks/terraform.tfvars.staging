@@ -22,3 +22,10 @@ allowed_ssh_ips = [
 
 # GitHub Actions Service Principal (for CI/CD Key Vault access)
 github_actions_sp_object_id = "4eb2819d-b43b-4eb6-9d7f-f02b96088d1c"
+
+# =============================================================================
+# Geo-Disaster Recovery (DO2025-1044)
+# Mantido em false — staging NÃO precisa de DR.
+# Custo adicional: $0.
+# =============================================================================
+enable_geo_dr = false
