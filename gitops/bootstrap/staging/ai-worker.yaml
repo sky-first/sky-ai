@@ -76,6 +76,7 @@ spec:
                 celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
                 celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
                 database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                jwt_secret_key: "{{ .jwt_secret_key }}"
           data:
             - secretKey: openai_api_key
               remoteRef:
@@ -89,7 +90,10 @@ spec:
             - secretKey: redis_url
               remoteRef:
                 key: redis-url
-                
+            - secretKey: jwt_secret_key
+              remoteRef:
+                key: jwt-secret-key
+
         envSecrets:
           openai-api-key:
             name: sky-ai-worker-stg-secrets
@@ -106,6 +110,9 @@ spec:
           CELERY_RESULT_BACKEND:
             name: sky-ai-worker-stg-secrets
             key: celery_result_backend
+          JWT_SECRET_KEY:
+            name: sky-ai-worker-stg-secrets
+            key: jwt_secret_key
             
         extraEnv:
           - name: REDIS_PORT
