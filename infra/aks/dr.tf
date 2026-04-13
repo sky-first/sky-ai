@@ -27,8 +27,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 locals {
-  dr_enabled  = var.enable_geo_dr
-  dr_rg_name  = var.dr_resource_group_name != "" ? var.dr_resource_group_name : "${var.resource_group_name}-dr"
+  dr_enabled = var.enable_geo_dr
+  dr_rg_name = var.dr_resource_group_name != "" ? var.dr_resource_group_name : "${var.resource_group_name}-dr"
 
   dr_tags = {
     Environment = var.environment
@@ -104,8 +104,8 @@ resource "azurerm_postgresql_flexible_server" "primary" {
   # GP_Standard_D2s_v3 = 2 vCPUs, 8GB RAM.
   # Ajustar via var.dr_postgres_sku conforme crescimento do cliente.
   sku_name   = var.dr_postgres_sku
-  storage_mb = 32768  # 32GB inicial — auto-grow via portal se necessário
-  version    = "14"   # Alinhado com pgvector/pgvector:pg14 em uso no cluster
+  storage_mb = 32768 # 32GB inicial — auto-grow via portal se necessário
+  version    = "14"  # Alinhado com pgvector/pgvector:pg14 em uso no cluster
 
   # HA zona-redundante na região primária
   # Failover automático local em < 60s sem intervenção humana
@@ -171,8 +171,8 @@ resource "azurerm_postgresql_flexible_server" "replica" {
   location            = azurerm_resource_group.dr[0].location
 
   # Replica herda configurações do primary — não redefinir
-  create_mode       = "Replica"
-  source_server_id  = azurerm_postgresql_flexible_server.primary[0].id
+  create_mode      = "Replica"
+  source_server_id = azurerm_postgresql_flexible_server.primary[0].id
 
   # Deve usar o mesmo SKU do primary para evitar degradação de performance
   sku_name = var.dr_postgres_sku
@@ -213,7 +213,7 @@ resource "azurerm_redis_cache" "primary" {
   # Persistência habilitada — recuperação de dados após restart
   redis_configuration {
     rdb_backup_enabled            = true
-    rdb_backup_frequency          = 60   # backup a cada 60 minutos
+    rdb_backup_frequency          = 60 # backup a cada 60 minutos
     rdb_backup_max_snapshot_count = 1
     rdb_storage_connection_string = azurerm_storage_account.db_backup.primary_blob_connection_string
   }
@@ -250,12 +250,12 @@ resource "azurerm_redis_cache" "secondary" {
 # Link de geo-replicação entre primary e secondary
 # O secondary recebe os dados do primary continuamente (read-only até failover)
 resource "azurerm_redis_linked_server" "geo_replication" {
-  count                     = local.dr_enabled ? 1 : 0
-  target_redis_cache_name   = azurerm_redis_cache.primary[0].name
-  resource_group_name       = azurerm_resource_group.aks.name
-  linked_redis_cache_id     = azurerm_redis_cache.secondary[0].id
+  count                       = local.dr_enabled ? 1 : 0
+  target_redis_cache_name     = azurerm_redis_cache.primary[0].name
+  resource_group_name         = azurerm_resource_group.aks.name
+  linked_redis_cache_id       = azurerm_redis_cache.secondary[0].id
   linked_redis_cache_location = azurerm_redis_cache.secondary[0].location
-  server_role               = "Secondary"
+  server_role                 = "Secondary"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,7 +374,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "dr_burst" {
   max_count             = 10
 
   node_labels = {
-    "workload_type"                      = "burst"
+    "workload_type"                         = "burst"
     "kubernetes.azure.com/scalesetpriority" = "spot"
   }
 
@@ -428,15 +428,15 @@ resource "random_id" "kv_dr_suffix" {
 }
 
 resource "azurerm_key_vault" "dr" {
-  count                       = local.dr_enabled ? 1 : 0
-  name                        = "akv-sky-dr-${var.environment}-${random_id.kv_dr_suffix[0].hex}"
-  location                    = azurerm_resource_group.dr[0].location
-  resource_group_name         = azurerm_resource_group.dr[0].name
-  tenant_id                   = data.azurerm_client_config.current.tenant_id
-  sku_name                    = "standard"
-  soft_delete_retention_days  = 7
-  purge_protection_enabled    = true
-  enable_rbac_authorization   = true
+  count                      = local.dr_enabled ? 1 : 0
+  name                       = "akv-sky-dr-${var.environment}-${random_id.kv_dr_suffix[0].hex}"
+  location                   = azurerm_resource_group.dr[0].location
+  resource_group_name        = azurerm_resource_group.dr[0].name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = true
+  enable_rbac_authorization  = true
 
   network_acls {
     default_action = "Allow"
@@ -548,7 +548,7 @@ resource "azurerm_cdn_frontdoor_origin" "primary" {
   http_port                      = 80
   https_port                     = 443
   origin_host_header             = var.dr_primary_origin_hostname
-  priority                       = 1   # Tráfego vai aqui primeiro
+  priority                       = 1 # Tráfego vai aqui primeiro
   weight                         = 1000
   certificate_name_check_enabled = true
 }
@@ -564,7 +564,7 @@ resource "azurerm_cdn_frontdoor_origin" "secondary" {
   http_port                      = 80
   https_port                     = 443
   origin_host_header             = var.dr_secondary_origin_hostname
-  priority                       = 2   # Failover: só recebe tráfego se primary falhar
+  priority                       = 2 # Failover: só recebe tráfego se primary falhar
   weight                         = 1000
   certificate_name_check_enabled = true
 }
@@ -581,8 +581,8 @@ resource "azurerm_cdn_frontdoor_route" "main" {
     azurerm_cdn_frontdoor_origin.secondary[0].id,
   ]
 
-  patterns_to_match  = ["/*"]
-  supported_protocols = ["Https"]
+  patterns_to_match      = ["/*"]
+  supported_protocols    = ["Https"]
   https_redirect_enabled = true
   forwarding_protocol    = "HttpsOnly"
   link_to_default_domain = true

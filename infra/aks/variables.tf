@@ -117,8 +117,8 @@ variable "enable_geo_dr" {
     true:           provisiona todos os recursos de DR na região secundária.
                     Usar apenas em ambientes de clientes VIP.
   EOT
-  type    = bool
-  default = false
+  type        = bool
+  default     = false
 }
 
 variable "dr_location" {
