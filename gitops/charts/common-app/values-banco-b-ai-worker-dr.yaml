@@ -1,0 +1,5 @@
+# DR values — imagem fixada (image-updater não roda no cluster DR)
+image:
+  repository: "BANCO_B_ACR.azurecr.io/sky-poc-backend"
+  tag: "sha-latest"
+  pullPolicy: IfNotPresent

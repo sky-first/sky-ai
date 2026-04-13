@@ -2,8 +2,30 @@ resource "azurerm_container_registry" "acr" {
   name                = "skyacr${var.environment}${random_string.storage_suffix.result}" # Must be globally unique, strictly alphanumeric
   resource_group_name = azurerm_resource_group.aks.name
   location            = azurerm_resource_group.aks.location
-  sku                 = "Standard"
-  admin_enabled       = false
+  # Premium SKU is required for geo-replication (enable_geo_dr = true).
+  # Upgrading Standard → Premium is non-destructive; downgrading back requires
+  # removing geo-replicas first. Cost delta is ~$150/month per geo-replica.
+  sku           = var.enable_geo_dr ? "Premium" : "Standard"
+  admin_enabled = false
+
+  # Geo-replication: azurerm ~> 3.0 uses inline block (not a separate resource).
+  # Only provisioned when enable_geo_dr = true — zero cost otherwise.
+  dynamic "georeplications" {
+    for_each = var.enable_geo_dr ? [var.dr_location] : []
+    content {
+      location                = georeplications.value
+      zone_redundancy_enabled = false
+      tags = {
+        Environment = var.environment
+        Feature     = "geo-disaster-recovery"
+      }
+    }
+  }
+
+  lifecycle {
+    # Prevent accidental destruction — ACR holds all customer images.
+    prevent_destroy = true
+  }
 
   tags = {
     Environment = var.environment

@@ -1,0 +1,5 @@
+# Managed by argocd-image-updater — não editar tag manualmente
+image:
+  repository: "BANCO_B_ACR.azurecr.io/sky-poc-backend"
+  tag: "sha-latest"
+  pullPolicy: IfNotPresent

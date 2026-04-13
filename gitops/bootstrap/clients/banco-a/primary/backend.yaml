@@ -1,0 +1,188 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-be-banco-a
+  namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: sky-poc-backend=BANCO_A_ACR.azurecr.io/sky-poc-backend:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-banco-a-be.yaml
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: staging
+    helm:
+      valueFiles:
+        - values-banco-a-be.yaml
+      values: |
+        nameOverride: "sky-be-banco-a"
+        replicaCount: 2
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - NET_BIND_SERVICE
+        imagePullSecrets:
+          - name: regcred
+        service:
+          port: 80
+          targetPort: 8000
+        ingress:
+          enabled: true
+          className: "nginx"
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRuleRemoveById 911100
+              SecRule REQUEST_URI "@beginsWith /api/auth/sso/" "id:1011,phase:1,pass,nolog,ctl:ruleEngine=Off"
+              SecRule REQUEST_URI "@beginsWith /api/v1/auth/sso/" "id:1012,phase:1,pass,nolog,ctl:ruleEngine=Off"
+          hosts:
+            - host: api.bancoa.com.br
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: sky-be-banco-a-tls
+              hosts:
+                - api.bancoa.com.br
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+        probes:
+          liveness:
+            path: /
+            initialDelaySeconds: 45
+          readiness:
+            path: /
+            initialDelaySeconds: 10
+        externalSecret:
+          enabled: true
+          secretStoreRef:
+            name: azure-keyvault
+            kind: ClusterSecretStore
+          target:
+            creationPolicy: Owner
+            name: sky-be-banco-a-secrets
+            template:
+              engineVersion: v2
+              data:
+                jwt_secret_key: "{{ .jwt_secret_key }}"
+                encryption_key: "{{ .encryption_key }}"
+                openai_api_key: "{{ .openai_api_key }}"
+                redis_url: "{{ .redis_url }}"
+                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                google_client_id: "{{ .google_client_id }}"
+                google_client_secret: "{{ .google_client_secret }}"
+                google_redirect_uri: "{{ .google_redirect_uri }}"
+          data:
+            - secretKey: jwt_secret_key
+              remoteRef:
+                key: jwt-secret-key
+            - secretKey: encryption_key
+              remoteRef:
+                key: encryption-key
+            - secretKey: openai_api_key
+              remoteRef:
+                key: openai-api-key
+            - secretKey: database_url
+              remoteRef:
+                key: database-url
+            - secretKey: redis_url
+              remoteRef:
+                key: redis-url
+            - secretKey: google_client_id
+              remoteRef:
+                key: google-client-id
+            - secretKey: google_client_secret
+              remoteRef:
+                key: google-client-secret
+            - secretKey: google_redirect_uri
+              remoteRef:
+                key: google-redirect-uri
+        envSecrets:
+          JWT_SECRET_KEY:
+            name: sky-be-banco-a-secrets
+            key: jwt_secret_key
+          ENCRYPTION_KEY:
+            name: sky-be-banco-a-secrets
+            key: encryption_key
+          OPENAI_API_KEY:
+            name: sky-be-banco-a-secrets
+            key: openai_api_key
+          DATABASE_URL:
+            name: sky-be-banco-a-secrets
+            key: database_url
+          REDIS_URL:
+            name: sky-be-banco-a-secrets
+            key: redis_url
+          CELERY_BROKER_URL:
+            name: sky-be-banco-a-secrets
+            key: celery_broker_url
+          CELERY_RESULT_BACKEND:
+            name: sky-be-banco-a-secrets
+            key: celery_result_backend
+          GOOGLE_CLIENT_ID:
+            name: sky-be-banco-a-secrets
+            key: google_client_id
+          GOOGLE_CLIENT_SECRET:
+            name: sky-be-banco-a-secrets
+            key: google_client_secret
+          GOOGLE_REDIRECT_URI:
+            name: sky-be-banco-a-secrets
+            key: google_redirect_uri
+        extraEnv:
+          - name: CORS_ORIGINS
+            value: "https://workspace.bancoa.com.br"
+          - name: REDIS_PORT
+            value: "6379"
+        migration:
+          enabled: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          command: ["/bin/sh", "-c"]
+          args: ["alembic upgrade head"]
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: banco-a
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /metadata/annotations/force-sync
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
