@@ -715,43 +715,46 @@ output "dr_enabled" {
   value       = local.dr_enabled
 }
 
+# try() é necessário porque ternary avalia ambos os lados mesmo quando count=0.
+# Sem try(), `terraform plan` falha ao acessar [0] em lista vazia.
+
 output "dr_postgres_primary_fqdn" {
   description = "FQDN do PostgreSQL primary (porta 6432 para PgBouncer, 5432 direto)"
-  value       = local.dr_enabled ? azurerm_postgresql_flexible_server.primary[0].fqdn : "DR not enabled"
+  value       = try(azurerm_postgresql_flexible_server.primary[0].fqdn, "DR not enabled")
 }
 
 output "dr_postgres_replica_fqdn" {
   description = "FQDN da réplica PostgreSQL (read-only até failover)"
-  value       = local.dr_enabled ? azurerm_postgresql_flexible_server.replica[0].fqdn : "DR not enabled"
+  value       = try(azurerm_postgresql_flexible_server.replica[0].fqdn, "DR not enabled")
 }
 
 output "dr_redis_primary_hostname" {
   description = "Hostname do Redis Premium primary"
-  value       = local.dr_enabled ? azurerm_redis_cache.primary[0].hostname : "DR not enabled"
+  value       = try(azurerm_redis_cache.primary[0].hostname, "DR not enabled")
 }
 
 output "dr_redis_secondary_hostname" {
   description = "Hostname do Redis Premium secondary (read-only até failover)"
-  value       = local.dr_enabled ? azurerm_redis_cache.secondary[0].hostname : "DR not enabled"
+  value       = try(azurerm_redis_cache.secondary[0].hostname, "DR not enabled")
 }
 
 output "dr_secondary_cluster_name" {
   description = "Nome do cluster AKS secundário (Pilot Light)"
-  value       = local.dr_enabled ? azurerm_kubernetes_cluster.secondary[0].name : "DR not enabled"
+  value       = try(azurerm_kubernetes_cluster.secondary[0].name, "DR not enabled")
 }
 
 output "dr_secondary_kv_name" {
   description = "Nome do Key Vault secundário"
-  value       = local.dr_enabled ? azurerm_key_vault.dr[0].name : "DR not enabled"
+  value       = try(azurerm_key_vault.dr[0].name, "DR not enabled")
 }
 
 output "dr_frontdoor_endpoint" {
   description = "Endpoint global do Azure Front Door"
-  value       = local.dr_enabled ? azurerm_cdn_frontdoor_endpoint.main[0].host_name : "DR not enabled"
+  value       = try(azurerm_cdn_frontdoor_endpoint.main[0].host_name, "DR not enabled")
 }
 
 output "dr_postgres_admin_password" {
   description = "Senha do administrador PostgreSQL gerenciado"
-  value       = local.dr_enabled ? random_password.postgres_managed[0].result : "DR not enabled"
+  value       = try(random_password.postgres_managed[0].result, "DR not enabled")
   sensitive   = true
 }
