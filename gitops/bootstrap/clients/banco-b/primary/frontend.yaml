@@ -1,0 +1,91 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-fe-banco-b
+  namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: sky-poc-frontend=BANCO_B_ACR.azurecr.io/sky-poc-frontend:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-frontend.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-banco-b-fe.yaml
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: staging
+    helm:
+      valueFiles:
+        - values-banco-b-fe.yaml
+      values: |
+        nameOverride: "sky-fe-banco-b"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        imagePullSecrets:
+          - name: regcred
+        service:
+          port: 80
+          targetPort: 3000
+        ingress:
+          enabled: true
+          className: "nginx"
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/modsecurity-snippet: |
+              SecRule REQUEST_URI "@beginsWith /login/sso/callback" "id:1010,phase:1,pass,nolog,ctl:ruleEngine=Off"
+          hosts:
+            - host: workspace.bancob.com.br
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: sky-fe-banco-b-tls
+              hosts:
+                - workspace.bancob.com.br
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        probes:
+          liveness:
+            path: /
+            initialDelaySeconds: 30
+          readiness:
+            path: /
+            initialDelaySeconds: 10
+        extraEnv:
+          - name: NEXT_PUBLIC_API_URL
+            value: "/api"
+          - name: NEXTAUTH_URL
+            value: "https://workspace.bancob.com.br"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: banco-b
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

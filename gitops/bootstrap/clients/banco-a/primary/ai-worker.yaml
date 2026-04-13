@@ -1,0 +1,127 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sky-ai-worker-banco-a
+  namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: sky-poc-backend=BANCO_A_ACR.azurecr.io/sky-poc-backend:^sha-.*
+    argocd-image-updater.argoproj.io/sky-poc-backend.update-strategy: latest
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
+    argocd-image-updater.argoproj.io/write-back-target: branch:staging://gitops/charts/common-app/values-banco-a-ai-worker.yaml
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/sky-first/sky-poc-infra.git"
+    path: gitops/charts/common-app
+    targetRevision: staging
+    helm:
+      valueFiles:
+        - values-banco-a-ai-worker.yaml
+      values: |
+        nameOverride: "sky-ai-worker-banco-a"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 3000
+          fsGroup: 2000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        imagePullSecrets:
+          - name: regcred
+        service:
+          enabled: false
+        ingress:
+          enabled: false
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 2000m
+            memory: 2048Mi
+        probes:
+          liveness:
+            enabled: false
+          readiness:
+            enabled: false
+        command: ["celery"]
+        args: ["-A", "src.workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
+        externalSecret:
+          enabled: true
+          secretStoreRef:
+            name: azure-keyvault
+            kind: ClusterSecretStore
+          target:
+            name: sky-ai-worker-banco-a-secrets
+            template:
+              engineVersion: v2
+              data:
+                openai_api_key: "{{ .openai_api_key }}"
+                qdrant_url: "{{ .qdrant_url }}"
+                redis_url: "{{ .redis_url }}"
+                celery_broker_url: "{{ .redis_url | replace \"/0\" \"/1\" }}"
+                celery_result_backend: "{{ .redis_url | replace \"/0\" \"/2\" }}"
+                database_url: "{{ .database_url | replace \"postgresql://\" \"postgresql+asyncpg://\" }}"
+                jwt_secret_key: "{{ .jwt_secret_key }}"
+          data:
+            - secretKey: openai_api_key
+              remoteRef:
+                key: openai-api-key
+            - secretKey: qdrant_url
+              remoteRef:
+                key: qdrant-url
+            - secretKey: database_url
+              remoteRef:
+                key: database-url
+            - secretKey: redis_url
+              remoteRef:
+                key: redis-url
+            - secretKey: jwt_secret_key
+              remoteRef:
+                key: jwt-secret-key
+        envSecrets:
+          OPENAI_API_KEY:
+            name: sky-ai-worker-banco-a-secrets
+            key: openai_api_key
+          DATABASE_URL:
+            name: sky-ai-worker-banco-a-secrets
+            key: database_url
+          REDIS_URL:
+            name: sky-ai-worker-banco-a-secrets
+            key: redis_url
+          CELERY_BROKER_URL:
+            name: sky-ai-worker-banco-a-secrets
+            key: celery_broker_url
+          CELERY_RESULT_BACKEND:
+            name: sky-ai-worker-banco-a-secrets
+            key: celery_result_backend
+          JWT_SECRET_KEY:
+            name: sky-ai-worker-banco-a-secrets
+            key: jwt_secret_key
+        extraEnv:
+          - name: REDIS_PORT
+            value: "6379"
+          - name: DEBUG
+            value: "false"
+          - name: OLLAMA_BASE_URL
+            value: "http://ollama.ollama.svc.cluster.local:11434"
+          - name: AI_SERVICE_URL
+            value: "http://sky-ai-banco-a-common-app"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: banco-a
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
