@@ -265,19 +265,10 @@ resource "azurerm_redis_linked_server" "geo_replication" {
 # antes do desastre acontecer. Sem isso, o secondary cluster não consegue
 # fazer pull das imagens durante o failover.
 #
-# O SKU Premium é ativado condicionalmente em registry.tf via:
-#   sku = var.enable_geo_dr ? "Premium" : "Standard"
-# Não há recurso duplicado aqui — apenas a geo-replication rule.
+# Implementação: azurerm ~> 3.0 usa bloco inline `georeplications` dentro do
+# próprio azurerm_container_registry (registry.tf) via dynamic block condicional.
+# Não existe recurso separado nesta versão do provider.
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Geo-replicação: imagens replicadas para centralus automaticamente
-resource "azurerm_container_registry_geo_replication" "dr" {
-  count                 = local.dr_enabled ? 1 : 0
-  container_registry_id = azurerm_container_registry.acr.id
-  location              = var.dr_location
-
-  tags = local.dr_tags
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LAYER 6: Compute — AKS Secundário (Pilot Light)

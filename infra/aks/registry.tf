@@ -8,6 +8,20 @@ resource "azurerm_container_registry" "acr" {
   sku           = var.enable_geo_dr ? "Premium" : "Standard"
   admin_enabled = false
 
+  # Geo-replication: azurerm ~> 3.0 uses inline block (not a separate resource).
+  # Only provisioned when enable_geo_dr = true — zero cost otherwise.
+  dynamic "georeplications" {
+    for_each = var.enable_geo_dr ? [var.dr_location] : []
+    content {
+      location                = georeplications.value
+      zone_redundancy_enabled = false
+      tags = {
+        Environment = var.environment
+        Feature     = "geo-disaster-recovery"
+      }
+    }
+  }
+
   lifecycle {
     # Prevent accidental destruction — ACR holds all customer images.
     prevent_destroy = true
