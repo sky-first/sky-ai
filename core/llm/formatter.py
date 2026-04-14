@@ -14,6 +14,62 @@ from core.llm.prompts.formatter_prompts import build_formatter_prompt
 from core.llm.context.builder import build_context_bundle
 
 
+def _mask_result_columns(
+    rows: List[Dict[str, Any]],
+    security_config: Any,
+    table_name: str = "",
+) -> List[Dict[str, Any]]:
+    """Mask blocked/disallowed columns in query results (defense in depth).
+
+    Even if the SQL generation stage allowed a blocked column through,
+    this post-processing step ensures it is masked before reaching the user.
+    """
+    if not rows or not security_config:
+        return rows
+
+    # Extract blocked and allowed columns from security_config
+    global_blocked = set()
+    table_blocked = set()
+    table_allowed = None
+
+    if hasattr(security_config, "global_blocked_columns"):
+        global_blocked = {c.lower() for c in (security_config.global_blocked_columns or [])}
+    elif isinstance(security_config, dict):
+        global_blocked = {c.lower() for c in (security_config.get("global_blocked_columns") or [])}
+
+    tables_cfg = getattr(security_config, "tables", None) or (
+        security_config.get("tables") if isinstance(security_config, dict) else {}
+    )
+    if table_name and tables_cfg:
+        tc = tables_cfg.get(table_name, {})
+        if hasattr(tc, "blocked_columns"):
+            table_blocked = {c.lower() for c in (tc.blocked_columns or [])}
+            if tc.allowed_columns:
+                table_allowed = {c.lower() for c in tc.allowed_columns}
+        elif isinstance(tc, dict):
+            table_blocked = {c.lower() for c in (tc.get("blocked_columns") or [])}
+            if tc.get("allowed_columns"):
+                table_allowed = {c.lower() for c in tc["allowed_columns"]}
+
+    all_blocked = global_blocked | table_blocked
+    if not all_blocked and table_allowed is None:
+        return rows
+
+    masked = []
+    for row in rows:
+        new_row = {}
+        for col, val in row.items():
+            col_lower = col.lower()
+            if col_lower in all_blocked:
+                new_row[col] = None
+            elif table_allowed is not None and col_lower not in table_allowed:
+                new_row[col] = None
+            else:
+                new_row[col] = val
+        masked.append(new_row)
+    return masked
+
+
 def _extract_topic(question: str) -> str:
     """
     Tenta extrair o tópico principal da pergunta para mensagens de 'dados não encontrados'.
@@ -185,6 +241,17 @@ def run_formatter(
     except ImportError:
         total_rows = len(data) if data else 0
         data_sample_list = data[:15] if data else []
+
+    # === Column-level masking (defense in depth) ===
+    # Even if the LLM bypassed schema filtering, mask blocked columns
+    # in the result data before returning to the user.
+    security_config = state.get("security_config")
+    if security_config and data_sample_list:
+        chosen_table = state.get("chosen_table", "")
+        data_sample_list = _mask_result_columns(data_sample_list, security_config, chosen_table)
+        # Also mask the full data in state
+        if data:
+            state["data"] = _mask_result_columns(data, security_config, chosen_table)
 
     # Garante idioma base
     lang = _ensure_language(question, detected_language)
