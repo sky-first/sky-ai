@@ -19,11 +19,40 @@ except ImportError:
     JsonPlusSerializer = None
 
 if HAS_POSTGRES_CHECKPOINTER:
+    import decimal
+    import datetime
+    import json as _json
+
+    def _sanitize_for_json(obj):
+        """
+        Recursively converts non-JSON-serializable types (Decimal, date, datetime,
+        bytes, sets) to JSON-safe equivalents so LangGraph checkpoints never fail.
+        """
+        if isinstance(obj, dict):
+            return {k: _sanitize_for_json(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_sanitize_for_json(i) for i in obj]
+        if isinstance(obj, decimal.Decimal):
+            # Convert to float; use str for lossless if you prefer: str(obj)
+            return float(obj)
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8", errors="replace")
+        if isinstance(obj, set):
+            return list(obj)
+        return obj
+
     class ForceJsonSerializer(JsonPlusSerializer):
         def dumps_typed(self, obj) -> tuple[str, bytes]:
-            # Always behave as "json" type so PostgresSaver validations pass
-            return "json", self.dumps(obj)
-            
+            # Sanitize before serialising so Decimal / date values never crash
+            sanitized = _sanitize_for_json(obj)
+            return "json", self.dumps(sanitized)
+
+        def dumps(self, obj) -> bytes:
+            sanitized = _sanitize_for_json(obj)
+            return super().dumps(sanitized)
+
     class CustomPostgresSaver(PostgresSaver):
         # Override the class attribute used for metadata serialization
         jsonplus_serde = ForceJsonSerializer()

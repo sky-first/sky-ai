@@ -146,7 +146,7 @@ def get_default_security_config() -> SecurityConfig:
         ],
         max_rows_limit=5000,
         allow_joins=True,
-        allow_subqueries=False,
+        allow_subqueries=True,
     )
 
 

@@ -194,65 +194,86 @@ class AdvancedSQLValidator:
     def _extract_tables(self, statement: Statement) -> Set[str]:
         """
         Extrai referências a tabelas a partir de FROM/JOIN.
-        Retorna o identificador "cru" (pode ser project.dataset.table ou dataset.table ou table).
+        Usa rastreamento de profundidade de parênteses para ignorar FROM dentro de
+        funções como EXTRACT(YEAR FROM created_at), TRIM(... FROM ...), etc.
         """
         sql = str(statement)
         tables: Set[str] = set()
 
-        # Captura o identificador logo após FROM/JOIN, incluindo:
-        # - `project.dataset.table`
-        # - project.dataset.table
-        # - dataset.table
-        # - table
-        # Aceita '-' no project e '_' em nomes.
-        #
-        # Observação: ignoramos casos de FROM (subquery) porque começam com '('.
+        # Padrão para FROM/JOIN seguido de um identificador de tabela
         pattern = re.compile(
             r"""
             \b(?:FROM|JOIN)\s+
             (?P<ident>
-                `[^`]+`                           # `...`
+                `[^`]+`                                      # `backtick-quoted`
                 |
-                [A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_]+){0,2}  # a.b.c (até 3 partes)
+                "[^"]+"(?:\."[^"]+")*                        # "double-quoted" or "schema"."table"
+                |
+                [A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+){0,2}  # a.b.c (up to 3 parts)
             )
-            (?P<is_func>\s*\()?                   # Capture optional parenthesis to identify functions
+            (?P<is_func>\s*\()?                              # Capture optional parenthesis
             """,
             re.IGNORECASE | re.VERBOSE,
         )
 
-        for m in pattern.finditer(sql):
-            # If it's followed by '(', it's likely a function call (e.g., EXTRACT(... FROM DATE_SUB(...)))
-            if m.group("is_func"):
-                continue
+        # Pré-calcular profundidade de parênteses para cada posição no SQL
+        # FROM dentro de parênteses (profundidade > 0) é parte de função, não cláusula FROM
+        depth_at: dict[int, int] = {}
+        depth = 0
+        for i, ch in enumerate(sql):
+            depth_at[i] = depth
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth = max(0, depth - 1)
 
-            # Manual check: if followed by '(', it is a function
-            end_pos = m.end()
-            while end_pos < len(sql) and sql[end_pos].isspace():
-                end_pos += 1
-            if end_pos < len(sql) and sql[end_pos] == '(':
-                continue
+        SKIP_FUNCTIONS = {
+            'DATE_SUB', 'DATE_ADD', 'CURRENT_DATE', 'NOW',
+            'EXTRACT', 'SUBSTRING', 'TRIM', 'POSITION', 'OVERLAY',
+            'UNNEST', 'GENERATE_SERIES', 'VALUES',
+            'DATE_TRUNC', 'LAST_DAY', 'DATE_DIFF', 'CURRENT_DATETIME', 'CURRENT_TIMESTAMP',
+            'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'INTERVAL',
+        }
 
-            ident = m.group("ident").strip()
-            if ident.startswith("("):
-                continue
-            ident = ident.strip("`").strip()
-            if not ident:
-                continue
-            # cortar alias se por acaso veio grudado (defensivo)
-            ident = ident.split()[0]
-            
-            # IGNORAR FUNÇÕES COMUNS QUE USAM "FROM" NA SINTAXE (EXTRACT, SUBSTRING, TRIM)
-            # OU QUE FORAM CAPTURADAS POR ACASO
-            if ident.upper() in {
-                'DATE_SUB', 'DATE_ADD', 'CURRENT_DATE', 'NOW', 
-                'EXTRACT', 'SUBSTRING', 'TRIM', 'POSITION', 'OVERLAY',
-                'UNNEST', 'GENERATE_SERIES', 'VALUES',
-                'DATE_TRUNC', 'LAST_DAY', 'DATE_DIFF', 'CURRENT_DATETIME', 'CURRENT_TIMESTAMP',
-                'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'INTERVAL'
-            }:
-                continue
-                
-            tables.add(ident)
+        def _collect_tables(only_depth_zero: bool) -> Set[str]:
+            found: Set[str] = set()
+            for m in pattern.finditer(sql):
+                match_start = m.start()
+                current_depth = depth_at.get(match_start, 0)
+
+                if only_depth_zero and current_depth > 0:
+                    continue
+
+                # Se o identificador é seguido de '(', é chamada de função ou subquery
+                if m.group("is_func"):
+                    continue
+                end_pos = m.end()
+                while end_pos < len(sql) and sql[end_pos].isspace():
+                    end_pos += 1
+                if end_pos < len(sql) and sql[end_pos] == '(':
+                    continue
+
+                ident = m.group("ident").strip()
+                if ident.startswith("("):
+                    continue
+                ident = ident.strip("`").strip('"').strip()
+                if not ident:
+                    continue
+                ident = ident.split()[0]
+
+                if ident.upper() in SKIP_FUNCTIONS:
+                    continue
+
+                found.add(ident)
+            return found
+
+        # First pass: top-level only (depth=0)
+        tables = _collect_tables(only_depth_zero=True)
+
+        # If nothing found at top level (e.g. derived table / subquery as FROM source),
+        # fall back to scanning all depths so we can still validate the real table names.
+        if not tables:
+            tables = _collect_tables(only_depth_zero=False)
 
         return tables
 

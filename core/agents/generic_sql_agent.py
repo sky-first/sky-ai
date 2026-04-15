@@ -711,6 +711,10 @@ def build_generic_sql_graph(
         return routing.get(intent, "orchestrator")
 
     def route_orchestrator(state: AgentState):
+        # Orchestrator already set a final answer (CLARIFY, OUT_OF_SCOPE, catalog, error)
+        # Skip specialist entirely and go straight to END
+        if state.get("answer") and not state.get("chosen_tables"):
+            return END
         if state.get("is_multi_source", False):
             return "parallel_specialist"
         return "specialist"
@@ -751,7 +755,8 @@ def build_generic_sql_graph(
         route_orchestrator,
         {
             "specialist": "specialist",
-            "parallel_specialist": "parallel_specialist"
+            "parallel_specialist": "parallel_specialist",
+            END: END,
         }
     )
 

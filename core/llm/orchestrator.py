@@ -893,10 +893,16 @@ def run_orchestrator(
                 "2. It is STRICTLY FORBIDDEN to assume column names or table existence without consulting the metadata tool first, even if you think you know the name (e.g., do not assume 'sales', verify if it's 'fct_sales').\n"
                 "3. Use the 'search_corporate_strategy' tool ONLY if the user asks about business goals, targets, OKRs, or long-term strategy.\n"
                 "4. Use the 'search_market_signals' tool ONLY if the user asks about anomalies, market events, news, or sudden drops/spikes.\n"
-                "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n\n"
+                "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n"
+                "6. QUESTION SCOPE — before selecting tables, classify the question:\n"
+                "   a) If the question has NOTHING to do with business data (weather, jokes, math, IT support, etc.) → respond ONLY with: OUT_OF_SCOPE\n"
+                "   b) If the question IS business-related but after checking the metadata no available table can answer it, AND you need a specific parameter from the user to proceed → respond ONLY with: CLARIFY: <one specific, concise question to ask the user>\n"
+                "   c) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n\n"
                 "FINAL OUTPUT FORMAT:\n"
-                "After thinking and using the tools, finish your response with ONLY the logical table name(s) you chose, separated by commas. (e.g., 'table1, table2')\n"
-                "Just give the table names at the very end of your thought process.\n\n"
+                "After thinking and using the tools, finish your response with ONLY ONE of:\n"
+                "  - The logical table name(s) separated by commas (e.g. 'table1, table2')\n"
+                "  - OUT_OF_SCOPE\n"
+                "  - CLARIFY: <your question>\n\n"
                 f"{preferred_tables_hint}\n"
                 f"Conversation Handling: Infer missing contexts from PREVIOUS CONVERSATION.\n"
                 f"{relationships_info}"
@@ -916,13 +922,33 @@ def run_orchestrator(
             
             # Salvar o rationale (Chain of Thought) no state para streaming futuro
             state["plan"] = final_msg_content
-            
+
+            # ── Scope & Clarify detection ──────────────────────────────────
+            if re.search(r'\bOUT_OF_SCOPE\b', final_msg_content, re.IGNORECASE):
+                state["answer"] = (
+                    "I'm designed to answer questions about your business data. "
+                    "That question doesn't seem related to your data. "
+                    "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
+                )
+                log_event("orchestrator_out_of_scope", {"question": question[:100]})
+                return state
+
+            clarify_match = re.search(
+                r'CLARIFY:\s*(.+?)(?:\n\n|\Z)', final_msg_content, re.IGNORECASE | re.DOTALL
+            )
+            if clarify_match:
+                clarification = clarify_match.group(1).strip()
+                state["answer"] = clarification
+                log_event("orchestrator_clarify", {"question": question[:100], "clarification": clarification[:200]})
+                return state
+            # ──────────────────────────────────────────────────────────────
+
             # Criar um mock para manter compatibilidade com o parser legado _extract_table_choice
             class RawResponseMimic:
                 def __init__(self, content):
                     self.content = content
             raw = RawResponseMimic(content=final_msg_content)
-            
+
             log_event("orchestrator_agentic_rag_success", {"agent_id": agent_config.id})
 
             

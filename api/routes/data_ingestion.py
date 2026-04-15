@@ -128,7 +128,7 @@ async def generate_embeddings(
             }
         else:
             # Executar síncrono
-            created = run_metadata_embeddings(
+            created = await run_metadata_embeddings(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
