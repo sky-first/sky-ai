@@ -1437,7 +1437,31 @@ async def chat_bootstrap(
         mode_context = f"The user is in COLLABORATIVE mode and has access only to data from the specific space/crew (space_id: {body.space_id})."
         if resolved_crew_ids:
             mode_context += f" They have access to {len(resolved_crew_ids)} crew(s)."
-    
+
+    # ── Phase 2.10: Strategic context from the brain ────────────────────
+    # Sherlock now retrieves the space's pillars / goals / OKRs / KPIs
+    # alongside the discoverable data so its suggestions align with
+    # what leadership actually tracks. Empty brain → legacy behaviour.
+    try:
+        from core.rag.brain_access import (
+            fetch_brain_context_for_surface,
+            sherlock_context_section,
+        )
+
+        _brain_access = await fetch_brain_context_for_surface(
+            surface="chat_bootstrap",
+            question="strategic priorities pillars goals okrs key metrics",
+            db=db,
+            embedding_provider=create_embedding_provider(),
+            space_id=body.space_id,
+            crew_ids=resolved_crew_ids,
+            user_id=getattr(body, "user_id", None),
+        )
+        _brain_section = sherlock_context_section(_brain_access)
+    except Exception:
+        log_event("sherlock_brain_fetch_failed", {"connection_id": connection_id})
+        _brain_section = ""
+
     system = (
         "You generate a greeting and suggestion cards for a data analytics chat.\n"
         "Rules:\n"
@@ -1539,6 +1563,12 @@ async def chat_bootstrap(
         "Think like a C-level executive asking their data team: 'What should I know about my business performance?'\n"
         "Generate questions that a business leader would actually ask to make strategic decisions."
     )
+
+    # Append the brain section to the user prompt (if any). Keeping it
+    # at the end means the LLM sees the data shape first, then the
+    # strategic priorities it should tilt suggestions toward.
+    if _brain_section:
+        user = f"{user}\n\n{_brain_section}\n"
 
     try:
         llm = create_llm_orchestrator(creativity=15, length=20)
@@ -1992,7 +2022,34 @@ async def dashboards_plan(
                 "entity": analysis_context.primary_entity
             })
 
-        
+        # ── Phase 2.10: Brain context for Davinci ────────────────────
+        # Pull pillars / goals / OKRs / KPIs / connections / widgets
+        # relevant to the user's goal + original_question so the plan
+        # aligns with company strategy — not just the raw schema.
+        try:
+            from core.rag.brain_access import (
+                davinci_context_section,
+                fetch_brain_context_for_surface,
+            )
+
+            _davinci_query = " ".join(
+                q for q in [original_question, body.goal] if q
+            ).strip() or body.goal
+            _brain_access = await fetch_brain_context_for_surface(
+                surface="dashboard_plan",
+                question=_davinci_query,
+                db=db,
+                embedding_provider=create_embedding_provider(),
+                space_id=getattr(body, "space_id", None),
+                crew_ids=context_crews or [],
+                user_id=getattr(body, "user_id", None),
+                connection_id=connection_id,
+            )
+            _brain_section = davinci_context_section(_brain_access)
+        except Exception:
+            log_event("davinci_brain_fetch_failed", {"connection_id": connection_id})
+            _brain_section = ""
+
         # 🏃 ASYNC FIX: Offload synchronous agent to thread to prevent loop blocking
         plan = await asyncio.to_thread(
             generate_dashboard_plan,
@@ -2010,6 +2067,7 @@ async def dashboards_plan(
             table_metadata=tables, # ✅ Pass full metadata for Schema Intelligence
             analysis_context=analysis_context, # 🔗 Pass the context bridge
             mode=getattr(body, "mode", "mix"),
+            brain_context=_brain_section,  # Phase 2.10
         )
         widgets = [DashboardPlanWidget(**w) for w in plan.widgets]
         response = DashboardPlanResponse(
