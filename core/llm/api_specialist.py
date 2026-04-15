@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from core.llm._brain_prompt import prepend_brain_context
 from core.logging_utils import log_event
 
 logger = logging.getLogger("dataassistant")
@@ -118,7 +119,7 @@ def run_api_specialist(
     try:
         response = llm.invoke([
             {"role": "system", "content": spec_prompt},
-            {"role": "user", "content": question},
+            {"role": "user", "content": prepend_brain_context(question, state)},
         ])
         spec_text = response.content if hasattr(response, "content") else str(response)
 
@@ -190,7 +191,7 @@ def run_api_specialist(
         )
         response = llm.invoke([
             {"role": "system", "content": answer_prompt},
-            {"role": "user", "content": question},
+            {"role": "user", "content": prepend_brain_context(question, state)},
         ])
         answer = response.content if hasattr(response, "content") else str(response)
     except Exception as e:

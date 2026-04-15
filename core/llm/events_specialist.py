@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from core.llm._brain_prompt import prepend_brain_context
 from core.logging_utils import log_event
 
 logger = logging.getLogger("dataassistant")
@@ -131,7 +132,7 @@ def run_events_specialist(
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
+        {"role": "user", "content": prepend_brain_context(question, state)},
     ]
 
     # Call LLM

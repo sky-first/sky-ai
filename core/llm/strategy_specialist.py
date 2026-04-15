@@ -163,9 +163,15 @@ def run_strategy_specialist(
         health_json=health_text,
     )
 
+    # Phase 4.1: inject Context-Layer evidence retrieved by the graph's
+    # brain_retrieval_node. No-op when the brain is empty.
+    from core.llm._brain_prompt import prepend_brain_context
+
+    user_content = prepend_brain_context(question, state)
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
+        {"role": "user", "content": user_content},
     ]
 
     # Call LLM
