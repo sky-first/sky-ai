@@ -4,5 +4,5 @@ helm:
     value: skyacrstagingj3minh.azurecr.io/sky-poc-backend
     forcestring: true
   - name: image.tag
-    value: sha-e63e831ed5441602499794cad7412aa9474e1c43
+    value: sha-aa2e6e86c639dfb2377a51050f9dd5bbcc38a7dd
     forcestring: true
