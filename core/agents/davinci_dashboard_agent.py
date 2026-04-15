@@ -1279,8 +1279,16 @@ def generate_structured_insight(
     # Merge instruction into system prompt
     full_system = system_prompt + instruction
 
+    # Phase 2.10: Append Context Layer evidence (pillars, goals, OKRs,
+    # existing widgets, events, relationships …) so Davinci's plan is
+    # aligned with company strategy, not just the raw table schema.
+    # When brain_context is empty we keep the original user prompt
+    # verbatim — guarantees pre-2.10 behaviour as a safe fallback.
+    if brain_context:
+        user_prompt = f"{user_prompt}\n\n{brain_context}\n"
+
     try:
-        # TODO: Pass temperature/max_tokens if the LLM wrapper covers it. 
+        # TODO: Pass temperature/max_tokens if the LLM wrapper covers it.
         # Assuming `llm.invoke` or the factory handles params, or we validly pass them in constructor.
         # For now, we rely on the implementation plan's architecture.
         # If LLM object is already configured, we might not be able to override here easily without a `bind` or similar.
@@ -1342,6 +1350,7 @@ def generate_dashboard_plan(
     table_metadata: Optional[List[Dict[str, Any]]] = None,
     analysis_context: Optional[AnalysisContext] = None,
     mode: Optional[str] = "mix",
+    brain_context: Optional[str] = None,  # Phase 2.10: Context Layer evidence
 ) -> DavinciDashboardPlan:
     """
     Davinci "graph": generate a dashboard plan as STRICT JSON.
