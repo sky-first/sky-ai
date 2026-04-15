@@ -782,6 +782,27 @@ def run_orchestrator(
             f"{joined}\n"
         )
 
+    # Phase 4.3: weave the Context-Layer brain evidence into the same
+    # context_block the LLM already parses. Retrieval ranking was
+    # already brain-aware (Phase 2.6b); this step makes the *table-
+    # selection* LLM actually see pillars / goals / OKRs / relationship
+    # docs so it can prefer tables that serve the business question,
+    # not just the schema that matches string-wise.
+    brain_blocks = state.get("brain_context") or []
+    if brain_blocks:
+        # Cap at 8 blocks — orchestrator's prompt is already dense with
+        # tables + roles + history. More signal past 8 mostly hurts.
+        brain_joined = "\n\n".join(
+            [b for b in brain_blocks[:8] if isinstance(b, str) and b.strip()]
+        )
+        if brain_joined:
+            context_block += (
+                "\n\nBUSINESS CONTEXT (strategy / goals / relationships / events):\n"
+                f"{brain_joined}\n"
+                "Use this when picking tables: prefer tables that support "
+                "the pillars / goals / OKRs above.\n"
+            )
+
     # Detectar relacionamentos entre tabelas
     # NEW: Pass explicit relationships from state (loaded from backend)
     explicit_rels = state.get("explicit_relationships") or []
