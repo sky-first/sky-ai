@@ -89,6 +89,15 @@ class AgentState(TypedDict, total=False):
     strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
     signals_data: Optional[List[Dict[str, Any]]]  # Raw signals from backend
 
+    # Context Layer (Phase 2.6b): pre-fetched evidence blend from the
+    # brain. Populated by brain_retrieval_node after intent classification
+    # and consumed downstream by every specialist that wants grounded
+    # answers (without having to run its own retrieval).
+    brain_context: List[str]            # formatted evidence blocks, ready to inject into prompts
+    brain_doc_ids: List[str]            # context_documents.id of each retrieved doc — audit trail
+    brain_doc_kinds: List[str]          # kinds retrieved (parallel to brain_doc_ids)
+    context_intent: Optional[str]       # copy of `intent` at the moment retrieval ran (for agent_executions)
+
 
 # ==================== CONFIG DO AGENTE ====================
 
@@ -375,6 +384,105 @@ def build_generic_sql_graph(
         state["intent"] = intent.value
         return state
 
+    # ── Context Layer: Brain Retrieval Node (Phase 2.6b) ───
+    def brain_retrieval_node(state: AgentState) -> AgentState:
+        """Pull a top-k blend from the Context Layer for this question.
+
+        Runs AFTER intent_classifier so it can use the intent to weight
+        per-kind ranking. Runs BEFORE any specialist so every downstream
+        node sees the same evidence. All failures are non-fatal — the
+        specialist just runs without brain context, preserving the
+        pre-2.6b behaviour.
+
+        Populates:
+          - state['brain_context']  (list of text blocks, ready to inject)
+          - state['brain_doc_ids']  (audit trail)
+          - state['brain_doc_kinds']
+          - state['context_intent'] (what classified intent was)
+        """
+        import asyncio
+
+        from core.rag.brain_searcher import make_brain_searcher
+        from core.rag.context_brain import Scope, format_evidence, retrieve_context
+
+        question = (state.get("question") or "").strip()
+        if not question:
+            state.setdefault("brain_context", [])
+            state.setdefault("brain_doc_ids", [])
+            state.setdefault("brain_doc_kinds", [])
+            return state
+
+        intent = state.get("intent") or "data"
+        # Brain intent weights are keyed slightly differently from the
+        # supervisor intent enum — map where they diverge.
+        brain_intent = {
+            "signals": "events",
+            "data": "data",
+        }.get(intent, intent)
+
+        space_id = state.get("space_id")
+        crew_ids = list(state.get("crew_ids") or [])
+        user_id = state.get("user_id")
+
+        state["context_intent"] = intent
+
+        async def _run() -> tuple[list[str], list[str], list[str]]:
+            from db.session import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                searcher = make_brain_searcher(
+                    db=db,
+                    embedding_provider=embedding_provider,
+                    space_id=space_id,
+                    crew_ids=crew_ids,
+                )
+
+                async def _qe(q: str):
+                    try:
+                        vec = await embedding_provider.embed_async([q])
+                        return vec[0] if vec else None
+                    except Exception:
+                        return None
+
+                ranked = await retrieve_context(
+                    question,
+                    Scope(user_id=user_id, space_id=space_id, crew_ids=crew_ids),
+                    searcher=searcher,
+                    query_embedder=_qe,
+                    intent=brain_intent,
+                    k=20,
+                )
+
+                if not ranked:
+                    return [], [], []
+
+                blocks = format_evidence(ranked).split("\n\n") if ranked else []
+                ids = [r.doc.id for r in ranked]
+                kinds = [r.doc.kind for r in ranked]
+                return blocks, ids, kinds
+
+        try:
+            blocks, ids, kinds = asyncio.run(_run())
+        except Exception as exc:
+            log_event("brain_retrieval_failed", {"error": str(exc)[:400]})
+            blocks, ids, kinds = [], [], []
+
+        state["brain_context"] = blocks
+        state["brain_doc_ids"] = ids
+        state["brain_doc_kinds"] = kinds
+
+        log_event(
+            "brain_retrieval_done",
+            {
+                "intent": intent,
+                "brain_intent": brain_intent,
+                "doc_count": len(ids),
+                "kinds_unique": sorted(set(kinds)),
+                "question_len": len(question),
+            },
+        )
+        return state
+
     # ── Multi-agent: Strategy Specialist Node ──────────────
     def strategy_specialist_node(state: AgentState) -> AgentState:
         """Answers questions about OKRs, goals, pillars, strategy."""
@@ -576,6 +684,7 @@ def build_generic_sql_graph(
 
     # Register all nodes
     graph.add_node("intent_classifier", intent_classifier_node)
+    graph.add_node("brain_retrieval", brain_retrieval_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("specialist", specialist_node)
     graph.add_node("parallel_specialist", parallel_specialist_node)
@@ -609,9 +718,13 @@ def build_generic_sql_graph(
     # Entry point: always classify intent first
     graph.set_entry_point("intent_classifier")
 
-    # Intent router → strategy specialist OR data pipeline
+    # Intent classifier always feeds into the brain — every specialist
+    # then gets the same evidence blend to work from.
+    graph.add_edge("intent_classifier", "brain_retrieval")
+
+    # Brain retrieval → intent router
     graph.add_conditional_edges(
-        "intent_classifier",
+        "brain_retrieval",
         route_by_intent,
         {
             "strategy_specialist": "strategy_specialist",
