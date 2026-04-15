@@ -8,6 +8,7 @@ Reads spaces, crews, users, and AI history from the backend.
 from __future__ import annotations
 import logging
 from typing import Any, Dict, List
+from core.llm._brain_prompt import prepend_brain_context
 from core.logging_utils import log_event
 
 logger = logging.getLogger("dataassistant")
@@ -93,7 +94,10 @@ def run_people_specialist(state: Dict[str, Any], llm: Any, backend_client: Any) 
     )
 
     try:
-        response = llm.invoke([{"role": "system", "content": prompt}, {"role": "user", "content": question}])
+        response = llm.invoke([
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": prepend_brain_context(question, state)},
+        ])
         state["answer"] = response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         logger.error(f"People specialist error: {e}")
