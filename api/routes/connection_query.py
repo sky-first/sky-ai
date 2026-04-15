@@ -2452,14 +2452,24 @@ async def load_agent_config_from_connection(
             )
             # Proceed to legacy table_metadata check
     
-    # Construir query SQL com filtro de permissões
+    # Construir query SQL com filtro de permissões.
+    #
+    # Incident 2026-04-15 / migration 003: legacy rows created before
+    # space_id was added to `data_connections` / `table_metadata` have
+    # space_id = NULL. Migration 003 backfills whatever it can resolve,
+    # but truly orphan rows (no space_connections link, creator has no
+    # space membership) stay NULL. Accepting `space_id IS NULL` here as
+    # a last resort keeps those connections usable — they simply aren't
+    # scoped to any particular space and fall through permission filters
+    # the way public metadata always has.
     query_sql = """
         SELECT table_name, column_name, data_type, is_nullable, description
         FROM table_metadata
-        WHERE space_id = :space_id AND data_connection_id = :conn_id
+        WHERE data_connection_id = :conn_id
+          AND (space_id = :space_id OR space_id IS NULL)
     """
     query_params = {"space_id": space_id, "conn_id": connection_id}
-    
+
     # Adicionar filtro de permissões se crew_ids fornecidos
     if crew_ids:
         query_sql += " AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))"
@@ -2467,7 +2477,7 @@ async def load_agent_config_from_connection(
     else:
         # Se não há crew_ids, mostrar apenas dados públicos (crew_id IS NULL)
         query_sql += " AND crew_id IS NULL"
-    
+
     query_sql += " ORDER BY table_name, column_name"
     
     # Buscar metadados via SQL direto (compatível com UUID)
