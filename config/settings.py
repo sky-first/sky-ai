@@ -39,16 +39,25 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OLLAMA_BASE_URL", "ollama_base_url")
     )
     
-    # Ollama Models (RunPod)
-    llm_model_orchestrator_local: str = "phi3:medium"     # Fast routing: 4096 ctx, temp 0.0
-    llm_model_specialist_local: str = "phi3:medium"       # Better instruction following for BigQuery
-    llm_model_formatter_local: str = "phi3:medium"        # Text formatting (reuses orchestrator)
-    llm_model_embedding_local: str = "nomic-embed-text"  # Local embeddings: 768 dims
-    
-    # Ollama Context Windows (num_ctx)
-    ollama_num_ctx_orchestrator: int = 4096  # Configured in Modelfile
-    ollama_num_ctx_specialist: int = 8192    # Configured in Modelfile
-    ollama_num_ctx_formatter: int = 4096     # Configured in Modelfile
+    # Ollama Models (RunPod — RTX A6000 48GB)
+    # Swapped from phi3:medium to qwen2.5-coder:32b (2026-04-16):
+    # phi3 topped out at 4K context and was weak on SQL join reasoning;
+    # Qwen 2.5 Coder 32B is code/SQL-specialized, supports 128K native
+    # context, and fits comfortably in A6000 at Q4 quant.
+    # Embedding kept as nomic-embed-text (768 dims) to preserve compatibility
+    # with the existing pgvector schema — switch to bge-m3 requires a
+    # dimension migration + full re-embed.
+    llm_model_orchestrator_local: str = "qwen2.5-coder:32b"
+    llm_model_specialist_local: str = "qwen2.5-coder:32b"
+    llm_model_formatter_local: str = "qwen2.5-coder:32b"
+    llm_model_embedding_local: str = "nomic-embed-text"
+
+    # Ollama Context Windows (num_ctx) — bumped to leverage Qwen's 128K ceiling
+    # while keeping VRAM usage predictable. A6000 48GB handles 32K specialist
+    # comfortably; higher values risk OOM when the formatter runs concurrently.
+    ollama_num_ctx_orchestrator: int = 8192
+    ollama_num_ctx_specialist: int = 32768
+    ollama_num_ctx_formatter: int = 8192
     
     # LLM General Settings
     llm_temperature: float = 0.0
@@ -75,10 +84,13 @@ class Settings(BaseSettings):
     gcp_project_id: Optional[str] = None
     
     # ===== AI PROVIDER SWITCH =====
-    # Controls whether to use "ollama" (local) or "openai" (cloud)
-    # Default: "ollama"
+    # "ollama" (default — RunPod-hosted Qwen 2.5 Coder 32B, pay-per-hour)
+    # "openai" (fallback — gpt-4o, pay-per-token, only for premium tier)
+    # Flipped from "openai" to "ollama" on 2026-04-16 after confirming the
+    # old Ollama endpoint in the .env was dead (404) and OpenAI was silently
+    # burning through ~$10/day of credits in dev.
     ai_provider: str = Field(
-        default="openai",
+        default="ollama",
         validation_alias=AliasChoices("AI_PROVIDER", "ai_provider")
     )
 
