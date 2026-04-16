@@ -193,8 +193,14 @@ spec:
             value: "6379"
           - name: DEBUG
             value: "false"
+          - name: AI_PROVIDER
+            value: "ollama"
+          # RunPod-hosted Ollama (RTX A6000, Qwen 2.5 Coder 32B).
+          # Replaced in-cluster ollama.ollama.svc.cluster.local on 2026-04-16
+          # to match the dev-local provider, save on in-cluster GPU cost, and
+          # unblock chat after the legacy endpoint turned out to be dead.
           - name: OLLAMA_BASE_URL
-            value: "http://ollama.ollama.svc.cluster.local:11434"
+            value: "https://o6zy4pbcv865lm-11434.proxy.runpod.net"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging
