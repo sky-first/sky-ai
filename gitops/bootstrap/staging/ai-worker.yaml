@@ -125,7 +125,7 @@ spec:
           # background tasks (agent runs, insight generation) use the
           # same model as the live chat path.
           - name: OLLAMA_BASE_URL
-            value: "https://o6zy4pbcv865lm-11434.proxy.runpod.net"
+            value: "https://3hd6i6wxtzbbe5-11434.proxy.runpod.net"
           - name: AI_SERVICE_URL
             value: "http://sky-ai-stg-common-app"
           - name: DATABASE_POOL_SIZE

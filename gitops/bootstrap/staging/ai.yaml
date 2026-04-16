@@ -200,7 +200,7 @@ spec:
           # to match the dev-local provider, save on in-cluster GPU cost, and
           # unblock chat after the legacy endpoint turned out to be dead.
           - name: OLLAMA_BASE_URL
-            value: "https://o6zy4pbcv865lm-11434.proxy.runpod.net"
+            value: "https://3hd6i6wxtzbbe5-11434.proxy.runpod.net"
   destination:
     server: "https://kubernetes.default.svc"
     namespace: staging
