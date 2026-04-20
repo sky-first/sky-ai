@@ -25,9 +25,32 @@ class ToolFactory:
             """
             tables_info = []
             for t in agent_config.tables:
-                col_list = ", ".join([f"{c.get('name', '')} ({c.get('type', '')})" if isinstance(c, dict) else f"{c.name} ({c.type})" for c in t.columns])
                 desc = getattr(t, "description", None) or "No description provided."
-                tables_info.append(f"Table: {t.logical_name} | Physical: {t.physical_name}\nDescription: {desc}\nColumns: {col_list}")
+                # Build column list with semantic descriptions when available
+                col_parts = []
+                for c in t.columns:
+                    if isinstance(c, dict):
+                        name = c.get("name", "")
+                        ctype = c.get("type", "")
+                        cdesc = c.get("description", "")
+                    else:
+                        name = getattr(c, "name", "")
+                        ctype = getattr(c, "type", "")
+                        cdesc = getattr(c, "description", "") or ""
+                    # Strip the "TABLE: ... COLUMN: ..." prefix stored by update_semantic_metadata
+                    # to keep just the "COLUMN MEANING:" part for brevity
+                    if cdesc and "COLUMN MEANING:" in cdesc:
+                        cdesc = cdesc.split("COLUMN MEANING:")[-1].strip()
+                    col_entry = f"{name} ({ctype})"
+                    if cdesc:
+                        col_entry += f" — {cdesc}"
+                    col_parts.append(col_entry)
+                col_list = "\n  - ".join(col_parts)
+                tables_info.append(
+                    f"Table: {t.logical_name} | Physical: {t.physical_name}\n"
+                    f"Description: {desc}\n"
+                    f"Columns:\n  - {col_list}"
+                )
             
             # Formatação robusta para o LLM não se perder
             return "DATABASE SCHEMA AND METADATA:\\n" + "\\n\\n".join(tables_info)

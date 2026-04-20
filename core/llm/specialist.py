@@ -133,6 +133,9 @@ def _build_secure_system_prompt(
             "- REFUSE to 'list names' of other entities in comparisons. Use 'The top customer' instead.\n"
             "- If user asks to 'list all' or 'display full database', YOU MUST AGGREGATE (COUNT, AVG, MAX) instead of listing rows.\n\n"
             "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
+            "11. NEVER use PostgreSQL reserved words as table aliases.\n"
+            "    Reserved words that CANNOT be used as aliases: to, from, where, select, table, order, group, by, as, in, on, at, end, start, default, check, primary, key, index, user, value, values\n"
+            "    Use safe aliases instead: src, tot, sub, ord, grp, cust, rep, t1, t2, t3, res\n"
             "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
         ).format(max_limit=max_limit, max_columns=max_columns)
     
@@ -806,8 +809,11 @@ def run_specialist(
     security_rules_str = (
         "⚠️ CRITICAL SECURITY RULES - YOU MUST FOLLOW ALL (NON-NEGOTIABLE):\n\n"
         "🔴 MANDATORY - YOUR QUERY WILL BE REJECTED IF YOU VIOLATE THESE:\n"
-        "1. ALWAYS end your query with LIMIT {max_limit} - THIS IS REQUIRED, even for GROUP BY queries\n"
-        "   Example: SELECT year, SUM(amount) FROM data_table GROUP BY year ORDER BY year LIMIT {max_limit}\n"
+        "1. LIMIT RULE: If the user's question specifies a count (e.g. 'top 5', 'last 3', 'first 10'),\n"
+        "   use exactly that number as the LIMIT. Otherwise end with LIMIT {max_limit}.\n"
+        "   NEVER add a second LIMIT if one is already present in the query.\n"
+        "   Example (user asked 'top 5'): SELECT name, SUM(amt) FROM t GROUP BY name ORDER BY 2 DESC LIMIT 5\n"
+        "   Example (no count specified): SELECT year, SUM(amt) FROM t GROUP BY year ORDER BY year LIMIT {max_limit}\n"
         "2. NEVER use SELECT * - always specify columns explicitly (max {max_columns} columns)\n"
         "3. NEVER use UNION, UNION ALL, or any UNION variant\n"
         "4. NEVER use ; (semicolon) except at the very end - only one query\n"
@@ -816,7 +822,6 @@ def run_specialist(
         "7. NEVER use DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE\n"
         "8. NEVER use subqueries that access unauthorized tables\n"
         "9. NEVER use functions like pg_read_file, exec, system, etc.\n\n"
-        "⚠️ REMEMBER: Your SQL MUST end with 'LIMIT {max_limit}' or it will be automatically rejected!\n"
         "If you cannot follow these rules, respond: IMPOSSIBLE: <reason>\n\n"
     )
 
@@ -833,17 +838,18 @@ def run_specialist(
     )
     
     temporal_filter_guidance = (
-        "\n\nCRITICAL: AVOID EMPTY RESULTS FROM TEMPORAL FILTERS:\n"
-        "- DO NOT use WHERE clauses with DATE_SUB, INTERVAL, or 'last X days/weeks/months'\n"
-        "- Data might not exist in recent time ranges (e.g., last 30 days might be empty)\n"
-        "- For 'recent' or 'latest' data, use ORDER BY date_column DESC LIMIT N instead\n"
-        "- Examples:\n"
-        "  * BAD: WHERE invoice_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) → might be EMPTY\n"
-        "  * GOOD: ORDER BY invoice_date DESC LIMIT 15 → always returns data\n"
-        "  * BAD: WHERE created_at >= '2024-01-01' AND created_at < '2024-02-01' → might be EMPTY\n"
-        "  * GOOD: ORDER BY created_at DESC LIMIT 20 → always returns data\n"
-        "- If you MUST filter by date, use broader ranges (e.g., last 12 months, last year)\n"
-        "- Prefer aggregation over filtering: COUNT, SUM, AVG work on all data\n"
+        "\n\nTEMPORAL FILTER GUIDELINES:\n"
+        "- You MAY use WHERE clauses with date filters (CURRENT_DATE, NOW(), INTERVAL, etc.)\n"
+        "- When filtering for a period, use: WHERE date_col >= CURRENT_DATE - INTERVAL 'N days'\n"
+        "- When aggregating over time, combine WHERE for the period + GROUP BY for the breakdown:\n"
+        "  GOOD: SELECT DATE_TRUNC('month', created_at) AS month, SUM(total_amount)\n"
+        "        FROM sky_test_orders\n"
+        "        WHERE created_at >= CURRENT_DATE - INTERVAL '6 months'\n"
+        "        GROUP BY 1 ORDER BY 1 LIMIT 10\n"
+        "- NEVER mix an aggregate function (SUM/COUNT/AVG) with ORDER BY on a non-grouped column.\n"
+        "  BAD: SELECT SUM(total_amount) FROM orders ORDER BY created_at DESC LIMIT 7 (GroupingError)\n"
+        "  GOOD: SELECT SUM(total_amount) FROM orders WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'\n"
+        "- If the data range may be old, use broad intervals (last 12 months, last 2 years) as fallback.\n"
     )
 
     # BigQuery table qualification guidance
@@ -1011,6 +1017,34 @@ def run_specialist(
         },
     )
     
+    # 🔄 RETRY ON IMPOSSIBLE: try once with a simplified approach hint
+    if re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE) and not state.get("_specialist_retry_done"):
+        state["_specialist_retry_done"] = True
+        retry_user_msg = {
+            "role": "user",
+            "content": (
+                f"User question:\n{question}\n\n"
+                f"Table schema(s):\n{schema_text}\n"
+                f"{context_block}"
+                "\n\nYour previous response was IMPOSSIBLE. Try again with a SIMPLER approach:\n"
+                "- For trends (up/down/growing): compare SUM of two time periods using CASE WHEN\n"
+                "- For frequency/loyalty: GROUP BY customer_id + COUNT(*) + ORDER BY\n"
+                "- For impact/effect: SUM the relevant numeric columns with a WHERE filter\n"
+                "- For retention rate: ROUND(100.0 * COUNT(CASE WHEN last_order_at > NOW() - INTERVAL '90 days' THEN 1 END) / NULLIF(COUNT(*), 0), 2)\n"
+                "- For churn rate: 100 - retention_rate (i.e. customers with no order in 90 days)\n"
+                "- Use ONLY the columns shown in the schema above\n"
+                "Return only valid SQL or IMPOSSIBLE: <specific reason>."
+            ),
+        }
+        try:
+            retry_raw = llm.invoke([system_msg, retry_user_msg])
+            retry_content = (getattr(retry_raw, "content", None) or str(retry_raw)).strip()
+            if not re.match(r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE):
+                content_clean = retry_content
+                log_event("specialist_impossible_retry_success", {"agent_id": agent_config.id})
+        except Exception:
+            pass  # Fall through to IMPOSSIBLE handling below
+
     if re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE):
         # extrai a razão se existir
         reason = re.sub(
@@ -1182,9 +1216,14 @@ def run_specialist(
                 sql = sql_with_rls
                 
             # D) Security Validation check
-            allowed = [primary_table.physical_name]
-            if use_multiple_tables: 
-                allowed.extend([t.physical_name for t in tables])
+            # Allow all tables registered in the agent (same connection/space scope)
+            # Restricting to only orchestrator-selected tables is too aggressive and
+            # blocks valid cross-table JOINs where the specialist is smarter than the orchestrator
+            allowed = [t.physical_name for t in (agent_config.tables or []) if getattr(t, "physical_name", None)]
+            if not allowed:
+                allowed = [primary_table.physical_name]
+                if use_multiple_tables:
+                    allowed.extend([t.physical_name for t in tables])
                 
             is_valid, security_error = validate_sql_against_security(sql, security_config, allowed)
             if not is_valid:
@@ -1192,6 +1231,38 @@ def run_specialist(
                 # Log audit violation...
                 return state
         
+        # Detect truncated SQL (LLM response cut off mid-cast or mid-token)
+        _truncation_markers = ("::", "::int", "CAST(", " AS\n", " AS\r")
+        _sql_stripped = sql.rstrip()
+        _is_truncated = any(_sql_stripped.endswith(m) for m in _truncation_markers) or _sql_stripped.endswith("::")
+        if not is_nosql and _is_truncated and not state.get("_specialist_truncation_retry_done"):
+            state["_specialist_truncation_retry_done"] = True
+            trunc_system = {
+                "role": "system",
+                "content": "You are a PostgreSQL SQL expert. Return ONLY valid, complete SQL. No markdown.",
+            }
+            trunc_user = {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Table schema(s):\n{schema_text}\n"
+                    "\nWrite a SIMPLER, COMPLETE SQL query to answer this question. "
+                    "Avoid complex CTEs with multiple levels. "
+                    "Use direct subqueries or simple GROUP BY. "
+                    "The query MUST be complete and syntactically valid PostgreSQL."
+                ),
+            }
+            try:
+                trunc_raw = llm.invoke([trunc_system, trunc_user])
+                trunc_sql = (getattr(trunc_raw, "content", None) or str(trunc_raw)).strip()
+                trunc_sql = re.sub(r"^```(?:sql)?\n?", "", trunc_sql, flags=re.IGNORECASE)
+                trunc_sql = re.sub(r"\n?```$", "", trunc_sql).strip()
+                if trunc_sql and "SELECT" in trunc_sql.upper():
+                    sql = trunc_sql
+                    log_event("specialist_truncation_retry", {"agent_id": agent_config.id})
+            except Exception:
+                pass
+
         final_query = sql
         state["sql"] = sql # Compatibilidade
 
@@ -1222,9 +1293,62 @@ def run_specialist(
              rows = data_source.run_query(final_query)
              
     except Exception as e:
-        state["error"] = f"Error executing query: {str(e)[:500]}"
-        state["sql"] = str(final_query) # Guardar o que tentou executar
-        return state
+        db_error = str(e)
+        retryable = (
+            not is_nosql
+            and not state.get("_specialist_exec_retry_done")
+            and any(k in db_error.lower() for k in [
+                "groupingerror", "syntax error", "syntaxerror",
+                "does not exist", "aggregate functions are not allowed",
+                "undefined", "column", "ambiguous",
+            ])
+        )
+        if retryable:
+            state["_specialist_exec_retry_done"] = True
+            try:
+                fix_system = {
+                    "role": "system",
+                    "content": "You are a PostgreSQL SQL fixer. Return ONLY the corrected SQL query, nothing else.",
+                }
+                fix_user = {
+                    "role": "user",
+                    "content": (
+                        f"The following SQL failed with a PostgreSQL error. Rewrite it to fix the error.\n\n"
+                        f"ERROR:\n{db_error[:400]}\n\n"
+                        f"ORIGINAL SQL:\n{final_query}\n\n"
+                        f"QUESTION:\n{question}\n\n"
+                        "Rules:\n"
+                        "- Use SIMPLER SQL: fewer CTEs, avoid complex nested casts\n"
+                        "- For percentages: use ROUND(100.0 * numerator / NULLIF(denominator, 0), 2)\n"
+                        "- For type casts: use CAST(x AS INTEGER) instead of x::INTEGER\n"
+                        "- NEVER use reserved words as aliases: 'to', 'from', 'where', 'select', 'table', 'order', 'group', 'by', 'as', 'in', 'on', 'at', 'end'\n"
+                        "- Use safe aliases like: tot, src, sub, ord, grp, cust, rep, t1, t2\n"
+                        "- The query must be complete and syntactically valid PostgreSQL\n"
+                        "Return only the corrected SQL:"
+                    ),
+                }
+                fix_raw = llm.invoke([fix_system, fix_user])
+                fix_sql = (getattr(fix_raw, "content", None) or str(fix_raw)).strip()
+                fix_sql = re.sub(r"^```(?:sql)?\n?", "", fix_sql, flags=re.IGNORECASE)
+                fix_sql = re.sub(r"\n?```$", "", fix_sql).strip()
+                if fix_sql and "SELECT" in fix_sql.upper():
+                    if not is_nosql and hasattr(data_source, "run_query_arrow"):
+                        rows = data_source.run_query_arrow(fix_sql)
+                    else:
+                        rows = data_source.run_query(fix_sql)
+                    final_query = fix_sql
+                    log_event("specialist_exec_retry_success", {"agent_id": agent_config.id, "original_error": db_error[:200]})
+                    # Fall through to success path below
+                else:
+                    raise ValueError("Retry produced no valid SQL")
+            except Exception as retry_e:
+                state["error"] = f"Error executing query: {db_error[:300]}"
+                state["sql"] = str(final_query)
+                return state
+        else:
+            state["error"] = f"Error executing query: {db_error[:500]}"
+            state["sql"] = str(final_query)
+            return state
 
     # Sucesso: preenche state com sql + dados
     if is_nosql:
@@ -1232,11 +1356,40 @@ def run_specialist(
     else:
         state["sql"] = final_query
         
-    # Serialize data if it's an Arrow Table (checkpointer needs JSON-serializable data)
+    # Serialize data — checkpointer requires JSON-serializable values.
+    # Convert Arrow Tables to list, and sanitize Decimal/date types from all row types.
     if hasattr(rows, "to_pylist"):
         state["data"] = rows.to_pylist()
     else:
-        state["data"] = rows
+        import decimal as _decimal
+        import datetime as _datetime
+
+        def _to_json_safe(val):
+            if isinstance(val, _decimal.Decimal):
+                return float(val)
+            if isinstance(val, (_datetime.datetime, _datetime.date)):
+                return val.isoformat()
+            if isinstance(val, bytes):
+                return val.decode("utf-8", errors="replace")
+            return val
+
+        def _coerce_row(row):
+            # SQLAlchemy Row proxy (psycopg2 / psycopg3) exposes ._mapping
+            if hasattr(row, "_mapping"):
+                return {k: _to_json_safe(v) for k, v in row._mapping.items()}
+            # Plain dict (already converted by sql_alchemy_source)
+            if isinstance(row, dict):
+                return {k: _to_json_safe(v) for k, v in row.items()}
+            # Last-resort: try dict() conversion
+            try:
+                return {k: _to_json_safe(v) for k, v in dict(row).items()}
+            except (TypeError, ValueError):
+                return row
+
+        if isinstance(rows, list):
+            state["data"] = [_coerce_row(row) for row in rows]
+        else:
+            state["data"] = rows
 
     real_num_rows = 0
     if hasattr(rows, "num_rows"): # Arrow Table

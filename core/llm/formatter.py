@@ -97,11 +97,14 @@ def _extract_topic(question: str) -> str:
 
 
 def _serialize_for_json(obj: Any) -> Any:
-    """Converte objetos não-serializáveis (date, datetime) para strings."""
+    """Converte objetos não-serializáveis (date, datetime, decimal) para strings/floats."""
     from datetime import date, datetime
+    from decimal import Decimal
 
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
     if isinstance(obj, dict):
         return {k: _serialize_for_json(v) for k, v in obj.items()}
     if isinstance(obj, list):

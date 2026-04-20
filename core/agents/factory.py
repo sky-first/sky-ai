@@ -163,6 +163,17 @@ def build_agent_config_for_user_space(
         table_desc = getattr(group_rows[0], "table_description", None) or \
                      getattr(group_rows[0], "table_comment", None) or None
 
+        # Fallback: ler do campo extra (JSON) se os atributos diretos não existirem
+        if not table_desc:
+            import json as _json
+            first_extra = getattr(group_rows[0], "extra", {}) or {}
+            if isinstance(first_extra, str):
+                try:
+                    first_extra = _json.loads(first_extra)
+                except Exception:
+                    first_extra = {}
+            table_desc = first_extra.get("table_description") or None
+
         columns: List[TableColumn] = []
         for r in group_rows:
             col = _metadata_row_to_column(r)

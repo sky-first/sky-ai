@@ -2550,6 +2550,8 @@ async def load_agent_config_from_connection(
         # Usar dataset do config da conexão
         # Fallback genérico: usar o dataset configurado ou None (será tratado apropriadamente)
         dataset = conn_config.get("dataset")
+        if not dataset:
+            return None
         # Se já tem projeto, usar direto; senão, adicionar projeto
         if "." in dataset and not dataset.startswith("data-mesh-gcp."):
             return dataset
@@ -3497,8 +3499,8 @@ async def _query_connection_inner(
             allowed_tables=allowed_tables,
             allowed_columns=None,  # Opcional: filtrar colunas também
             max_limit=5000,
-            max_columns=10,
-            max_group_by=3
+            max_columns=50,
+            max_group_by=10
         )
         
         is_valid, validation_error = validator.validate(sql, connection_type)

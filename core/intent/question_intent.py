@@ -37,12 +37,11 @@ _STRATEGY_PATTERNS = re.compile(
     r"\b("
     r"okr|okrs|objective|objectives|key.?result|key.?results|"
     r"pillar|pillars|initiative|initiatives|"
-    r"goal|goals|target|targets|"
+    r"goal|goals|"
     r"strategy|strategic|"
     r"on.?track|at.?risk|off.?track|"
     r"progress|milestone|milestones|"
     r"business.?plan|roadmap|vision|mission|"
-    r"kpi|kpis|metric|metrics|"
     r"budget.?plan|forecast|assumption|assumptions|"
     r"cycle|quarterly|q[1-4]"
     r")\b",
@@ -56,7 +55,6 @@ _SIGNALS_PATTERNS = re.compile(
     r"alert|alerts|notification|"
     r"spike|drop|surge|"
     r"market|competitor|regulatory|"
-    r"trend|trends|trending|"
     r"external|internal.?event|"
     r"deviation|warning|"
     r"macro|geopolitic"
@@ -67,9 +65,9 @@ _SIGNALS_PATTERNS = re.compile(
 _RELATIONSHIPS_PATTERNS = re.compile(
     r"\b("
     r"relationship|relationships|"
-    r"impacts?|drives?|depends.?on|correlates?|"
+    r"drives?|depends.?on|correlates?|"
     r"cross.?space|across.?space|across.?department|"
-    r"how.?does.+affect|how.+impact|"
+    r"how.?does.+affect|"
     r"enterprise.?context|business.?context|"
     r"connected.?to|linked.?to|"
     r"between.+department|between.+space|between.+team"
@@ -79,10 +77,10 @@ _RELATIONSHIPS_PATTERNS = re.compile(
 
 _PEOPLE_PATTERNS = re.compile(
     r"\b("
-    r"who.?is|who.?are|team.?member|crew.?member|"
+    r"team.?member|crew.?member|"
     r"which.?team|which.?crew|which.?space|"
-    r"user|users|people|person|member|members|"
-    r"asking|activity|active.?user|"
+    r"people|person|member|members|"
+    r"asking|activity|"
     r"role|roles|permission|permissions|"
     r"organization.?structure|org.?chart"
     r")\b",
@@ -114,10 +112,11 @@ _DATA_BOOST_PATTERNS = re.compile(
     r"\b("
     r"how.?many|how.?much|count|total|sum|average|"
     r"select|query|sql|"
-    r"revenue|sales|invoice|payment|customer|order|"
+    r"revenue|sales|invoice|payment|customers?|orders?|"
     r"last.?month|this.?month|yesterday|today|"
     r"group.?by|filter|where|"
-    r"top.?\d|bottom.?\d"
+    r"top.?\d|bottom.?\d|"
+    r"trends?|trending|growth|churn|cancellations?"
     r")\b",
     re.IGNORECASE,
 )
@@ -155,6 +154,14 @@ def classify_question_intent(
     # Catalog is high-priority if detected
     if catalog_score > 0 and data_score == 0:
         return QuestionIntent.CATALOG
+
+    # DATA_OVERRIDE: strong data signal with at most one weak non-data signal → DATA
+    non_data_max = max(
+        [strategy_score, signals_score, relationships_score, people_score, widgets_score],
+        default=0,
+    )
+    if data_score >= 2 and non_data_max <= 1:
+        return QuestionIntent.DATA
 
     # Check for mixed intent (multiple non-data intents scored, or strategy+data combo)
     non_data_scores = [

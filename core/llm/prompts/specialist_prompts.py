@@ -60,9 +60,11 @@ def build_specialist_prompt(
     # Build security rules (CRITICAL for CPU models - be explicit)
     security_rules = (
         "🔴 MANDATORY SECURITY RULES (NON-NEGOTIABLE):\n\n"
-        f"1. ALWAYS end with LIMIT {max_limit}\n"
-        f"   - Even GROUP BY queries need LIMIT {max_limit}\n"
-        f"   - Example: SELECT year, SUM(amt) FROM t GROUP BY year LIMIT {max_limit}\n\n"
+        f"1. LIMIT RULE: If the user asks for a specific count (e.g. 'top 5', 'last 3'),\n"
+        f"   use exactly that number as the LIMIT. Otherwise end with LIMIT {max_limit}.\n"
+        f"   NEVER add a second LIMIT if one is already in the query.\n"
+        f"   Example (top 5): SELECT name, SUM(amt) FROM t GROUP BY name ORDER BY 2 DESC LIMIT 5\n"
+        f"   Example (no count): SELECT year, SUM(amt) FROM t GROUP BY year LIMIT {max_limit}\n\n"
         f"2. NEVER use SELECT * - specify columns (max {max_columns})\n\n"
         "3. FORBIDDEN:\n"
         "   - UNION / UNION ALL\n"
@@ -93,13 +95,15 @@ def build_specialist_prompt(
             "- Qualify all columns with table aliases (t1.column)\n\n"
         )
     
-    # Critical: Avoid temporal filters (common cause of empty results)
+    # Temporal filter guidance
     temporal_warning = (
         "⚠️ TEMPORAL FILTERS:\n"
-        "- DO NOT use WHERE with DATE_SUB, CURRENT_DATE, INTERVAL, NOW()\n"
-        "- Data is historical (2023-2024), not live\n"
-        "- For 'recent' data: use ORDER BY date DESC LIMIT N\n"
-        "- For 'latest': ORDER BY date DESC LIMIT 1\n\n"
+        "- You MAY use WHERE with date filters (CURRENT_DATE, NOW(), INTERVAL, etc.)\n"
+        "- For a period: WHERE date_col >= CURRENT_DATE - INTERVAL 'N days'\n"
+        "- For aggregation over time: use WHERE for the range + GROUP BY for the breakdown\n"
+        "- NEVER mix aggregate functions (SUM/COUNT) with ORDER BY on a non-grouped column\n"
+        "  BAD: SELECT SUM(amt) FROM t ORDER BY created_at DESC LIMIT 7  -- GroupingError\n"
+        "  GOOD: SELECT SUM(amt) FROM t WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'\n\n"
     )
     
     # Column selection guidance
