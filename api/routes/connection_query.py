@@ -3389,7 +3389,12 @@ async def _query_connection_inner(
         )
     except Exception as e:
         import traceback
-        error_detail = str(e)
+        # Same empty-stringification trap as the backend: `str(e)` can be ""
+        # for bare Exception()/custom exceptions with no message. Fall back to
+        # repr(e) and finally the exception class name so error_detail is never
+        # blank (otherwise the audit log + backend surface "Error: " with no
+        # signal about what actually failed).
+        error_detail = str(e).strip() or repr(e).strip() or type(e).__name__
         logger.error(f"Erro ao executar agente: {error_detail}\n{traceback.format_exc()}")
         
         # Auditoria de erro
