@@ -268,7 +268,20 @@ def _render_column(row: dict[str, Any]) -> RenderedDoc:
         f"Nullable: {row.get('is_nullable')}  |  PII: {bool(row.get('is_pii'))}\n"
         f"Sample values: {_coerce(row.get('sample_values'))}"
     )
-    return RenderedDoc(title=title, body=body, pii_flags=pii)
+    # Metadata surfaces the (connection_id, table_name, column_name) triple
+    # so retrieval can apply per-space `hidden_columns` filters without
+    # parsing the title string. Without this, the per-space visibility
+    # feature (sky-poc-backend#190) can't drop column docs reliably.
+    return RenderedDoc(
+        title=title,
+        body=body,
+        pii_flags=pii,
+        metadata={
+            "connection_id": row.get("connection_id"),
+            "table_name": row.get("table_name"),
+            "column_name": row.get("name"),
+        },
+    )
 
 
 # ─── Outputs & social ─────────────────────────────────────────────────────

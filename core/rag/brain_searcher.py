@@ -100,7 +100,16 @@ def make_brain_searcher(
             merged[(d.source_table, d.source_id)] = d
         for d in new_docs:
             merged[(d.source_table, d.source_id)] = d
-        return list(merged.values())
+
+        # Per-space hidden-column filter — drops column docs whose
+        # (connection_id, table_name, column_name) matches a row the
+        # active Space chose to hide via the SpaceTable.hidden_columns
+        # list (sky-poc-backend#190). Only fires for column-kind docs
+        # and only when space_id is known; everything else passes
+        # through. If the column doc lacks the triple in metadata, we
+        # keep it — safer to over-show than to silently drop.
+        filtered = await _apply_hidden_column_filter(db, list(merged.values()), space_id)
+        return filtered
 
     return _searcher
 
@@ -322,3 +331,80 @@ async def _rollback_quiet(db: AsyncSession) -> None:
         await db.rollback()
     except Exception:
         pass
+
+
+# ───────────────── per-space hidden column filter ─────────────────────────
+async def _fetch_hidden_columns_map(
+    db: AsyncSession, space_id: str
+) -> dict[tuple[str, str], set[str]]:
+    """Return `{(connection_id, table_name): {hidden_column_names}}` for a Space.
+
+    Queries `space_tables.hidden_columns` (added in sky-poc-backend#190).
+    Returns an empty dict when the space has no entries or if the query
+    fails — the caller treats "no entries" as "nothing to hide", which
+    is the safe default.
+    """
+    try:
+        sql = text(
+            """
+            SELECT connection_id, table_name, hidden_columns
+            FROM space_tables
+            WHERE space_id = :space_id
+            """
+        )
+        result = await db.execute(sql, {"space_id": space_id})
+        rows = result.mappings().all()
+    except Exception:
+        logger.exception("hidden_columns fetch failed — skipping filter")
+        await _rollback_quiet(db)
+        return {}
+
+    out: dict[tuple[str, str], set[str]] = {}
+    for r in rows:
+        hidden = r.get("hidden_columns") or []
+        if not hidden:
+            continue
+        key = (str(r["connection_id"]), r["table_name"])
+        out[key] = {c for c in hidden if isinstance(c, str)}
+    return out
+
+
+async def _apply_hidden_column_filter(
+    db: AsyncSession,
+    docs: list[CandidateDoc],
+    space_id: Optional[str],
+) -> list[CandidateDoc]:
+    """Drop column docs whose (conn, table, col) is in the space's hidden list.
+
+    Bails early when there's no scope or no columns in the result — both
+    short-circuits let the happy path stay a cheap pass-through.
+    """
+    if not space_id:
+        return docs
+    has_columns = any(d.kind == "column" for d in docs)
+    if not has_columns:
+        return docs
+
+    hidden_map = await _fetch_hidden_columns_map(db, space_id)
+    if not hidden_map:
+        return docs
+
+    kept: list[CandidateDoc] = []
+    for d in docs:
+        if d.kind != "column":
+            kept.append(d)
+            continue
+        meta = d.metadata or {}
+        conn_id = meta.get("connection_id")
+        table_name = meta.get("table_name")
+        column_name = meta.get("column_name")
+        # Without the full triple we can't match reliably — keep the doc.
+        # Over-showing is safer than silently dropping someone's data.
+        if not (conn_id and table_name and column_name):
+            kept.append(d)
+            continue
+        hidden_set = hidden_map.get((str(conn_id), table_name))
+        if hidden_set and column_name in hidden_set:
+            continue
+        kept.append(d)
+    return kept
