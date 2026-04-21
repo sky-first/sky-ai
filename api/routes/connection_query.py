@@ -4200,10 +4200,39 @@ async def _stream_connection_query(
             
             # Agora fazer streaming da resposta do formatter
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
-            
+
             question = final_state.get("question") or ""
             data = final_state.get("data") or []
             detected_language = final_state.get("detected_language")
+
+            # Emit structured rows so the frontend Insight Cockpit can render
+            # Bar/Line/Pie/Table charts without a second round-trip to the AI.
+            # Wire format: compact columns + array-of-arrays + truncated flag.
+            # R6 caps row count at 200; R11 caps each cell at 2 kB.
+            try:
+                if isinstance(data, list) and data and isinstance(data[0], dict):
+                    col_order = list(data[0].keys())
+                    ROW_CAP = 200
+                    CELL_CAP = 2048
+                    truncated_rows = len(data) > ROW_CAP
+                    serialized_rows = []
+                    for row in data[:ROW_CAP]:
+                        packed = []
+                        for c in col_order:
+                            v = row.get(c)
+                            if isinstance(v, str) and len(v) > CELL_CAP:
+                                v = v[:CELL_CAP] + "…"
+                            packed.append(v)
+                        serialized_rows.append(packed)
+                    # _serialize_for_json handles datetime / Decimal / bytes.
+                    safe_rows = _serialize_for_json(serialized_rows)
+                    yield (
+                        f"data: {json.dumps({'type': 'rows', 'columns': col_order, 'rows': safe_rows, 'truncated': truncated_rows})}\n\n"
+                    )
+            except Exception as _e:
+                # Never break the stream on row emission; logs give us the
+                # evidence we need and the finding still saves with rows=null.
+                log_event("stream_rows_emit_error", {"error": str(_e)})
             # lang = _ensure_language(question, detected_language) # Removed redundant call
 
             # Raw sample for stats (formatter LLM needs original rows, not chart/kpi wrappers)
