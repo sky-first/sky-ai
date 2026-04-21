@@ -917,8 +917,11 @@ def run_orchestrator(
                 "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n"
                 "6. QUESTION SCOPE — before selecting tables, classify the question:\n"
                 "   a) If the question has NOTHING to do with business data (weather, jokes, math, IT support, etc.) → respond ONLY with: OUT_OF_SCOPE\n"
-                "   b) If the question IS business-related but after checking the metadata no available table can answer it, AND you need a specific parameter from the user to proceed → respond ONLY with: CLARIFY: <one specific, concise question to ask the user>\n"
-                "   c) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n\n"
+                "   b) CLARIFY is an ABSOLUTE LAST RESORT. Use it ONLY when the question asks for a very specific thing that could mean multiple incompatible tables (e.g. 'payments' could be payables OR receivables and both exist). NEVER clarify counting, aggregation, listing, or overview questions — those always have a reasonable default answer. BEFORE emitting CLARIFY, ask yourself: 'could I just pick the most-obvious matching table and answer?' — if yes, do that instead.\n"
+                "   c) Counting / aggregation shortcuts — these ALWAYS go to path (d) even if the noun is generic:\n"
+                "       'how many X', 'how much X', 'count of X', 'total X', 'sum of X', 'number of X'\n"
+                "      → If ANY table name contains X or is obviously the X table (e.g. 'invoices' → fct_invoices, silver_invoices), pick it and produce SELECT COUNT(*) or SUM(...). Do NOT ask the user whether they want refunds vs paid vs draft — pick the most inclusive table and answer.\n"
+                "   d) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n\n"
                 "FINAL OUTPUT FORMAT:\n"
                 "After thinking and using the tools, finish your response with ONLY ONE of:\n"
                 "  - The logical table name(s) separated by commas (e.g. 'table1, table2')\n"
@@ -959,9 +962,28 @@ def run_orchestrator(
             )
             if clarify_match:
                 clarification = clarify_match.group(1).strip()
-                state["answer"] = clarification
-                log_event("orchestrator_clarify", {"question": question[:100], "clarification": clarification[:200]})
-                return state
+                # Safety net — even with the hardened prompt, the model
+                # occasionally CLARIFIES on obvious counting questions.
+                # Detect "how many X / how much X / count of X / total X"
+                # patterns and demote the CLARIFY to a warning so the loop
+                # falls through to table selection. Without this, users
+                # like "how much invoices we have?" get a clarification
+                # prompt instead of an answer.
+                counting_pattern = re.compile(
+                    r"\b(how\s+(many|much)|count\s+of|total\s+(of\s+)?|number\s+of|sum\s+of)\b",
+                    re.IGNORECASE,
+                )
+                if counting_pattern.search(question):
+                    log_event(
+                        "orchestrator_clarify_overridden_counting",
+                        {"question": question[:100], "attempted_clarification": clarification[:200]},
+                    )
+                    # Fall through — let the legacy table extractor below
+                    # do its thing. It usually picks a sensible default.
+                else:
+                    state["answer"] = clarification
+                    log_event("orchestrator_clarify", {"question": question[:100], "clarification": clarification[:200]})
+                    return state
             # ──────────────────────────────────────────────────────────────
 
             # Criar um mock para manter compatibilidade com o parser legado _extract_table_choice
