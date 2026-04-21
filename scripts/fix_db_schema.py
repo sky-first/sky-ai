@@ -47,22 +47,26 @@ async def fix_schema():
         except Exception as e:
             logger.warning(f"Could not fix semantic_cache type (it might not exist yet): {e}")
 
-        # 3. Create missing tables (best-effort using core.security.audit logic)
-        logger.info("Ensuring security audit tables exist...")
-        from core.security.audit import _ensure_audit_table_async
-        # We need a hack here because _ensure_audit_table_async creates its own session
-        # But for this script, we can just call it (it handles CREATE TABLE IF NOT EXISTS)
+        # (Audit table creation moved below — it used to happen AFTER the
+        # ALTER TABLE statements, which failed with UndefinedTable on a
+        # fresh db that never had query_audit_log created.)
 
-        # 4. Ensure audit log columns added in later migrations exist
+    # 3. Create missing tables BEFORE altering them. _ensure_audit_table_async
+    # opens its own session and runs CREATE TABLE IF NOT EXISTS, so the
+    # outer engine needs to be closed first.
+    await engine.dispose()
+    from core.security.audit import _ensure_audit_table_async
+    logger.info("Ensuring security audit tables exist...")
+    await _ensure_audit_table_async()
+
+    # 4. Now that the table is guaranteed to exist, add columns introduced
+    # in later migrations. Reopen the engine for the ALTERs.
+    engine = create_async_engine(url)
+    async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
         await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
         logger.info("Audit log columns ensured (platform_role, crew_role).")
-
     await engine.dispose()
-    
-    # Call the original ensure function to create tables
-    logger.info("Calling core.security.audit._ensure_audit_table_async()...")
-    await _ensure_audit_table_async()
     logger.info("Fix completed.")
 
 if __name__ == "__main__":
