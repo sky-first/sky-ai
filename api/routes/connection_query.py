@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Tuple, Any
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
-from core.auth.models import User, UserContext # Import User specifically
+from core.auth.models import User, UserContext  # Import User specifically
 from db.models import Space, Crew, UserPermission, DataConnection, ChatHistory
 from db.session import engine
 from sqlalchemy import text, select, desc
@@ -39,6 +39,7 @@ from typing import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 from api.schemas import (
@@ -75,9 +76,9 @@ from core.security.progressive_escalation import detect_progressive_escalation
 from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
-from core.agents.generic_sql_agent import UserContext # Import UserContext
+from core.agents.generic_sql_agent import UserContext  # Import UserContext
 from datetime import datetime, timedelta
-from core.context.analysis_session_store import AnalysisSessionStore # NEW IMPORT
+from core.context.analysis_session_store import AnalysisSessionStore  # NEW IMPORT
 
 router = APIRouter(prefix="/connections", tags=["connection_query"])
 
@@ -90,13 +91,15 @@ MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de me
 
 # ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
 DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
-DISABLE_BOOTSTRAP_EXECUTION = True # ✅ PAUSADO A PEDIDO DO CLIENTE (Step 547)
+DISABLE_BOOTSTRAP_EXECUTION = True  # ✅ PAUSADO A PEDIDO DO CLIENTE (Step 547)
 
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
 # ============================================================================
 _dashboard_plan_cache: Dict[str, Tuple[DashboardPlanResponse, datetime]] = {}
-DASHBOARD_PLAN_CACHE_TTL_MINUTES = 60  # Planos válidos por 60 minutos (mais longo que bootstrap)
+DASHBOARD_PLAN_CACHE_TTL_MINUTES = (
+    60  # Planos válidos por 60 minutos (mais longo que bootstrap)
+)
 DASHBOARD_PLAN_MAX_CACHE_SIZE = 50  # Menor que bootstrap (planos são maiores)
 
 # ============================================================================
@@ -108,6 +111,7 @@ TABLE_STATS_MAX_CACHE_SIZE = 50
 
 # ✅ NOVO: Frequência de variação das sugestões (configurável via env)
 from config.settings import settings
+
 BOOTSTRAP_VARIATION_WINDOW_SECONDS = settings.bootstrap_variation_window_seconds
 
 
@@ -121,7 +125,7 @@ def _get_cache_key(
 ) -> str:
     """
     Gera chave única para o cache baseada nos parâmetros relevantes.
-    
+
     Args:
         connection_id: ID da conexão
         space_id: ID do space
@@ -129,7 +133,7 @@ def _get_cache_key(
         is_personal: Se está em modo personal
         language: Idioma das sugestões
         time_window: Janela de tempo em segundos (opcional, para variação)
-        
+
     Returns:
         String única que identifica esta combinação de parâmetros
     """
@@ -143,23 +147,23 @@ def _get_cache_key(
 def _get_cached_bootstrap(cache_key: str) -> Optional[ChatBootstrapResponse]:
     """
     Retorna sugestões do cache se ainda válidas.
-    
+
     Args:
         cache_key: Chave do cache
-        
+
     Returns:
         ChatBootstrapResponse se encontrado e válido, None caso contrário
     """
     # ✅ Para testes: desabilitar cache
     if DISABLE_BOOTSTRAP_CACHE:
         return None
-    
+
     if cache_key not in _bootstrap_cache:
         return None
-    
+
     cached_response, cached_time = _bootstrap_cache[cache_key]
     age = datetime.now() - cached_time
-    
+
     if age > timedelta(minutes=CACHE_TTL_MINUTES):
         # Cache expirado, remover
         del _bootstrap_cache[cache_key]
@@ -171,20 +175,20 @@ def _get_cached_bootstrap(cache_key: str) -> Optional[ChatBootstrapResponse]:
             },
         )
         return None
-    
+
     return cached_response
 
 
 def _set_cached_bootstrap(cache_key: str, response: ChatBootstrapResponse):
     """
     Armazena sugestões no cache.
-    
+
     Args:
         cache_key: Chave do cache
         response: Resposta a ser armazenada
     """
     _bootstrap_cache[cache_key] = (response, datetime.now())
-    
+
     # Limpar cache antigo se exceder tamanho máximo
     if len(_bootstrap_cache) > MAX_CACHE_SIZE:
         # Remover entrada mais antiga
@@ -202,7 +206,9 @@ def _set_cached_bootstrap(cache_key: str, response: ChatBootstrapResponse):
         )
 
 
-def _get_table_stats_cache_key(connection_id: str, space_id: str, crew_ids: Optional[List[str]]) -> str:
+def _get_table_stats_cache_key(
+    connection_id: str, space_id: str, crew_ids: Optional[List[str]]
+) -> str:
     """Gera chave única para cache de estatísticas."""
     crew_ids_str = ",".join(sorted(crew_ids or []))
     return f"table_stats:{connection_id}:{space_id}:{crew_ids_str}"
@@ -212,21 +218,21 @@ def _get_cached_table_stats(cache_key: str) -> Optional[Dict[str, Any]]:
     """Retorna estatísticas do cache se ainda válidas."""
     if cache_key not in _table_stats_cache:
         return None
-    
+
     cached_stats, cached_time = _table_stats_cache[cache_key]
     age = datetime.now() - cached_time
-    
+
     if age > timedelta(minutes=TABLE_STATS_CACHE_TTL_MINUTES):
         del _table_stats_cache[cache_key]
         return None
-    
+
     return cached_stats
 
 
 def _set_cached_table_stats(cache_key: str, stats: Dict[str, Any]):
     """Armazena estatísticas no cache."""
     _table_stats_cache[cache_key] = (stats, datetime.now())
-    
+
     # Limpar cache antigo se exceder tamanho máximo
     if len(_table_stats_cache) > TABLE_STATS_MAX_CACHE_SIZE:
         oldest_key = min(
@@ -253,7 +259,7 @@ def _get_dashboard_plan_cache_key(
 ) -> str:
     """
     Gera chave única para o cache de planos de dashboard.
-    
+
     Args:
         connection_id: ID da conexão
         space_id: ID do space
@@ -267,7 +273,7 @@ def _get_dashboard_plan_cache_key(
         context_spaces: Spaces disponíveis (opcional)
         context_crews: Crews disponíveis (opcional)
         context_tables: Tabelas acessíveis (opcional)
-        
+
     Returns:
         String única que identifica esta combinação de parâmetros
     """
@@ -279,24 +285,28 @@ def _get_dashboard_plan_cache_key(
     original_q_normalized = ""
     if original_question:
         original_q_normalized = " ".join(original_question.strip().lower().split())
-        
+
     # Normalizar contextos
-    initial_resp_norm = str(len(initial_ai_response or "")) # Usar comprimento para evitar chave gigante, ou hash
+    initial_resp_norm = str(
+        len(initial_ai_response or "")
+    )  # Usar comprimento para evitar chave gigante, ou hash
     if initial_ai_response:
         # Usar os primeiros 50 chars + hash para a chave não ficar gigante mas ser única
         initial_resp_hash = hashlib.md5(initial_ai_response.encode()).hexdigest()[:8]
         initial_resp_norm = initial_resp_hash
-        
+
     spaces_str = ",".join(sorted(context_spaces or []))
     crews_str = ",".join(sorted(context_crews or []))
-    tables_str = str(len(context_tables or [])) # Apenas contagem para cache, pois tabelas mudam pouco
-    
+    tables_str = str(
+        len(context_tables or [])
+    )  # Apenas contagem para cache, pois tabelas mudam pouco
+
     # ✅ NOVO: Adicionar versão para invalidar cache antigo após melhorias
     # Incrementar versão quando houver mudanças significativas na lógica de geração
     # v2: validação menos restritiva + fallback melhorado
     # v3: cache key fix + table query improvements
     CACHE_VERSION = "v4_no_cache_debug"
-    
+
     # ✅ FIX: Usar hash completo da resposta inicial para diferenciar contextos
     # Problema: dashboards idênticos para perguntas diferentes porque initial_ai_response
     # não estava sendo usado corretamente na chave de cache
@@ -306,7 +316,7 @@ def _get_dashboard_plan_cache_key(
         initial_resp_norm = initial_resp_hash
     else:
         initial_resp_norm = "no_context"
-    
+
     # Ensure mode is normalized
     mode_norm = mode.strip().lower()
     return f"dashboard_plan:{CACHE_VERSION}:{mode_norm}:{connection_id}:{space_id}:{crew_ids_str}:{is_personal}:{goal_normalized}:{max_widgets}:{language}:{original_q_normalized}:{initial_resp_norm}:{spaces_str}:{crews_str}:{tables_str}"
@@ -315,10 +325,10 @@ def _get_dashboard_plan_cache_key(
 def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse]:
     """
     Retorna plano de dashboard do cache se ainda válido.
-    
+
     Args:
         cache_key: Chave do cache
-        
+
     Returns:
         DashboardPlanResponse se encontrado e válido, None caso contrário
     """
@@ -327,10 +337,10 @@ def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse
 
     if cache_key not in _dashboard_plan_cache:
         return None
-    
+
     cached_response, cached_time = _dashboard_plan_cache[cache_key]
     age = datetime.now() - cached_time
-    
+
     if age > timedelta(minutes=DASHBOARD_PLAN_CACHE_TTL_MINUTES):
         # Cache expirado, remover
         del _dashboard_plan_cache[cache_key]
@@ -342,20 +352,20 @@ def _get_cached_dashboard_plan(cache_key: str) -> Optional[DashboardPlanResponse
             },
         )
         return None
-    
+
     return cached_response
 
 
 def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
     """
     Armazena plano de dashboard no cache.
-    
+
     Args:
         cache_key: Chave do cache
         response: Resposta a ser armazenada
     """
     _dashboard_plan_cache[cache_key] = (response, datetime.now())
-    
+
     # Limpar cache antigo se exceder tamanho máximo
     if len(_dashboard_plan_cache) > DASHBOARD_PLAN_MAX_CACHE_SIZE:
         # Remover entrada mais antiga
@@ -373,7 +383,9 @@ def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
         )
 
 
-async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str) -> list[dict]:
+async def _load_connection_metadata_tables(
+    db: AsyncSession, connection_id: str
+) -> list[dict]:
     """
     Backend-compatible catalog loader.
 
@@ -385,7 +397,9 @@ async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str)
     # (due to import timing / dotenv overrides). We use `db.base.engine` here as the single source of truth.
     try:
         result = await db.execute(
-            text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+            text(
+                "SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+            ),
             {"cid": connection_id},
         )
         tables = result.scalar_one_or_none()
@@ -393,7 +407,10 @@ async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str)
             return [t for t in tables if isinstance(t, dict)]
         return []
     except Exception as e:
-        log_event("ai_connection_metadata_load_error", {"connection_id": connection_id, "error": str(e)})
+        log_event(
+            "ai_connection_metadata_load_error",
+            {"connection_id": connection_id, "error": str(e)},
+        )
         return []
 
 
@@ -441,7 +458,8 @@ async def _load_connection_relationships(
         if allowed_logical_names:
             allowed_set = set(allowed_logical_names)
             relationships = [
-                rel for rel in relationships
+                rel
+                for rel in relationships
                 if rel.get("from_table") in allowed_set
                 and rel.get("to_table") in allowed_set
             ]
@@ -482,49 +500,52 @@ async def _load_connection_relationships(
 
 
 async def _enrich_tables_with_ai_metadata(
-    db: AsyncSession, 
-    connection_id: str, 
-    tables: list[dict]
+    db: AsyncSession, connection_id: str, tables: list[dict]
 ) -> list[dict]:
     """
-    Enriches the cached backend metadata with AI-specific metadata 
+    Enriches the cached backend metadata with AI-specific metadata
     (row_counts, temporal ranges, etc.) from TableMetadata.
     """
     if not tables:
         return []
-        
+
     try:
         # Fetch all TableMetadata for this connection
         from db.models import TableMetadata
+
         result = await db.execute(
-            select(TableMetadata).where(TableMetadata.data_connection_id == connection_id)
+            select(TableMetadata).where(
+                TableMetadata.data_connection_id == connection_id
+            )
         )
         ai_meta_rows = result.scalars().all()
-        
+
         # Group by table name (normalized)
         meta_by_table = defaultdict(list)
         for row in ai_meta_rows:
             meta_by_table[row.table_name].append(row)
-            
+
         enriched = []
         for t in tables:
             name = t.get("name")
             if not name:
                 enriched.append(t)
                 continue
-                
+
             # Find matching metadata row (usually one per column, so we pick the first to get table-level info)
             table_rows = meta_by_table.get(name)
             if not table_rows:
                 # Try with schema-qualified name
-                full_name = f"{t.get('schema')}.{name}" if t.get('schema') else name
+                full_name = f"{t.get('schema')}.{name}" if t.get("schema") else name
                 table_rows = meta_by_table.get(full_name)
-                
+
             if table_rows:
                 # Update table-level info (using first row)
                 row0 = table_rows[0]
-                t["row_count"] = getattr(row0, "row_count", 0) # if we had a row_count field
-                
+                t["row_count"] = getattr(
+                    row0, "row_count", 0
+                )  # if we had a row_count field
+
                 # Merge columns status
                 col_meta = {r.column_name: r for r in table_rows}
                 for col in t.get("columns", []):
@@ -537,7 +558,7 @@ async def _enrich_tables_with_ai_metadata(
                             col["min_date"] = rmeta.extra["min_date"]
                         if rmeta.extra and "max_date" in rmeta.extra:
                             col["max_date"] = rmeta.extra["max_date"]
-                            
+
             enriched.append(t)
         return enriched
     except Exception as e:
@@ -555,11 +576,11 @@ async def _filter_tables_by_permissions(
 ) -> list[dict]:
     """
     Filtra tabelas baseado em permissões (space_id + crew_ids).
-    
+
     Regras de permissão (agnósticas, funcionam para qualquer domínio):
     - Se crew_ids for None ou vazio: retorna apenas tabelas públicas (crew_id IS NULL)
     - Se crew_ids fornecido: retorna tabelas onde crew_id IS NULL OU crew_id IN crew_ids
-    
+
     Args:
         db: Sessão do banco
         connection_id: ID da conexão
@@ -568,20 +589,20 @@ async def _filter_tables_by_permissions(
         crew_ids: Lista opcional de crew_ids para filtrar
         strict_mode: Se True (modo colaborativo), falhas de permissão retornam lista vazia
                      em vez de todas as tabelas. Previne vazamento de dados em modo crew.
-        
+
     Returns:
         Lista filtrada de tabelas que o usuário tem permissão
     """
     if not tables:
         return []
-    
+
     # Se não há crew_ids, retornar todas as tabelas (modo personal ou sem restrições)
     # Na prática, vamos verificar se há permissões específicas em table_metadata
     if crew_ids is None or len(crew_ids) == 0:
         # Sem crew_ids: retornar todas as tabelas (assumindo que são públicas ou o backend já filtrou)
         # Para ser mais seguro, podemos verificar table_metadata, mas por enquanto retornamos todas
         return tables
-    
+
     # Com crew_ids: verificar permissões em table_metadata
     try:
         # Extrair nomes de tabelas (normalizados)
@@ -595,15 +616,16 @@ async def _filter_tables_by_permissions(
                 table_names.add(full_name)
                 # Também adicionar apenas o nome (sem schema)
                 table_names.add(name)
-        
+
         if not table_names:
             return tables  # Se não conseguimos extrair nomes, retornar todas
-        
+
         # Buscar tabelas permitidas em table_metadata
         # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
         allowed_table_names = set()
         try:
-            query = text("""
+            query = text(
+                """
                 SELECT DISTINCT table_name
                 FROM table_metadata
                 WHERE data_connection_id = CAST(:conn_id AS uuid)
@@ -615,22 +637,23 @@ async def _filter_tables_by_permissions(
                     crew_id IS NULL
                     OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
                 )
-            """)
-            
+            """
+            )
+
             result = await db.execute(
                 query,
                 {
                     "space_id": space_id,
                     "conn_id": connection_id,
                     "crew_ids": crew_ids,
-                }
+                },
             )
-            
+
             allowed_table_names = {row[0] for row in result}
         except Exception as e:
             # Se a tabela não existir ou outro erro de DB, logar e continuar sem filtrar
             log_event("table_metadata_query_error", {"error": str(e)})
-            
+
             # CRITICAL: Rollback se a transação falhou (ex: UndefinedTableError)
             try:
                 await db.rollback()
@@ -651,7 +674,7 @@ async def _filter_tables_by_permissions(
                 )
                 return []  # Fail-closed: não vazar dados de outras crews
             return tables
-        
+
         # Filtrar tabelas baseado em allowed_table_names
         filtered_tables = []
         for t in tables:
@@ -659,12 +682,12 @@ async def _filter_tables_by_permissions(
             name = str(t.get("name") or "").strip()
             if not name:
                 continue
-            
+
             # Verificar se a tabela está permitida
             full_name = f"{schema}.{name}" if schema else name
             if full_name in allowed_table_names or name in allowed_table_names:
                 filtered_tables.append(t)
-        
+
         # Se não encontramos correspondências em table_metadata:
         if not filtered_tables and allowed_table_names:
             # Há allowed_table_names no DB mas nenhuma tabela do metadata coincide.
@@ -685,7 +708,7 @@ async def _filter_tables_by_permissions(
             if strict_mode:
                 return []  # Fail-closed
             return tables  # Modo personal: fail-open (sem dados de crew configurados)
-        
+
         # Se não há nenhum registro em table_metadata (tabela não configurada)
         if not filtered_tables and not allowed_table_names:
             # table_metadata não tem registros para este space/connection
@@ -704,7 +727,7 @@ async def _filter_tables_by_permissions(
             return tables
 
         return filtered_tables
-        
+
     except Exception as e:
         # Se der erro ao filtrar:
         log_event(
@@ -735,13 +758,12 @@ async def _get_allowed_tables_for_validation(
     try:
         # Carregar tabelas do connection_metadata
         all_tables = await _load_connection_metadata_tables(
-            db=db,
-            connection_id=connection_id
+            db=db, connection_id=connection_id
         )
-        
+
         if not all_tables:
             return []
-        
+
         # Filtrar por permissões
         # strict_mode=True quando há crew_ids (modo colaborativo) para evitar vazamento de dados
         filtered_tables = await _filter_tables_by_permissions(
@@ -750,9 +772,11 @@ async def _get_allowed_tables_for_validation(
             space_id=space_id,
             tables=all_tables,
             crew_ids=crew_ids,
-            strict_mode=bool(crew_ids),  # Fail-closed quando restrito a crews específicas
+            strict_mode=bool(
+                crew_ids
+            ),  # Fail-closed quando restrito a crews específicas
         )
-        
+
         # Extrair apenas nomes
         table_names = []
         for table in filtered_tables:
@@ -764,9 +788,9 @@ async def _get_allowed_tables_for_validation(
                     table_names.append(f"{schema}.{name}")
                 else:
                     table_names.append(name)
-        
+
         return table_names
-        
+
     except Exception as e:
         log_event(
             "get_allowed_tables_for_validation_error",
@@ -774,12 +798,14 @@ async def _get_allowed_tables_for_validation(
                 "connection_id": connection_id,
                 "space_id": space_id,
                 "error": str(e)[:200],
-            }
+            },
         )
         return []
 
 
-def _schema_summary_from_tables(tables: list[dict], max_tables: int = 30) -> tuple[list[str], str]:
+def _schema_summary_from_tables(
+    tables: list[dict], max_tables: int = 30
+) -> tuple[list[str], str]:
     logical_tables: list[str] = []
     lines: list[str] = []
 
@@ -812,6 +838,7 @@ def _schema_summary_from_tables(tables: list[dict], max_tables: int = 30) -> tup
 
     return unique, "\n".join(lines)
 
+
 def _safe_json_loads(text: str) -> Optional[dict]:
     """
     Best-effort JSON parsing for LLM outputs.
@@ -839,7 +866,7 @@ async def _get_table_metadata_stats(
     data_source: Any,  # BaseDataSource, mas usando Any para evitar import circular
     table_name: str,
     schema: str,
-    connection_type: str
+    connection_type: str,
 ) -> Optional[Dict[str, Any]]:
     """
     Obtém row_count via metadados do sistema (INFORMATION_SCHEMA).
@@ -847,10 +874,10 @@ async def _get_table_metadata_stats(
     """
     try:
         full_name = f"{schema}.{table_name}" if schema else table_name
-        
+
         if connection_type == "bigquery":
             # BigQuery: usar __TABLES__ para row_count (mais rápido que COUNT)
-            table_only = table_name.split('.')[-1]
+            table_only = table_name.split(".")[-1]
             query = f"""
                 SELECT 
                     table_id as table_name,
@@ -863,7 +890,7 @@ async def _get_table_metadata_stats(
             """
         elif connection_type == "postgres":
             # PostgreSQL pg_stat_user_tables (mais rápido)
-            table_only = table_name.split('.')[-1]
+            table_only = table_name.split(".")[-1]
             query = f"""
                 SELECT 
                     schemaname,
@@ -876,15 +903,15 @@ async def _get_table_metadata_stats(
             """
         else:
             return None
-        
+
         # Executar com timeout curto
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
             result = await asyncio.wait_for(
                 loop.run_in_executor(executor, data_source.run_query, query),
-                timeout=3.0  # 3 segundos máximo
+                timeout=3.0,  # 3 segundos máximo
             )
-        
+
         if result and len(result) > 0:
             row = result[0]
             return {
@@ -895,11 +922,10 @@ async def _get_table_metadata_stats(
     except (FutureTimeoutError, asyncio.TimeoutError):
         log_event("table_metadata_stats_timeout", {"table": table_name})
     except Exception as e:
-        log_event("table_metadata_stats_error", {
-            "table": table_name,
-            "error": str(e)[:200]
-        })
-    
+        log_event(
+            "table_metadata_stats_error", {"table": table_name, "error": str(e)[:200]}
+        )
+
     return None
 
 
@@ -909,7 +935,7 @@ async def _get_table_sample_stats(
     schema: str,
     columns: List[Dict[str, Any]],
     row_count: int,
-    connection_type: str
+    connection_type: str,
 ) -> Optional[Dict[str, Any]]:
     """
     Coleta estatísticas básicas usando sampling para tabelas grandes.
@@ -917,31 +943,37 @@ async def _get_table_sample_stats(
     """
     try:
         full_name = f"{schema}.{table_name}" if schema else table_name
-        
+
         # Identificar colunas numéricas (amount, total, value, etc.)
         amount_cols = [
-            c.get("name") for c in columns
-            if any(keyword in (c.get("name", "") or "").lower()
-                   for keyword in ["amount", "total", "value", "revenue", "price", "cost"])
-            and any(t in (c.get("type", "") or "").upper()
-                   for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "INT64", "FLOAT64"])
+            c.get("name")
+            for c in columns
+            if any(
+                keyword in (c.get("name", "") or "").lower()
+                for keyword in ["amount", "total", "value", "revenue", "price", "cost"]
+            )
+            and any(
+                t in (c.get("type", "") or "").upper()
+                for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "INT64", "FLOAT64"]
+            )
         ]
-        
+
         # Identificar colunas de data
         date_cols = [
-            c.get("name") for c in columns
+            c.get("name")
+            for c in columns
             if "DATE" in (c.get("type", "") or "").upper()
         ]
-        
+
         stats = {}
-        
+
         # Se tabela é muito grande (> 1M linhas), usar sampling
         use_sampling = row_count > 1_000_000
-        
+
         # Query para estatísticas de valores (apenas se houver coluna de amount)
         if amount_cols:
             amount_col = amount_cols[0]
-            
+
             if use_sampling and connection_type == "bigquery":
                 # BigQuery: TABLESAMPLE SYSTEM (1 PERCENT)
                 query = f"""
@@ -994,22 +1026,28 @@ async def _get_table_sample_stats(
                         WHERE {amount_col} IS NOT NULL
                         LIMIT 1
                     """
-            
+
             try:
                 loop = asyncio.get_event_loop()
                 with ThreadPoolExecutor() as executor:
                     result = await asyncio.wait_for(
                         loop.run_in_executor(executor, data_source.run_query, query),
-                        timeout=5.0  # 5 segundos máximo
+                        timeout=5.0,  # 5 segundos máximo
                     )
-                
+
                 if result and len(result) > 0:
                     row = result[0]
                     stats["amount_stats"] = {
-                        "total": float(row.get("total", 0)) if row.get("total") else None,
+                        "total": (
+                            float(row.get("total", 0)) if row.get("total") else None
+                        ),
                         "avg": float(row.get("avg", 0)) if row.get("avg") else None,
-                        "min": float(row.get("min_val", 0)) if row.get("min_val") else None,
-                        "max": float(row.get("max_val", 0)) if row.get("max_val") else None,
+                        "min": (
+                            float(row.get("min_val", 0)) if row.get("min_val") else None
+                        ),
+                        "max": (
+                            float(row.get("max_val", 0)) if row.get("max_val") else None
+                        ),
                         "sample_count": int(row.get("sample_count", 0)),
                         "is_sampled": use_sampling,
                     }
@@ -1017,11 +1055,11 @@ async def _get_table_sample_stats(
                 pass  # Se timeout, continua sem essas stats
             except Exception:
                 pass  # Se erro, continua sem essas stats
-        
+
         # Query para range de datas (apenas se houver coluna de data)
         if date_cols:
             date_col = date_cols[0]
-            
+
             if connection_type == "bigquery":
                 query = f"""
                     SELECT 
@@ -1040,15 +1078,15 @@ async def _get_table_sample_stats(
                     WHERE {date_col} IS NOT NULL
                     LIMIT 1
                 """
-            
+
             try:
                 loop = asyncio.get_event_loop()
                 with ThreadPoolExecutor() as executor:
                     result = await asyncio.wait_for(
                         loop.run_in_executor(executor, data_source.run_query, query),
-                        timeout=5.0
+                        timeout=5.0,
                     )
-                
+
                 if result and len(result) > 0:
                     row = result[0]
                     if row.get("min_date") and row.get("max_date"):
@@ -1060,14 +1098,13 @@ async def _get_table_sample_stats(
                 pass
             except Exception:
                 pass
-        
+
         return stats if stats else None
-        
+
     except Exception as e:
-        log_event("table_sample_stats_error", {
-            "table": table_name,
-            "error": str(e)[:200]
-        })
+        log_event(
+            "table_sample_stats_error", {"table": table_name, "error": str(e)[:200]}
+        )
         return None
 
 
@@ -1076,7 +1113,7 @@ async def _collect_table_statistics_optimized(
     tables: List[Dict[str, Any]],
     connection_id: str,
     connection_type: str,
-    max_tables: int = 3
+    max_tables: int = 3,
 ) -> Dict[str, Any]:
     """
     Coleta estatísticas otimizadas seguindo melhores práticas do mercado:
@@ -1086,15 +1123,15 @@ async def _collect_table_statistics_optimized(
     - Timeout curto e fail-safe
     """
     stats = {}
-    
+
     # 1. Selecionar tabelas para análise (agnóstico de domínio)
     # Usa as primeiras tabelas disponíveis, limitadas pelo max_tables
     # A seleção será baseada nas tabelas que o usuário tem acesso, não em tipos específicos
     selected_tables = tables[:max_tables]  # Limitar a max_tables tabelas
-    
+
     if not selected_tables:
         return stats
-    
+
     # 2. Coletar metadados em paralelo (row_count via INFORMATION_SCHEMA)
     metadata_tasks = []
     for table in selected_tables:
@@ -1102,53 +1139,56 @@ async def _collect_table_statistics_optimized(
         name = table.get("name", "")
         task = _get_table_metadata_stats(data_source, name, schema, connection_type)
         metadata_tasks.append((table, task))
-    
+
     # Executar todas as queries de metadados em paralelo
-    metadata_results = await asyncio.gather(*[task for _, task in metadata_tasks], return_exceptions=True)
-    
+    metadata_results = await asyncio.gather(
+        *[task for _, task in metadata_tasks], return_exceptions=True
+    )
+
     # 3. Para cada tabela com metadados válidos, coletar stats adicionais
     sample_tasks = []
     for (table, _), metadata_result in zip(metadata_tasks, metadata_results):
         if isinstance(metadata_result, Exception):
             continue
-        
+
         if not metadata_result or metadata_result.get("row_count", 0) == 0:
             continue
-        
+
         schema = table.get("schema", "")
         name = table.get("name", "")
         full_name = f"{schema}.{name}" if schema else name
         columns = table.get("columns", [])
         row_count = metadata_result.get("row_count", 0)
-        
+
         # Incluir row_count nos stats
         stats[full_name] = {
             "row_count": row_count,
             "size_bytes": metadata_result.get("size_bytes"),
             "last_modified": metadata_result.get("last_modified"),
         }
-        
+
         # Coletar stats adicionais apenas se tabela não for muito grande
         # e tiver menos de 10M linhas (evitar queries muito lentas)
         if 0 < row_count < 10_000_000:
-            task = _get_table_sample_stats(data_source, name, schema, columns, row_count, connection_type)
+            task = _get_table_sample_stats(
+                data_source, name, schema, columns, row_count, connection_type
+            )
             sample_tasks.append((full_name, task))
-    
+
     # Executar queries de sample em paralelo (máximo 3)
     if sample_tasks:
         sample_results = await asyncio.gather(
-            *[task for _, task in sample_tasks], 
-            return_exceptions=True
+            *[task for _, task in sample_tasks], return_exceptions=True
         )
-        
+
         # Adicionar stats de sample aos stats principais
         for (full_name, _), sample_result in zip(sample_tasks, sample_results):
             if isinstance(sample_result, Exception):
                 continue
-            
+
             if sample_result and full_name in stats:
                 stats[full_name].update(sample_result)
-    
+
     return stats
 
 
@@ -1159,16 +1199,38 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     """
     greeting = "How can I help you with your data?"
     suggestions: list[ChatBootstrapSuggestion] = [
-        ChatBootstrapSuggestion(title="Monthly performance", kind="question", question="What is the monthly performance of key indicators?"),
-        ChatBootstrapSuggestion(title="Top results", kind="question", question="What are the top results?"),
-        ChatBootstrapSuggestion(title="Time-based analysis", kind="question", question="How do the data vary over time?"),
-        ChatBootstrapSuggestion(title="Category breakdown", kind="question", question="What is the distribution by category?"),
+        ChatBootstrapSuggestion(
+            title="Monthly performance",
+            kind="question",
+            question="What is the monthly performance of key indicators?",
+        ),
+        ChatBootstrapSuggestion(
+            title="Top results", kind="question", question="What are the top results?"
+        ),
+        ChatBootstrapSuggestion(
+            title="Time-based analysis",
+            kind="question",
+            question="How do the data vary over time?",
+        ),
+        ChatBootstrapSuggestion(
+            title="Category breakdown",
+            kind="question",
+            question="What is the distribution by category?",
+        ),
     ]
 
     out = suggestions[:max_suggestions]
     while len(out) < max_suggestions:
-        out.append(ChatBootstrapSuggestion(title="Example", kind="question", question="Show me something interesting from my data."))
-    return ChatBootstrapResponse(greeting=greeting, suggestions=out, meta={"fallback": True})
+        out.append(
+            ChatBootstrapSuggestion(
+                title="Example",
+                kind="question",
+                question="Show me something interesting from my data.",
+            )
+        )
+    return ChatBootstrapResponse(
+        greeting=greeting, suggestions=out, meta={"fallback": True}
+    )
 
 
 @router.post("/{connection_id}/chat/bootstrap", response_model=ChatBootstrapResponse)
@@ -1179,11 +1241,11 @@ async def chat_bootstrap(
 ) -> ChatBootstrapResponse:
     """
     Sherlock - Gerador de Sugestões Inteligentes
-    
+
     Generate greeting + suggestion cards for a new chat session.
     This is the "Sherlock" agent that investigates available data and suggests
     relevant business questions the user can click on.
-    
+
     Supports both Personal and Collaborative modes:
     - Personal mode (is_personal=True): Suggestions based on all crews/spaces user belongs to
     - Collaborative mode (is_personal=False): Suggestions based only on data from specific space/crew
@@ -1197,8 +1259,7 @@ async def chat_bootstrap(
     # ✅ Feature Flag: Pausar Bootstrap se solicitado
     if DISABLE_BOOTSTRAP_EXECUTION:
         return ChatBootstrapResponse(
-            greeting="Bootstrap is paused (Maintenance Mode)",
-            suggestions=[]
+            greeting="Bootstrap is paused (Maintenance Mode)", suggestions=[]
         )
 
     # ✅ NOVA: Resolver crew_ids baseado no contexto (personal vs collaborative)
@@ -1245,27 +1306,30 @@ async def chat_bootstrap(
         language=lang,
         time_window=time_window,  # ✅ MUDANÇA: usa time_window (5 min por padrão)
     )
-    
+
     cached_response = _get_cached_bootstrap(cache_key)
     if cached_response:
         # Remover qualquer card "create_dashboard" que possa estar no cache antigo
         cached_response.suggestions = [
-            sug for sug in cached_response.suggestions 
+            sug
+            for sug in cached_response.suggestions
             if not (sug.kind == "action" and sug.action_id == "create_dashboard")
         ]
-        
+
         # Ajustar contagem se necessário após filtrar
         if len(cached_response.suggestions) > body.max_suggestions:
-            cached_response.suggestions = cached_response.suggestions[: body.max_suggestions]
+            cached_response.suggestions = cached_response.suggestions[
+                : body.max_suggestions
+            ]
         while len(cached_response.suggestions) < body.max_suggestions:
             cached_response.suggestions.append(
                 ChatBootstrapSuggestion(
-                    title="Example", 
-                    kind="question", 
-                    question="Show me something interesting from my data."
+                    title="Example",
+                    kind="question",
+                    question="Show me something interesting from my data.",
                 )
             )
-        
+
         log_event(
             "bootstrap_cache_hit",
             {
@@ -1276,7 +1340,7 @@ async def chat_bootstrap(
             },
         )
         return cached_response
-    
+
     log_event(
         "bootstrap_cache_miss",
         {
@@ -1287,7 +1351,9 @@ async def chat_bootstrap(
     )
 
     # Backend-compatible: read catalog from `connection_metadata`.
-    all_tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    all_tables = await _load_connection_metadata_tables(
+        db=db, connection_id=connection_id
+    )
     if not all_tables:
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
@@ -1295,8 +1361,8 @@ async def chat_bootstrap(
     # Filtramos sempre, garantindo que o usuário só veja sugestões para dados que ele tem permissão.
     # No modo personal, `resolved_crew_ids` contém todas as crews do usuário.
     # No modo collaborative, contém apenas a crew ativa.
-    is_strict = not bool(body.is_personal) # modo colaborativo = strict
-    
+    is_strict = not bool(body.is_personal)  # modo colaborativo = strict
+
     tables = await _filter_tables_by_permissions(
         db=db,
         connection_id=connection_id,
@@ -1305,7 +1371,7 @@ async def chat_bootstrap(
         crew_ids=resolved_crew_ids,
         strict_mode=is_strict,
     )
-    
+
     if not tables:
         # Se após filtrar não há tabelas, retornar fallback
         log_event(
@@ -1322,38 +1388,52 @@ async def chat_bootstrap(
 
     # Build a compact schema summary for the LLM.
     max_tables_in_prompt = min(30, len(tables))
-    _logical, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
+    _logical, schema_summary = _schema_summary_from_tables(
+        tables, max_tables=max_tables_in_prompt
+    )
 
     # ✅ NOVO: Coletar estatísticas dos dados reais (seguindo melhores práticas)
     table_statistics = {}
-    stats_cache_key = _get_table_stats_cache_key(connection_id, body.space_id, resolved_crew_ids)
-    
+    stats_cache_key = _get_table_stats_cache_key(
+        connection_id, body.space_id, resolved_crew_ids
+    )
+
     # Verificar cache de estatísticas primeiro
     cached_stats = _get_cached_table_stats(stats_cache_key)
     if cached_stats:
         table_statistics = cached_stats
-        log_event("bootstrap_table_stats_cache_hit", {
-            "connection_id": connection_id,
-            "num_tables_with_stats": len(table_statistics)
-        })
+        log_event(
+            "bootstrap_table_stats_cache_hit",
+            {
+                "connection_id": connection_id,
+                "num_tables_with_stats": len(table_statistics),
+            },
+        )
     else:
         # Coletar estatísticas (com timeout total de 8 segundos)
         try:
             # Criar DataSource temporário
             result = await db.execute(
-                text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
-                {"id": connection_id}
+                text(
+                    "SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"
+                ),
+                {"id": connection_id},
             )
             conn_result = result.first()
-            
+
             if conn_result:
+
                 class TempDataConnection:
                     def __init__(self, id, name, type, config):
                         self.id = id
                         self.name = name
                         self.type = type
-                        self.config = config if isinstance(config, dict) else json.loads(config) if isinstance(config, str) else {}
-                
+                        self.config = (
+                            config
+                            if isinstance(config, dict)
+                            else json.loads(config) if isinstance(config, str) else {}
+                        )
+
                 conn_config = conn_result[3]
                 if isinstance(conn_config, str):
                     try:
@@ -1362,17 +1442,17 @@ async def chat_bootstrap(
                         conn_config = {}
                 elif conn_config is None:
                     conn_config = {}
-                
+
                 data_conn = TempDataConnection(
                     id=str(conn_result[0]),
                     name=conn_result[1],
                     type=conn_result[2] or "bigquery",
-                    config=conn_config
+                    config=conn_config,
                 )
-                
+
                 data_source = DataSourceFactory.build_from_dataconnection(data_conn)
                 connection_type = conn_result[2] or "bigquery"
-                
+
                 # Coletar estatísticas com timeout total
                 table_statistics = await asyncio.wait_for(
                     _collect_table_statistics_optimized(
@@ -1380,30 +1460,31 @@ async def chat_bootstrap(
                         tables=tables[:5],  # Apenas primeiras 5 tabelas
                         connection_id=connection_id,
                         connection_type=connection_type,
-                        max_tables=3  # Máximo 3 tabelas principais
+                        max_tables=3,  # Máximo 3 tabelas principais
                     ),
-                    timeout=8.0  # Timeout total de 8 segundos
+                    timeout=8.0,  # Timeout total de 8 segundos
                 )
-                
+
                 # Armazenar no cache
                 _set_cached_table_stats(stats_cache_key, table_statistics)
-                
-                log_event("bootstrap_table_stats_collected", {
-                    "connection_id": connection_id,
-                    "num_tables_with_stats": len(table_statistics),
-                })
+
+                log_event(
+                    "bootstrap_table_stats_collected",
+                    {
+                        "connection_id": connection_id,
+                        "num_tables_with_stats": len(table_statistics),
+                    },
+                )
         except (asyncio.TimeoutError, FutureTimeoutError):
-            log_event("bootstrap_table_stats_timeout", {
-                "connection_id": connection_id
-            })
+            log_event("bootstrap_table_stats_timeout", {"connection_id": connection_id})
             # Continuar sem stats se timeout
         except Exception as e:
-            log_event("bootstrap_table_stats_error", {
-                "connection_id": connection_id,
-                "error": str(e)[:200]
-            })
+            log_event(
+                "bootstrap_table_stats_error",
+                {"connection_id": connection_id, "error": str(e)[:200]},
+            )
             # Continuar sem stats se erro (fail-safe)
-    
+
     # Formatar estatísticas para o prompt
     stats_summary = ""
     if table_statistics:
@@ -1425,7 +1506,7 @@ async def chat_bootstrap(
                 dr = stats["date_range"]
                 lines.append(f"  • Período: {dr['min']} até {dr['max']}")
             stats_lines.append("\n".join(lines))
-        
+
         if stats_lines:
             stats_summary = "\n\n".join(stats_lines)
 
@@ -1466,7 +1547,7 @@ async def chat_bootstrap(
         "You generate a greeting and suggestion cards for a data analytics chat.\n"
         "Rules:\n"
         "- Output STRICT JSON only.\n"
-        "- JSON schema: {\"greeting\": string, \"suggestions\": [{\"title\": string, \"question\": string}]}\n"
+        '- JSON schema: {"greeting": string, "suggestions": [{"title": string, "question": string}]}\n'
         "- Provide EXACTLY N suggestions.\n"
         "- Suggestions must be answerable using ONLY the provided tables/columns.\n"
         "- Avoid mentioning table physical names; prefer natural questions.\n"
@@ -1485,7 +1566,7 @@ async def chat_bootstrap(
     schema_hash = hashlib.md5(schema_summary.encode()).hexdigest()
     combined_seed = f"{connection_id}_{schema_hash}_{time_window}"
     variation_seed = int(hashlib.md5(combined_seed.encode()).hexdigest()[:8], 16) % 6
-    
+
     # Mapear seed para diferentes ênfases que rotacionam periodicamente
     emphasis_hints = [
         "Focus on performance metrics and KPIs (growth rates, efficiency, profitability, ROI, key indicators).",
@@ -1495,7 +1576,7 @@ async def chat_bootstrap(
         "Focus on segmentation and grouping (breakdowns by dimensions like types, categories, cohorts, statuses).",
         "Focus on aggregations and summaries (totals, averages, percentages, counts, ratios, trends).",
     ]
-    
+
     current_emphasis = emphasis_hints[variation_seed]
 
     user = (
@@ -1503,7 +1584,7 @@ async def chat_bootstrap(
         f"User has access to {len(tables)} tables (filtered by permissions).\n\n"
         f"Schema (sample):\n{schema_summary}\n\n"
     )
-    
+
     # ✅ Adicionar estatísticas reais se disponíveis
     if stats_summary:
         user += (
@@ -1513,18 +1594,22 @@ async def chat_bootstrap(
             f"For example:\n"
         )
         # Adicionar exemplos baseados nas stats reais
-        first_table_stats = list(table_statistics.values())[0] if table_statistics else {}
+        first_table_stats = (
+            list(table_statistics.values())[0] if table_statistics else {}
+        )
         if first_table_stats.get("row_count"):
             user += f"- If a table has {first_table_stats['row_count']:,} rows, suggest 'How many X do we have?'\n"
         if first_table_stats.get("amount_stats", {}).get("total"):
             user += f"- If there's a total amount, suggest 'What is the total revenue?' or 'What is the average value?'\n"
         if first_table_stats.get("date_range"):
-            user += f"- If there's a date range, suggest questions about that time period\n"
+            user += (
+                f"- If there's a date range, suggest questions about that time period\n"
+            )
         user += (
             f"- Make suggestions that will return meaningful data based on these statistics\n"
             f"- Personalize the greeting to mention the data available (e.g., 'You have X records in your main table')\n\n"
         )
-    
+
     user += (
         f"Context: {mode_context}\n\n"
         "Generate greeting + STRATEGIC BUSINESS QUESTIONS based ONLY on the accessible tables shown above.\n"
@@ -1591,7 +1676,11 @@ async def chat_bootstrap(
                     title = str(item.get("title") or "").strip()
                     question = str(item.get("question") or "").strip()
                     if title and question:
-                        suggestions.append(ChatBootstrapSuggestion(title=title, kind="question", question=question))
+                        suggestions.append(
+                            ChatBootstrapSuggestion(
+                                title=title, kind="question", question=question
+                            )
+                        )
 
         if not greeting or len(suggestions) == 0:
             return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
@@ -1600,32 +1689,36 @@ async def chat_bootstrap(
         try:
             from core.validation.question_validator import QuestionValidator
             from core.validation.suggestion_validator import SuggestionValidator
-            
+
             # Preparar metadados para o validador
             available_tables_meta = [
                 {
                     "name": t.get("name", ""),
                     "logical_name": t.get("logical_name") or t.get("name", ""),
-                    "columns": [c.get("name") if isinstance(c, dict) else str(c) 
-                               for c in (t.get("columns") or [])]
+                    "columns": [
+                        c.get("name") if isinstance(c, dict) else str(c)
+                        for c in (t.get("columns") or [])
+                    ],
                 }
                 for t in tables[:max_tables_in_prompt]
             ]
             available_columns = {
                 (t.get("logical_name") or t.get("name", "")): [
-                    c.get("name") if isinstance(c, dict) else str(c) 
+                    c.get("name") if isinstance(c, dict) else str(c)
                     for c in (t.get("columns") or [])
                 ]
                 for t in tables[:max_tables_in_prompt]
             }
-            
-            question_validator = QuestionValidator(available_tables_meta, available_columns)
+
+            question_validator = QuestionValidator(
+                available_tables_meta, available_columns
+            )
             suggestion_validator = SuggestionValidator(question_validator)
-            
+
             # Filtrar sugestões problemáticas
             filtered_suggestions: list[ChatBootstrapSuggestion] = []
             filtered_count = 0
-            
+
             for sug in suggestions:
                 # Filtrar ações "create_dashboard" - não queremos mais esse card
                 if sug.kind == "action" and sug.action_id == "create_dashboard":
@@ -1639,11 +1732,13 @@ async def chat_bootstrap(
                         },
                     )
                     continue  # Pular esta sugestão
-                
+
                 # Validar perguntas
                 question_text = sug.question or ""
                 if question_text:
-                    should_filter = suggestion_validator.should_filter_suggestion(question_text)
+                    should_filter = suggestion_validator.should_filter_suggestion(
+                        question_text
+                    )
                     if should_filter:
                         filtered_count += 1
                         log_event(
@@ -1656,11 +1751,11 @@ async def chat_bootstrap(
                             },
                         )
                         continue  # Pular esta sugestão
-                
+
                 filtered_suggestions.append(sug)
-            
+
             suggestions = filtered_suggestions
-            
+
             # Se filtramos muitas sugestões, adicionar algumas de fallback
             if filtered_count > 0 and len(suggestions) < body.max_suggestions:
                 log_event(
@@ -1685,7 +1780,8 @@ async def chat_bootstrap(
 
         # Remover qualquer card "create_dashboard" que possa ter sido gerado pela LLM
         suggestions = [
-            sug for sug in suggestions 
+            sug
+            for sug in suggestions
             if not (sug.kind == "action" and sug.action_id == "create_dashboard")
         ]
 
@@ -1695,9 +1791,13 @@ async def chat_bootstrap(
         while len(suggestions) < body.max_suggestions:
             suggestions.append(
                 ChatBootstrapSuggestion(
-                    title="Example", 
-                    kind="question", 
-                    question=(suggestions[-1].question if suggestions else "Show me something interesting from my data.")
+                    title="Example",
+                    kind="question",
+                    question=(
+                        suggestions[-1].question
+                        if suggestions
+                        else "Show me something interesting from my data."
+                    ),
                 )
             )
 
@@ -1719,7 +1819,7 @@ async def chat_bootstrap(
                 "has_table_stats": len(table_statistics) > 0,  # ✅ NOVO
             },
         )
-        
+
         # ✅ NOVA: Armazenar no cache após gerar
         _set_cached_bootstrap(cache_key, response)
         log_event(
@@ -1731,7 +1831,7 @@ async def chat_bootstrap(
                 "cache_size": len(_bootstrap_cache),
             },
         )
-        
+
         return response
     except Exception:
         return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
@@ -1753,12 +1853,13 @@ async def dashboards_plan(
 
     agent_config = None
     tables = []
-    
+
     # 🔒 GLOBAL LANGUAGE GUARD (User Requirement: English Only)
     # Applied at the API entry point to cover direct dashboard generation access.
     from core.i18n.i18n import detect_language
+
     detected_lang = detect_language(body.goal)
-    
+
     if detected_lang != "en":
         msg = (
             "I'm sorry, but I currently only understand English. "
@@ -1767,7 +1868,7 @@ async def dashboards_plan(
         # Construct a "blocked" response manually to fit DashboardPlanResponse schema
         return DashboardPlanResponse(
             dashboard_name="English Only Support",
-            title="Language Not Supported", 
+            title="Language Not Supported",
             description="Please use English for your queries.",
             widgets=[
                 DashboardPlanWidget(
@@ -1775,7 +1876,7 @@ async def dashboards_plan(
                     type="text",
                     title="Language Not Supported",
                     question="N/A",
-                    viz={"type": "text", "content": msg}
+                    viz={"type": "text", "content": msg},
                 )
             ],
             meta={
@@ -1783,13 +1884,13 @@ async def dashboards_plan(
                 "grounding": {},
                 "generated_at": datetime.utcnow().isoformat(),
                 "model": "system-guard",
-                "blocked_language": detected_lang
+                "blocked_language": detected_lang,
             },
             full_results={
                 "verdict": msg,
                 "diagnostic": f"Detected language: {detected_lang}. System requires English.",
-                "execution": "Please rephrase in English."
-            }
+                "execution": "Please rephrase in English.",
+            },
         )
     logical_tables: list[str] = []
     schema_summary = ""
@@ -1801,14 +1902,14 @@ async def dashboards_plan(
         try:
             from core.security.security_guard import evaluate_security
             from core.llm.factory import create_llm_orchestrator
-            
+
             # Use orchestrator LLM for security checks (it's a smart model)
             llm_provider = create_llm_orchestrator()
             security_decision = await evaluate_security(
                 question=original_question,
                 llm_provider=llm_provider,
             )
-            
+
             if security_decision.is_blocked():
                 log_event(
                     "dashboard_plan_security_guard_blocked",
@@ -1824,7 +1925,7 @@ async def dashboards_plan(
                 )
                 raise HTTPException(
                     status_code=400,
-                    detail="I can't help with that request. Please rephrase your question about your data."
+                    detail="I can't help with that request. Please rephrase your question about your data.",
                 )
         except HTTPException:
             raise
@@ -1878,7 +1979,7 @@ async def dashboards_plan(
         context_tables=getattr(body, "context_tables", None),
         mode=getattr(body, "mode", "mix"),
     )
-    
+
     # CACHE DISABLED per user request to ensure fresh generation and avoid stale errors.
     # cached_response = _get_cached_dashboard_plan(cache_key)
     # if cached_response:
@@ -1895,7 +1996,7 @@ async def dashboards_plan(
     #     if cached_response.meta:
     #         cached_response.meta["cached"] = True
     #     return cached_response
-    
+
     log_event(
         "dashboard_plan_cache_miss",
         {
@@ -1908,12 +2009,16 @@ async def dashboards_plan(
     # Prefer backend-provided overrides (avoids needing this service to query the DB schema correctly).
     try:
         if body.logical_tables_override:
-            logical_tables = [str(x) for x in body.logical_tables_override if str(x).strip()]
+            logical_tables = [
+                str(x) for x in body.logical_tables_override if str(x).strip()
+            ]
             schema_summary = str(body.schema_summary_override or "").strip()
             max_tables_in_prompt = min(30, len(logical_tables))
         else:
-            tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
-            
+            tables = await _load_connection_metadata_tables(
+                db=db, connection_id=connection_id
+            )
+
             # 🔥 SECURITY FIX: Filtrar tabelas por permissões de Crew antes do enrichment e do LLM.
             # Isso impede que o Davinci planeje widgets usando tabelas não autorizadas.
             is_strict = not bool(getattr(body, "is_personal", False))
@@ -1927,7 +2032,9 @@ async def dashboards_plan(
             )
 
             # ✅ Enrich with AI metadata (date ranges!)
-            tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
+            tables = await _enrich_tables_with_ai_metadata(
+                db=db, connection_id=connection_id, tables=tables
+            )
 
             # ✅ SEMANTIC RE-RANKING (Hybrid Logic)
             # If we have an original question, use vector search to bubble up relevant tables.
@@ -1936,17 +2043,17 @@ async def dashboards_plan(
                 try:
                     # 1. Instantiate Provider using Factory
                     provider = create_embedding_provider()
-                    
+
                     # 2. Search (Top 50 to get good coverage)
                     # We search for the question + goal to maximize context
                     search_query = f"{original_q_for_rank}"
-                    
+
                     # We pass connection_id to enable "Hybrid Search" (Global + Local) if supported,
                     # but typically we want to search within this specific connection's metadata scope.
                     # search_embeddings_async arguments: space_id, crew_ids, query, top_k...
                     # NOTE: Schema embeddings are usually linked to connection_id via TableMetadata -> data_connection_id logic.
                     # vector_store.search_embeddings_async supports connection_id filtering.
-                    
+
                     top_records = await search_embeddings_async(
                         db=db,
                         embedding_provider=provider,
@@ -1954,9 +2061,9 @@ async def dashboards_plan(
                         crew_ids=resolved_crew_ids,
                         query_text=search_query,
                         top_k=50,
-                        connection_id=connection_id
+                        connection_id=connection_id,
                     )
-                    
+
                     # 3. Extract scores
                     # Record: extra_metadata={'table_name': '...'}
                     # We want to map Table -> Min Distance (Best Match)
@@ -1964,36 +2071,44 @@ async def dashboards_plan(
                     table_scores = {}
                     for rec in top_records:
                         t_name = (rec.extra_metadata or {}).get("table_name")
-                        if not t_name: continue
-                        
+                        if not t_name:
+                            continue
+
                         # Use a simple score: 1.0 for top result, decreasing.
                         # Or just use rank order.
                         # Let's use rank order boosting.
                         if t_name not in table_scores:
                             table_scores[t_name] = 0
-                        table_scores[t_name] += 1 # Frequency boost?
+                        table_scores[t_name] += 1  # Frequency boost?
                         # Actually simple presence in top K is a strong signal.
-                    
+
                     # 4. Sort 'tables' list
                     # Tables is a list of dicts. We need to match names.
                     # Sort key: -score (descending), then name (asc)
                     def get_score(t_meta):
                         tn = t_meta.get("name", "")
-                        return table_scores.get(tn, 0) + table_scores.get(t_meta.get("logical_name", ""), 0)
+                        return table_scores.get(tn, 0) + table_scores.get(
+                            t_meta.get("logical_name", ""), 0
+                        )
 
                     # Stable sort: relevant first, then original order
                     tables.sort(key=lambda t: get_score(t), reverse=True)
-                    
-                    log_event("dashboard_plan_semantic_rerank", {
-                        "query": search_query[:50],
-                        "top_tables": [t.get("name") for t in tables[:5]]
-                    })
-                    
+
+                    log_event(
+                        "dashboard_plan_semantic_rerank",
+                        {
+                            "query": search_query[:50],
+                            "top_tables": [t.get("name") for t in tables[:5]],
+                        },
+                    )
+
                 except Exception as e:
-                     log_event("dashboard_plan_rerank_error", {"error": str(e)})
+                    log_event("dashboard_plan_rerank_error", {"error": str(e)})
 
             max_tables_in_prompt = min(30, len(tables))
-            logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
+            logical_tables, schema_summary = _schema_summary_from_tables(
+                tables, max_tables=max_tables_in_prompt
+            )
     except Exception:
         tables = []
         logical_tables = []
@@ -2009,18 +2124,23 @@ async def dashboards_plan(
         context_spaces = getattr(body, "context_spaces", None)
         context_crews = getattr(body, "context_crews", None)
         context_tables = getattr(body, "context_tables", None)
-        
+
         # 🔗 NEW: Analysis Context Bridge
         # Try to retrieve validated intent from the chat session
-        user_id_str = str(body.user_id) if hasattr(body, "user_id") and body.user_id else "anon"
+        user_id_str = (
+            str(body.user_id) if hasattr(body, "user_id") and body.user_id else "anon"
+        )
         analysis_context = AnalysisSessionStore.get(user_id_str, connection_id)
-        
+
         if analysis_context:
-            log_event("dashboard_plan_context_found", {
-                "user_id": user_id_str,
-                "analysis_type": analysis_context.detected_analysis_type,
-                "entity": analysis_context.primary_entity
-            })
+            log_event(
+                "dashboard_plan_context_found",
+                {
+                    "user_id": user_id_str,
+                    "analysis_type": analysis_context.detected_analysis_type,
+                    "entity": analysis_context.primary_entity,
+                },
+            )
 
         # ── Phase 2.10: Brain context for Davinci ────────────────────
         # Pull pillars / goals / OKRs / KPIs / connections / widgets
@@ -2032,9 +2152,10 @@ async def dashboards_plan(
                 fetch_brain_context_for_surface,
             )
 
-            _davinci_query = " ".join(
-                q for q in [original_question, body.goal] if q
-            ).strip() or body.goal
+            _davinci_query = (
+                " ".join(q for q in [original_question, body.goal] if q).strip()
+                or body.goal
+            )
             _brain_access = await fetch_brain_context_for_surface(
                 surface="dashboard_plan",
                 question=_davinci_query,
@@ -2064,8 +2185,8 @@ async def dashboards_plan(
             context_spaces=context_spaces,
             context_crews=context_crews,
             context_tables=context_tables,
-            table_metadata=tables, # ✅ Pass full metadata for Schema Intelligence
-            analysis_context=analysis_context, # 🔗 Pass the context bridge
+            table_metadata=tables,  # ✅ Pass full metadata for Schema Intelligence
+            analysis_context=analysis_context,  # 🔗 Pass the context bridge
             mode=getattr(body, "mode", "mix"),
             brain_context=_brain_section,  # Phase 2.10
         )
@@ -2083,9 +2204,9 @@ async def dashboards_plan(
                 "cached": False,
                 "has_original_question": original_question is not None,
             },
-            full_results=plan.full_results # ✅ Pass raw insights to frontend
+            full_results=plan.full_results,  # ✅ Pass raw insights to frontend
         )
-        
+
         # ✅ NOVA: Armazenar no cache após gerar
         # CACHE DISABLED per user request
         # _set_cached_dashboard_plan(cache_key, response)
@@ -2098,7 +2219,7 @@ async def dashboards_plan(
                 "cache_size": len(_dashboard_plan_cache),
             },
         )
-        
+
         return response
     except HTTPException:
         raise  # Re-raise HTTP exceptions without modification
@@ -2112,13 +2233,13 @@ async def dashboards_plan(
                 "connection_id": connection_id,
                 "user_id": str(body.user_id) if body.user_id else None,
                 "space_id": str(body.space_id) if body.space_id else None,
-            }
+            },
         )
-        
+
         # User-friendly message (NO stack trace or technical details)
         raise HTTPException(
             status_code=500,
-            detail="Unable to generate dashboard. Please try selecting specific tables or simplifying your request."
+            detail="Unable to generate dashboard. Please try selecting specific tables or simplifying your request.",
         )
 
 
@@ -2127,26 +2248,30 @@ async def list_available_tables(
     connection_id: str,
     space_id: str = Query(..., description="ID do space (obrigatório)"),
     user_id: Optional[str] = Query(None, description="ID do usuário (opcional)"),
-    crew_ids: Optional[List[str]] = Query(None, description="Lista de crew_ids (opcional)"),
-    is_personal: bool = Query(False, description="Modo personal (acesso a todos os crews)"),
+    crew_ids: Optional[List[str]] = Query(
+        None, description="Lista de crew_ids (opcional)"
+    ),
+    is_personal: bool = Query(
+        False, description="Modo personal (acesso a todos os crews)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Lista todas as tabelas disponíveis para uma conexão, respeitando permissões do usuário.
-    
+
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter obrigatório)
     - user_id: ID do usuário (opcional, para filtrar por permissões)
     - crew_ids: Lista de crew_ids (opcional, será resolvido automaticamente se user_id fornecido)
     - is_personal: Se True, retorna tabelas de todos os crews do usuário (modo personal)
-    
+
     Retorna:
     - Lista de tabelas com seus schemas (nome, colunas, tipos)
     """
     from core.auth.service import resolve_crew_ids_for_context
     from uuid import UUID
-    
+
     # Resolver crew_ids baseado no contexto (personal vs collaborative)
     resolved_crew_ids = crew_ids or []
     if user_id:
@@ -2156,7 +2281,7 @@ async def list_available_tables(
                 user_id=UUID(user_id),
                 space_id=UUID(space_id) if space_id else None,
                 request_crew_ids=crew_ids,
-                is_personal=is_personal
+                is_personal=is_personal,
             )
             resolved_crew_ids = [str(crew_id) for crew_id in resolved_crew_ids]
         except Exception as e:
@@ -2173,7 +2298,9 @@ async def list_available_tables(
             resolved_crew_ids = []
 
     # Load raw tables from connection_metadata
-    raw_tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
+    raw_tables = await _load_connection_metadata_tables(
+        db=db, connection_id=connection_id
+    )
 
     # FIX 3: Apply crew-level permission filtering in collaborative mode.
     # Previously, this endpoint resolved crew_ids but did NOT filter the tables.
@@ -2223,8 +2350,10 @@ async def list_available_tables(
                     }
                 )
 
-        tables_info.append({"name": full_name, "columns": columns, "num_columns": len(columns)})
-    
+        tables_info.append(
+            {"name": full_name, "columns": columns, "num_columns": len(columns)}
+        )
+
     log_event(
         "api_list_tables_success",
         {
@@ -2236,7 +2365,7 @@ async def list_available_tables(
             "is_personal": is_personal,
         },
     )
-    
+
     return {
         "connection_id": connection_id,
         "space_id": space_id,
@@ -2262,36 +2391,40 @@ async def load_agent_config_from_connection(
     )
 
     from core.dialects import Dialect
-    
+
     # 1. Fetch connection type and config
     conn_result = await db.execute(
-        text("SELECT connector_id AS type, config FROM data_connections WHERE id = :id"),
+        text(
+            "SELECT connector_id AS type, config FROM data_connections WHERE id = :id"
+        ),
         {"id": connection_id},
     )
     row = conn_result.first()
     if not row:
         raise HTTPException(404, detail="Connection not found")
-        
+
     ds_type = (row[0] or "").lower()
     config = row[1] if row[1] else {}
     if isinstance(config, str):
         config = json.loads(config)
-    
+
     # Map type to Dialect
     dialect = Dialect.POSTGRES  # default fallback
     if ds_type == "bigquery":
         dialect = Dialect.BIGQUERY
     elif ds_type == "api":
-        dialect = Dialect.NOSQL # APIs are NoSQL
+        dialect = Dialect.NOSQL  # APIs are NoSQL
     elif ds_type == "mysql":
         dialect = Dialect.MYSQL
     elif ds_type == "snowflake":
         dialect = Dialect.SNOWFLAKE
-    
+
     # Prefer backend-native catalog (poc backend writes to connection_metadata.tables).
     try:
         result = await db.execute(
-            text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+            text(
+                "SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+            ),
             {"cid": connection_id},
         )
         tables_json = result.scalar_one_or_none()
@@ -2305,10 +2438,13 @@ async def load_agent_config_from_connection(
             # Se authorized_tables for fornecido (Backend), essa é a fonte absoluta de permissão.
             if authorized_tables is not None:
                 tables_json = [
-                    t for t in tables_json 
+                    t
+                    for t in tables_json
                     if str(t.get("name") or "").strip() in authorized_tables
                 ]
-                logger.info(f"Filtro estrito via authorized_tables. Tabelas retidas: {len(tables_json)}")
+                logger.info(
+                    f"Filtro estrito via authorized_tables. Tabelas retidas: {len(tables_json)}"
+                )
             # Caso contrário, fallback para a checagem falha de crew_id no DB (apenas log/alert ou legacy)
             elif crew_ids is not None:
                 tables_json = await _filter_tables_by_permissions(
@@ -2325,13 +2461,15 @@ async def load_agent_config_from_connection(
             # and have the AI use them for better table selection.
             try:
                 desc_result = await db.execute(
-                    text("""
+                    text(
+                        """
                         SELECT table_name, column_name, description
                         FROM table_metadata
                         WHERE data_connection_id = :conn_id
                           AND space_id = :space_id
                           AND description IS NOT NULL
-                    """),
+                    """
+                    ),
                     {"conn_id": connection_id, "space_id": space_id},
                 )
                 desc_rows = desc_result.fetchall()
@@ -2356,21 +2494,29 @@ async def load_agent_config_from_connection(
                                 t["description"] = desc_lookup[tname]["_table_"]
                             elif not t.get("description"):
                                 # Use first non-null column desc as table description
-                                first_desc = next(iter(desc_lookup[tname].values()), None)
+                                first_desc = next(
+                                    iter(desc_lookup[tname].values()), None
+                                )
                                 if first_desc:
                                     t["description"] = first_desc
                             # Inject column-level descriptions
-                            for col in (t.get("columns") or []):
+                            for col in t.get("columns") or []:
                                 cname = str(col.get("name") or "").strip()
                                 if cname in desc_lookup.get(tname, {}):
                                     col["description"] = desc_lookup[tname][cname]
 
-                    log_event("load_agent_config_descriptions_enriched", {
-                        "connection_id": connection_id,
-                        "tables_enriched": list(desc_lookup.keys()),
-                    })
+                    log_event(
+                        "load_agent_config_descriptions_enriched",
+                        {
+                            "connection_id": connection_id,
+                            "tables_enriched": list(desc_lookup.keys()),
+                        },
+                    )
             except Exception as desc_err:
-                log_event("load_agent_config_descriptions_enrich_error", {"error": str(desc_err)[:300]})
+                log_event(
+                    "load_agent_config_descriptions_enrich_error",
+                    {"error": str(desc_err)[:300]},
+                )
 
             table_schemas: list[TableSchema] = []
             for t in tables_json:
@@ -2390,10 +2536,7 @@ async def load_agent_config_from_connection(
                     physical_name = name
 
                 # Use logical_name from metadata if exists, otherwise normalize
-                logical_name = (
-                    t.get("logical_name") 
-                    or _normalize_logical_name(name)
-                )
+                logical_name = t.get("logical_name") or _normalize_logical_name(name)
                 cols = t.get("columns") or []
                 columns = []
                 if isinstance(cols, list):
@@ -2406,7 +2549,9 @@ async def load_agent_config_from_connection(
                         columns.append(
                             {
                                 "name": str(cname),
-                                "type": str(c.get("type") or c.get("data_type") or "STRING"),
+                                "type": str(
+                                    c.get("type") or c.get("data_type") or "STRING"
+                                ),
                                 "nullable": bool(c.get("nullable", True)),
                                 "description": c.get("description"),
                             }
@@ -2427,7 +2572,7 @@ async def load_agent_config_from_connection(
                     name=f"Agent for connection {connection_id}",
                     tables=table_schemas,
                     dialect=dialect,  # 🔥 Pass correct dialect
-                    extra={"project_id": project_id}
+                    extra={"project_id": project_id},
                 )
                 log_event(
                     "load_agent_config_from_connection_metadata",
@@ -2442,16 +2587,24 @@ async def load_agent_config_from_connection(
     except Exception as e:
         log_event(
             "load_agent_config_connection_metadata_error",
-            {"space_id": space_id, "connection_id": connection_id, "error": str(e)[:500]},
+            {
+                "space_id": space_id,
+                "connection_id": connection_id,
+                "error": str(e)[:500],
+            },
         )
 
-        if not tables_json or not isinstance(tables_json, list) or len(tables_json) == 0:
+        if (
+            not tables_json
+            or not isinstance(tables_json, list)
+            or len(tables_json) == 0
+        ):
             log_event(
                 "load_agent_config_no_connection_metadata",
-                {"connection_id": connection_id}
+                {"connection_id": connection_id},
             )
             # Proceed to legacy table_metadata check
-    
+
     # Construir query SQL com filtro de permissões.
     #
     # Incident 2026-04-15 / migration 003: legacy rows created before
@@ -2479,14 +2632,11 @@ async def load_agent_config_from_connection(
         query_sql += " AND crew_id IS NULL"
 
     query_sql += " ORDER BY table_name, column_name"
-    
+
     # Buscar metadados via SQL direto (compatível com UUID)
-    db_result = await db.execute(
-        text(query_sql),
-        query_params
-    )
+    db_result = await db.execute(text(query_sql), query_params)
     result = db_result.fetchall()
-    
+
     log_event(
         "load_agent_config_metadata_query",
         {
@@ -2495,7 +2645,7 @@ async def load_agent_config_from_connection(
             "num_rows_found": len(result) if result else 0,
         },
     )
-    
+
     if not result:
         log_event(
             "load_agent_config_no_metadata",
@@ -2506,22 +2656,24 @@ async def load_agent_config_from_connection(
         )
         raise HTTPException(
             status_code=404,
-            detail=f"No metadata found for this connection. Please execute table discovery first."
+            detail=f"No metadata found for this connection. Please execute table discovery first.",
         )
-    
+
     # Agrupar por tabela
     tables: dict[str, list] = {}
     for row in result:
         table_name = row[0]
         if table_name not in tables:
             tables[table_name] = []
-        tables[table_name].append({
-            "column_name": row[1],
-            "data_type": row[2] or "STRING",
-            "is_nullable": row[3] or False,
-            "description": row[4]
-        })
-    
+        tables[table_name].append(
+            {
+                "column_name": row[1],
+                "data_type": row[2] or "STRING",
+                "is_nullable": row[3] or False,
+                "description": row[4],
+            }
+        )
+
     log_event(
         "load_agent_config_tables_grouped",
         {
@@ -2531,22 +2683,22 @@ async def load_agent_config_from_connection(
             "table_names": list(tables.keys()),
         },
     )
-    
+
     # Detectar dataset baseado no nome da tabela ou config da conexão
     def detect_dataset(table_name: str, conn_config: dict) -> str:
         """Detecta o dataset correto baseado no nome da tabela ou config"""
         # Tabelas do web_silver
         web_tables = [
             "silver_events_enriquecido",
-            "silver_pageviews_enriquecido", 
+            "silver_pageviews_enriquecido",
             "silver_sessions_enriquecido",
             "silver_sources_enriquecido",
             "silver_users_enriquecido",
-            "silver_web_data_enriquecido"
+            "silver_web_data_enriquecido",
         ]
         if table_name in web_tables:
             return "data-mesh-gcp.web_silver"
-        
+
         # Usar dataset do config da conexão
         # Fallback genérico: usar o dataset configurado ou None (será tratado apropriadamente)
         dataset = conn_config.get("dataset")
@@ -2556,10 +2708,10 @@ async def load_agent_config_from_connection(
         if "." in dataset and not dataset.startswith("data-mesh-gcp."):
             return dataset
         return dataset
-    
+
     # Buscar config da conexão (REMOVIDO - já carregado no início da função)
     # config já existe no escopo local
-    
+
     # Processar type para metadados
     project_id = None
     if isinstance(config, dict):
@@ -2570,12 +2722,12 @@ async def load_agent_config_from_connection(
     for table_name, columns in tables.items():
         # Lógica de dataset
         dataset = detect_dataset(table_name, config)
-        
+
         # Nome físico
         if dataset:
-           if project_id and not dataset.startswith(f"{project_id}."):
+            if project_id and not dataset.startswith(f"{project_id}."):
                 physical_name = f"{project_id}.{dataset}.{table_name}"
-           else:
+            else:
                 physical_name = f"{dataset}.{table_name}"
         else:
             physical_name = table_name
@@ -2593,32 +2745,37 @@ async def load_agent_config_from_connection(
                 physical_name=physical_name,
                 description=table_desc,
                 columns=[
-                     {
-                         "name": c["column_name"],
-                         "type": c["data_type"],
-                         "nullable": c["is_nullable"],
-                         "description": c["description"]
-                     }
-                     for c in columns
+                    {
+                        "name": c["column_name"],
+                        "type": c["data_type"],
+                        "nullable": c["is_nullable"],
+                        "description": c["description"],
+                    }
+                    for c in columns
                 ],
             )
         )
 
-    
     # DEBUG: Log description of planets table
     for t in table_schemas:
         if t.logical_name == "planets":
-            log_event("debug_planets_metadata", {"logical_name": t.logical_name, "description": t.description, "num_cols": len(t.columns)})
+            log_event(
+                "debug_planets_metadata",
+                {
+                    "logical_name": t.logical_name,
+                    "description": t.description,
+                    "num_cols": len(t.columns),
+                },
+            )
 
     agent = AgentConfig(
         id=f"agent-conn-{connection_id}",
         name=f"Agent for connection {connection_id}",
         tables=table_schemas,
         dialect=dialect,  # 🔥 Pass correct dialect
-        extra={"project_id": project_id}
+        extra={"project_id": project_id},
     )
 
-    
     log_event(
         "load_agent_config_complete",
         {
@@ -2636,9 +2793,8 @@ async def load_agent_config_from_connection(
             ],
         },
     )
-    
-    return agent
 
+    return agent
 
 
 @router.post("/{connection_id}/query", response_model=QueryResponse)
@@ -2666,8 +2822,8 @@ async def query_connection(
             #   same crew (crew_id = active_crew) OR generic personal-mode records (crew_id IS NULL).
             # - In personal mode (no crew restriction): only return records with crew_id IS NULL.
             active_cache_crew = None
-            is_personal_cache = getattr(body, 'is_personal', True)
-            body_crew_ids = getattr(body, 'crew_ids', None) or []
+            is_personal_cache = getattr(body, "is_personal", True)
+            body_crew_ids = getattr(body, "crew_ids", None) or []
             if not is_personal_cache and len(body_crew_ids) == 1:
                 # Exactly one crew = strict collaborative mode; use it for cache isolation
                 active_cache_crew = body_crew_ids[0]
@@ -2684,12 +2840,15 @@ async def query_connection(
                     ORDER BY similarity DESC
                     LIMIT 1
                 """
-                db_res = await db.execute(text(sql_stmt), {
-                    "query_emb": str(query_embedding),
-                    "conn_id": connection_id,
-                    "space_id": body.space_id,
-                    "crew_id": active_cache_crew,
-                })
+                db_res = await db.execute(
+                    text(sql_stmt),
+                    {
+                        "query_emb": str(query_embedding),
+                        "conn_id": connection_id,
+                        "space_id": body.space_id,
+                        "crew_id": active_cache_crew,
+                    },
+                )
             else:
                 # Personal mode: only return records that have no crew restriction
                 sql_stmt = """
@@ -2702,23 +2861,30 @@ async def query_connection(
                     ORDER BY similarity DESC
                     LIMIT 1
                 """
-                db_res = await db.execute(text(sql_stmt), {
-                    "query_emb": str(query_embedding),
-                    "conn_id": connection_id,
-                    "space_id": body.space_id,
-                })
+                db_res = await db.execute(
+                    text(sql_stmt),
+                    {
+                        "query_emb": str(query_embedding),
+                        "conn_id": connection_id,
+                        "space_id": body.space_id,
+                    },
+                )
 
             cache_row = db_res.first()
 
             if cache_row:
                 cached_json, sim_score = cache_row
                 from core.logging_utils import log_event
-                log_event("semantic_cache_hit", {
-                    "connection_id": connection_id,
-                    "similarity_score": round(sim_score, 4),
-                    "original_question": body.question[:50],
-                    "crew_id": active_cache_crew,  # for audit
-                })
+
+                log_event(
+                    "semantic_cache_hit",
+                    {
+                        "connection_id": connection_id,
+                        "similarity_score": round(sim_score, 4),
+                        "original_question": body.question[:50],
+                        "crew_id": active_cache_crew,  # for audit
+                    },
+                )
                 cached_response = QueryResponse.model_validate(cached_json)
                 # Last-mile: apply format transform + infer widget type from raw cached data
                 cached_response.data_sample = _transform_data_for_format(
@@ -2730,6 +2896,7 @@ async def query_connection(
                 return cached_response
     except Exception as sc_err:
         from core.logging_utils import log_event
+
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
         # ✅ FIX: Rollback the session if the cache query failed (e.g. vector type mismatch)
         # Prevents the subsequent inner query from failing with "transaction aborted"
@@ -2743,21 +2910,28 @@ async def query_connection(
 
     # ✅ SEMANTIC CACHE LAYER (Store) — always stores raw data_sample (no format transform yet)
     try:
-        if query_embedding and response.meta and getattr(response.meta, 'error', None) is None:
+        if (
+            query_embedding
+            and response.meta
+            and getattr(response.meta, "error", None) is None
+        ):
             # We don't cache errors from security/language blocks
-            if response.answer and not response.answer.startswith("I'm sorry, but I only support questions"):
+            if response.answer and not response.answer.startswith(
+                "I'm sorry, but I only support questions"
+            ):
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
                     crew_id=active_cache_crew,
                     question=body.question,
                     embedding=query_embedding,
-                    response_json=response.model_dump(mode='json')
+                    response_json=response.model_dump(mode="json"),
                 )
                 db.add(cache_record)
                 await db.commit()
     except Exception as sc_err:
         from core.logging_utils import log_event
+
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
         try:
             await db.rollback()
@@ -2765,24 +2939,28 @@ async def query_connection(
             pass
 
     # Last-mile: apply format transform + infer widget type (runs for both cache miss and pipeline)
-    response.data_sample = _transform_data_for_format(response.data_sample, body.response_format)
-    response.recommended_widget_type = _infer_widget_type(response.data_sample, body.response_format)
+    response.data_sample = _transform_data_for_format(
+        response.data_sample, body.response_format
+    )
+    response.recommended_widget_type = _infer_widget_type(
+        response.data_sample, body.response_format
+    )
 
     return response
 
-async def _query_connection_inner(
 
+async def _query_connection_inner(
     connection_id: str,
     body: QueryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     """
     Faz uma pergunta usando uma DataConnection diretamente.
-    
+
     Requisitos:
     - A conexão deve ter metadados descobertos (execute /discover primeiro)
     - O space_id no body deve corresponder ao space_id da conexão
-    
+
     Exemplo de uso:
     ```json
     {
@@ -2795,14 +2973,14 @@ async def _query_connection_inner(
     """
     # Medir tempo de execução para auditoria
     import time
+
     start_time = time.time()
-    
+
     if not body.space_id:
         raise HTTPException(
-            status_code=400,
-            detail="space_id é obrigatório no body da requisição"
+            status_code=400, detail="space_id é obrigatório no body da requisição"
         )
-    
+
     # ✅ CAMADA 1: Rate limiting
     user_key = body.user_id or f"conn_{connection_id}"
     allowed, error = _rate_limiter.check_rate_limit(user_key, "query")
@@ -2819,32 +2997,30 @@ async def _query_connection_inner(
             was_rate_limited=True,
         )
         raise HTTPException(status_code=429, detail=error)
-    
+
     # ✅ CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
     from core.security.audit_manager import AuditManager
     from core.llm.factory import create_llm_orchestrator
     from core.i18n.i18n import detect_language, get_message
-    
+
     # Criar provider LLM para avaliação de segurança
     llm_provider = create_llm_orchestrator()
-    
+
     # Avaliação consolidada: PII + Injection + Escalation + Auditoria
     security_report = await AuditManager.evaluate_prompt(
         question=body.question,
         user_id=body.user_id,
         connection_id=connection_id,
         thread_id=body.thread_id,
-        llm_provider=llm_provider
+        llm_provider=llm_provider,
     )
-    
+
     # Detectar idioma para validação
     try:
         lang = detect_language(body.question or "")
     except:
         lang = "en"
-    
 
-    
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
         # Mensagens amigáveis por tipo de bloqueio
@@ -2867,7 +3043,9 @@ async def _query_connection_inner(
             pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
             pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
             prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
-            progressive_escalation_detected=(security_report.blocked_by == "PROGRESSIVE_ESCALATION"),
+            progressive_escalation_detected=(
+                security_report.blocked_by == "PROGRESSIVE_ESCALATION"
+            ),
             progressive_escalation_score=int(esc_info.get("score", 0)),
         )
 
@@ -2881,7 +3059,7 @@ async def _query_connection_inner(
                 sql=None,
                 num_rows=0,
                 error=error_code,
-            )
+            ),
         )
 
     # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
@@ -2895,12 +3073,12 @@ async def _query_connection_inner(
                     "connection_id": connection_id,
                     "user_id": body.user_id,
                     "detected_language": lang,
-                    "question": body.question[:200]
-                }
+                    "question": body.question[:200],
+                },
             )
         except Exception:
-            pass # Fail safe log
-        
+            pass  # Fail safe log
+
         # Friendly blocking message
         return QueryResponse(
             answer="I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!",
@@ -2912,14 +3090,17 @@ async def _query_connection_inner(
                 sql=None,
                 num_rows=0,
                 error="language_not_supported",
-            )
+            ),
         )
 
     # Variáveis para compatibilidade com o resto da função
-    pii_detected_in_prompt = security_report.security_status == "FLAGGED" or "pii" in security_report.scan_details
+    pii_detected_in_prompt = (
+        security_report.security_status == "FLAGGED"
+        or "pii" in security_report.scan_details
+    )
     prompt_injection_detected = False
     prompt_injection_pattern = None
-    
+
     # ✅ FIM DA CAMADA DE SEGURANÇA UNIFICADA
     pii_detected_in_response = False
 
@@ -2927,16 +3108,19 @@ async def _query_connection_inner(
     thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}"
     esc_info = security_report.scan_details.get("escalation", {})
     escalation_score = esc_info.get("score", 0.0)
-    escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION" or security_report.security_status == "FLAGGED"
+    escalation_detected = (
+        security_report.blocked_by == "PROGRESSIVE_ESCALATION"
+        or security_report.security_status == "FLAGGED"
+    )
     escalation_reason = esc_info.get("reason")
-    
+
     # ✅ DASHBOARD INTENT DETECTION (Step 1.2)
     # Check if user wants direct dashboard generation instead of text answer
     from core.intent.detector import DashboardIntentDetector
-    
+
     intent_detector = DashboardIntentDetector()
     is_dashboard_request = intent_detector.detect(body.question)
-    
+
     if is_dashboard_request:
         # Log intent detection
         log_event(
@@ -2946,27 +3130,32 @@ async def _query_connection_inner(
                 "user_id": body.user_id,
                 "question": body.question[:200],
                 "thread_id": thread_id,
-            }
+            },
         )
-        
+
         # ✅ DASHBOARD DIRECT GENERATION (Step 1.3)
         # Route to dashboard generation instead of normal query flow
         try:
             # Load table metadata for dashboard generation
-            tables = await _load_connection_metadata_tables(db=db, connection_id=connection_id)
-            tables = await _enrich_tables_with_ai_metadata(db=db, connection_id=connection_id, tables=tables)
+            tables = await _load_connection_metadata_tables(
+                db=db, connection_id=connection_id
+            )
+            tables = await _enrich_tables_with_ai_metadata(
+                db=db, connection_id=connection_id, tables=tables
+            )
 
             # Resolve crew_ids
             resolved_crew_ids = []
             if body.user_id:
                 try:
                     from uuid import UUID
+
                     resolved = await resolve_crew_ids_for_context(
                         db=db,
                         user_id=UUID(body.user_id),
                         space_id=UUID(body.space_id) if body.space_id else None,
                         request_crew_ids=body.crew_ids,
-                        is_personal=getattr(body, 'is_personal', False)
+                        is_personal=getattr(body, "is_personal", False),
                     )
                     resolved_crew_ids = [str(x) for x in (resolved or [])]
                 except Exception as e:
@@ -2974,7 +3163,7 @@ async def _query_connection_inner(
 
             # FIX 4: Apply crew-level permission filter in collaborative mode.
             # Previously the dashboard intent flow loaded all tables without filtering by crew.
-            is_collab = not getattr(body, 'is_personal', False)
+            is_collab = not getattr(body, "is_personal", False)
             if is_collab and resolved_crew_ids:
                 tables = await _filter_tables_by_permissions(
                     db=db,
@@ -2995,11 +3184,13 @@ async def _query_connection_inner(
 
             # Generate schema summary
             max_tables_in_prompt = min(30, len(tables))
-            logical_tables, schema_summary = _schema_summary_from_tables(tables, max_tables=max_tables_in_prompt)
-            
+            logical_tables, schema_summary = _schema_summary_from_tables(
+                tables, max_tables=max_tables_in_prompt
+            )
+
             # Create LLM for Davinci
             llm = create_llm_specialist(creativity=10, length=35)
-            
+
             # Generate dashboard plan using Davinci
             plan = await asyncio.to_thread(
                 generate_dashboard_plan,
@@ -3017,7 +3208,7 @@ async def _query_connection_inner(
                 table_metadata=tables,
                 analysis_context=None,
             )
-            
+
             # Return dashboard plan as QueryResponse with special meta
             log_event(
                 "dashboard_direct_generation_success",
@@ -3026,16 +3217,16 @@ async def _query_connection_inner(
                     "user_id": body.user_id,
                     "num_widgets": len(plan.widgets),
                     "dashboard_name": plan.dashboard_name,
-                }
+                },
             )
-            
+
             # Format dashboard plan as answer (frontend will handle rendering)
             # Option: Fluid & Modern (English)
             loading_message = (
-                f"Your dashboard \"{plan.dashboard_name}\" is being created.\n\n"
+                f'Your dashboard "{plan.dashboard_name}" is being created.\n\n'
                 f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
             )
-            
+
             return QueryResponse(
                 answer=loading_message,
                 data_sample=[],
@@ -3053,10 +3244,10 @@ async def _query_connection_inner(
                         "widgets": plan.widgets,
                         "meta": plan.meta or {},
                         "is_direct_generation": True,  # Flag for frontend
-                    }
+                    },
                 ),
             )
-        
+
         except Exception as e:
             log_event(
                 "dashboard_direct_generation_error",
@@ -3065,37 +3256,48 @@ async def _query_connection_inner(
                     "user_id": body.user_id,
                     "error": str(e),
                     "question": body.question[:200],
-                }
+                },
             )
             # Fall back to normal query flow on error
             log_event("dashboard_direct_fallback_to_normal_query", {"reason": str(e)})
-    
+
     # Continue with normal query flow if not dashboard request or if generation failed
     # Verificar se conexão existe
     result = await db.execute(
         # Usar connector_id como alias para type para ser compatível com schemas antigos
-        text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
-        {"id": connection_id}
+        text(
+            "SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"
+        ),
+        {"id": connection_id},
     )
     conn_result = result.first()
-    
+
     if not conn_result:
-        raise HTTPException(status_code=404, detail=f"Conexão {connection_id} não encontrada")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Conexão {connection_id} não encontrada"
+        )
+
     # Resolver crew_ids do usuário baseado no contexto (personal vs collaborative)
     crew_ids = body.crew_ids or []
     if body.user_id:
         try:
             from uuid import UUID
-            u_id = UUID(body.user_id) if body.user_id and len(body.user_id) == 36 else None
-            s_id = UUID(body.space_id) if body.space_id and len(body.space_id) == 36 else None
-            
+
+            u_id = (
+                UUID(body.user_id) if body.user_id and len(body.user_id) == 36 else None
+            )
+            s_id = (
+                UUID(body.space_id)
+                if body.space_id and len(body.space_id) == 36
+                else None
+            )
+
             resolved_crew_ids = await resolve_crew_ids_for_context(
                 db=db,
                 user_id=u_id,
                 space_id=s_id,
                 request_crew_ids=body.crew_ids,
-                is_personal=getattr(body, 'is_personal', False)
+                is_personal=getattr(body, "is_personal", False),
             )
             crew_ids = [str(crew_id) for crew_id in resolved_crew_ids]
             log_event(
@@ -3104,7 +3306,7 @@ async def _query_connection_inner(
                     "connection_id": connection_id,
                     "user_id": body.user_id,
                     "space_id": body.space_id,
-                    "is_personal": getattr(body, 'is_personal', False),
+                    "is_personal": getattr(body, "is_personal", False),
                     "resolved_crew_ids": crew_ids,
                 },
             )
@@ -3120,7 +3322,7 @@ async def _query_connection_inner(
             )
             # Se falhar ao resolver, usar lista vazia (apenas dados públicos)
             crew_ids = []
-    
+
     # Carregar AgentConfig automaticamente com filtro de permissões
     try:
         agent_config = await load_agent_config_from_connection(
@@ -3130,7 +3332,7 @@ async def _query_connection_inner(
             crew_ids=crew_ids if crew_ids else None,
             authorized_tables=body.authorized_tables,
         )
-        
+
         log_event(
             "api_query_connection_agent_config_loaded",
             {
@@ -3156,8 +3358,7 @@ async def _query_connection_inner(
             },
         )
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao carregar configuração do agente: {str(e)}"
+            status_code=500, detail=f"Erro ao carregar configuração do agente: {str(e)}"
         )
 
     # Carregar relacionamentos documentados pelo cliente (explicit_relationships)
@@ -3193,7 +3394,9 @@ async def _query_connection_inner(
         q_raw = (body.question or "").strip()
         q = q_raw.lower()
         tables = agent_config.tables or []
-        logical_tables = [t.logical_name for t in tables if getattr(t, "logical_name", None)]
+        logical_tables = [
+            t.logical_name for t in tables if getattr(t, "logical_name", None)
+        ]
 
         is_tables_question = bool(
             re.search(
@@ -3215,20 +3418,23 @@ async def _query_connection_inner(
                 flags=re.IGNORECASE,
             )
         )
-        
 
     except Exception:
         # Never fail the main query path due to these heuristics.
         pass
-    
+
     # Criar DataSource da conexão
     class TempDataConnection:
         def __init__(self, id, name, type, config):
             self.id = id
             self.name = name
             self.type = type
-            self.config = config if isinstance(config, dict) else json.loads(config) if isinstance(config, str) else {}
-    
+            self.config = (
+                config
+                if isinstance(config, dict)
+                else json.loads(config) if isinstance(config, str) else {}
+            )
+
     # Parse config safely
     conn_config = conn_result[3]
     if isinstance(conn_config, str):
@@ -3240,30 +3446,28 @@ async def _query_connection_inner(
         conn_config = {}
     elif not isinstance(conn_config, dict):
         conn_config = {}
-    
+
     data_conn = TempDataConnection(
         id=str(conn_result[0]),
         name=conn_result[1],
         type=conn_result[2] or "bigquery",
-        config=conn_config
+        config=conn_config,
     )
-    
+
     try:
         data_source = DataSourceFactory.build_from_dataconnection(data_conn)
     except Exception as e:
         import traceback
+
         error_detail = f"Erro ao criar DataSource: {str(e)}\n{traceback.format_exc()}"
-        raise HTTPException(
-            status_code=500,
-            detail=error_detail
-        )
-    
+        raise HTTPException(status_code=500, detail=error_detail)
+
     # LLMs usando factory centralizado
     try:
         llm_orchestrator = create_llm_orchestrator()
         llm_specialist = create_llm_specialist()
         llm_formatter = create_llm_formatter()
-        
+
         # Provider de embeddings (RAG) usando factory centralizado
         embedding_provider = create_embedding_provider()
     except Exception as e:
@@ -3279,12 +3483,10 @@ async def _query_connection_inner(
             answer="I'm having trouble initializing my language models right now. Please execute a system check or contact support.",
             data_sample=[],
             meta=QueryResultMeta(
-                detected_language=lang,
-                error="llm_init_error",
-                num_rows=0
-            ) 
+                detected_language=lang, error="llm_init_error", num_rows=0
+            ),
         )
-    
+
     # Buscar contexto RAG com crew_ids resolvidos
     retrieval_context: list[str] = []
     try:
@@ -3307,7 +3509,7 @@ async def _query_connection_inner(
     query_thread_id = body.thread_id
     if not query_thread_id and body.user_id:
         query_thread_id = f"{body.user_id}-{connection_id}"
-    
+
     chat_history_list = []
     if query_thread_id:
         try:
@@ -3321,10 +3523,9 @@ async def _query_connection_inner(
             hist_result = await db.execute(hist_stmt)
             # Reverse to chronological order (oldest first)
             recent_msgs = hist_result.scalars().all()[::-1]
-            
+
             chat_history_list = [
-                {"role": msg.role, "content": msg.content}
-                for msg in recent_msgs
+                {"role": msg.role, "content": msg.content} for msg in recent_msgs
             ]
         except Exception as e:
             logger.error(f"Error loading chat history: {e}")
@@ -3333,10 +3534,15 @@ async def _query_connection_inner(
     # Create User object (required by UserContext)
     # Use body user_id or random UUID if missing
     import uuid
+
     raw_uid = body.user_id
     if raw_uid:
         try:
-            u_id = uuid.UUID(str(raw_uid)) if not isinstance(raw_uid, uuid.UUID) else raw_uid
+            u_id = (
+                uuid.UUID(str(raw_uid))
+                if not isinstance(raw_uid, uuid.UUID)
+                else raw_uid
+            )
         except (ValueError, AttributeError):
             # user_id não é UUID válido — gerar um determinístico a partir da string
             u_id = uuid.uuid5(uuid.NAMESPACE_OID, str(raw_uid))
@@ -3346,8 +3552,8 @@ async def _query_connection_inner(
     mock_user = User(
         id=u_id,
         email="mock@example.com",  # Placeholder
-        name="Mock User",          # Placeholder
-        is_active=True
+        name="Mock User",  # Placeholder
+        is_active=True,
     )
 
     # Create UserContext object
@@ -3361,17 +3567,17 @@ async def _query_connection_inner(
         permissions=getattr(body, "permissions", None) or [],
         # security_config removed (not in UserContext schema)
     )
-    
+
     # 🏃 EXECUÇÃO: Roda o agente (graph) DE FORMA SÍNCRONA (em thread separada para não bloquear loop)
     # O grafo monta o plano, gera SQL e formata a resposta.
     try:
         final_state = await asyncio.to_thread(
             run_agent_once,
             question=body.question,
-            user_ctx=mock_user_ctx, # Contexto montado acima
+            user_ctx=mock_user_ctx,  # Contexto montado acima
             agent_config=agent_config,
             data_source=data_source,
-            db_session_factory=lambda: SyncSessionLocal(), # SÍNCRONO PARA O AGENTE
+            db_session_factory=lambda: SyncSessionLocal(),  # SÍNCRONO PARA O AGENTE
             embedding_provider=embedding_provider,
             llm_orchestrator=llm_orchestrator,
             llm_specialist=llm_specialist,
@@ -3383,20 +3589,25 @@ async def _query_connection_inner(
             creativity=body.creativity,
             length=body.length,
             response_format=body.response_format,
+            ai_tone=body.ai_tone,
+            ai_style=body.ai_style,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
             explicit_relationships=explicit_relationships or None,
         )
     except Exception as e:
         import traceback
+
         # Same empty-stringification trap as the backend: `str(e)` can be ""
         # for bare Exception()/custom exceptions with no message. Fall back to
         # repr(e) and finally the exception class name so error_detail is never
         # blank (otherwise the audit log + backend surface "Error: " with no
         # signal about what actually failed).
         error_detail = str(e).strip() or repr(e).strip() or type(e).__name__
-        logger.error(f"Erro ao executar agente: {error_detail}\n{traceback.format_exc()}")
-        
+        logger.error(
+            f"Erro ao executar agente: {error_detail}\n{traceback.format_exc()}"
+        )
+
         # Auditoria de erro
         log_query_audit(
             connection_id=connection_id,
@@ -3410,17 +3621,15 @@ async def _query_connection_inner(
             has_error=True,
             error_message=error_detail,
         )
-        
+
         return QueryResponse(
             answer=get_message("TECHNICAL_ERROR", lang),
             data_sample=[],
             meta=QueryResultMeta(
-                detected_language=lang,
-                error="technical_error",
-                num_rows=0
-            )
+                detected_language=lang, error="technical_error", num_rows=0
+            ),
         )
-    
+
     # ==================== MEMORY: SAVING CHAT HISTORY ====================
     # Persist the interaction (User Q + AI A) asynchronously
     if query_thread_id:
@@ -3434,9 +3643,7 @@ async def _query_connection_inner(
 
             # Save User Message
             user_msg = ChatHistory(
-                thread_id=query_thread_id,
-                role="user",
-                content=body.question
+                thread_id=query_thread_id, role="user", content=body.question
             )
             db.add(user_msg)
 
@@ -3450,8 +3657,8 @@ async def _query_connection_inner(
                     content=ai_text,
                     extra={
                         "sql": final_state.get("sql"),
-                        "generated_title": final_state.get("generated_title")
-                    }
+                        "generated_title": final_state.get("generated_title"),
+                    },
                 )
                 db.add(ai_msg)
 
@@ -3462,7 +3669,7 @@ async def _query_connection_inner(
                 await db.rollback()
             except Exception:
                 pass
-    
+
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
 
@@ -3471,6 +3678,7 @@ async def _query_connection_inner(
     # A conversão DEVE acontecer imediatamente aqui para garantir que loggers e PII funcionem
     try:
         import pyarrow as pa
+
         # Verifica se é Table ou se tem método to_pylist (caso o isinstance falhe por reload de modulo)
         if isinstance(data, pa.Table) or hasattr(data, "to_pylist"):
             # Apenas converte se tiver to_pylist
@@ -3483,31 +3691,31 @@ async def _query_connection_inner(
         print(f"ERROR converting Arrow data: {e}")
         # Se falhar, tenta manter o que tem ou vazio se for inusável
         if not isinstance(data, list):
-             data = []
+            data = []
     detected_language = final_state.get("detected_language")
     chosen_table = final_state.get("chosen_table")
     chosen_tables = final_state.get("chosen_tables")  # List of tables (new)
     sql = final_state.get("sql")
     error = final_state.get("error")
-    
+
     # ✅ CAMADA 3: Validação AST do SQL gerado
     if sql:
         # Obter tabelas permitidas (usar physical_name porque SQL usa physical)
         allowed_tables = [t.physical_name for t in agent_config.tables]
         # Também adicionar logical_name para compatibilidade
         allowed_tables.extend([t.logical_name for t in agent_config.tables])
-        
+
         # Obter tipo de conexão
         connection_type = conn_result[2] or "bigquery"
-        
+
         validator = AdvancedSQLValidator(
             allowed_tables=allowed_tables,
             allowed_columns=None,  # Opcional: filtrar colunas também
             max_limit=5000,
             max_columns=50,
-            max_group_by=10
+            max_group_by=10,
         )
-        
+
         is_valid, validation_error = validator.validate(sql, connection_type)
         if not is_valid:
             log_event(
@@ -3519,7 +3727,7 @@ async def _query_connection_inner(
                     "error": validation_error,
                 },
             )
-            
+
             # Log technical details internally (NOT exposed to client)
             logger.error(
                 "SQL validation failed - technical details",
@@ -3529,15 +3737,15 @@ async def _query_connection_inner(
                     "user_id": str(body.user_id) if body.user_id else None,
                     "space_id": str(body.space_id) if body.space_id else None,
                     "connection_id": connection_id,
-                }
+                },
             )
-            
+
             # User-friendly message (NO technical/SQL details exposed)
             raise HTTPException(
                 status_code=500,
-                detail="I couldn't process your request. Please try rephrasing your question."
+                detail="I couldn't process your request. Please try rephrasing your question.",
             )
-    
+
     # Debug: log all keys in final_state to see what's available
     log_event(
         "api_query_connection_final_state",
@@ -3552,17 +3760,18 @@ async def _query_connection_inner(
             "sql_preview": sql[:200] if sql else None,
         },
     )
-    
+
     # Fallback: try to extract table name from SQL if chosen_table is not available
     if not chosen_table and not chosen_tables and sql:
         import re
+
         # Try to extract table name from SQL (FROM clause)
-        from_match = re.search(r'FROM\s+([^\s,\(\)]+)', sql, re.IGNORECASE)
+        from_match = re.search(r"FROM\s+([^\s,\(\)]+)", sql, re.IGNORECASE)
         if from_match:
             table_from_sql = from_match.group(1).strip()
             # Remove schema prefix if present (e.g., "dataset.table" -> "table")
-            if '.' in table_from_sql:
-                table_from_sql = table_from_sql.split('.')[-1]
+            if "." in table_from_sql:
+                table_from_sql = table_from_sql.split(".")[-1]
             chosen_table = table_from_sql
             log_event(
                 "api_query_connection_extracted_from_sql",
@@ -3572,10 +3781,12 @@ async def _query_connection_inner(
                     "sql_preview": sql[:200],
                 },
             )
-    
+
     # Use chosen_tables if available, otherwise fallback to chosen_table
-    chosen_datasets = chosen_tables if chosen_tables else ([chosen_table] if chosen_table else [])
-    
+    chosen_datasets = (
+        chosen_tables if chosen_tables else ([chosen_table] if chosen_table else [])
+    )
+
     # Debug log
     log_event(
         "api_query_connection_chosen_datasets",
@@ -3586,7 +3797,7 @@ async def _query_connection_inner(
             "final_chosen_datasets": chosen_datasets,
         },
     )
-    
+
     # DEBUG: Log informações detalhadas do estado para identificar problema
     log_event(
         "api_query_connection_debug_state",
@@ -3607,7 +3818,7 @@ async def _query_connection_inner(
             "final_state_keys": list(final_state.keys()),
         },
     )
-    
+
     # Raw sample — transform runs at the outer layer (after cache or pipeline)
     data_sample = data[:15] if isinstance(data, list) else []
 
@@ -3615,24 +3826,25 @@ async def _query_connection_inner(
     from core.security.pii_scanner import (
         scan_text_for_pii,
         scan_data_for_pii,
-        should_allow_pii_exception, # Usar nova função unificada
+        should_allow_pii_exception,  # Usar nova função unificada
     )
-    
+
     pii_response_text_result = scan_text_for_pii(answer) if answer else None
     # IMPORTANTE: Escanear dados originais ANTES de filtrar para verificação de contexto agregado
     # Usar dados completos (até 100 linhas) para detecção PII, mas apenas primeiras 15 para resposta
     data_for_pii_scan = data[:100] if isinstance(data, list) else []
-    pii_response_data_result = scan_data_for_pii(data_for_pii_scan) if data_for_pii_scan else None
-    
-    pii_detected_in_response = (
-        (pii_response_text_result and pii_response_text_result.detected) or
-        (pii_response_data_result and pii_response_data_result.detected)
+    pii_response_data_result = (
+        scan_data_for_pii(data_for_pii_scan) if data_for_pii_scan else None
     )
-    
+
+    pii_detected_in_response = (
+        pii_response_text_result and pii_response_text_result.detected
+    ) or (pii_response_data_result and pii_response_data_result.detected)
+
     # Verificar se PII deve ser permitido (exceções: agregado OU small result set)
     allow_pii_in_text = False
     allow_pii_in_data = False
-    
+
     if pii_response_text_result and pii_response_text_result.should_block:
         allow_pii_in_text = should_allow_pii_exception(
             question=body.question or "",
@@ -3640,7 +3852,7 @@ async def _query_connection_inner(
             data=data_sample,
             pii_detection_result=pii_response_text_result,
         )
-    
+
     if pii_response_data_result and pii_response_data_result.should_block:
         # Usar dados originais (não filtrados) para verificação
         allow_pii_in_data = should_allow_pii_exception(
@@ -3649,25 +3861,28 @@ async def _query_connection_inner(
             data=data_for_pii_scan,  # Dados originais antes de filtrar
             pii_detection_result=pii_response_data_result,
         )
-    
+
     # ✅ SOLUÇÃO: Detectar queries agregadas ou com LIMIT baixo para permitir PII em contexto seguro
     # 1. Queries com GROUP BY ou funções de agregação (SUM, AVG, COUNT, etc.) retornam
     #    dados já anonimizados/agregados, portanto são seguros mesmo com PII detectado
     # 2. Queries com LIMIT <= 150 são consideradas "amostras" e não dumps completos de dados
     is_aggregated_query = False
     is_sample_query = False
-    
+
     if sql:
         sql_upper = sql.upper()
-        
+
         # Detectar agregação
-        has_group_by = 'GROUP BY' in sql_upper
-        has_aggregation = any(func in sql_upper for func in ['SUM(', 'AVG(', 'COUNT(', 'MAX(', 'MIN('])
+        has_group_by = "GROUP BY" in sql_upper
+        has_aggregation = any(
+            func in sql_upper for func in ["SUM(", "AVG(", "COUNT(", "MAX(", "MIN("]
+        )
         is_aggregated_query = has_group_by or has_aggregation
-        
+
         # Detectar LIMIT baixo (amostra)
         import re
-        limit_match = re.search(r'LIMIT\s+(\d+)', sql_upper)
+
+        limit_match = re.search(r"LIMIT\s+(\d+)", sql_upper)
         if limit_match:
             limit_value = int(limit_match.group(1))
             is_sample_query = limit_value <= 150
@@ -3681,19 +3896,23 @@ async def _query_connection_inner(
             log_event(
                 "pii_text_allowed_aggregated",
                 {
-                   "connection_id": connection_id,
-                   "reason": "Aggregated/Sample query analysis is safe",
-                   "is_aggregated": is_aggregated_query,
-                   "is_sample": is_sample_query
-                }
+                    "connection_id": connection_id,
+                    "reason": "Aggregated/Sample query analysis is safe",
+                    "is_aggregated": is_aggregated_query,
+                    "is_sample": is_sample_query,
+                },
             )
-        
+
         if not allow_pii_in_text:
             # Substituir resposta por mensagem genérica
             answer = "I cannot display sensitive personal information in the results."
             pii_blocked = True
-    
-    if pii_response_data_result and pii_response_data_result.should_block and not allow_pii_in_data:
+
+    if (
+        pii_response_data_result
+        and pii_response_data_result.should_block
+        and not allow_pii_in_data
+    ):
         # Permitir dados se for query agregada OU amostra (LIMIT baixo)
         if is_aggregated_query:
             log_event(
@@ -3702,9 +3921,13 @@ async def _query_connection_inner(
                     "connection_id": connection_id,
                     "has_group_by": has_group_by,
                     "has_aggregation": has_aggregation,
-                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "pii_types": (
+                        [t.value for t in pii_response_data_result.pii_types]
+                        if pii_response_data_result.pii_types
+                        else []
+                    ),
                     "sql_preview": sql[:200] if sql else None,
-                }
+                },
             )
             pii_blocked = False  # Não bloquear dados agregados
         elif is_sample_query:
@@ -3712,10 +3935,14 @@ async def _query_connection_inner(
                 "pii_allowed_sample_query",
                 {
                     "connection_id": connection_id,
-                    "limit_value": limit_value if 'limit_value' in locals() else None,
-                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "limit_value": limit_value if "limit_value" in locals() else None,
+                    "pii_types": (
+                        [t.value for t in pii_response_data_result.pii_types]
+                        if pii_response_data_result.pii_types
+                        else []
+                    ),
                     "sql_preview": sql[:200] if sql else None,
-                }
+                },
             )
             pii_blocked = False  # Não bloquear amostras (LIMIT baixo)
         else:
@@ -3724,16 +3951,20 @@ async def _query_connection_inner(
                 "pii_blocked_non_aggregated",
                 {
                     "connection_id": connection_id,
-                    "pii_types": [t.value for t in pii_response_data_result.pii_types] if pii_response_data_result.pii_types else [],
+                    "pii_types": (
+                        [t.value for t in pii_response_data_result.pii_types]
+                        if pii_response_data_result.pii_types
+                        else []
+                    ),
                     "sql_preview": sql[:200] if sql else None,
-                }
+                },
             )
             data_sample = []
             pii_blocked = True
     # ✅ CAMADA 4: Detecção de PII na resposta
     all_pii_types = []
     all_pii_patterns = []
-    
+
     # Combinar tipos PII detectados
     pii_prompt_info = security_report.scan_details.get("pii", {})
     if pii_prompt_info and pii_prompt_info.get("detected_types"):
@@ -3743,7 +3974,7 @@ async def _query_connection_inner(
     if pii_response_data_result and pii_response_data_result.pii_types:
         all_pii_types.extend([t.value for t in pii_response_data_result.pii_types])
     all_pii_types = list(set(all_pii_types))  # Remover duplicatas
-    
+
     # Determinar severidade máxima
     severities = []
     if pii_prompt_info and pii_prompt_info.get("severity"):
@@ -3752,7 +3983,7 @@ async def _query_connection_inner(
         severities.append(pii_response_text_result.severity.value)
     if pii_response_data_result and pii_response_data_result.severity:
         severities.append(pii_response_data_result.severity.value)
-    
+
     max_pii_severity = None
     if "block" in severities:
         max_pii_severity = "block"
@@ -3760,7 +3991,7 @@ async def _query_connection_inner(
         max_pii_severity = "warn"
     elif "info" in severities:
         max_pii_severity = "info"
-    
+
     # Combinar padrões
     if pii_prompt_info and pii_prompt_info.get("patterns_matched"):
         all_pii_patterns.extend(pii_prompt_info.get("patterns_matched"))
@@ -3769,18 +4000,18 @@ async def _query_connection_inner(
     if pii_response_data_result and pii_response_data_result.patterns_matched:
         all_pii_patterns.extend(pii_response_data_result.patterns_matched)
     all_pii_patterns = list(set(all_pii_patterns))[:10]  # Remover duplicatas e limitar
-    
+
     meta = QueryResultMeta(
         detected_language=detected_language,
         chosen_table=chosen_table,
         chosen_datasets=chosen_datasets if chosen_datasets else None,
         sql=sql,
-        title=final_state.get("generated_title"), # Populate title from agent state
+        title=final_state.get("generated_title"),  # Populate title from agent state
         num_rows=len(data),
         error=error,
         plan=final_state.get("plan"),
     )
-    
+
     log_event(
         "api_query_connection",
         {
@@ -3793,10 +4024,10 @@ async def _query_connection_inner(
             "error": error[:200] if error else None,
         },
     )
-    
+
     # ✅ AUDITORIA: Log completo da query (assíncrono, não bloqueia)
     execution_time_ms = int((time.time() - start_time) * 1000)
-    
+
     log_query_audit(
         connection_id=connection_id,
         user_id=body.user_id,
@@ -3830,7 +4061,7 @@ async def _query_connection_inner(
         pii_patterns_matched=all_pii_patterns if all_pii_patterns else None,
         pii_blocked=pii_blocked,
     )
-    
+
     # Inject RAG context (debug)
     if retrieval_context:
         meta.rag_context = retrieval_context[:5]
@@ -3853,7 +4084,7 @@ async def _stream_connection_query(
     try:
         # Medir tempo para auditoria
         start_time = time.time()
-        
+
         # Detectar idioma para mensagens de erro/resposta
         try:
             lang = detect_language(body.question or "")
@@ -3885,14 +4116,14 @@ async def _stream_connection_query(
                         "connection_id": connection_id,
                         "user_id": body.user_id,
                         "detected_language": lang,
-                        "question": body.question[:200]
-                    }
+                        "question": body.question[:200],
+                    },
                 )
             except Exception:
                 pass
-            
+
             error_msg = "I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!"
-            
+
             # Send error message as a normal "answer" chunk so client displays it
             yield f"data: {json.dumps({'type': 'answer', 'text': error_msg})}\n\n"
             yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\\n\\n"
@@ -3902,21 +4133,21 @@ async def _stream_connection_query(
         # ✅ CAMADA 2: CAMADA DE SEGURANÇA UNIFICADA (Audit Manager)
         from core.security.audit_manager import AuditManager
         from core.llm.factory import create_llm_orchestrator
-        
+
         thread_id = body.thread_id or f"conn_{connection_id}_{int(time.time())}"
-        
+
         # Criar provider LLM para avaliação de segurança
         llm_provider = create_llm_orchestrator()
-        
+
         # Avaliação consolidada: PII + Injection + Escalation + Auditoria
         security_report = await AuditManager.evaluate_prompt(
             question=body.question,
             user_id=body.user_id,
             connection_id=connection_id,
             thread_id=thread_id,
-            llm_provider=llm_provider
+            llm_provider=llm_provider,
         )
-        
+
         if security_report.is_blocked:
             # Mensagens amigáveis por tipo de bloqueio
             if security_report.blocked_by == "PII_SCANNER":
@@ -3925,11 +4156,11 @@ async def _stream_connection_query(
             else:
                 message = get_message("SECURITY_BLOCKED", lang)
                 error_code = "security_blocked"
-            
+
             # Auditoria legada para streaming
             esc_info = security_report.scan_details.get("escalation", {})
             escalation_score = int(esc_info.get("score", 0))
-            escalation_detected = (security_report.blocked_by == "PROGRESSIVE_ESCALATION")
+            escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION"
 
             log_query_audit(
                 connection_id=connection_id,
@@ -3940,11 +4171,13 @@ async def _stream_connection_query(
                 question=security_report.redacted_prompt,
                 pii_detected_in_prompt=(security_report.blocked_by == "PII_SCANNER"),
                 pii_blocked=(security_report.blocked_by == "PII_SCANNER"),
-                prompt_injection_detected=(security_report.blocked_by == "SECURITY_GUARD"),
+                prompt_injection_detected=(
+                    security_report.blocked_by == "SECURITY_GUARD"
+                ),
                 progressive_escalation_detected=escalation_detected,
                 progressive_escalation_score=escalation_score,
             )
-            
+
             # Enviar como resposta normal para o frontend exibir corretamente
             yield f"data: {json.dumps({'type': 'chunk', 'content': message})}\n\n"
             yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': error_code}, 'data_sample': []})}\n\n"
@@ -3954,19 +4187,21 @@ async def _stream_connection_query(
         # Extract escalation values for later use if not blocked
         esc_info_later = security_report.scan_details.get("escalation", {})
         escalation_score = int(esc_info_later.get("score", 0))
-        escalation_detected = (security_report.blocked_by == "PROGRESSIVE_ESCALATION")
+        escalation_detected = security_report.blocked_by == "PROGRESSIVE_ESCALATION"
 
         # Verificar se conexão existe
         result = await db.execute(
-            text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
-            {"id": connection_id}
+            text(
+                "SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"
+            ),
+            {"id": connection_id},
         )
         conn_result = result.first()
-        
+
         if not conn_result:
             yield f"data: {json.dumps({'type': 'error', 'message': f'Conexão {connection_id} não encontrada'})}\n\n"
             return
-        
+
         # Resolver crew_ids
         crew_ids = body.crew_ids or []
         if body.user_id:
@@ -3976,7 +4211,7 @@ async def _stream_connection_query(
                     user_id=UUID(body.user_id),
                     space_id=UUID(body.space_id) if body.space_id else None,
                     request_crew_ids=body.crew_ids,
-                    is_personal=getattr(body, 'is_personal', False)
+                    is_personal=getattr(body, "is_personal", False),
                 )
                 crew_ids = [str(crew_id) for crew_id in resolved_crew_ids]
             except Exception as e:
@@ -3988,7 +4223,7 @@ async def _stream_connection_query(
                     },
                 )
                 crew_ids = []
-        
+
         # Carregar AgentConfig
         try:
             agent_config = await load_agent_config_from_connection(
@@ -4001,7 +4236,7 @@ async def _stream_connection_query(
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
-        
+
         # Criar DataSource
         conn_config = conn_result[3]
         if isinstance(conn_config, str):
@@ -4013,33 +4248,33 @@ async def _stream_connection_query(
             conn_config = {}
         elif not isinstance(conn_config, dict):
             conn_config = {}
-        
+
         class TempDataConnection:
             def __init__(self, id, name, type, config):
                 self.id = id
                 self.name = name
                 self.type = type
                 self.config = config
-        
+
         data_conn = TempDataConnection(
             id=str(conn_result[0]),
             name=conn_result[1],
             type=conn_result[2] or "bigquery",
-            config=conn_config
+            config=conn_config,
         )
-        
+
         try:
             data_source = DataSourceFactory.build_from_dataconnection(data_conn)
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': f'Erro ao criar DataSource: {str(e)}'})}\n\n"
             return
-        
+
         # LLMs
         llm_orchestrator = create_llm_orchestrator()
         llm_specialist = create_llm_specialist()
         llm_formatter = create_llm_formatter()
         embedding_provider = create_embedding_provider()
-        
+
         # Buscar contexto RAG
         retrieval_context: list[str] = []
         try:
@@ -4054,12 +4289,18 @@ async def _stream_connection_query(
             )
         except Exception:
             retrieval_context = []
-        
+
         # Executar agente até o specialist (sem formatter ainda)
         try:
             from core.agents.generic_sql_agent import build_generic_sql_graph
-            from core.llm.formatter import _ensure_language, _serialize_for_json, _compute_basic_stats, _stream_llm, _extract_topic
-            
+            from core.llm.formatter import (
+                _ensure_language,
+                _serialize_for_json,
+                _compute_basic_stats,
+                _stream_llm,
+                _extract_topic,
+            )
+
             state = {
                 "question": body.question,
                 "user_id": body.user_id,
@@ -4071,15 +4312,17 @@ async def _stream_connection_query(
                 "creativity": body.creativity,
                 "length": body.length,
                 "response_format": body.response_format,
+                "ai_tone": body.ai_tone,
+                "ai_style": body.ai_style,
                 "sql_instructions": body.sql_instructions,
                 "selected_datasets": body.selected_datasets,
                 # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
                 "security_config": body.security_config,
             }
-            
+
             def db_session_factory():
                 return SyncSessionLocal()
-            
+
             app = build_generic_sql_graph(
                 agent_config=agent_config,
                 data_source=data_source,
@@ -4090,35 +4333,47 @@ async def _stream_connection_query(
                 llm_formatter=llm_formatter,
             )
             # Derive thread_id for LangGraph config
-            thread_id = body.thread_id or f"{body.user_id or 'anon'}-{connection_id}-stream"
+            thread_id = (
+                body.thread_id or f"{body.user_id or 'anon'}-{connection_id}-stream"
+            )
 
             # Executar até o specialist (orchestrator -> specialist)
             # Não executamos o formatter ainda, vamos fazer streaming dela
             final_state = None
-            for chunk in app.stream(state, config={"configurable": {"thread_id": thread_id}}):
+            for chunk in app.stream(
+                state, config={"configurable": {"thread_id": thread_id}}
+            ):
                 for node_name, node_state in chunk.items():
                     if node_name in ["orchestrator", "specialist"]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
                         if node_name == "orchestrator":
                             yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Analisando pergunta...'})}\n\n"
-                            
+
                             # Enviar evento quando datasets são escolhidos
                             chosen_table = node_state.get("chosen_table")
                             chosen_tables = node_state.get("chosen_tables")
                             if chosen_table or chosen_tables:
-                                chosen_datasets = chosen_tables if chosen_tables else ([chosen_table] if chosen_table else [])
+                                chosen_datasets = (
+                                    chosen_tables
+                                    if chosen_tables
+                                    else ([chosen_table] if chosen_table else [])
+                                )
                                 yield f"data: {json.dumps({'type': 'datasets_selected', 'datasets': chosen_datasets})}\n\n"
-                        
+
                         elif node_name == "specialist":
                             yield f"data: {json.dumps({'type': 'progress', 'stage': 'specialist', 'message': 'Executando query...'})}\n\n"
-                            
+
                             # Enviar evento quando SQL é gerado
                             sql = node_state.get("sql")
                             if sql:
                                 # ✅ CAMADA 3: Validar SQL gerado antes de expor ao cliente
-                                allowed_tables = [t.physical_name for t in agent_config.tables]
-                                allowed_tables.extend([t.logical_name for t in agent_config.tables])
+                                allowed_tables = [
+                                    t.physical_name for t in agent_config.tables
+                                ]
+                                allowed_tables.extend(
+                                    [t.logical_name for t in agent_config.tables]
+                                )
                                 connection_type = conn_result[2] or "bigquery"
                                 validator = AdvancedSQLValidator(
                                     allowed_tables=allowed_tables,
@@ -4127,12 +4382,14 @@ async def _stream_connection_query(
                                     max_columns=10,
                                     max_group_by=3,
                                 )
-                                ok, validation_error = validator.validate(sql, connection_type)
+                                ok, validation_error = validator.validate(
+                                    sql, connection_type
+                                )
                                 if not ok:
                                     log_event(
                                         "ai_generated_invalid_sql_stream",
                                         {
-+                                           "connection_id": connection_id,
+                                            +"connection_id": connection_id,
                                             "user_id": body.user_id,
                                             "sql": sql[:500],
                                             "error": validation_error,
@@ -4149,13 +4406,15 @@ async def _stream_connection_query(
                                         sql_executed=None,
                                         sql_validated=False,
                                         validation_error=validation_error,
-                                        execution_time_ms=int((time.time() - start_time) * 1000),
+                                        execution_time_ms=int(
+                                            (time.time() - start_time) * 1000
+                                        ),
                                         has_error=True,
                                         error_message=validation_error,
                                         progressive_escalation_score=escalation_score,
                                         progressive_escalation_detected=escalation_detected,
                                     )
-                                    
+
                                     # Mensagem amigável para erro técnico no streaming
                                     msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
@@ -4163,14 +4422,16 @@ async def _stream_connection_query(
                                     return
 
                                 yield f"data: {json.dumps({'type': 'sql_generated', 'sql': sql})}\n\n"
-            
+
             if not final_state:
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Erro ao executar agente'})}\n\n"
                 return
-            
+
             # Se houve erro no agente, enviar amigável e terminar
             if final_state.get("error"):
-                lang = _ensure_language(body.question, final_state.get("detected_language"))
+                lang = _ensure_language(
+                    body.question, final_state.get("detected_language")
+                )
                 msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
@@ -4178,17 +4439,21 @@ async def _stream_connection_query(
                     "chosen_table": final_state.get("chosen_table"),
                     "chosen_datasets": final_state.get("chosen_tables"),
                     "sql": final_state.get("sql"),
-                    "title": final_state.get("generated_title"),  # ✅ NOVO: Título gerado dinamicamente
+                    "title": final_state.get(
+                        "generated_title"
+                    ),  # ✅ NOVO: Título gerado dinamicamente
                     "num_rows": 0,
                     "error": str(final_state.get("error")),
                 }
                 yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': []})}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
-            
+
             # Se não há dados, enviar amigável com tópico e terminar
             if not final_state.get("data"):
-                lang = _ensure_language(body.question, final_state.get("detected_language"))
+                lang = _ensure_language(
+                    body.question, final_state.get("detected_language")
+                )
                 topic = _extract_topic(body.question)
                 msg = get_message("NO_DATA_FOUND", lang, topic=topic)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
@@ -4202,7 +4467,7 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': []})}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
-            
+
             # Agora fazer streaming da resposta do formatter
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
 
@@ -4268,7 +4533,7 @@ async def _stream_connection_query(
                     "- You MUST answer in English, even if the user question is in another language.\n"
                 ),
             }
-            
+
             user_msg = {
                 "role": "user",
                 "content": (
@@ -4281,7 +4546,7 @@ async def _stream_connection_query(
                     "in English."
                 ),
             }
-            
+
             # Stream do LLM formatter
             accumulated_answer = ""
             try:
@@ -4293,17 +4558,25 @@ async def _stream_connection_query(
                 fallback = "Error formatting the response with the AI. Data was queried successfully, but I could not generate a summary."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': fallback})}\n\n"
                 accumulated_answer = fallback
-            
+
             # Enviar metadados finais
             chosen_table = final_state.get("chosen_table")
             chosen_tables = final_state.get("chosen_tables")
             sql = final_state.get("sql")
 
-            chosen_datasets = chosen_tables if chosen_tables else ([chosen_table] if chosen_table else [])
+            chosen_datasets = (
+                chosen_tables
+                if chosen_tables
+                else ([chosen_table] if chosen_table else [])
+            )
 
             # Last-mile: transform raw sample and infer widget type
-            formatted_sample = _transform_data_for_format(raw_sample, body.response_format)
-            recommended_widget_type = _infer_widget_type(formatted_sample, body.response_format)
+            formatted_sample = _transform_data_for_format(
+                raw_sample, body.response_format
+            )
+            recommended_widget_type = _infer_widget_type(
+                formatted_sample, body.response_format
+            )
 
             meta = {
                 "detected_language": lang,
@@ -4346,9 +4619,10 @@ async def _stream_connection_query(
                 )
             except Exception:
                 pass
-            
+
         except Exception as e:
             import traceback
+
             error_detail = str(e)
             msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
@@ -4359,7 +4633,7 @@ async def _stream_connection_query(
                     "error": error_detail,
                 },
             )
-    
+
     except Exception as e:
         msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
         yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
@@ -4374,7 +4648,7 @@ async def query_connection_stream(
     """
     Faz uma pergunta usando uma DataConnection com streaming de resposta.
     Retorna Server-Sent Events (SSE) com chunks de texto conforme são gerados.
-    
+
     Formato dos eventos:
     - {"type": "chunk", "content": "texto..."} - pedaços da resposta
     - {"type": "meta", "meta": {...}, "data_sample": [...]} - metadados finais
@@ -4382,10 +4656,12 @@ async def query_connection_stream(
     - {"type": "error", "message": "..."} - erro ocorrido
     """
     if not body.space_id:
+
         async def error_stream():
             yield f"data: {json.dumps({'type': 'error', 'message': 'space_id é obrigatório no body da requisição'})}\n\n"
+
         return StreamingResponse(error_stream(), media_type="text/event-stream")
-    
+
     return StreamingResponse(
         _stream_connection_query(connection_id, body, db),
         media_type="text/event-stream",
@@ -4393,12 +4669,13 @@ async def query_connection_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Desabilita buffering no nginx
-        }
+        },
     )
 
 
 from decimal import Decimal
 from datetime import date
+
 
 def _serialize_for_json(obj: Any) -> Any:
     """Helper to serialize datetime/decimal for JSON."""
@@ -4414,7 +4691,10 @@ def _serialize_for_json(obj: Any) -> Any:
         return {k: _serialize_for_json(v) for k, v in obj.items()}
     return obj
 
-def _infer_widget_type(data: List[Dict[str, Any]], response_format: Optional[str]) -> Optional[str]:
+
+def _infer_widget_type(
+    data: List[Dict[str, Any]], response_format: Optional[str]
+) -> Optional[str]:
     """
     Infers the best widget type from data shape.
     If response_format is explicitly set (and not 'text'), returns it as-is.
@@ -4438,7 +4718,9 @@ def _infer_widget_type(data: List[Dict[str, Any]], response_format: Optional[str
     return "text"
 
 
-def _transform_data_for_format(data: List[Dict[str, Any]], response_format: Optional[str]) -> List[Dict[str, Any]]:
+def _transform_data_for_format(
+    data: List[Dict[str, Any]], response_format: Optional[str]
+) -> List[Dict[str, Any]]:
     """
     Transforms raw SQL rows into a structure appropriate for the widget type.
 
@@ -4457,32 +4739,46 @@ def _transform_data_for_format(data: List[Dict[str, Any]], response_format: Opti
         )
         if numeric_col is None:
             return data
-        return [{
-            "value": first_row[numeric_col],
-            "label": numeric_col.replace("_", " ").title(),
-        }]
+        return [
+            {
+                "value": first_row[numeric_col],
+                "label": numeric_col.replace("_", " ").title(),
+            }
+        ]
 
     if response_format == "chart":
         keys = list(data[0].keys())
         label_col = next((k for k in keys if isinstance(data[0][k], str)), keys[0])
         value_col = next(
-            (k for k in keys if k != label_col and isinstance(data[0][k], (int, float))),
+            (
+                k
+                for k in keys
+                if k != label_col and isinstance(data[0][k], (int, float))
+            ),
             keys[-1],
         )
-        return [{
-            "labels": [_serialize_for_json(row.get(label_col)) for row in data],
-            "datasets": [{
-                "label": value_col.replace("_", " ").title(),
-                "data": [_serialize_for_json(row.get(value_col)) for row in data],
-            }],
-        }]
+        return [
+            {
+                "labels": [_serialize_for_json(row.get(label_col)) for row in data],
+                "datasets": [
+                    {
+                        "label": value_col.replace("_", " ").title(),
+                        "data": [
+                            _serialize_for_json(row.get(value_col)) for row in data
+                        ],
+                    }
+                ],
+            }
+        ]
 
     if response_format == "table":
         columns = list(data[0].keys())
-        return [{
-            "columns": columns,
-            "rows": [list(row.values()) for row in data],
-        }]
+        return [
+            {
+                "columns": columns,
+                "rows": [list(row.values()) for row in data],
+            }
+        ]
 
     return data
 
@@ -4491,18 +4787,18 @@ def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
     """Compute basic stats for context."""
     if not data:
         return "No data."
-    
+
     first_row = data[0]
     total_cols = len(first_row.keys())
-    
+
     # Identify numeric columns
     numeric_cols = []
     for k, v in first_row.items():
         if isinstance(v, (int, float, Decimal)):
             numeric_cols.append(k)
-            
+
     stats = []
-    for col in numeric_cols[:3]: # Limit to top 3 numeric
+    for col in numeric_cols[:3]:  # Limit to top 3 numeric
         try:
             values = [float(row[col]) for row in data if row.get(col) is not None]
             if values:
@@ -4510,7 +4806,7 @@ def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
                 stats.append(f"{col}: avg={avg:.2f}, max={max(values):.2f}")
         except:
             pass
-            
+
     return f"Columns: {total_cols}. " + "; ".join(stats)
 
 
@@ -4523,39 +4819,33 @@ async def validate_sql(
     """
     Valida SQL editado pelo usuário com validação AST e permissões.
     """
-    
+
     # ✅ CAMADA 1: Rate limiting (mais permissivo para validate)
     user_key = body.user_id or f"conn_{connection_id}"
     allowed, error = _rate_limiter.check_rate_limit(user_key, "validate")
     if not allowed:
-        return ValidateSQLResponse(
-            is_valid=False,
-            error=error
-        )
-    
+        return ValidateSQLResponse(is_valid=False, error=error)
+
     # ✅ CAMADA 2: Validação regex (rápida)
     from core.sql.validator import validate_sql_strict
+
     is_valid, error = validate_sql_strict(body.sql)
     if not is_valid:
-        return ValidateSQLResponse(
-            is_valid=False,
-            error=error
-        )
-    
+        return ValidateSQLResponse(is_valid=False, error=error)
+
     try:
         # Verificar se conexão existe
         result = await db.execute(
-            text("SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"),
-            {"id": connection_id}
+            text(
+                "SELECT id, name, connector_id AS type, config FROM data_connections WHERE id = :id"
+            ),
+            {"id": connection_id},
         )
         conn_result = result.first()
-        
+
         if not conn_result:
-            return ValidateSQLResponse(
-                is_valid=False,
-                error="Conexão não encontrada"
-            )
-        
+            return ValidateSQLResponse(is_valid=False, error="Conexão não encontrada")
+
         # ✅ CAMADA 3: Resolver permissões
         crew_ids = body.crew_ids or []
         if body.user_id and body.space_id:
@@ -4565,7 +4855,7 @@ async def validate_sql(
                     user_id=UUID(body.user_id),
                     space_id=UUID(body.space_id),
                     request_crew_ids=body.crew_ids,
-                    is_personal=bool(getattr(body, 'is_personal', False))
+                    is_personal=bool(getattr(body, "is_personal", False)),
                 )
                 crew_ids = [str(cid) for cid in resolved_crew_ids]
             except Exception as e:
@@ -4575,42 +4865,38 @@ async def validate_sql(
                         "connection_id": connection_id,
                         "user_id": body.user_id,
                         "error": str(e)[:200],
-                    }
+                    },
                 )
                 crew_ids = []
-        
+
         # Obter tabelas permitidas
         allowed_tables = await _get_allowed_tables_for_validation(
             db=db,
             connection_id=connection_id,
             space_id=body.space_id or "",
-            crew_ids=crew_ids
+            crew_ids=crew_ids,
         )
-        
+
         if not allowed_tables:
             return ValidateSQLResponse(
-                is_valid=False,
-                error="No tables available for this connection"
+                is_valid=False, error="No tables available for this connection"
             )
-        
+
         # ✅ CAMADA 4: Validação AST + Permissões
         connection_type = (conn_result[2] if conn_result else "bigquery") or "bigquery"
-        
+
         validator = AdvancedSQLValidator(
             allowed_tables=allowed_tables,
             allowed_columns=None,  # Opcional: filtrar colunas também
             max_limit=100,
             max_columns=10,
-            max_group_by=3
+            max_group_by=3,
         )
-        
+
         is_valid, error = validator.validate(body.sql, connection_type)
         if not is_valid:
-            return ValidateSQLResponse(
-                is_valid=False,
-                error=error
-            )
-        
+            return ValidateSQLResponse(is_valid=False, error=error)
+
         # Criar DataSource
         conn_config = conn_result[3]
         if isinstance(conn_config, str):
@@ -4622,39 +4908,35 @@ async def validate_sql(
             conn_config = {}
         elif not isinstance(conn_config, dict):
             conn_config = {}
-        
+
         class TempDataConnection:
             def __init__(self, id, name, type, config):
                 self.id = id
                 self.name = name
                 self.type = type
                 self.config = config
-        
+
         data_conn = TempDataConnection(
             id=str(conn_result[0]),
             name=conn_result[1],
             type=conn_result[2] or "bigquery",
-            config=conn_config
+            config=conn_config,
         )
-        
+
         try:
             data_source = DataSourceFactory.build_from_dataconnection(data_conn)
         except Exception as e:
             return ValidateSQLResponse(
-                is_valid=False,
-                error=f"Erro ao criar DataSource: {str(e)}"
+                is_valid=False, error=f"Erro ao criar DataSource: {str(e)}"
             )
-        
+
         # Executar SQL com LIMIT 5 para preview
-        sql = body.sql.strip().rstrip(';')
-        
+        sql = body.sql.strip().rstrip(";")
+
         # Validar que SQL não está vazio após strip
         if not sql:
-            return ValidateSQLResponse(
-                is_valid=False,
-                error="SQL não pode ser vazio"
-            )
-        
+            return ValidateSQLResponse(is_valid=False, error="SQL não pode ser vazio")
+
         # ✅ NOVO: Validar SQL contra regras de segurança (se security_config foi enviado)
         if body.security_config:
             from core.security.security_config import (
@@ -4662,10 +4944,10 @@ async def validate_sql(
                 inject_row_filters_in_sql,
                 get_default_security_config,
             )
-            
+
             # Injetar row filters (RLS) se configurado
             sql = inject_row_filters_in_sql(sql, body.security_config)
-            
+
             # Validar SQL contra regras de segurança
             is_valid, security_error = validate_sql_against_security(
                 sql=sql,
@@ -4673,10 +4955,9 @@ async def validate_sql(
             )
             if not is_valid:
                 return ValidateSQLResponse(
-                    is_valid=False,
-                    error=f"Violação de segurança: {security_error}"
+                    is_valid=False, error=f"Violação de segurança: {security_error}"
                 )
-        
+
         # Adicionar LIMIT se não existir (para evitar queries muito grandes)
         sql_upper = sql.upper()
         if "LIMIT" not in sql_upper:
@@ -4684,18 +4965,18 @@ async def validate_sql(
         else:
             # Se já tem LIMIT, usar como está (mas pode ser limitado pelo DataSource)
             sql_with_limit = sql
-        
+
         # Executar query
         start_time = time.time()
         try:
             data = data_source.run_query(sql_with_limit)
             execution_time_ms = (time.time() - start_time) * 1000
-            
+
             # Extrair colunas se houver dados
             columns = None
             if data and len(data) > 0 and isinstance(data[0], dict):
                 columns = list(data[0].keys())
-            
+
             log_event(
                 "validate_sql_success",
                 {
@@ -4705,16 +4986,18 @@ async def validate_sql(
                     "execution_time_ms": execution_time_ms,
                 },
             )
-            
+
             explanation = None
             if body.include_explanation and data:
                 try:
                     # 1. Preparar dados para o formatter similar ao streaming
                     data_sample = data[:15]
                     serialized_sample = _serialize_for_json(data_sample)
-                    sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
+                    sample_json = json.dumps(
+                        serialized_sample, ensure_ascii=False, indent=2
+                    )
                     stats_text = _compute_basic_stats(data_sample)
-                    
+
                     # 2. Criar contexto do sistema
                     system_msg = {
                         "role": "system",
@@ -4729,7 +5012,7 @@ async def validate_sql(
                             "- Do not mention 'JSON', 'query', or technical details."
                         ),
                     }
-                    
+
                     # 3. Criar mensagem do usuário
                     user_msg = {
                         "role": "user",
@@ -4742,7 +5025,7 @@ async def validate_sql(
                             "Explain the results."
                         ),
                     }
-                    
+
                     # 4. Chamar LLM
                     llm_formatter = create_llm_formatter()
                     response = llm_formatter.invoke([system_msg, user_msg])
@@ -4750,7 +5033,7 @@ async def validate_sql(
                 except Exception as e:
                     log_event(
                         "validate_sql_explanation_error",
-                        {"connection_id": connection_id, "error": str(e)}
+                        {"connection_id": connection_id, "error": str(e)},
                     )
                     explanation = None
 
@@ -4760,7 +5043,7 @@ async def validate_sql(
                 num_rows=len(data),
                 execution_time_ms=execution_time_ms,
                 columns=columns,
-                explanation=explanation
+                explanation=explanation,
             )
         except Exception as e:
             error_msg = str(e)[:500]
@@ -4772,11 +5055,8 @@ async def validate_sql(
                     "error": error_msg,
                 },
             )
-            return ValidateSQLResponse(
-                is_valid=False,
-                error=error_msg
-            )
-        
+            return ValidateSQLResponse(is_valid=False, error=error_msg)
+
     except Exception as e:
         error_msg = str(e)[:500]
         log_event(
@@ -4787,6 +5067,5 @@ async def validate_sql(
             },
         )
         return ValidateSQLResponse(
-            is_valid=False,
-            error=f"Erro inesperado: {error_msg}"
+            is_valid=False, error=f"Erro inesperado: {error_msg}"
         )
