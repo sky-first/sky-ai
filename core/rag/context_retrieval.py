@@ -106,15 +106,16 @@ async def build_retrieval_context_for_question(
     connection_id: Optional[str] = None,
     intent: Optional[str] = None,
     kinds: Optional[List[str]] = None,
+    is_personal: bool = False,
+    user_id: Optional[str] = None,
 ) -> List[str]:
     """Unified retrieval — reads both context_documents and legacy
     embeddings, ranks via the brain, returns legacy-shaped blocks.
 
-    The two new optional args (``intent``, ``kinds``) let newer callers
-    opt into intent-weighted ranking and kind filtering. Existing
-    callers continue to pass just the original args and get the same
-    legacy shape back, now richer with strategy/events/widget blocks
-    when those rows exist in the new store.
+    ``is_personal`` + ``user_id`` propagate the Personal-isolation
+    contract down to both stores so Personal views only return the
+    caller's items and Space/Crew views never leak another user's
+    Personal items.
     """
     searcher = make_brain_searcher(
         db=db,
@@ -122,6 +123,8 @@ async def build_retrieval_context_for_question(
         space_id=space_id,
         crew_ids=crew_ids,
         connection_id=connection_id,
+        is_personal=is_personal,
+        user_id=user_id,
     )
 
     async def _qe(q: str):
@@ -134,7 +137,7 @@ async def build_retrieval_context_for_question(
 
     ranked = await retrieve_context(
         question,
-        Scope(user_id=None, space_id=space_id, crew_ids=list(crew_ids or [])),
+        Scope(user_id=user_id, space_id=space_id, crew_ids=list(crew_ids or [])),
         searcher=searcher,
         query_embedder=_qe,
         kinds=kinds,

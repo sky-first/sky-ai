@@ -2062,6 +2062,8 @@ async def dashboards_plan(
                         query_text=search_query,
                         top_k=50,
                         connection_id=connection_id,
+                        is_personal=bool(getattr(body, "is_personal", False)),
+                        user_id=getattr(body, "user_id", None),
                     )
 
                     # 3. Extract scores
@@ -3487,7 +3489,10 @@ async def _query_connection_inner(
             ),
         )
 
-    # Buscar contexto RAG com crew_ids resolvidos
+    # Buscar contexto RAG com crew_ids resolvidos.
+    # Personal isolation: is_personal + user_id garantem que o RAG só
+    # devolve embeddings que pertencem ao caller quando em Personal, e
+    # exclui Personal de terceiros quando em Space/Crew.
     retrieval_context: list[str] = []
     try:
         retrieval_context = await build_retrieval_context_for_question(
@@ -3498,6 +3503,8 @@ async def _query_connection_inner(
             question=body.question,
             top_k=10,
             connection_id=connection_id,
+            is_personal=bool(getattr(body, "is_personal", False)),
+            user_id=getattr(body, "user_id", None),
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
@@ -4275,7 +4282,8 @@ async def _stream_connection_query(
         llm_formatter = create_llm_formatter()
         embedding_provider = create_embedding_provider()
 
-        # Buscar contexto RAG
+        # Buscar contexto RAG com Personal isolation — ver comentário
+        # análogo no caller principal para detalhes do contrato.
         retrieval_context: list[str] = []
         try:
             retrieval_context = await build_retrieval_context_for_question(
@@ -4286,6 +4294,8 @@ async def _stream_connection_query(
                 question=body.question,
                 top_k=10,
                 connection_id=connection_id,
+                is_personal=bool(getattr(body, "is_personal", False)),
+                user_id=getattr(body, "user_id", None),
             )
         except Exception:
             retrieval_context = []
