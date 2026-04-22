@@ -44,6 +44,14 @@ class QueryRequest(BaseModel):
         default=None,
         description="Formato desejado da resposta (ex: 'text', 'json', 'markdown')."
     )
+    ai_tone: Optional[str] = Field(
+        default=None,
+        description="User-selected response tone (casual, professional, technical, friendly). Shapes *form* of the answer; platform_role/crew_role still shape substance."
+    )
+    ai_style: Optional[str] = Field(
+        default=None,
+        description="User-selected output structure (concise, detailed, step-by-step)."
+    )
     sql_instructions: Optional[str] = Field(
         default=None,
         description="Specific instructions for SQL generation."

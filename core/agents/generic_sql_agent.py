@@ -54,6 +54,8 @@ class AgentState(TypedDict, total=False):
     creativity: Optional[int]  # Nível de criatividade (0-100) -> temperatura
     length: Optional[int]  # Nível de comprimento (0-100) -> max_tokens
     response_format: Optional[str]  # Formato desejado da resposta
+    ai_tone: Optional[str]  # User-selected tone (casual/professional/technical/friendly) — shapes form, not substance
+    ai_style: Optional[str]  # User-selected output structure (concise/detailed/step-by-step)
     sql_instructions: Optional[str]  # Instruções específicas para SQL
     selected_datasets: Optional[List[str]]  # Datasets/tabelas selecionados manualmente pelo usuário
 
@@ -797,6 +799,8 @@ def run_agent_once(
     creativity: Optional[int] = None,
     length: Optional[int] = None,
     response_format: Optional[str] = None,
+    ai_tone: Optional[str] = None,
+    ai_style: Optional[str] = None,
     sql_instructions: Optional[str] = None,
     selected_datasets: Optional[List[str]] = None,
     chat_history: Optional[List[Dict[str, str]]] = None,
@@ -856,6 +860,8 @@ def run_agent_once(
         "creativity": creativity,
         "length": length,
         "response_format": response_format,
+        "ai_tone": ai_tone,
+        "ai_style": ai_style,
         "sql_instructions": sql_instructions,
         "selected_datasets": selected_datasets,
         "explicit_relationships": explicit_relationships or [],  # Relacionamentos documentados pelo cliente

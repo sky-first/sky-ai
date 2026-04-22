@@ -3383,6 +3383,8 @@ async def _query_connection_inner(
             creativity=body.creativity,
             length=body.length,
             response_format=body.response_format,
+            ai_tone=body.ai_tone,
+            ai_style=body.ai_style,
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
             explicit_relationships=explicit_relationships or None,
@@ -4071,6 +4073,8 @@ async def _stream_connection_query(
                 "creativity": body.creativity,
                 "length": body.length,
                 "response_format": body.response_format,
+                "ai_tone": body.ai_tone,
+                "ai_style": body.ai_style,
                 "sql_instructions": body.sql_instructions,
                 "selected_datasets": body.selected_datasets,
                 # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)

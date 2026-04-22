@@ -357,7 +357,9 @@ def run_formatter(
         impossible_reason=impossible_reason or "",
         response_format=state.get("response_format"),
         length_guidance=length_guidance,
-        extra_instructions=state.get("instructions")
+        extra_instructions=state.get("instructions"),
+        ai_tone=state.get("ai_tone"),
+        ai_style=state.get("ai_style"),
     )
 
     try:

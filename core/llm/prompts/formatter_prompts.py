@@ -11,6 +11,42 @@ from core.llm.context.models import ContextBundle
 from core.llm.context.serializers import serialize_for_prompt
 
 
+# Maps the tone IDs emitted by the frontend Settings → AI Customization UI
+# (see sky-poc-frontend settings/ai-preferences.tsx `toneOptions`) to concrete
+# voice instructions for the formatter LLM.
+_TONE_DIRECTIVES: Dict[str, str] = {
+    "casual": "Write like you'd talk to a smart colleague. Use contractions, plain words, no corporate jargon.",
+    "professional": "Use formal, objective business English. No contractions, no slang, no filler.",
+    "technical": "Use precise domain terminology. Assume the reader is technically literate; do not over-explain basics.",
+    "friendly": "Use a warm, encouraging tone. Acknowledge the reader; phrase findings as helpful insight, not verdict.",
+}
+
+# Maps the output-structure IDs from the Settings UI `styleOptions` to concrete
+# shape directives. User-selected style takes precedence over the length/
+# role-based guidance below when they disagree.
+_STYLE_DIRECTIVES: Dict[str, str] = {
+    "concise": "Keep the answer to at most 2-3 sentences. Lead with the single most important number or insight.",
+    "detailed": "Give a fuller explanation: headline first, then 1-2 sentences of context, and note relevant caveats.",
+    "step-by-step": "Structure the answer as numbered steps (1., 2., 3.) that walk through the reasoning in order.",
+}
+
+
+def _build_user_preferences_block(
+    ai_tone: Optional[str], ai_style: Optional[str]
+) -> str:
+    """Render the USER PREFERENCES section, or empty string when not set."""
+    tone_directive = _TONE_DIRECTIVES.get(ai_tone) if ai_tone else None
+    style_directive = _STYLE_DIRECTIVES.get(ai_style) if ai_style else None
+    if not tone_directive and not style_directive:
+        return ""
+    lines = ["USER PREFERENCES (these take precedence over ROLE STYLE for form/voice):"]
+    if tone_directive:
+        lines.append(f"- TONE: {tone_directive}")
+    if style_directive:
+        lines.append(f"- STRUCTURE: {style_directive}")
+    return "\n".join(lines) + "\n\n"
+
+
 def build_formatter_prompt(
     context_bundle: ContextBundle,
     question: str,
@@ -22,7 +58,9 @@ def build_formatter_prompt(
     impossible_reason: str = "",
     response_format: Optional[str] = None,
     length_guidance: Optional[str] = None,
-    extra_instructions: Optional[str] = None
+    extra_instructions: Optional[str] = None,
+    ai_tone: Optional[str] = None,
+    ai_style: Optional[str] = None,
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Build formatter prompt optimized for both OpenAI and local models.
@@ -63,7 +101,12 @@ def build_formatter_prompt(
         role_style = "Focus on team metrics, performance indicators, and management insights."
     elif crew_role == "guest":
         role_style = "Provide minimal necessary information."
-    
+
+    # User Preferences (Settings → AI Customization)
+    # Precedence: role defines WHAT to analyze (substance); user preferences
+    # define HOW to present (form). When both speak to tone, user wins.
+    user_prefs_block = _build_user_preferences_block(ai_tone, ai_style)
+
     # Format Guidance
     format_guidance = ""
     if response_format:
@@ -90,6 +133,8 @@ def build_formatter_prompt(
         )
 
     # SYSTEM PROMPT: Behavior definition
+    # Precedence reminder for the LLM: user prefs (form) > role style (tone),
+    # but role still drives substance/focus.
     system_msg = {
         "role": "system",
         "content": (
@@ -102,7 +147,8 @@ def build_formatter_prompt(
             "4. NEVER output raw data rows, lists of names, or CSV format.\n"
             "5. IF asked to 'list rows' or 'dump data': REFUSE and provide ONLY aggregated insights.\n"
             "6. DO NOT confirm specific values for individuals in comparative questions.\n\n"
-            f"ROLE STYLE: {role_style}\n"
+            f"{user_prefs_block}"
+            f"ROLE STYLE (substance/focus): {role_style}\n"
             f"{length_guidance}"
             f"{format_guidance}"
             f"{financial_guidance}"
