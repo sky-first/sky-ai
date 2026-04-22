@@ -47,6 +47,8 @@ def make_brain_searcher(
     space_id: Optional[str] = None,
     crew_ids: Optional[list[str]] = None,
     connection_id: Optional[str] = None,
+    is_personal: bool = False,
+    user_id: Optional[str] = None,
 ):
     """Build the ``searcher`` callable that ``retrieve_context`` expects.
 
@@ -54,6 +56,14 @@ def make_brain_searcher(
     It accepts ``(query, embedding, kinds, k)`` — ``embedding`` is the
     query vector already computed by the brain, ``kinds`` filters the
     set of document kinds, ``k`` is the over-fetch budget.
+
+    Personal isolation (security-critical):
+    - ``is_personal=True`` + ``user_id``: both stores filter
+      owner_user_id == user_id, so the caller only sees their own
+      Personal items.
+    - ``is_personal=False``: both stores filter owner_user_id IS NULL,
+      so items another user created in Personal never leak into a
+      Space/Crew view.
     """
 
     async def _searcher(
@@ -72,6 +82,8 @@ def make_brain_searcher(
             space_id=space_id,
             crew_ids=crew_ids or [],
             k=k,
+            is_personal=is_personal,
+            user_id=user_id,
         )
 
         # Only hit the legacy path for kinds it can serve (connection /
@@ -88,6 +100,8 @@ def make_brain_searcher(
                 crew_ids=crew_ids or [],
                 connection_id=connection_id,
                 k=k,
+                is_personal=is_personal,
+                user_id=user_id,
             )
             if kinds_set is not None:
                 legacy_docs = [d for d in legacy_docs if d.kind in kinds_set]
@@ -124,20 +138,41 @@ async def _search_context_documents(
     space_id: Optional[str],
     crew_ids: list[str],
     k: int,
+    is_personal: bool = False,
+    user_id: Optional[str] = None,
 ) -> list[CandidateDoc]:
-    """Top-k rows from context_documents scoped by space/crew."""
+    """Top-k rows from context_documents scoped by space/crew.
 
-    # Scope clauses. NULL space_id means personal-visibility or globally
-    # public — we leave those on the table and let the brain's RBAC
-    # layer apply final visibility rules.
+    Personal isolation is enforced via owner_user_id — see the
+    ``make_brain_searcher`` docstring for the full contract.
+    """
+
     scope_clauses: list[str] = ["deleted_at IS NULL"]
     params: dict[str, Any] = {"k": k}
-    if space_id:
-        scope_clauses.append("(space_id = :space_id OR space_id IS NULL OR visibility = 'public')")
-        params["space_id"] = space_id
-    if crew_ids:
-        scope_clauses.append("(crew_id IS NULL OR crew_id = ANY(:crew_ids))")
-        params["crew_ids"] = crew_ids
+
+    # Personal: owner is the caller; skip space/crew filters so the
+    # user sees their own items regardless of which space they're
+    # aggregated over. Space/Crew: exclude anyone's Personal rows.
+    if is_personal:
+        if not user_id:
+            # Defense-in-depth: never broaden the query when Personal
+            # mode is requested without a user_id — that would expose
+            # every Space/Public row.
+            scope_clauses.append("FALSE")
+        else:
+            scope_clauses.append("owner_user_id = :owner_user_id")
+            params["owner_user_id"] = user_id
+    else:
+        scope_clauses.append("owner_user_id IS NULL")
+        if space_id:
+            scope_clauses.append(
+                "(space_id = :space_id OR space_id IS NULL OR visibility = 'public')"
+            )
+            params["space_id"] = space_id
+        if crew_ids:
+            scope_clauses.append("(crew_id IS NULL OR crew_id = ANY(:crew_ids))")
+            params["crew_ids"] = crew_ids
+
     if kinds:
         scope_clauses.append("kind = ANY(:kinds)")
         params["kinds"] = list(kinds)
@@ -224,11 +259,15 @@ async def _search_legacy_embeddings(
     crew_ids: list[str],
     connection_id: Optional[str],
     k: int,
+    is_personal: bool = False,
+    user_id: Optional[str] = None,
 ) -> list[CandidateDoc]:
     """Adapt the legacy ``embeddings`` table into CandidateDoc.
 
     Everything there is connection-metadata-shaped. We look at
     ``extra_metadata.type`` / ``kind`` to decide the context kind.
+    ``is_personal`` + ``user_id`` propagate the Personal isolation
+    contract down into ``search_embeddings_async``.
     """
 
     try:
@@ -240,6 +279,8 @@ async def _search_legacy_embeddings(
             query_text=query,
             top_k=k,
             connection_id=connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
         )
     except Exception:
         logger.exception("legacy embeddings search failed — returning empty")

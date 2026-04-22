@@ -37,6 +37,12 @@ class KnowledgeGraphIngestPayload(BaseModel):
     entity_details: Optional[Dict[str, Any]] = None
     space_id: Optional[str] = None
     crew_id: Optional[str] = None
+    # owner_user_id is populated when the entity was created in Personal
+    # mode. It maps to EmbeddingRecord.user_id and lets the retrieval
+    # filter (see core/rag/vector_store.py) return only the caller's own
+    # Personal items. When NULL, the embedding is treated as Space/Crew
+    # scoped.
+    owner_user_id: Optional[str] = None
 
 
 def _format_semantic_text(payload: KnowledgeGraphIngestPayload) -> str:
@@ -89,6 +95,7 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
         # Tratar GUIDs nulos ou strings vazias
         space_uuid = UUID(payload.space_id) if payload.space_id else None
         crew_uuid = UUID(payload.crew_id) if payload.crew_id else None
+        owner_uuid = UUID(payload.owner_user_id) if payload.owner_user_id else None
 
         # 1. Limpar versões anteriores da mesma entidade (usando document_id para persistência do ID externo)
         # DevOps used f"graph_node_{payload.id}", but my branch used payload.id directly.
@@ -112,6 +119,7 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
         record = EmbeddingRecord(
             space_id=space_uuid,
             crew_id=crew_uuid,
+            user_id=owner_uuid,  # Personal ownership — see KnowledgeGraphIngestPayload.owner_user_id
             document_id=doc_id,
             text=semantic_text,
             embedding=vector,
