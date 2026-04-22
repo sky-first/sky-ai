@@ -4,6 +4,7 @@ Formatter Prompt Builder
 Creates prompts for natural language response generation (phi3:mini).
 Optimized for fast, conversational output (~1-2s on CPU).
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Tuple, Optional
@@ -64,9 +65,9 @@ def build_formatter_prompt(
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Build formatter prompt optimized for both OpenAI and local models.
-    
+
     Goal: Convert SQL results into conversational natural language.
-    
+
     Args:
         context_bundle: Structured context
         question: User's original question
@@ -78,19 +79,19 @@ def build_formatter_prompt(
         response_format: Optional forced format (e.g., 'markdown', 'json')
         length_guidance: Optional guidance on response length
         extra_instructions: Optional additional instructions
-        
+
     Returns:
         Tuple of (system_msg, user_msg) dicts
     """
-    
+
     # Serialize context
     context_text = serialize_for_prompt(context_bundle, "formatter")
-    
+
     # Role-Based Style Guidance
     platform_role = context_bundle.user.platform_role
     crew_role = context_bundle.user.crew_role
     role_label = context_bundle.user.role_label
-    
+
     # Custom Tone & Focus based on role
     role_style = "Be clear and conversational."
     if platform_role == "cfo" or (role_label and "CFO" in role_label.upper()):
@@ -98,7 +99,9 @@ def build_formatter_prompt(
     elif platform_role == "admin":
         role_style = "Provide executive summaries with key financial metrics and strategic insights."
     elif crew_role == "commander":
-        role_style = "Focus on team metrics, performance indicators, and management insights."
+        role_style = (
+            "Focus on team metrics, performance indicators, and management insights."
+        )
     elif crew_role == "guest":
         role_style = "Provide minimal necessary information."
 
@@ -111,10 +114,12 @@ def build_formatter_prompt(
     format_guidance = ""
     if response_format:
         format_guidance = f"\n- RESPONSE FORMAT: You MUST format your response as {response_format}.\n"
-    
+
     # Length Guidance
     if not length_guidance:
-        length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+        length_guidance = (
+            "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+        )
 
     # Extra Instructions
     instructions_block = ""
@@ -123,7 +128,16 @@ def build_formatter_prompt(
 
     # 💎 PLATINUM AUDITOR RULES (FINANCIAL RECONCILIATION)
     financial_guidance = ""
-    financial_keywords = ["invoice", "payment", "refund", "credit", "revenue", "billing", "amount", "fee"]
+    financial_keywords = [
+        "invoice",
+        "payment",
+        "refund",
+        "credit",
+        "revenue",
+        "billing",
+        "amount",
+        "fee",
+    ]
     is_financial = any(kw in question.lower() for kw in financial_keywords)
     if is_financial:
         financial_guidance = (
@@ -153,9 +167,9 @@ def build_formatter_prompt(
             f"{format_guidance}"
             f"{financial_guidance}"
             f"{instructions_block}"
-        )
+        ),
     }
-    
+
     # USER PROMPT: Question + data
     if is_impossible:
         user_msg = {
@@ -167,7 +181,7 @@ def build_formatter_prompt(
                 f"REASON: {impossible_reason}\n\n"
                 "Check the BUSINESS CONTEXT provided above. If the answer is available there (e.g. strategic pillars), "
                 "answer the question in English using that information. If not, explain concisely why it cannot be answered."
-            )
+            ),
         }
     elif not has_data:
         user_msg = {
@@ -178,7 +192,7 @@ def build_formatter_prompt(
                 "IMPORTANT: No data was found in the SQL database, BUT you MUST check the [BUSINESS CONTEXT & STRATEGIC PILLARS] section above. "
                 "If the answer to the question is contained in those strategic pillars or business context chunks, "
                 "PROVIDE THE ANSWER directly based on that information. Do not apologize for the lack of SQL data if the RAG context has the answer."
-            )
+            ),
         }
     else:
         user_msg = {
@@ -189,21 +203,18 @@ def build_formatter_prompt(
                 f"DATA PREVIEW:\n{data_preview}\n\n"
                 f"{stats_summary if stats_summary else ''}\n\n"
                 "Explain the main insight(s) from this data. Answer ONLY in English."
-            )
+            ),
         }
-    
+
     return system_msg, user_msg
 
 
 def build_formatter_prompt_legacy(
-    question: str,
-    sql: str,
-    data_preview: str,
-    detected_language: str = "en"
+    question: str, sql: str, data_preview: str, detected_language: str = "en"
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Legacy prompt builder for backward compatibility.
-    
+
     Used when context_bundle is disabled.
     """
     system_msg = {
@@ -218,9 +229,9 @@ def build_formatter_prompt_legacy(
             "- Do not hallucinate or make up information\n"
             "- If there's no data, explain why clearly\n"
             "- Keep responses concise (2-4 sentences typically)\n"
-        )
+        ),
     }
-    
+
     user_msg = {
         "role": "user",
         "content": (
@@ -229,7 +240,7 @@ def build_formatter_prompt_legacy(
             f"Query results:\n{data_preview}\n\n"
             "Please answer the user's question based on this data. "
             "Provide a clear, conversational response in English."
-        )
+        ),
     }
-    
+
     return system_msg, user_msg
