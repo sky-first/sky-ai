@@ -1,0 +1,59 @@
+name: Runpod wake-up (on demand)
+
+# Orchestrates the runpod sky-ollama-dev-v2 pod from CI so nobody has to
+# fight the UI when a GPU isn't available. Triggered by:
+#   - workflow_dispatch (manually, "Run workflow" in the Actions tab)
+#   - another workflow (e.g. a deploy that needs inference warm)
+#
+# The script itself lives in sky-poc-ai/scripts/runpod_smart_wake.py —
+# this workflow is the thin wrapper that gives it secrets and a shell.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_tries:
+        description: "Max start attempts before escalating"
+        default: "15"
+      retry_seconds:
+        description: "Seconds between retries"
+        default: "120"
+
+  # Called from other workflows (e.g. deploy-staging) via:
+  #   uses: ./.github/workflows/runpod-wake.yml
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run smart-wake
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python scripts/runpod_smart_wake.py \
+            --pod-name sky-ollama-dev-v2 \
+            --env-file .env \
+            --max-tries "${{ inputs.max_tries || '15' }}" \
+            --retry-seconds "${{ inputs.retry_seconds || '120' }}" \
+            --migrate-after 3 \
+            --models-timeout 900
+
+      - name: Report on .env change
+        if: always()
+        run: |
+          if ! git diff --quiet .env 2>/dev/null; then
+            echo "::notice::OLLAMA_BASE_URL changed — the pod id migrated."
+            echo "Commit the .env diff to persist the new URL in your branch."
+            git --no-pager diff .env || true
+          else
+            echo "::notice::No .env change — pod id unchanged."
+          fi
