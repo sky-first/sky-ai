@@ -2054,6 +2054,16 @@ async def dashboards_plan(
                     # NOTE: Schema embeddings are usually linked to connection_id via TableMetadata -> data_connection_id logic.
                     # vector_store.search_embeddings_async supports connection_id filtering.
 
+                    # Flatten selected_context into a single allowlist of
+                    # document_ids for the RAG. An empty allowlist (no
+                    # selection provided) disables the filter.
+                    _sel_ctx = getattr(body, "selected_context", None) or {}
+                    _allowed_doc_ids = [
+                        str(_id)
+                        for ids in _sel_ctx.values() if ids
+                        for _id in ids
+                    ] or None
+
                     top_records = await search_embeddings_async(
                         db=db,
                         embedding_provider=provider,
@@ -2064,6 +2074,7 @@ async def dashboards_plan(
                         connection_id=connection_id,
                         is_personal=bool(getattr(body, "is_personal", False)),
                         user_id=getattr(body, "user_id", None),
+                        allowed_document_ids=_allowed_doc_ids,
                     )
 
                     # 3. Extract scores
