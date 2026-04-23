@@ -108,6 +108,7 @@ async def build_retrieval_context_for_question(
     kinds: Optional[List[str]] = None,
     is_personal: bool = False,
     user_id: Optional[str] = None,
+    allowed_document_ids: Optional[List[str]] = None,
 ) -> List[str]:
     """Unified retrieval — reads both context_documents and legacy
     embeddings, ranks via the brain, returns legacy-shaped blocks.
@@ -125,6 +126,7 @@ async def build_retrieval_context_for_question(
         connection_id=connection_id,
         is_personal=is_personal,
         user_id=user_id,
+        allowed_document_ids=allowed_document_ids,
     )
 
     async def _qe(q: str):

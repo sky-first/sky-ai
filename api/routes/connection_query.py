@@ -3506,6 +3506,15 @@ async def _query_connection_inner(
     # exclui Personal de terceiros quando em Space/Crew.
     retrieval_context: list[str] = []
     try:
+        # Flatten selected_context (Universe-Intelligence pinning from
+        # the agent, when present) into the allowlist the brain path
+        # consumes. Empty flatten = no filter.
+        _sel_ctx = getattr(body, "selected_context", None) or {}
+        _allowed_doc_ids = [
+            str(_id)
+            for ids in _sel_ctx.values() if ids
+            for _id in ids
+        ] or None
         retrieval_context = await build_retrieval_context_for_question(
             db=db,
             embedding_provider=embedding_provider,
@@ -3516,6 +3525,7 @@ async def _query_connection_inner(
             connection_id=connection_id,
             is_personal=bool(getattr(body, "is_personal", False)),
             user_id=getattr(body, "user_id", None),
+            allowed_document_ids=_allowed_doc_ids,
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
