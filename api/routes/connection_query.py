@@ -2836,19 +2836,23 @@ async def query_connection(
             # - In personal mode (no crew restriction): only return records with crew_id IS NULL.
             active_cache_crew = None
             is_personal_cache = getattr(body, "is_personal", True)
+            cache_user_id = getattr(body, "user_id", None)
             body_crew_ids = getattr(body, "crew_ids", None) or []
             if not is_personal_cache and len(body_crew_ids) == 1:
                 # Exactly one crew = strict collaborative mode; use it for cache isolation
                 active_cache_crew = body_crew_ids[0]
 
             if active_cache_crew:
-                # Collaborative: match records cached for this specific crew
+                # Collaborative: match records cached for this specific crew.
+                # Personal rows (user_id IS NOT NULL) must NOT surface here —
+                # they belong to a single user, not the whole crew.
                 sql_stmt = """
                     SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
                     FROM semantic_cache
                     WHERE connection_id = :conn_id
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id = :crew_id
+                    AND user_id IS NULL
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -2862,14 +2866,38 @@ async def query_connection(
                         "crew_id": active_cache_crew,
                     },
                 )
+            elif is_personal_cache and cache_user_id:
+                # Personal: only return records that belong to this user.
+                # Without user_id filter, user B's Personal question would
+                # return the cached answer computed on user A's private data.
+                sql_stmt = """
+                    SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
+                    FROM semantic_cache
+                    WHERE connection_id = :conn_id
+                    AND user_id = :user_id
+                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    ORDER BY similarity DESC
+                    LIMIT 1
+                """
+                db_res = await db.execute(
+                    text(sql_stmt),
+                    {
+                        "query_emb": str(query_embedding),
+                        "conn_id": connection_id,
+                        "user_id": cache_user_id,
+                    },
+                )
             else:
-                # Personal mode: only return records that have no crew restriction
+                # Space mode (no crew, no user): only rows without owner/crew.
+                # Keeps backward-compatibility for legacy callers that
+                # don't pass user_id.
                 sql_stmt = """
                     SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
                     FROM semantic_cache
                     WHERE connection_id = :conn_id
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id IS NULL
+                    AND user_id IS NULL
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -2936,6 +2964,10 @@ async def query_connection(
                     connection_id=connection_id,
                     space_id=body.space_id,
                     crew_id=active_cache_crew,
+                    # Personal cache: stamp the owner so future lookups
+                    # filter by caller. Non-Personal writes leave this
+                    # NULL so the row is shared at Space/Crew scope.
+                    user_id=cache_user_id if is_personal_cache else None,
                     question=body.question,
                     embedding=query_embedding,
                     response_json=response.model_dump(mode="json"),

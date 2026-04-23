@@ -242,17 +242,23 @@ class SemanticCacheRecord(Base):
     Stores semantic hits for incoming queries.
     Prevents duplicate pipeline runs on questions that are semantically identical.
 
-    crew_id is nullable:
-    - NULL  → personal mode (all crews) or no crew restriction
-    - <uuid> → collaborative mode (only return this record when the same crew is active)
+    Scope axes (all nullable, combined at lookup-time for isolation):
+    - space_id / crew_id → Space/Crew collaborative hits (existing rule)
+    - user_id            → Personal-mode hits. Populated only for
+                           is_personal queries so user A never sees
+                           user B's cached answer, even when both
+                           are scoped to the same Space/connection.
     """
     __tablename__ = "semantic_cache"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     connection_id = Column(String, nullable=False, index=True)
     space_id = Column(String, nullable=True, index=True)
-    # FIX 2: crew isolation for collaborative mode
     crew_id = Column(String, nullable=True, index=True)
+    # Personal-mode cache isolation: NULL for Space/Crew rows,
+    # populated for is_personal rows so another user's cached answer
+    # never surfaces on a Personal query.
+    user_id = Column(String, nullable=True, index=True)
 
     question = Column(Text, nullable=False)
     # The dimension is typically 768 for nomic or forced OpenAI 768.
