@@ -49,6 +49,7 @@ def make_brain_searcher(
     connection_id: Optional[str] = None,
     is_personal: bool = False,
     user_id: Optional[str] = None,
+    allowed_document_ids: Optional[list[str]] = None,
 ):
     """Build the ``searcher`` callable that ``retrieve_context`` expects.
 
@@ -84,6 +85,7 @@ def make_brain_searcher(
             k=k,
             is_personal=is_personal,
             user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
         )
 
         # Only hit the legacy path for kinds it can serve (connection /
@@ -102,6 +104,7 @@ def make_brain_searcher(
                 k=k,
                 is_personal=is_personal,
                 user_id=user_id,
+                allowed_document_ids=allowed_document_ids,
             )
             if kinds_set is not None:
                 legacy_docs = [d for d in legacy_docs if d.kind in kinds_set]
@@ -140,6 +143,7 @@ async def _search_context_documents(
     k: int,
     is_personal: bool = False,
     user_id: Optional[str] = None,
+    allowed_document_ids: Optional[list[str]] = None,
 ) -> list[CandidateDoc]:
     """Top-k rows from context_documents scoped by space/crew.
 
@@ -176,6 +180,14 @@ async def _search_context_documents(
     if kinds:
         scope_clauses.append("kind = ANY(:kinds)")
         params["kinds"] = list(kinds)
+
+    # Agent-pinned subset: when the caller passed an explicit
+    # allowlist of source_ids (flattened from selected_context), keep
+    # those rows. context_documents.source_id mirrors the entity id
+    # in its origin table, so this maps 1:1 to the pinned set.
+    if allowed_document_ids:
+        scope_clauses.append("source_id::text = ANY(:allowed_document_ids)")
+        params["allowed_document_ids"] = list(allowed_document_ids)
 
     where = " AND ".join(scope_clauses)
 
@@ -261,6 +273,7 @@ async def _search_legacy_embeddings(
     k: int,
     is_personal: bool = False,
     user_id: Optional[str] = None,
+    allowed_document_ids: Optional[list[str]] = None,
 ) -> list[CandidateDoc]:
     """Adapt the legacy ``embeddings`` table into CandidateDoc.
 
@@ -281,6 +294,7 @@ async def _search_legacy_embeddings(
             connection_id=connection_id,
             is_personal=is_personal,
             user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
         )
     except Exception:
         logger.exception("legacy embeddings search failed — returning empty")
