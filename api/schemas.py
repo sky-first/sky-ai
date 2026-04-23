@@ -59,6 +59,18 @@ class QueryRequest(BaseModel):
         description="List of datasets/tables manually selected by the user. If provided, the orchestrator will use only these tables instead of choosing automatically.",
     )
 
+    # Explicit context selection across every Universe Intelligence kind
+    # (pillar / objective / okr / initiative / assumption / key_result /
+    # glossary_term / signal_event / intelligence_signal /
+    # enterprise_relationship / widget / insight / page). When present
+    # and non-empty, the RAG restricts retrieval to embeddings whose
+    # document_id is in the union of all listed ids for ANY kind.
+    # Empty dict / missing kinds = "no filter for that kind".
+    selected_context: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Per-kind allowlist of entity IDs the retrieval must stick to.",
+    )
+
     # ✅ NEW: Strictly authorized tables by the backend
     authorized_tables: Optional[List[str]] = Field(
         default=None,
