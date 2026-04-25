@@ -6,8 +6,13 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from dotenv import load_dotenv
 
-# Load env from current dir and project root (dev-friendly)
-load_dotenv()
+# Load env from current dir and project root (dev-friendly).
+# override=True so a stale DATABASE_URL in the shell doesn't mask the
+# in-repo ``.env`` (this caused a Saturday "AI service unavailable"
+# incident: zsh exported port 5432 for psql, .env said 5433, the
+# default load_dotenv kept the shell value and asyncpg refused the
+# connection). See db/base.py for the same comment.
+load_dotenv(override=True)
 load_dotenv("../.env", override=False)
 
 

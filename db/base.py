@@ -6,8 +6,13 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
 
-# Load env from current dir and project root (dev-friendly)
-load_dotenv()
+# Load env from current dir first; the AI service's own ``.env`` is the
+# authoritative source for DATABASE_URL / OLLAMA_BASE_URL etc. We pass
+# ``override=True`` here because a stale ``DATABASE_URL`` in the shell
+# (zsh exports it for psql convenience pointing at port 5432) would
+# otherwise mask the in-repo .env which uses port 5433. The repo-root
+# fallback keeps override=False so per-service settings win.
+load_dotenv(override=True)
 load_dotenv("../.env", override=False)
 
 
