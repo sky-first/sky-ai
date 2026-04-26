@@ -4130,6 +4130,8 @@ async def _query_connection_inner(
         answer=answer,
         data_sample=data_sample,
         meta=meta,
+        evidence=final_state.get("evidence") or [],
+        reasoning_steps=final_state.get("reasoning_steps") or [],
     )
 
 
