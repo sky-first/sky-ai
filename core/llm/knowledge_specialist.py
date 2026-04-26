@@ -27,17 +27,29 @@ logger = logging.getLogger("dataassistant")
 
 KNOWLEDGE_SYSTEM_PROMPT = """You are an enterprise knowledge analyst.
 
-You have access to the company's curated Knowledge layer below. Use it
-as the authoritative source — prefer Org-certified definitions over
-your prior knowledge.
+You have access to the company's curated Knowledge layer below. Treat
+it as the authoritative source.
 
-When the question asks about a metric, cite its definition / formula
-description / unit. When it asks about a term, cite the glossary
-definition. When it asks how things connect, cite the matching
-relationship (sources → target, type, AI-inferred confidence if any).
+## How to structure your answer
+Split your answer into two clearly labelled sections, in this order:
 
-If the catalog doesn't cover the question, say so plainly and suggest
-the user create the missing Metric / Glossary / Relationship entry.
+**From your catalog** — quote what's in the catalog VERBATIM. Do not
+expand, paraphrase, or invent details. If the catalog only has a
+short definition, only that short definition appears here. If
+nothing matches, write "(no matching entry)" and skip this section.
+
+**Background** — only include this when general context would help
+the reader. Keep it brief, factual, generic. Never claim it came
+from the catalog. If the catalog already answers the question fully,
+omit this section entirely.
+
+Use Markdown headings exactly: `## From your catalog` and `## Background`.
+
+When the question asks about a metric, surface its name, definition,
+formula, and unit (only fields the catalog actually has). When it
+asks about a term, surface the term + its catalog definition. When
+it asks how things connect, surface the relationship (sources →
+target, type, confidence if any).
 
 Respond in the same language as the user's question.
 
@@ -123,6 +135,74 @@ def _build_knowledge_block(
     return "\n".join(parts)
 
 
+_EVIDENCE_SNIPPET_MAX = 240
+
+
+def _build_evidence_chunks(
+    metrics: List[Dict[str, Any]],
+    glossary: List[Dict[str, Any]],
+    relationships: List[Dict[str, Any]],
+    question: str,
+) -> List[Dict[str, Any]]:
+    """Pick the catalog rows the LLM is likely to cite (Sources tab).
+
+    Cheap relevance filter: any row whose name/term appears in the
+    question (case-insensitive) is forced in; everything else is
+    capped so the Sources tab doesn't drown in unrelated rows. Each
+    chunk gets a deep-link href so the user can click through and
+    edit/inspect the catalog row.
+    """
+    q = (question or "").lower()
+    chunks: List[Dict[str, Any]] = []
+
+    def _trunc(text: str) -> str:
+        text = text or ""
+        return text if len(text) <= _EVIDENCE_SNIPPET_MAX else text[: _EVIDENCE_SNIPPET_MAX - 1] + "…"
+
+    metric_hits = [m for m in metrics if (m.get("name") or "").lower() in q]
+    if not metric_hits:
+        metric_hits = metrics[:3]
+    for m in metric_hits[:5]:
+        snippet = _trunc(m.get("formula_description") or m.get("description") or "")
+        chunks.append({
+            "id": str(m.get("id", "")),
+            "kind": "metric",
+            "source_label": m.get("name") or "Metric",
+            "snippet": snippet,
+            "href": f"/dashboard/universe-intelligence#metric/{m.get('id', '')}",
+        })
+
+    term_hits = [g for g in glossary if (g.get("term") or "").lower() in q]
+    if not term_hits:
+        term_hits = glossary[:3]
+    for g in term_hits[:5]:
+        chunks.append({
+            "id": str(g.get("id", "")),
+            "kind": "glossary",
+            "source_label": g.get("term") or "Term",
+            "snippet": _trunc(g.get("definition") or ""),
+            "href": f"/dashboard/universe-intelligence#glossary/{g.get('id', '')}",
+        })
+
+    for r in relationships[:3]:
+        srcs = r.get("sources") or []
+        src_label = ", ".join(str(s.get("name") or s.get("id", "?")) for s in srcs[:2]) or "?"
+        tgts = r.get("targets") or []
+        tgt_label = (
+            ", ".join(str(t.get("id", "?")) for t in tgts[:2])
+            if tgts else (r.get("target_id") or "?")
+        )
+        chunks.append({
+            "id": str(r.get("id", "")),
+            "kind": "relationship",
+            "source_label": r.get("name") or "Relationship",
+            "snippet": _trunc(f"{src_label} → {tgt_label} · {r.get('description') or ''}"),
+            "href": f"/dashboard/universe-intelligence#relationship/{r.get('id', '')}",
+        })
+
+    return chunks
+
+
 def run_knowledge_specialist(
     state: Dict[str, Any],
     llm: Any,
@@ -133,6 +213,14 @@ def run_knowledge_specialist(
 
     log_event("knowledge_specialist_start", {"question": question[:100]})
 
+    # ── Reasoning trace (rich + generic; no model name / latency) ──
+    # Each user-facing string here lands in the transparency panel.
+    # Keep them human-readable and free of stack/infra details — the
+    # user explicitly asked us not to expose how the answer is made.
+    steps: List[Dict[str, Any]] = [
+        {"kind": "router", "summary": "Recognised this as a question about your knowledge catalog."},
+    ]
+
     metrics = backend_client.get_metrics() if hasattr(backend_client, "get_metrics") else []
     glossary = backend_client.get_glossary() if hasattr(backend_client, "get_glossary") else []
     relationships = (
@@ -140,6 +228,17 @@ def run_knowledge_specialist(
         if hasattr(backend_client, "get_enterprise_relationships")
         else []
     )
+
+    catalog_summary = (
+        f"Loaded {len(metrics)} metric"
+        + ("s" if len(metrics) != 1 else "")
+        + f", {len(glossary)} glossary term"
+        + ("s" if len(glossary) != 1 else "")
+        + f", {len(relationships)} relationship"
+        + ("s" if len(relationships) != 1 else "")
+        + " from your catalog."
+    )
+    steps.append({"kind": "retrieval", "summary": catalog_summary})
 
     if not metrics and not glossary and not relationships:
         log_event("knowledge_specialist_empty_catalog", {})
@@ -153,10 +252,23 @@ def run_knowledge_specialist(
         state["sql"] = None
         state["chosen_tables"] = []
         state["chosen_tables_physical"] = []
+        state["evidence"] = []
+        state["reasoning_steps"] = steps
         return state
 
     knowledge_block = _build_knowledge_block(metrics, glossary, relationships)
     system_prompt = KNOWLEDGE_SYSTEM_PROMPT.format(knowledge_block=knowledge_block)
+
+    evidence = _build_evidence_chunks(metrics, glossary, relationships, question)
+    if evidence:
+        steps.append({
+            "kind": "retrieval",
+            "summary": (
+                f"Selected {len(evidence)} entr"
+                + ("y" if len(evidence) == 1 else "ies")
+                + " most likely to answer your question."
+            ),
+        })
 
     # Phase 4.1: layer brain context (RAG evidence) on top of the Knowledge
     # block. No-op when empty.
@@ -172,9 +284,11 @@ def run_knowledge_specialist(
     try:
         response = llm.invoke(messages)
         answer = response.content if hasattr(response, "content") else str(response)
+        steps.append({"kind": "format", "summary": "Composed the answer from the catalog."})
     except Exception as e:
         logger.error(f"Knowledge specialist LLM error: {e}")
         answer = f"I found Knowledge data but ran into an error analyzing it: {e}"
+        steps.append({"kind": "format", "summary": "Tried to compose the answer but hit an error."})
 
     log_event("knowledge_specialist_done", {
         "question": question[:100],
@@ -182,6 +296,7 @@ def run_knowledge_specialist(
         "num_metrics": len(metrics),
         "num_glossary": len(glossary),
         "num_relationships": len(relationships),
+        "num_evidence": len(evidence),
     })
 
     state["answer"] = answer
@@ -190,5 +305,7 @@ def run_knowledge_specialist(
     state["generated_title"] = f"Knowledge: {question[:60]}"
     state["chosen_tables"] = []
     state["chosen_tables_physical"] = []
+    state["evidence"] = evidence
+    state["reasoning_steps"] = steps
 
     return state

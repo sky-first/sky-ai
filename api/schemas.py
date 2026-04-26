@@ -119,6 +119,20 @@ class QueryResponse(BaseModel):
         default=None,
         description="Suggested widget type (kpi/chart/table/text). Populated when response_format is present.",
     )
+    # Transparency surfaces — feed the W7 panel on the frontend.
+    # Both default to empty so existing call sites stay backward-compatible.
+    # We deliberately do NOT include model name, tokens, or any infra
+    # detail here — the user surface should describe what the system did
+    # (Decided this is a Knowledge question, Loaded N items, …) without
+    # exposing how it did it.
+    evidence: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Catalog rows the answer leaned on (Sources tab).",
+    )
+    reasoning_steps: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="User-readable steps the system took (Reasoning tab).",
+    )
 
 
 class ChatBootstrapSuggestion(BaseModel):
