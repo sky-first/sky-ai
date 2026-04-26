@@ -5,9 +5,20 @@ Fallback para memória se Redis não disponível.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from typing import Tuple, Optional
 from config.settings import settings
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
 
 try:
     import redis
@@ -102,11 +113,15 @@ class DistributedRateLimiter:
             return _fallback_limiter.check_rate_limit(user_id, request_type)
 
 
-# Instância global (substitui _rate_limiter)
-# AUMENTO DE LIMITES PARA VALIDAÇÃO: 1000/min, 5000/hour
+# Instância global. Defaults are generous for authenticated production
+# traffic; tighten via env for the public demo so a bot loop can't burn
+# OpenAI / LLM budget:
+#   RATE_LIMIT_QUERIES_PER_MINUTE=10
+#   RATE_LIMIT_QUERIES_PER_HOUR=60
+#   RATE_LIMIT_VALIDATE_PER_MINUTE=20
 _rate_limiter = DistributedRateLimiter(
-    max_queries_per_minute=1000,
-    max_queries_per_hour=5000,
-    max_validate_per_minute=1000
+    max_queries_per_minute=_env_int("RATE_LIMIT_QUERIES_PER_MINUTE", 1000),
+    max_queries_per_hour=_env_int("RATE_LIMIT_QUERIES_PER_HOUR", 5000),
+    max_validate_per_minute=_env_int("RATE_LIMIT_VALIDATE_PER_MINUTE", 1000),
 )
 
