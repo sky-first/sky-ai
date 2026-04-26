@@ -59,13 +59,27 @@ async def fix_schema():
     logger.info("Ensuring security audit tables exist...")
     await _ensure_audit_table_async()
 
-    # 4. Now that the table is guaranteed to exist, add columns introduced
-    # in later migrations. Reopen the engine for the ALTERs.
+    # 4. Now that the table is (probably) guaranteed to exist, add columns
+    # introduced in later migrations. Reopen the engine for the ALTERs.
+    # If `_ensure_audit_table_async` silently no-ops (e.g. SQLAlchemy
+    # cycle) the ALTER hits "relation does not exist" — guard that case
+    # so the noisy startup warning the user has seen for weeks finally
+    # goes away. The columns will be added the next time the table
+    # actually exists.
     engine = create_async_engine(url)
     async with engine.begin() as conn:
-        await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
-        await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
-        logger.info("Audit log columns ensured (platform_role, crew_role).")
+        exists = (await conn.execute(text(
+            "SELECT to_regclass('public.query_audit_log') IS NOT NULL"
+        ))).scalar()
+        if exists:
+            await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
+            logger.info("Audit log columns ensured (platform_role, crew_role).")
+        else:
+            logger.info(
+                "query_audit_log not present yet — skipping ALTERs. They'll run "
+                "the next boot once _ensure_audit_table_async creates the table."
+            )
     await engine.dispose()
     logger.info("Fix completed.")
 
