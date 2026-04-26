@@ -512,10 +512,15 @@ def build_generic_sql_graph(
         )
         return state
 
-    # ── Multi-agent: Strategy Specialist Node ──────────────
-    def strategy_specialist_node(state: AgentState) -> AgentState:
-        """Answers questions about OKRs, goals, pillars, strategy."""
-        from core.llm.strategy_specialist import run_strategy_specialist
+    # ── Multi-agent: Knowledge Specialist Node ─────────────
+    # Strategy was folded into Knowledge in the refactor (Phases
+    # 1a/1b dropped Pillars/OKRs/Initiatives — now Metrics + Glossary
+    # + Relationships). Questions that used to hit the strategy
+    # specialist (OKR, goal, KPI) plus the new ones the refactor
+    # introduced (define X, formula for Y) all land here.
+    def knowledge_specialist_node(state: AgentState) -> AgentState:
+        """Answers Knowledge questions (metrics / glossary / relationships)."""
+        from core.llm.knowledge_specialist import run_knowledge_specialist
         from core.llm.factory import create_llm_formatter
 
         # Use formatter-class LLM (cheaper, good at synthesis)
@@ -530,9 +535,13 @@ def build_generic_sql_graph(
             from core.clients.backend_client import get_backend_client
 
             client = get_backend_client()
-        return run_strategy_specialist(
+        return run_knowledge_specialist(
             state=state, llm=dynamic_llm, backend_client=client
         )
+
+    # Legacy alias — anything that still imports/instantiates the old
+    # name (tests, mixed_dispatch sub-router) gets routed to knowledge.
+    strategy_specialist_node = knowledge_specialist_node
 
     # ── Multi-agent: Mixed Dispatch Node (Phase D) ──────────
     def mixed_dispatch_node(state: AgentState) -> AgentState:
@@ -578,10 +587,12 @@ def build_generic_sql_graph(
                 )
 
             try:
-                if name == "strategy":
-                    from core.llm.strategy_specialist import run_strategy_specialist
+                if name in ("knowledge", "strategy"):
+                    # "strategy" kept as alias so legacy plans the
+                    # interpreter still emits keep working.
+                    from core.llm.knowledge_specialist import run_knowledge_specialist
 
-                    result = run_strategy_specialist(sub_state, dynamic_llm, client)
+                    result = run_knowledge_specialist(sub_state, dynamic_llm, client)
                 elif name == "events":
                     from core.llm.events_specialist import run_events_specialist
 
@@ -838,7 +849,7 @@ def build_generic_sql_graph(
     graph.add_node("parallel_specialist", parallel_specialist_node)
     graph.add_node("merger", merger_node)
     graph.add_node("formatter", formatter_node)
-    graph.add_node("strategy_specialist", strategy_specialist_node)
+    graph.add_node("knowledge_specialist", knowledge_specialist_node)
     graph.add_node("events_specialist", events_specialist_node)
     graph.add_node("relationships_specialist", relationships_specialist_node)
     graph.add_node("people_specialist", people_specialist_node)
@@ -849,7 +860,11 @@ def build_generic_sql_graph(
     def route_by_intent(state: AgentState):
         intent = state.get("intent", "data")
         routing = {
-            "strategy": "strategy_specialist",
+            # Knowledge layer (Metrics + Glossary + Relationships)
+            # replaced the old Strategy entities — both intents
+            # land on the same specialist now.
+            "knowledge": "knowledge_specialist",
+            "strategy": "knowledge_specialist",
             "signals": "events_specialist",
             "relationships": "relationships_specialist",
             "people": "people_specialist",
@@ -879,7 +894,7 @@ def build_generic_sql_graph(
         "brain_retrieval",
         route_by_intent,
         {
-            "strategy_specialist": "strategy_specialist",
+            "knowledge_specialist": "knowledge_specialist",
             "events_specialist": "events_specialist",
             "relationships_specialist": "relationships_specialist",
             "people_specialist": "people_specialist",
@@ -890,7 +905,7 @@ def build_generic_sql_graph(
     )
 
     # Non-data specialists -> END (skip formatter — answer is already set by each specialist)
-    graph.add_edge("strategy_specialist", END)
+    graph.add_edge("knowledge_specialist", END)
     graph.add_edge("events_specialist", END)
     graph.add_edge("relationships_specialist", END)
     graph.add_edge("people_specialist", END)
