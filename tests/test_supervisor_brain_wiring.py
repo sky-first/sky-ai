@@ -57,7 +57,7 @@ def _make_node():
         # retrieve_context with a mocked async run.
         import asyncio
 
-        from core.rag.context_brain import format_evidence, retrieve_context
+        from core.rag.context_brain import format_evidence
 
         question = (state.get("question") or "").strip()
         if not question:
@@ -66,7 +66,16 @@ def _make_node():
             state.setdefault("brain_doc_kinds", [])
             return state
         state["context_intent"] = state.get("intent") or "data"
-        ranked = asyncio.get_event_loop().run_until_complete(_mock_retrieve(state))
+        # Use a freshly-created loop per call so this test stays
+        # independent of ambient loop state (asyncio.get_event_loop is
+        # deprecated and raises 'no current event loop' in Py3.12+ when
+        # the main thread has had a previous loop closed by an earlier
+        # test).
+        loop = asyncio.new_event_loop()
+        try:
+            ranked = loop.run_until_complete(_mock_retrieve(state))
+        finally:
+            loop.close()
         state["brain_context"] = format_evidence(ranked).split("\n\n")
         state["brain_doc_ids"] = [r.doc.id for r in ranked]
         state["brain_doc_kinds"] = [r.doc.kind for r in ranked]
