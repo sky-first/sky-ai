@@ -225,6 +225,18 @@ def build_generic_sql_graph(
             )
         finally:
             db.close()
+
+        # W7 — emit a user-readable step so the transparency panel doesn't
+        # collapse to "Safety checks passed" for SQL questions.
+        steps = list(new_state.get("reasoning_steps") or [])
+        chosen = new_state.get("chosen_table") or (new_state.get("chosen_tables") or [None])[0]
+        if chosen:
+            steps.append({"kind": "router", "summary": f"Picked the `{chosen}` table to answer."})
+        elif new_state.get("impossible_reason"):
+            steps.append({"kind": "router", "summary": "Decided I don't have data to answer this."})
+        else:
+            steps.append({"kind": "router", "summary": "Decided how to handle the question."})
+        new_state["reasoning_steps"] = steps
         return new_state
 
     def specialist_node(state: AgentState) -> AgentState:
@@ -264,6 +276,17 @@ def build_generic_sql_graph(
         except Exception:
             # Context generation should never block the main query flow
             pass
+
+        # W7 — annotate the reasoning trace with what the SQL specialist did.
+        steps = list(new_state.get("reasoning_steps") or [])
+        if new_state.get("sql"):
+            row_count = len(new_state.get("data") or [])
+            steps.append({"kind": "sql", "summary": "Wrote a SQL query against your data."})
+            steps.append({
+                "kind": "retrieval",
+                "summary": f"Got {row_count} row{'' if row_count == 1 else 's'} back.",
+            })
+        new_state["reasoning_steps"] = steps
 
         return new_state
 
@@ -384,6 +407,11 @@ def build_generic_sql_graph(
             agent_config=agent_config,
             llm=dynamic_llm,
         )
+        # W7 — last step in the SQL flow: the formatter built the
+        # natural-language answer the user actually sees.
+        steps = list(new_state.get("reasoning_steps") or [])
+        steps.append({"kind": "format", "summary": "Composed the final answer."})
+        new_state["reasoning_steps"] = steps
         return new_state
 
     # ── Multi-agent: Intent Classifier Node ──────────────────
