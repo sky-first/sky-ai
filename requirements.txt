@@ -51,3 +51,4 @@ pandas>=2.2.0
 duckdb>=0.10.0
 pyarrow>=15.0.0
 prometheus-fastapi-instrumentator>=6.0.0
+PyJWT==2.8.0

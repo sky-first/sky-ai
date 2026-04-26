@@ -121,6 +121,21 @@ class Settings(BaseSettings):
         description="URL of the sky-poc-backend API. Used by multi-agent specialists for strategy/signals/context data.",
     )
 
+    # User identity for AI→BE service-to-service calls. The token used to
+    # be hardcoded to a UUID that wasn't in the seed DB, so every call
+    # 401'd silently and Knowledge specialists saw an empty catalog.
+    # Configure via AI_SERVICE_USER_ID / AI_SERVICE_USER_EMAIL in .env.
+    ai_service_user_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("AI_SERVICE_USER_ID", "ai_service_user_id"),
+        description="User UUID the AI service impersonates when calling backend.",
+    )
+    ai_service_user_email: str = Field(
+        default="",
+        validation_alias=AliasChoices("AI_SERVICE_USER_EMAIL", "ai_service_user_email"),
+        description="Email claim that pairs with ai_service_user_id.",
+    )
+
     # Security
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"

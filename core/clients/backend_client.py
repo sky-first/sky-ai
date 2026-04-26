@@ -18,27 +18,53 @@ logger = logging.getLogger("dataassistant")
 _client: Optional["BackendClient"] = None
 
 
-def _generate_service_token() -> str:
-    """Generate a JWT service token for internal AI→Backend calls."""
+def _generate_service_token(user_id: Optional[str] = None, email: Optional[str] = None) -> str:
+    """Generate a JWT service token for internal AI→Backend calls.
+
+    The user identity is read from env (`AI_SERVICE_USER_ID` /
+    `AI_SERVICE_USER_EMAIL`) so installs don't drift when the seeded
+    admin UUID changes. The previous hardcoded UUID was silently
+    failing auth — every BE call returned 401, the client swallowed
+    it, and specialists saw an empty Knowledge catalog.
+
+    Caller can override per-call by passing user_id/email — useful
+    when we eventually thread the real chat user's id through.
+    """
     import datetime, os
     try:
         import jwt
-        # Load JWT secret from settings (which reads from .env JWT_SECRET_KEY)
         from config.settings import settings
         jwt_secret = getattr(settings, "jwt_secret_key", "") or os.environ.get("JWT_SECRET_KEY", "")
         if not jwt_secret:
             logger.warning("No JWT_SECRET_KEY found — backend calls will be unauthenticated")
             return ""
-        # Use the actual admin user so the backend's auth middleware accepts it
+        sub = (
+            user_id
+            or os.environ.get("AI_SERVICE_USER_ID")
+            or getattr(settings, "ai_service_user_id", None)
+        )
+        if not sub:
+            logger.warning(
+                "AI_SERVICE_USER_ID not set — backend calls will fall back to a "
+                "no-op token and 401 on every request. Set it in sky-poc-ai/.env "
+                "to a real user UUID (e.g. an owner of the org)."
+            )
+            return ""
+        mail = (
+            email
+            or os.environ.get("AI_SERVICE_USER_EMAIL")
+            or getattr(settings, "ai_service_user_email", None)
+            or ""
+        )
         payload = {
-            "sub": "b11c2d26-d9c8-4676-b96a-6cba2fc446b1",  # admin user
-            "email": "lucas.ventura@skyfirstlabs.com",
+            "sub": sub,
+            "email": mail,
             "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24),
             "iat": datetime.datetime.now(datetime.timezone.utc),
             "type": "access",
         }
         token = jwt.encode(payload, jwt_secret, algorithm="HS256")
-        logger.info(f"Service token generated (len={len(token)})")
+        logger.info(f"Service token generated for sub={sub} (len={len(token)})")
         return token
     except Exception as e:
         logger.warning(f"Failed to generate service token: {e}")
@@ -54,7 +80,16 @@ class BackendClient:
         headers = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        self._http = httpx.Client(base_url=self._base_url, timeout=timeout, headers=headers)
+        # Some endpoints redirect (e.g. /enterprise/relationships/ → /enterprise/relationships).
+        # Without follow_redirects the client raises and the call returns []
+        # silently — exactly the kind of dead-end the Knowledge specialist
+        # was hitting. Keep it on so the client behaves like a real browser.
+        self._http = httpx.Client(
+            base_url=self._base_url,
+            timeout=timeout,
+            headers=headers,
+            follow_redirects=True,
+        )
 
     # ── Strategy ──────────────────────────────────────────────
 
