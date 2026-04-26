@@ -1801,6 +1801,48 @@ async def chat_bootstrap(
                 )
             )
 
+        # ── Popular-questions splice ──────────────────────────
+        # Mix in the top anonymised questions other people in the
+        # space have actually asked. Cap at 2 popular cards so the
+        # Sherlock suggestions still dominate. Each card carries
+        # `payload.popular = True` so the FE can render the
+        # "Asked N×" badge.
+        try:
+            from core.clients.backend_client import get_backend_client
+
+            popular = get_backend_client().get_popular_questions(
+                limit=2, space_id=body.space_id
+            )
+            if popular:
+                # Avoid dupes vs. what Sherlock already produced.
+                existing_q = {
+                    (s.question or "").strip().lower()
+                    for s in suggestions
+                    if s.question
+                }
+                popular_cards: list[ChatBootstrapSuggestion] = []
+                for p in popular:
+                    q = (p.get("question") or "").strip()
+                    if not q or q.lower() in existing_q:
+                        continue
+                    cnt = int(p.get("count") or 0)
+                    popular_cards.append(
+                        ChatBootstrapSuggestion(
+                            title=q[:48],
+                            kind="question",
+                            question=q,
+                            payload={"popular": True, "count": cnt},
+                        )
+                    )
+                # Replace the LAST N Sherlock suggestions with popular
+                # ones (keeps the total at body.max_suggestions).
+                if popular_cards:
+                    keep = max(1, body.max_suggestions - len(popular_cards))
+                    suggestions = suggestions[:keep] + popular_cards
+                    suggestions = suggestions[: body.max_suggestions]
+        except Exception as exc:
+            log_event("bootstrap_popular_skip", {"reason": str(exc)})
+
         response = ChatBootstrapResponse(
             greeting=greeting,
             suggestions=suggestions,
