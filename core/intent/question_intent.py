@@ -21,7 +21,8 @@ logger = logging.getLogger("dataassistant")
 
 class QuestionIntent(str, Enum):
     DATA = "data"                   # SQL query against customer databases
-    STRATEGY = "strategy"           # OKRs, goals, pillars, initiatives, key results
+    KNOWLEDGE = "knowledge"         # Metrics + Glossary + Relationships catalog (post-refactor)
+    STRATEGY = "knowledge"          # Legacy alias — Strategy was folded into Knowledge
     SIGNALS = "signals"             # Market signals, events, anomalies, trends
     RELATIONSHIPS = "relationships" # Cross-space/dept connections, cause-and-effect
     PEOPLE = "people"               # Teams, users, crew membership, activity
@@ -33,7 +34,12 @@ class QuestionIntent(str, Enum):
 
 # ── Fast regex patterns (zero cost) ────────────────────────────
 
-_STRATEGY_PATTERNS = re.compile(
+# Knowledge intent — covers (a) the legacy strategy vocabulary that
+# now lives under Metrics (OKR, goal, KPI), (b) the Knowledge layer
+# proper (metric, definition, glossary, formula), and (c) intent verbs
+# like "what does X mean" / "define X" that should always go through
+# the curated catalog before falling back to general knowledge.
+_KNOWLEDGE_PATTERNS = re.compile(
     r"\b("
     r"okr|okrs|objective|objectives|key.?result|key.?results|"
     r"pillar|pillars|initiative|initiatives|"
@@ -43,10 +49,19 @@ _STRATEGY_PATTERNS = re.compile(
     r"progress|milestone|milestones|"
     r"business.?plan|roadmap|vision|mission|"
     r"budget.?plan|forecast|assumption|assumptions|"
-    r"cycle|quarterly|q[1-4]"
+    r"cycle|quarterly|q[1-4]|"
+    # Knowledge layer terms (post-refactor)
+    r"metric|metrics|kpi|kpis|"
+    r"glossary|glossaries|term|terms|definition|definitions|"
+    r"what.?(?:is|are|does)|what.?means?|define|"
+    r"formula|formulas"
     r")\b",
     re.IGNORECASE,
 )
+
+# Backwards-compat alias so any external code referencing the old name
+# still works (and tests expecting STRATEGY enum can still find it).
+_STRATEGY_PATTERNS = _KNOWLEDGE_PATTERNS
 
 _SIGNALS_PATTERNS = re.compile(
     r"\b("

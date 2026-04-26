@@ -127,6 +127,30 @@ class BackendClient:
             logger.warning(f"BackendClient.get_intelligence_signals failed: {e}")
             return []
 
+    # ── Knowledge (Metrics + Glossary) ────────────────────────
+
+    def get_metrics(self) -> List[Dict[str, Any]]:
+        """GET /metrics/ — Knowledge layer metrics scoped to the caller."""
+        try:
+            r = self._http.get("/metrics/")
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else data.get("items", [])
+        except Exception as e:
+            logger.warning(f"BackendClient.get_metrics failed: {e}")
+            return []
+
+    def get_glossary(self) -> List[Dict[str, Any]]:
+        """GET /glossary/ — Knowledge layer glossary terms scoped to the caller."""
+        try:
+            r = self._http.get("/glossary/")
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else data.get("items", [])
+        except Exception as e:
+            logger.warning(f"BackendClient.get_glossary failed: {e}")
+            return []
+
     # ── Enterprise Relationships ──────────────────────────────
 
     def get_enterprise_relationships(self) -> List[Dict[str, Any]]:
