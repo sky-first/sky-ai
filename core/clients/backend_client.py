@@ -162,6 +162,30 @@ class BackendClient:
             logger.warning(f"BackendClient.get_intelligence_signals failed: {e}")
             return []
 
+    # ── Popular questions (chat bootstrap recommender) ────────
+
+    def get_popular_questions(
+        self, limit: int = 5, space_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """GET /ai/popular-questions — anonymised top-asked questions.
+
+        Returns rows like {question, count}, already filtered to recent
+        completed queries with mine excluded by the backend. Used by the
+        Sherlock bootstrap to surface "people in your space have been
+        asking…" cards instead of generic placeholders.
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if space_id:
+            params["space_id"] = space_id
+        try:
+            r = self._http.get("/ai/popular-questions", params=params)
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning(f"BackendClient.get_popular_questions failed: {e}")
+            return []
+
     # ── Knowledge (Metrics + Glossary) ────────────────────────
 
     def get_metrics(self) -> List[Dict[str, Any]]:
