@@ -456,9 +456,14 @@ def build_generic_sql_graph(
         state["context_intent"] = intent
 
         async def _run() -> tuple[list[str], list[str], list[str]]:
-            from db.session import AsyncSessionLocal
+            # NullPool engine scoped to *this* loop — see db/isolated.py.
+            # The global engine is bound to the FastAPI request loop;
+            # asyncio.run() here spawns a fresh loop in LangGraph's
+            # worker thread, so a shared pool yields connections whose
+            # asyncpg Future is attached to a dead loop.
+            from db.isolated import isolated_session
 
-            async with AsyncSessionLocal() as db:
+            async with isolated_session() as db:
                 searcher = make_brain_searcher(
                     db=db,
                     embedding_provider=embedding_provider,
