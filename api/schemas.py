@@ -90,6 +90,25 @@ class QueryRequest(BaseModel):
         description="List of previous messages in the conversation to support follow-up questions.",
     )
 
+    # Knowledge Library @mentions — file IDs explicitly cited by the user
+    # (e.g. @filename.pdf). These files receive a 10× similarity boost
+    # during vector retrieval so their chunks surface first.
+    mentioned_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
+    )
+
+
+class Citation(BaseModel):
+    """A source chunk that grounded the AI's answer."""
+
+    file_id: str = Field(..., description="knowledge_files.id")
+    file_name: str = Field(..., description="Original file name shown to the user.")
+    chunk_index: int = Field(..., description="Zero-based chunk index within the file.")
+    page_number: Optional[int] = Field(None, description="PDF page number (1-based), if available.")
+    excerpt: str = Field(..., description="Short text excerpt from the chunk (≤ 300 chars).")
+    score: float = Field(..., description="Cosine similarity score [0, 1].")
+
 
 class QueryResultMeta(BaseModel):
     detected_language: Optional[str] = None
@@ -105,6 +124,11 @@ class QueryResultMeta(BaseModel):
     dashboard_plan: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Dashboard plan when direct generation is triggered via intent detection",
+    )
+    # Knowledge Library citations — populated when knowledge chunks were used
+    citations: Optional[List[Citation]] = Field(
+        default=None,
+        description="Knowledge file chunks that grounded the answer.",
     )
 
 

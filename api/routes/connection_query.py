@@ -3579,6 +3579,7 @@ async def _query_connection_inner(
     # devolve embeddings que pertencem ao caller quando em Personal, e
     # exclui Personal de terceiros quando em Space/Crew.
     retrieval_context: list[str] = []
+    knowledge_citations: list = []
     try:
         # Flatten selected_context (Universe-Intelligence pinning from
         # the agent, when present) into the allowlist the brain path
@@ -3589,7 +3590,7 @@ async def _query_connection_inner(
             for ids in _sel_ctx.values() if ids
             for _id in ids
         ] or None
-        retrieval_context = await build_retrieval_context_for_question(
+        retrieval_context, knowledge_citations = await build_retrieval_context_for_question(
             db=db,
             embedding_provider=embedding_provider,
             space_id=body.space_id,
@@ -3600,10 +3601,12 @@ async def _query_connection_inner(
             is_personal=bool(getattr(body, "is_personal", False)),
             user_id=getattr(body, "user_id", None),
             allowed_document_ids=_allowed_doc_ids,
+            mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
         retrieval_context = []
+        knowledge_citations = []
 
     # ==================== MEMORY: LOADING CHAT HISTORY ====================
     # Initialize thread_id if missing (e.g. for anonymous/new interactions)
@@ -4112,6 +4115,7 @@ async def _query_connection_inner(
         num_rows=len(data),
         error=error,
         plan=final_state.get("plan"),
+        citations=knowledge_citations if knowledge_citations else None,
     )
 
     log_event(
@@ -4383,7 +4387,7 @@ async def _stream_connection_query(
         # análogo no caller principal para detalhes do contrato.
         retrieval_context: list[str] = []
         try:
-            retrieval_context = await build_retrieval_context_for_question(
+            retrieval_context, _ = await build_retrieval_context_for_question(
                 db=db,
                 embedding_provider=embedding_provider,
                 space_id=body.space_id,
@@ -4393,6 +4397,7 @@ async def _stream_connection_query(
                 connection_id=connection_id,
                 is_personal=bool(getattr(body, "is_personal", False)),
                 user_id=getattr(body, "user_id", None),
+                mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
             )
         except Exception:
             retrieval_context = []

@@ -269,3 +269,45 @@ class SemanticCacheRecord(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+# ========== KNOWLEDGE LIBRARY (shared schema with sky-poc-backend) ==========
+
+class KnowledgeFile(Base):
+    """Mirror of sky-poc-backend's knowledge_files table. Read-only from the AI service."""
+    __tablename__ = "knowledge_files"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    original_name = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    blob_path = Column(Text, nullable=True)
+    sha256_hash = Column(String(64), nullable=True)
+    scope = Column(String(16), nullable=False, default="personal")
+    scope_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(16), nullable=False, default="pending")
+    processing_error = Column(Text, nullable=True)
+    chunks_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
+
+    chunks = relationship("KnowledgeFileChunk", back_populates="file", lazy="select")
+
+
+class KnowledgeFileChunk(Base):
+    """Chunks from knowledge files — embeddings written by the Celery worker."""
+    __tablename__ = "knowledge_file_chunks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+    file_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_files.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    page_number = Column(Integer, nullable=True)
+    text = Column(Text, nullable=False)
+    tokens = Column(Integer, nullable=False, default=0)
+    # Dimension matches the embedding provider (768 for Ollama nomic-embed-text).
+    embedding = Column(Vector(768), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    file = relationship("KnowledgeFile", back_populates="chunks")
+

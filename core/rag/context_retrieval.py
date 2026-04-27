@@ -31,6 +31,7 @@ from core.logging_utils import log_event
 from core.rag.brain_searcher import make_brain_searcher
 from core.rag.context_brain import RankedDoc, Scope, retrieve_context
 from core.rag.embeddings import EmbeddingProvider
+from core.rag.knowledge_retrieval import retrieve_knowledge_context
 from core.rag.vector_store import search_embeddings
 
 logger = logging.getLogger(__name__)
@@ -109,14 +110,15 @@ async def build_retrieval_context_for_question(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[List[str]] = None,
-) -> List[str]:
-    """Unified retrieval — reads both context_documents and legacy
-    embeddings, ranks via the brain, returns legacy-shaped blocks.
+    mentioned_file_ids: Optional[List[str]] = None,
+) -> tuple[List[str], List]:
+    """Unified retrieval — reads context_documents, legacy embeddings,
+    and knowledge_file_chunks (Knowledge Library).
 
-    ``is_personal`` + ``user_id`` propagate the Personal-isolation
-    contract down to both stores so Personal views only return the
-    caller's items and Space/Crew views never leak another user's
-    Personal items.
+    Returns ``(context_blocks, citations)`` where citations is a list of
+    ``api.schemas.Citation`` objects populated only when knowledge chunks
+    were retrieved. Callers that previously received just List[str] can
+    ignore the second element.
     """
     searcher = make_brain_searcher(
         db=db,
@@ -137,24 +139,49 @@ async def build_retrieval_context_for_question(
             logger.exception("query embedding failed — falling back to text search")
             return None
 
-    ranked = await retrieve_context(
-        question,
-        Scope(user_id=user_id, space_id=space_id, crew_ids=list(crew_ids or [])),
-        searcher=searcher,
-        query_embedder=_qe,
-        kinds=kinds,
-        k=top_k,
-        intent=intent,
+    # Run table/doc retrieval and knowledge retrieval concurrently
+    import asyncio as _asyncio
+
+    brain_task = _asyncio.ensure_future(
+        retrieve_context(
+            question,
+            Scope(user_id=user_id, space_id=space_id, crew_ids=list(crew_ids or [])),
+            searcher=searcher,
+            query_embedder=_qe,
+            kinds=kinds,
+            k=top_k,
+            intent=intent,
+        )
     )
 
-    if not ranked:
+    knowledge_task = _asyncio.ensure_future(
+        retrieve_knowledge_context(
+            db=db,
+            embedding_provider=embedding_provider,
+            question=question,
+            user_id=user_id,
+            space_id=space_id,
+            crew_ids=crew_ids,
+            mentioned_file_ids=mentioned_file_ids,
+            top_k=6,
+            is_personal=is_personal,
+        )
+    )
+
+    ranked, (knowledge_blocks, citations) = await _asyncio.gather(brain_task, knowledge_task)
+
+    if not ranked and not knowledge_blocks:
         log_event(
             "context_retrieval_empty",
             {"space_id": space_id, "connection_id": connection_id, "question_len": len(question or "")},
         )
-        return []
+        return [], []
 
-    return _format_ranked(ranked)
+    table_blocks = _format_ranked(ranked) if ranked else []
+
+    # Knowledge blocks prepended so mentioned files surface prominently
+    combined = knowledge_blocks + table_blocks
+    return combined, citations
 
 
 def build_retrieval_context_for_question_sync(

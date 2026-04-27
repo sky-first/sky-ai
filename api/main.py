@@ -12,7 +12,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
     os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
 
 from api.routes import connection_query, connection_discover  # noqa: E402
-from api.routes import data_ingestion, pipeline, widget_titles, knowledge_graph  # noqa: E402
+from api.routes import data_ingestion, pipeline, widget_titles, knowledge_graph, embeddings  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -130,3 +130,6 @@ app.include_router(widget_titles.router)
 
 # Knowledge Graph (Strategy, Signals & Enterprise Context)
 app.include_router(knowledge_graph.router)
+
+# Knowledge Library embeddings (called by backend Celery worker)
+app.include_router(embeddings.router)
