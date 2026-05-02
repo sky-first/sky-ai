@@ -5,13 +5,31 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from core.llm.providers import LangChainChatOpenAIProvider
+from core.llm.providers import LangChainChatOpenAIProvider, OllamaProvider
 from core.logging_utils import log_event
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/widgets", tags=["widgets"])
+
+
+def _make_formatter_llm(temperature: float, max_tokens: int):
+    # Respect AI_PROVIDER. Previously this route hard-instantiated OpenAI,
+    # which made every widget-title / infographic call hit gpt-4o-mini even
+    # when the rest of the stack was on Ollama — silently burning tokens.
+    if settings.use_local_models:
+        return OllamaProvider(
+            model=settings.llm_model_formatter_local,
+            base_url=settings.ollama_base_url,
+            temperature=temperature,
+            num_ctx=getattr(settings, "ollama_num_ctx_formatter", 4096),
+        )
+    return LangChainChatOpenAIProvider(
+        model=settings.llm_model_formatter or "gpt-4o-mini",
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 class SuggestTitleRequest(BaseModel):
@@ -59,12 +77,8 @@ async def suggest_widget_title(request: SuggestTitleRequest):
                 log_event("widget_title_error_fallback", {"reason": "detected_error_in_answer"})
                 return SuggestTitleResponse(title=request.current_title or "Widget")
 
-        # Create LLM instance
-        llm = LangChainChatOpenAIProvider(
-            model=settings.llm_model_formatter or "gpt-4o-mini",
-            temperature=0.3,
-            max_tokens=50,
-        )
+        # Create LLM instance (respects AI_PROVIDER)
+        llm = _make_formatter_llm(temperature=0.3, max_tokens=50)
         
         # Prepare data sample as text
         data_text = ""
@@ -196,11 +210,7 @@ async def generate_infographic(request: GenerateInfographicRequest):
     """
     logger.info(f"Generating infographic for question: {request.question[:100]}...")
     try:
-        llm = LangChainChatOpenAIProvider(
-            model=settings.llm_model_formatter or "gpt-4o-mini",
-            temperature=0.4,
-            max_tokens=2000,
-        )
+        llm = _make_formatter_llm(temperature=0.4, max_tokens=2000)
 
         # Prepare data context
         data_text = ""
