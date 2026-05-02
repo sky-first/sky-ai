@@ -940,8 +940,19 @@ def run_orchestrator(
             )
             
             # Loop Agentic (ReAct)
+            # NOTE: langgraph's create_react_agent defaults to recursion_limit=25.
+            # When the LLM fails to converge (e.g. metadata tool returns empty,
+            # vector-search blows up), the agent loops up to 25 times — each
+            # iteration is one full gpt-4o call. With multiple connections per
+            # query and an hourly Pulse, this drained €15+ in 5h.
+            # Cap at 6: enough for the LLM to call 1–2 tools and emit a final
+            # answer, but bounded so a runaway agent costs <25% of the prior
+            # worst case.
             react_agent = create_react_agent(chat_model, tools=tools, state_modifier=agentic_system_msg)
-            result = react_agent.invoke({"messages": [HumanMessage(content=user_prompt)]})
+            result = react_agent.invoke(
+                {"messages": [HumanMessage(content=user_prompt)]},
+                config={"recursion_limit": 6},
+            )
             final_msg_content = result["messages"][-1].content
             
             # Salvar o rationale (Chain of Thought) no state para streaming futuro
