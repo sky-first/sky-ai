@@ -57,3 +57,28 @@ jobs:
               "env": "staging",
               "image_tag": "sha-${{ github.sha }}"
             }
+
+      - name: Open Issue on Deploy Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `[deploy-staging] AI staging build failed at ${sha}`;
+            const body = [
+              `Workflow **Deploy AI Service to AKS (Staging)** failed on commit \`${context.sha}\`.`,
+              ``,
+              `- Run: ${runUrl}`,
+              `- Branch: \`${context.ref}\``,
+              `- Author: @${context.actor}`,
+              ``,
+              `Until this is fixed, **no new image will reach the staging cluster** — the pod keeps serving the last successful build. Treat as priority.`,
+            ].join("\n");
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ["deploy-failure", "staging"],
+            });
