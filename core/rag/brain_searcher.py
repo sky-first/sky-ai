@@ -50,6 +50,7 @@ def make_brain_searcher(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[list[str]] = None,
+    caller_space_ids: Optional[list[str]] = None,
 ):
     """Build the ``searcher`` callable that ``retrieve_context`` expects.
 
@@ -105,6 +106,7 @@ def make_brain_searcher(
                 is_personal=is_personal,
                 user_id=user_id,
                 allowed_document_ids=allowed_document_ids,
+                caller_space_ids=caller_space_ids,
             )
             if kinds_set is not None:
                 legacy_docs = [d for d in legacy_docs if d.kind in kinds_set]
@@ -274,6 +276,7 @@ async def _search_legacy_embeddings(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[list[str]] = None,
+    caller_space_ids: Optional[list[str]] = None,
 ) -> list[CandidateDoc]:
     """Adapt the legacy ``embeddings`` table into CandidateDoc.
 
@@ -295,6 +298,7 @@ async def _search_legacy_embeddings(
             is_personal=is_personal,
             user_id=user_id,
             allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
     except Exception:
         logger.exception("legacy embeddings search failed — returning empty")

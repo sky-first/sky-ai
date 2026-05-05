@@ -15,6 +15,17 @@ class QueryRequest(BaseModel):
     crew_ids: Optional[List[str]] = Field(
         default=None, description="List of crews the user belongs to."
     )
+    # Personal mode aggregates from "all spaces the caller belongs to"
+    # (see project_personal_vs_space_model). The vector_store needs the
+    # actual list of caller_space_ids to safely surface space-scoped
+    # context (glossary, metrics, custom embeddings) without leaking
+    # other spaces of the same tenant. When omitted in Personal mode
+    # the read path falls back to truly-shared (space_id IS NULL)
+    # rows only — safe but loses per-space context.
+    space_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Spaces the caller is a member of. Used by Personal mode to scope NULL-user_id space-scoped rows to caller-accessible spaces.",
+    )
     thread_id: Optional[str] = Field(
         default=None,
         description="Conversation thread ID, if multiple question context is desired.",

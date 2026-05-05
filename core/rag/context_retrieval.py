@@ -111,6 +111,7 @@ async def build_retrieval_context_for_question(
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[List[str]] = None,
     mentioned_file_ids: Optional[List[str]] = None,
+    caller_space_ids: Optional[List[str]] = None,
 ) -> tuple[List[str], List]:
     """Unified retrieval — reads context_documents, legacy embeddings,
     and knowledge_file_chunks (Knowledge Library).
@@ -129,6 +130,7 @@ async def build_retrieval_context_for_question(
         is_personal=is_personal,
         user_id=user_id,
         allowed_document_ids=allowed_document_ids,
+        caller_space_ids=caller_space_ids,
     )
 
     async def _qe(q: str):

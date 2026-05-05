@@ -2117,6 +2117,7 @@ async def dashboards_plan(
                         is_personal=bool(getattr(body, "is_personal", False)),
                         user_id=getattr(body, "user_id", None),
                         allowed_document_ids=_allowed_doc_ids,
+                        caller_space_ids=getattr(body, "space_ids", None),
                     )
 
                     # 3. Extract scores
@@ -3602,6 +3603,7 @@ async def _query_connection_inner(
             user_id=getattr(body, "user_id", None),
             allowed_document_ids=_allowed_doc_ids,
             mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
+            caller_space_ids=getattr(body, "space_ids", None),
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
