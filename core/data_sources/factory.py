@@ -102,7 +102,24 @@ class DataSourceFactory:
         elif ds_type in ["postgres", "postgresql"]:
             # Espera em config:
             # { "dsn": "postgresql+psycopg2://user:pass@host:port/dbname" }
+            # Fallback: BE seeds connections as host/port/database/username/password —
+            # build the DSN from those when `dsn` isn't explicitly stored.
             dsn = cfg_dict.get("dsn")
+            if not dsn:
+                host = cfg_dict.get("host")
+                user = cfg_dict.get("username") or cfg_dict.get("user")
+                pwd = cfg_dict.get("password") or ""
+                db = cfg_dict.get("database") or cfg_dict.get("dbname")
+                port = cfg_dict.get("port") or 5432
+                if host and user and db:
+                    from urllib.parse import quote_plus
+                    dsn = (
+                        f"postgresql+psycopg2://{quote_plus(str(user))}:"
+                        f"{quote_plus(str(pwd))}@{host}:{port}/{db}"
+                    )
+                    ssl_mode = cfg_dict.get("ssl_mode") or cfg_dict.get("sslmode")
+                    if ssl_mode:
+                        dsn = f"{dsn}?sslmode={ssl_mode}"
             if not dsn:
                 raise ValueError(f"DataConnection {conn.id} do tipo postgres precisa de config.dsn")
 
