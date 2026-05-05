@@ -78,19 +78,45 @@ def _build_embedding_base_query(
             # acontecer. Forçamos "match nada" para não cair em
             # comportamento legado e expor dados de outras pessoas.
             return query.filter(False)
-        # Personal: owner é o caller; scope de space/crew é irrelevante.
-        query = query.filter(EmbeddingRecord.user_id == user_id)
+        # Personal mode owner-rule:
+        #   • without connection_id → strict (only this user's items)
+        #   • with connection_id → ALSO surface shared-content rows
+        #     (`user_id IS NULL`), because:
+        #       1. the connection has been authorised by the API gate
+        #          (caller has a SpaceConnection bridge to it);
+        #       2. embeddings of the connection's schema/samples are
+        #          per-connection, not per-user — they get stamped
+        #          NULL when the BE indexes a shared connection (e.g.
+        #          the demo dataset, see BE PR #389).
+        #     Without OR-NULL here, a demo visitor querying in
+        #     Personal — which is the default landing for Member
+        #     mission — never sees the shared embeddings and the AI
+        #     answers "I couldn't find any data". The connection_id
+        #     match below pins the result to this connection only, so
+        #     another user's Personal items (with user_id != caller)
+        #     are still excluded by the join + data_connection_id
+        #     filter.
         if connection_id:
             query = query.outerjoin(
                 TableMetadata,
                 EmbeddingRecord.table_metadata_id == TableMetadata.id,
             )
             query = query.filter(
-                or_(
-                    TableMetadata.data_connection_id == connection_id,
-                    EmbeddingRecord.table_metadata_id.is_(None),
+                and_(
+                    or_(
+                        EmbeddingRecord.user_id == user_id,
+                        EmbeddingRecord.user_id.is_(None),
+                    ),
+                    or_(
+                        TableMetadata.data_connection_id == connection_id,
+                        EmbeddingRecord.table_metadata_id.is_(None),
+                    ),
                 )
             )
+        else:
+            # No connection scope → strict per-user (legacy behaviour
+            # for Personal listing of one's own items, glossary etc.).
+            query = query.filter(EmbeddingRecord.user_id == user_id)
         # Agent-pinned subset (Personal branch): same semantics as
         # Space/Crew — restrict to listed doc ids, but keep rows with
         # table metadata so the orchestrator still sees schema.
