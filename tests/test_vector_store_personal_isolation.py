@@ -76,10 +76,12 @@ def test_space_mode_crew_filter_applied():
 def test_connection_filter_personal_skips_space_where():
     # With a connection_id, Personal accepts:
     #   • this user's own items (`user_id = caller`), AND
-    #   • shared-content rows pinned to this connection (`user_id IS
-    #     NULL`) — required for the demo's Personal-mode landing.
-    # space/crew remain irrelevant because the connection_id JOIN is
-    # the actual fence (BE RBAC already authorised the bridge).
+    #   • truly-shared rows (`user_id IS NULL AND space_id IS NULL`)
+    #     — pinned to the connection itself.
+    # We deliberately do NOT accept `user_id IS NULL AND space_id !=
+    # NULL` because that's space-scoped content for some space the
+    # caller may not be a member of — leak vector flagged in Lucas's
+    # 2026-05-05 adversarial review.
     user_a = uuid4()
     conn = uuid4()
     q = _build_embedding_base_query(
@@ -91,8 +93,47 @@ def test_connection_filter_personal_skips_space_where():
     )
     sql = _compile(q)
     assert f"embeddings.user_id = '{user_a}'" in sql
+    # NULL acceptance must be paired with space_id IS NULL.
     assert "embeddings.user_id IS NULL" in sql
+    assert "embeddings.space_id IS NULL" in sql
     assert f"table_metadata.data_connection_id = '{conn}'" in sql
+
+
+def test_personal_mode_does_not_leak_other_spaces_scoped_content():
+    """Adversarial review 2026-05-05: when the same connection is
+    bridged to multiple spaces of one tenant, a Personal-mode
+    caller (member of S1 only) must not see content stamped to S2
+    via that connection. The fence is `(user_id IS NULL AND
+    space_id IS NULL)` — strictly connection-level shared rows,
+    nothing space-scoped."""
+    me = uuid4()
+    conn = uuid4()
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=str(uuid4()),
+            crew_ids=[],
+            connection_id=str(conn),
+            is_personal=True,
+            user_id=me,
+        )
+    )
+    # The pair must be present.
+    assert "embeddings.user_id IS NULL" in sql
+    assert "embeddings.space_id IS NULL" in sql
+    # Crucially, there must NOT be a bare "user_id IS NULL" in an
+    # OR with the connection filter only — that would be the leaky
+    # version. We assert the AND coupling by checking both NULL
+    # conditions are required together. (Structural: both IS NULL
+    # tokens appear inside the same ANDed clause; the leaky version
+    # would have user_id IS NULL without any space_id IS NULL.)
+    null_idx = sql.find("embeddings.user_id IS NULL")
+    space_null_idx = sql.find("embeddings.space_id IS NULL")
+    assert null_idx >= 0 and space_null_idx >= 0
+    # The two NULL conditions must appear close together (paired in
+    # AND), not far apart (which would suggest separate clauses).
+    assert abs(null_idx - space_null_idx) < 200, (
+        "user_id IS NULL and space_id IS NULL must be ANDed together"
+    )
 
 
 def test_personal_mode_without_connection_stays_strict():

@@ -101,11 +101,25 @@ def _build_embedding_base_query(
                 TableMetadata,
                 EmbeddingRecord.table_metadata_id == TableMetadata.id,
             )
+            # NULL acceptance is paired:
+            #   • user_id IS NULL AND space_id IS NULL  → "this row
+            #     belongs to the connection itself, not to any user
+            #     or any space" — safe for every authorised caller.
+            # We DO NOT accept `user_id IS NULL AND space_id != NULL`
+            # because that's space-scoped content (e.g. another
+            # space's glossary customisation of this same connection),
+            # and the personal branch has no space-membership filter
+            # — letting it through would leak across spaces inside
+            # the same tenant when one connection is bridged to
+            # multiple spaces. Adversarial review by Lucas 2026-05-05.
             query = query.filter(
                 and_(
                     or_(
                         EmbeddingRecord.user_id == user_id,
-                        EmbeddingRecord.user_id.is_(None),
+                        and_(
+                            EmbeddingRecord.user_id.is_(None),
+                            EmbeddingRecord.space_id.is_(None),
+                        ),
                     ),
                     or_(
                         TableMetadata.data_connection_id == connection_id,
