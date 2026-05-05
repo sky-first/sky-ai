@@ -256,7 +256,18 @@ class AdvancedSQLValidator:
                 ident = m.group("ident").strip()
                 if ident.startswith("("):
                     continue
-                ident = ident.strip("`").strip('"').strip()
+                # Postgres allows quoted compound identifiers like
+                # `"crm"."opportunities"`. The naive .strip('"') only peels
+                # off the outermost pair, leaving an internal quote that
+                # breaks `_table_variants`'s split-on-dot. Strip every
+                # double-quote and backtick segment-by-segment so we end up
+                # with `crm.opportunities` regardless of how the LLM
+                # quotes it. Lucas's 2026-05-05 demo QA: the orchestrator
+                # picked `opportunities` correctly, the SQL specialist
+                # produced valid postgres `"crm"."opportunities"`, and
+                # the validator rejected it as `crm"."opportunities`,
+                # surfacing as "I couldn't find any data" to the user.
+                ident = ident.replace("`", "").replace('"', "").strip()
                 if not ident:
                     continue
                 ident = ident.split()[0]
