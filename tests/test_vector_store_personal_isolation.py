@@ -74,10 +74,14 @@ def test_space_mode_crew_filter_applied():
 
 
 def test_connection_filter_personal_skips_space_where():
-    # With a connection, Personal still means "my own items" — the
-    # JOIN with TableMetadata restricts to this connection's tables
-    # (or knowledge-graph rows with no table), but space/crew are
-    # irrelevant because ownership is already unique.
+    # With a connection_id, Personal accepts:
+    #   • this user's own items (`user_id = caller`), AND
+    #   • truly-shared rows (`user_id IS NULL AND space_id IS NULL`)
+    #     — pinned to the connection itself.
+    # We deliberately do NOT accept `user_id IS NULL AND space_id !=
+    # NULL` because that's space-scoped content for some space the
+    # caller may not be a member of — leak vector flagged in Lucas's
+    # 2026-05-05 adversarial review.
     user_a = uuid4()
     conn = uuid4()
     q = _build_embedding_base_query(
@@ -89,7 +93,94 @@ def test_connection_filter_personal_skips_space_where():
     )
     sql = _compile(q)
     assert f"embeddings.user_id = '{user_a}'" in sql
+    # NULL acceptance must be paired with space_id IS NULL.
+    assert "embeddings.user_id IS NULL" in sql
+    assert "embeddings.space_id IS NULL" in sql
     assert f"table_metadata.data_connection_id = '{conn}'" in sql
+
+
+def test_personal_mode_does_not_leak_other_spaces_scoped_content():
+    """Adversarial review 2026-05-05: when the same connection is
+    bridged to multiple spaces of one tenant, a Personal-mode
+    caller (member of S1 only) must not see content stamped to S2
+    via that connection. The fence is `(user_id IS NULL AND
+    space_id IS NULL)` — strictly connection-level shared rows,
+    nothing space-scoped."""
+    me = uuid4()
+    conn = uuid4()
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=str(uuid4()),
+            crew_ids=[],
+            connection_id=str(conn),
+            is_personal=True,
+            user_id=me,
+        )
+    )
+    # The pair must be present.
+    assert "embeddings.user_id IS NULL" in sql
+    assert "embeddings.space_id IS NULL" in sql
+    # Crucially, there must NOT be a bare "user_id IS NULL" in an
+    # OR with the connection filter only — that would be the leaky
+    # version. We assert the AND coupling by checking both NULL
+    # conditions are required together. (Structural: both IS NULL
+    # tokens appear inside the same ANDed clause; the leaky version
+    # would have user_id IS NULL without any space_id IS NULL.)
+    null_idx = sql.find("embeddings.user_id IS NULL")
+    space_null_idx = sql.find("embeddings.space_id IS NULL")
+    assert null_idx >= 0 and space_null_idx >= 0
+    # The two NULL conditions must appear close together (paired in
+    # AND), not far apart (which would suggest separate clauses).
+    assert abs(null_idx - space_null_idx) < 200, (
+        "user_id IS NULL and space_id IS NULL must be ANDed together"
+    )
+
+
+def test_personal_mode_without_connection_stays_strict():
+    """Without a connection_id we keep the legacy strict filter
+    (only this user's own items). The OR-NULL relaxation only
+    applies when an authorised connection scopes the result, so
+    listing Personal items in the absence of a connection still
+    can't surface another user's stuff or unscoped shared rows."""
+    user_a = uuid4()
+    q = _build_embedding_base_query(
+        space_id=uuid4(),
+        crew_ids=[],
+        connection_id=None,
+        is_personal=True,
+        user_id=user_a,
+    )
+    sql = _compile(q)
+    assert f"embeddings.user_id = '{user_a}'" in sql
+    # NULL acceptance must NOT be in the WHERE for the no-connection
+    # case — otherwise listing personal items would surface shared
+    # connection rows that don't belong here.
+    assert "embeddings.user_id IS NULL" not in sql
+
+
+def test_personal_with_connection_does_not_leak_other_users_personal():
+    """Defence-in-depth: in the OR-NULL personal branch, another
+    user's Personal item (with their own user_id stamped) must NOT
+    leak. The fence is the connection_id JOIN — embeddings tied to
+    a TableMetadata of a different connection don't pass."""
+    me = uuid4()
+    my_conn = uuid4()
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=uuid4(),
+            crew_ids=[],
+            connection_id=my_conn,
+            is_personal=True,
+            user_id=me,
+        )
+    )
+    # The query never references another user's id at compile time
+    # (would only show up via runtime data) — the structural
+    # invariant we can pin is: only the caller's id and IS-NULL are
+    # accepted on user_id. No `user_id != X` or `user_id IN (...)`.
+    assert f"embeddings.user_id = '{me}'" in sql
+    # And the connection fence is present.
+    assert f"table_metadata.data_connection_id = '{my_conn}'" in sql
 
 
 def test_connection_filter_space_scope():
