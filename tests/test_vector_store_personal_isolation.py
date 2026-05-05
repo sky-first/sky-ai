@@ -127,6 +127,7 @@ def test_personal_mode_with_caller_space_ids_surfaces_member_space_content():
     assert f"'{s2}'" in sql
 
 
+
 def test_personal_mode_does_not_leak_other_spaces_scoped_content():
     """Adversarial review 2026-05-05: when the same connection is
     bridged to multiple spaces of one tenant, a Personal-mode

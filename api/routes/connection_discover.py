@@ -95,6 +95,14 @@ async def discover_tables(
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
     auto_generate_embeddings: bool = True,  # ✅ ENABLED: Auto-generate embeddings on discover
+    skip_if_recent_seconds: int = Query(
+        300,
+        description=(
+            "Race-protection: skip the discover when connection_metadata "
+            "was updated less than N seconds ago. Set to 0 to force a "
+            "re-run (e.g. after a manual schema change)."
+        ),
+    ),
 ) -> dict:
     """
     Descobre automaticamente todas as tabelas de uma DataConnection.
@@ -109,7 +117,53 @@ async def discover_tables(
     try:
         from core.ingestion.service import run_metadata_ingestion, run_metadata_embeddings
         from core.llm.factory import create_embedding_provider
-        
+
+        # Race-protection: when N concurrent demo signups fire
+        # discover_connection at the same time, each one would
+        # DELETE+INSERT the same NULL-keyed table_metadata rows and
+        # leave brief windows of zero rows that an in-flight RAG
+        # query could see. Skip when last_metadata_update is fresher
+        # than the threshold (default 5min).
+        if skip_if_recent_seconds and skip_if_recent_seconds > 0:
+            try:
+                from sqlalchemy import text as _text
+
+                row = (
+                    await db.execute(
+                        _text(
+                            "SELECT EXTRACT(EPOCH FROM (NOW() - last_metadata_update))::int AS age "
+                            "FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"
+                        ),
+                        {"cid": connection_id},
+                    )
+                ).mappings().first()
+                if row and row["age"] is not None and row["age"] < skip_if_recent_seconds:
+                    log_event(
+                        "discover_skipped_recent",
+                        {
+                            "connection_id": connection_id,
+                            "space_id": space_id,
+                            "age_seconds": int(row["age"]),
+                            "threshold": skip_if_recent_seconds,
+                        },
+                    )
+                    return {
+                        "message": "Discovery skipped — recent metadata exists.",
+                        "connection_id": connection_id,
+                        "space_id": space_id,
+                        "skipped_reason": "recent_metadata",
+                        "age_seconds": int(row["age"]),
+                    }
+            except Exception:
+                # If the freshness check fails (e.g. connection_metadata
+                # row doesn't exist yet — first run), fall through to
+                # the actual discover. Better to over-run than to
+                # silently no-op on a fresh connection.
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
             async def _discover_and_embed():
