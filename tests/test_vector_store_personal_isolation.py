@@ -104,3 +104,29 @@ def test_connection_filter_space_scope():
     sql = _compile(q)
     assert "embeddings.user_id IS NULL" in sql
     assert f"table_metadata.data_connection_id = '{conn}'" in sql
+
+
+def test_space_mode_with_connection_id_includes_shared_embeddings():
+    """Lucas's 2026-05-05 review: demo connections are indexed once with
+    space_id=NULL and shared across every Space that bridges the
+    connection. The RAG must surface those shared embeddings to every
+    caller — `space_id == caller_space OR space_id IS NULL` — otherwise
+    each visitor needs their own re-indexing pass and the AI answers
+    'Sorry, I couldn't find any data' until the background discover
+    finishes.
+    """
+    caller_space = uuid4()
+    conn = uuid4()
+    q = _build_embedding_base_query(
+        space_id=str(caller_space),
+        crew_ids=[],
+        connection_id=str(conn),
+        is_personal=False,
+    )
+    sql = _compile(q)
+    # Must accept embeddings whose space_id is the caller's OR null.
+    # The exact rendering is "embeddings.space_id = '<uuid>' OR embeddings.space_id IS NULL"
+    assert f"embeddings.space_id = '{caller_space}'" in sql
+    assert "embeddings.space_id IS NULL" in sql
+    # And must still scope to the connection.
+    assert f"table_metadata.data_connection_id = '{conn}'" in sql
