@@ -99,6 +99,35 @@ def test_connection_filter_personal_skips_space_where():
     assert f"table_metadata.data_connection_id = '{conn}'" in sql
 
 
+def test_personal_mode_with_caller_space_ids_surfaces_member_space_content():
+    """When the caller is a member of S1 and S2, Personal-mode RAG
+    must surface NULL-user_id rows whose space_id is in {S1, S2} —
+    that's how glossary / metrics / per-space customisations show
+    up in the user's aggregated Personal view, per Lucas's
+    Personal-aggregates-from-Spaces design."""
+    me = uuid4()
+    conn = uuid4()
+    s1, s2 = uuid4(), uuid4()
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=str(uuid4()),
+            crew_ids=[],
+            connection_id=str(conn),
+            is_personal=True,
+            user_id=me,
+            caller_space_ids=[str(s1), str(s2)],
+        )
+    )
+    # All three branches must be present:
+    assert f"embeddings.user_id = '{me}'" in sql              # branch 1
+    assert "embeddings.user_id IS NULL" in sql                # branches 2 + 3
+    assert "embeddings.space_id IS NULL" in sql               # branch 2
+    # branch 3: space_id IN (s1, s2)
+    assert f"'{s1}'" in sql
+    assert f"'{s2}'" in sql
+
+
+
 def test_personal_mode_does_not_leak_other_spaces_scoped_content():
     """Adversarial review 2026-05-05: when the same connection is
     bridged to multiple spaces of one tenant, a Personal-mode

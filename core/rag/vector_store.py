@@ -50,6 +50,7 @@ def _build_embedding_base_query(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[List[str]] = None,
+    caller_space_ids: Optional[List[str]] = None,
 ):
     """
     Constrói a query base para buscar embeddings.
@@ -101,26 +102,36 @@ def _build_embedding_base_query(
                 TableMetadata,
                 EmbeddingRecord.table_metadata_id == TableMetadata.id,
             )
-            # NULL acceptance is paired:
-            #   • user_id IS NULL AND space_id IS NULL  → "this row
-            #     belongs to the connection itself, not to any user
-            #     or any space" — safe for every authorised caller.
-            # We DO NOT accept `user_id IS NULL AND space_id != NULL`
-            # because that's space-scoped content (e.g. another
-            # space's glossary customisation of this same connection),
-            # and the personal branch has no space-membership filter
-            # — letting it through would leak across spaces inside
-            # the same tenant when one connection is bridged to
-            # multiple spaces. Adversarial review by Lucas 2026-05-05.
+            # Personal-mode owner clause has THREE branches:
+            #   1. `user_id == caller`                           — my Personal items
+            #   2. `user_id IS NULL AND space_id IS NULL`        — truly connection-level shared
+            #   3. `user_id IS NULL AND space_id IN caller_space_ids`
+            #                                                    — space-scoped content (glossary,
+            #                                                      metrics, etc.) of spaces the
+            #                                                      caller is a member of
+            # Branches 2 and 3 stay paired because a bare
+            # `user_id IS NULL` accepting any `space_id` would let a
+            # tenant member peek at other spaces' content via Personal
+            # mode (Lucas's 2026-05-05 review caught this).
+            owner_clauses = [
+                EmbeddingRecord.user_id == user_id,
+                and_(
+                    EmbeddingRecord.user_id.is_(None),
+                    EmbeddingRecord.space_id.is_(None),
+                ),
+            ]
+            if caller_space_ids:
+                # Tenant safety: only accept NULL-user_id rows whose
+                # space_id is one the caller actually belongs to.
+                owner_clauses.append(
+                    and_(
+                        EmbeddingRecord.user_id.is_(None),
+                        EmbeddingRecord.space_id.in_(caller_space_ids),
+                    )
+                )
             query = query.filter(
                 and_(
-                    or_(
-                        EmbeddingRecord.user_id == user_id,
-                        and_(
-                            EmbeddingRecord.user_id.is_(None),
-                            EmbeddingRecord.space_id.is_(None),
-                        ),
-                    ),
+                    or_(*owner_clauses),
                     or_(
                         TableMetadata.data_connection_id == connection_id,
                         EmbeddingRecord.table_metadata_id.is_(None),
@@ -204,6 +215,7 @@ async def search_embeddings_async(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[List[str]] = None,
+    caller_space_ids: Optional[List[str]] = None,
 ) -> List[EmbeddingRecord]:
     """
     Faz busca semântica em EmbeddingRecord usando pgvector.
@@ -232,7 +244,7 @@ async def search_embeddings_async(
         )
 
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         query = query.limit(top_k)
 
@@ -259,7 +271,7 @@ async def search_embeddings_async(
 
     try:
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         query = query.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
         query = query.limit(top_k)
@@ -278,7 +290,7 @@ async def search_embeddings_async(
         )
 
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         query = query.limit(top_k)
 
@@ -320,6 +332,7 @@ def search_embeddings(
     is_personal: bool = False,
     user_id: Optional[str] = None,
     allowed_document_ids: Optional[List[str]] = None,
+    caller_space_ids: Optional[List[str]] = None,
 ) -> List[EmbeddingRecord]:
     """
     Versão síncrona de search_embeddings.
@@ -346,7 +359,7 @@ def search_embeddings(
         )
 
         q = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         q = q.limit(top_k)
         results: List[EmbeddingRecord] = list(db.execute(q).scalars().all())
@@ -369,7 +382,7 @@ def search_embeddings(
 
     try:
         query_obj = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         query_obj = query_obj.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
         query_obj = query_obj.limit(top_k)
@@ -385,7 +398,7 @@ def search_embeddings(
         )
 
         query_obj = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids
+            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
         )
         query_obj = query_obj.limit(top_k)
         results = list(db.execute(query_obj).scalars().all())
