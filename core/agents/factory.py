@@ -107,7 +107,17 @@ def build_agent_config_for_user_space(
     """
     user_crew_ids: List[str] = getattr(user_ctx, "crew_ids", []) or []
 
-    q = db.query(TableMetadata).filter(TableMetadata.space_id == space_id)
+    # space_id IS NULL → "shared/global" metadata seeded for connections
+    # that every Space sharing the connection should see (e.g. the public
+    # demo dataset). The RAG retrieval at vector_store._build_embedding_base_query
+    # already does this OR-NULL match — without mirroring it here the
+    # orchestrator builds an empty AgentConfig (no tables) for the demo
+    # visitor, the specialist returns "no data", and the formatter answers
+    # "Sorry, I couldn't find any data". Lucas's 2026-05-05 review.
+    q = db.query(TableMetadata).filter(
+        (TableMetadata.space_id == space_id)
+        | (TableMetadata.space_id == None)  # noqa: E711
+    )
 
     if data_connection_id:
         q = q.filter(TableMetadata.data_connection_id == data_connection_id)

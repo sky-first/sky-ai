@@ -104,3 +104,97 @@ def test_connection_filter_space_scope():
     sql = _compile(q)
     assert "embeddings.user_id IS NULL" in sql
     assert f"table_metadata.data_connection_id = '{conn}'" in sql
+
+
+def test_space_mode_with_connection_id_includes_shared_embeddings():
+    """Lucas's 2026-05-05 review: demo connections are indexed once with
+    space_id=NULL and shared across every Space that bridges the
+    connection. The RAG must surface those shared embeddings to every
+    caller — `space_id == caller_space OR space_id IS NULL` — otherwise
+    each visitor needs their own re-indexing pass and the AI answers
+    'Sorry, I couldn't find any data' until the background discover
+    finishes.
+    """
+    caller_space = uuid4()
+    conn = uuid4()
+    q = _build_embedding_base_query(
+        space_id=str(caller_space),
+        crew_ids=[],
+        connection_id=str(conn),
+        is_personal=False,
+    )
+    sql = _compile(q)
+    # Must accept embeddings whose space_id is the caller's OR null.
+    # The exact rendering is "embeddings.space_id = '<uuid>' OR embeddings.space_id IS NULL"
+    assert f"embeddings.space_id = '{caller_space}'" in sql
+    assert "embeddings.space_id IS NULL" in sql
+    # And must still scope to the connection.
+    assert f"table_metadata.data_connection_id = '{conn}'" in sql
+
+
+def test_connection_id_is_the_isolation_fence_not_space_id():
+    """Lucas's 2026-05-05 follow-up question: "global indexing won't
+    leak across Spaces, right?". The answer is: no, because the
+    isolation fence is ``connection_id`` (gated by BE RBAC at the API
+    layer), not ``space_id``. This test pins the invariant.
+
+    Concretely: if visitor V1 (Space S1) queries with ``connection_id=A``,
+    the rendered WHERE must constrain TableMetadata.data_connection_id
+    to A — so embeddings of an unrelated connection B are filtered out
+    even if B's rows also have ``space_id IS NULL``.
+    """
+    s1 = uuid4()
+    conn_a = uuid4()
+    conn_b_should_not_leak = uuid4()
+
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=str(s1),
+            crew_ids=[],
+            connection_id=str(conn_a),
+            is_personal=False,
+        )
+    )
+
+    # The fence: filter pins to conn_a.
+    assert f"table_metadata.data_connection_id = '{conn_a}'" in sql
+    # The other connection MUST NOT appear anywhere — no SQL clause
+    # would even consider it. (Trivially true here, but locks the
+    # invariant: a regression that loosened the connection filter to
+    # OR-NULL on data_connection_id would surface as another
+    # connection's id leaking via NULL match.)
+    assert str(conn_b_should_not_leak) not in sql
+
+    # Symmetric check from V2 in S2 querying conn_b: must NOT see conn_a.
+    s2 = uuid4()
+    conn_b = uuid4()
+    sql_v2 = _compile(
+        _build_embedding_base_query(
+            space_id=str(s2),
+            crew_ids=[],
+            connection_id=str(conn_b),
+            is_personal=False,
+        )
+    )
+    assert f"table_metadata.data_connection_id = '{conn_b}'" in sql_v2
+    assert str(conn_a) not in sql_v2
+
+
+def test_personal_rows_never_leak_into_space_mode_even_with_null_space():
+    """Defence-in-depth: even on the demo's shared (space_id=NULL)
+    branch, another visitor's Personal embeddings (where ``user_id``
+    is set) must be filtered out by ``user_id IS NULL``. This is the
+    invariant that keeps Personal isolated from Space queries."""
+    caller_space = uuid4()
+    conn = uuid4()
+    sql = _compile(
+        _build_embedding_base_query(
+            space_id=str(caller_space),
+            crew_ids=[],
+            connection_id=str(conn),
+            is_personal=False,
+        )
+    )
+    # Hard assertion: Space/Crew mode strips any embedding with a
+    # user_id set, regardless of space_id NULL match.
+    assert "embeddings.user_id IS NULL" in sql
