@@ -1443,6 +1443,12 @@ async def chat_bootstrap(
                 elif conn_config is None:
                     conn_config = {}
 
+                # Backend stores config encrypted as {"__encrypted": "..."};
+                # decrypt with the shared ENCRYPTION_KEY before the factory
+                # tries to read host/port/user/password.
+                from core.security.config_decryption import decrypt_config
+                conn_config = decrypt_config(conn_config)
+
                 data_conn = TempDataConnection(
                     id=str(conn_result[0]),
                     name=conn_result[1],
@@ -2463,6 +2469,10 @@ async def load_agent_config_from_connection(
     config = row[1] if row[1] else {}
     if isinstance(config, str):
         config = json.loads(config)
+    # Backend writes config encrypted; decrypt before downstream uses
+    # host/database/etc. (no-op when already plaintext).
+    from core.security.config_decryption import decrypt_config
+    config = decrypt_config(config)
 
     # Map type to Dialect
     dialect = Dialect.POSTGRES  # default fallback
@@ -3534,6 +3544,12 @@ async def _query_connection_inner(
         conn_config = {}
     elif not isinstance(conn_config, dict):
         conn_config = {}
+
+    # Backend stores config encrypted as {"__encrypted": "..."}; decrypt
+    # with the shared ENCRYPTION_KEY before the factory tries to read
+    # host/port/user/password. No-op when already plaintext.
+    from core.security.config_decryption import decrypt_config
+    conn_config = decrypt_config(conn_config)
 
     data_conn = TempDataConnection(
         id=str(conn_result[0]),
