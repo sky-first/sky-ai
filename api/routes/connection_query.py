@@ -4448,6 +4448,8 @@ async def _stream_connection_query(
                 "selected_datasets": body.selected_datasets,
                 # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
                 "security_config": body.security_config,
+                # Agent mode hint: forces data-path routing for scan/sql/context
+                "agent_mode": body.agent_mode,
             }
 
             def db_session_factory():
@@ -4474,7 +4476,13 @@ async def _stream_connection_query(
                 state, config={"configurable": {"thread_id": thread_id}}
             ):
                 for node_name, node_state in chunk.items():
-                    if node_name in ["orchestrator", "specialist"]:
+                    if node_name in [
+                        "orchestrator", "specialist",
+                        "parallel_specialist", "merger",
+                        "mixed_dispatch", "people_specialist",
+                        "knowledge_specialist", "events_specialist",
+                        "relationships_specialist", "widgets_specialist",
+                    ]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
                         if node_name == "orchestrator":
@@ -4569,9 +4577,7 @@ async def _stream_connection_query(
                     "chosen_table": final_state.get("chosen_table"),
                     "chosen_datasets": final_state.get("chosen_tables"),
                     "sql": final_state.get("sql"),
-                    "title": final_state.get(
-                        "generated_title"
-                    ),  # ✅ NOVO: Título gerado dinamicamente
+                    "title": final_state.get("generated_title"),
                     "num_rows": 0,
                     "error": str(final_state.get("error")),
                 }
@@ -4579,8 +4585,9 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
 
-            # Se não há dados, enviar amigável com tópico e terminar
-            if not final_state.get("data"):
+            # Se o specialist marcou a pergunta como impossível, tratar como no-data
+            # mas preservar o motivo para debug.
+            if final_state.get("impossible_reason"):
                 lang = _ensure_language(
                     body.question, final_state.get("detected_language")
                 )
@@ -4590,7 +4597,52 @@ async def _stream_connection_query(
                 meta = {
                     "detected_language": lang,
                     "chosen_table": final_state.get("chosen_table"),
-                    "sql": final_state.get("sql"),
+                    "chosen_datasets": final_state.get("chosen_tables"),
+                    "sql": None,
+                    "title": final_state.get("generated_title"),
+                    "num_rows": 0,
+                    "error": final_state.get("impossible_reason"),
+                }
+                yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': []})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+
+            # Non-SQL specialists (mixed_dispatch, people_specialist, etc.) already set
+            # state["answer"] without SQL data. Check this BEFORE the no-data guard
+            # because these nodes intentionally produce data=[] with answer set.
+            if final_state.get("answer") and not final_state.get("sql"):
+                pre_answer = final_state["answer"]
+                pre_title = final_state.get("generated_title") or body.question[:50]
+                pre_lang = final_state.get("detected_language") or "en"
+                yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
+                yield f"data: {json.dumps({'type': 'chunk', 'content': pre_answer})}\n\n"
+                pre_meta = {
+                    "detected_language": pre_lang,
+                    "chosen_table": final_state.get("chosen_table"),
+                    "chosen_datasets": final_state.get("chosen_tables") or [],
+                    "sql": None,
+                    "title": pre_title,
+                    "num_rows": 0,
+                    "error": None,
+                }
+                yield f"data: {json.dumps({'type': 'meta', 'meta': pre_meta, 'data_sample': []})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+
+            # Se não há dados mas há SQL executado, passar para o formatter — ele
+            # produz uma resposta significativa (ex. "Nenhuma anomalia encontrada").
+            # Se não há SQL, usar mensagem genérica de no-data.
+            if not final_state.get("data") and not final_state.get("sql"):
+                lang = _ensure_language(
+                    body.question, final_state.get("detected_language")
+                )
+                topic = _extract_topic(body.question)
+                msg = get_message("NO_DATA_FOUND", lang, topic=topic)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
+                meta = {
+                    "detected_language": lang,
+                    "chosen_table": final_state.get("chosen_table"),
+                    "sql": None,
                     "num_rows": 0,
                     "error": None,
                 }

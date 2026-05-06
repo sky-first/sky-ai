@@ -95,6 +95,9 @@ class AgentState(TypedDict, total=False):
     # Saída final
     answer: Optional[str]
 
+    # Agent mode from backend (scan, sql, context, question)
+    agent_mode: Optional[str]
+
     # Multi-agent intent classification
     intent: Optional[str]  # "data" | "strategy" | "signals" | "context" | "mixed"
     strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
@@ -421,6 +424,26 @@ def build_generic_sql_graph(
         Fast regex first, LLM fallback for ambiguous cases.
         """
         from core.intent.question_intent import classify_question_intent
+
+        # When the backend signals a SQL-bound execution mode (scan, sql,
+        # context), skip probabilistic intent classification and force the
+        # data path so the graph always runs orchestrator → specialist.
+        agent_mode = state.get("agent_mode") or ""
+        if agent_mode in ("scan", "sql", "context", "datasource"):
+            print(
+                f"[INTENT_CLASSIFIER] agent_mode='{agent_mode}' → forcing intent=data"
+            )
+            log_event(
+                "intent_classified",
+                {
+                    "question": state.get("question", "")[:100],
+                    "intent": "data",
+                    "agent_mode": agent_mode,
+                    "forced": True,
+                },
+            )
+            state["intent"] = "data"
+            return state
 
         has_tables = len(agent_config.tables) > 0
         intent = classify_question_intent(
