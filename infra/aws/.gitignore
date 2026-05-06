@@ -1,0 +1,17 @@
+# Terraform local working state — never commit
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Apply logs (for debugging only)
+apply-*.log
+plan-*.log
+
+# Per-developer local overrides
+*.auto.tfvars
+*.auto.tfvars.json
+.terraform.tfstate.lock.info
+
+# IDE/editor cruft
+.idea/
+.vscode/
