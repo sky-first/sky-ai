@@ -49,3 +49,32 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Replaces argocd-image-updater on the AWS path (broken on ECR
+      # auth in chart 0.12.3 / image-updater 0.16).
+      - name: Bump sky-ai-stg-aws values in sky-poc-infra
+        if: github.ref_name == 'staging'
+        env:
+          GITOPS_PUSH_TOKEN: ${{ secrets.GITOPS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          git clone --depth 1 --branch staging \
+            "https://x-access-token:${GITOPS_PUSH_TOKEN}@github.com/sky-first/sky-infra.git" \
+            /tmp/sky-infra
+          cd /tmp/sky-infra
+
+          NEW_TAG="sha-${{ github.sha }}"
+          VALUES_FILE="gitops/charts/common-app/values-sky-ai-stg-aws.yaml"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${VALUES_FILE}"
+
+          git config user.name  "sky-ai-deploy[bot]"
+          git config user.email "sky-ai-deploy@users.noreply.github.com"
+          git add "${VALUES_FILE}"
+          git diff --quiet --cached || \
+            git commit -m "build: automatic update of sky-ai-stg-aws to ${NEW_TAG}"
+          for i in 1 2 3; do
+            git push && break || git pull --rebase
+          done
