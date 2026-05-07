@@ -452,7 +452,7 @@ def run_orchestrator(
     # field carries the agent's focus/task description, not a user natural-
     # language question, so schema-based validation produces false positives.
     _skip_validation = (state.get("agent_mode") or "") in (
-        "scan", "sql", "context", "datasource"
+        "scan", "sql", "context", "datasource", "question"
     )
     if not _skip_validation:
         try:
