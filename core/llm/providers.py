@@ -114,6 +114,92 @@ class LangChainChatOpenAIProvider:
             raise
 
 
+class BedrockChatProvider:
+    """
+    Provider for Anthropic Claude on AWS Bedrock.
+
+    Authentication is via IRSA when running on EKS — boto3 transparently
+    picks up the OIDC token mounted at
+    /var/run/secrets/eks.amazonaws.com/serviceaccount/token and exchanges
+    it for the role `sky-eks-staging-bedrock` (Terraform: infra/aws/
+    _eks_staging/irsa.tf). No long-lived AWS keys ever land in the env.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        region: str = "eu-west-1",
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ) -> None:
+        from langchain_aws import ChatBedrockConverse  # type: ignore
+
+        self.model_name = model
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "region_name": region,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        self._chat = ChatBedrockConverse(**kwargs)
+
+    def _convert_messages(self, messages: List[Dict[str, str]]):
+        lc_msgs = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "system":
+                lc_msgs.append(SystemMessage(content=content))
+            elif role == "assistant":
+                lc_msgs.append(AIMessage(content=content))
+            else:
+                lc_msgs.append(HumanMessage(content=content))
+        return lc_msgs
+
+    def invoke(self, messages: List[Dict[str, str]]) -> Any:
+        lc_msgs = self._convert_messages(messages)
+        try:
+            resp = self._chat.invoke(lc_msgs)
+            log_event(
+                "bedrock_invoke_success",
+                {"model": self.model_name, "num_messages": len(messages)},
+            )
+            return resp
+        except Exception as e:
+            log_event(
+                "bedrock_invoke_error",
+                {"model": self.model_name, "num_messages": len(messages), "error": str(e)[:500]},
+            )
+            raise
+
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
+        lc_msgs = self._convert_messages(messages)
+        try:
+            for chunk in self._chat.stream(lc_msgs):
+                if hasattr(chunk, "content") and chunk.content:
+                    # ChatBedrockConverse may emit content as a list of
+                    # content blocks (text + tool calls). Normalise to a
+                    # plain string so the contract matches the other
+                    # providers.
+                    if isinstance(chunk.content, str):
+                        yield chunk.content
+                    elif isinstance(chunk.content, list):
+                        for block in chunk.content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                yield block.get("text", "")
+            log_event(
+                "bedrock_stream_success",
+                {"model": self.model_name, "num_messages": len(messages)},
+            )
+        except Exception as e:
+            log_event(
+                "bedrock_stream_error",
+                {"model": self.model_name, "error": str(e)[:500]},
+            )
+            raise
+
+
 class OllamaProvider:
     """
     Provider para modelos locais via Ollama (usando langchain-ollama).
