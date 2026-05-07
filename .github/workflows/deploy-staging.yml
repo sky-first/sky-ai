@@ -8,6 +8,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  issues: write   # required for the Open Issue on Deploy Failure step
 
 env:
   ACR_NAME: skyacrstagingj3minh
@@ -49,7 +50,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITOPS_PUSH_TOKEN }}
-          repository: sky-first/sky-poc-infra
+          repository: sky-first/sky-infra
           event-type: deploy-trigger
           client-payload: |
             {
