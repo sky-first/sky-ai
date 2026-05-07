@@ -2442,6 +2442,7 @@ async def load_agent_config_from_connection(
     connection_id: str,
     crew_ids: Optional[List[str]] = None,
     authorized_tables: Optional[List[str]] = None,
+    connection_ids: Optional[List[str]] = None,
 ) -> AgentConfig:
     """
     Carrega TableMetadata e monta AgentConfig automaticamente para uma conexão.
@@ -2633,6 +2634,67 @@ async def load_agent_config_from_connection(
                 )
 
             if table_schemas:
+                # Merge extra connection metadata when multiple connections are
+                # requested (e.g. all Space connections for cross-schema queries).
+                extra_conn_ids = [
+                    cid for cid in (connection_ids or [])
+                    if cid and cid != connection_id
+                ]
+                if extra_conn_ids:
+                    for extra_cid in extra_conn_ids:
+                        try:
+                            extra_meta = await db.execute(
+                                text(
+                                    "SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+                                ),
+                                {"cid": extra_cid},
+                            )
+                            extra_tables_json = extra_meta.scalar_one_or_none()
+                            if isinstance(extra_tables_json, list):
+                                extra_cfg = await db.execute(
+                                    text("SELECT connector_id, config FROM data_connections WHERE id = :id"),
+                                    {"id": extra_cid},
+                                )
+                                extra_row = extra_cfg.first()
+                                extra_project_id = None
+                                if extra_row and extra_row[1]:
+                                    extra_config = extra_row[1] if isinstance(extra_row[1], dict) else json.loads(extra_row[1])
+                                    from core.security.config_decryption import decrypt_config
+                                    extra_config = decrypt_config(extra_config)
+                                    extra_project_id = extra_config.get("project_id") or extra_config.get("gcp_project_id")
+                                for t in extra_tables_json:
+                                    if not isinstance(t, dict):
+                                        continue
+                                    extra_schema = str(t.get("schema") or "").strip()
+                                    extra_name = str(t.get("name") or "").strip()
+                                    if not extra_name:
+                                        continue
+                                    if extra_schema and extra_project_id:
+                                        extra_physical = f"{extra_project_id}.{extra_schema}.{extra_name}"
+                                    elif extra_schema:
+                                        extra_physical = f"{extra_schema}.{extra_name}"
+                                    else:
+                                        extra_physical = extra_name
+                                    extra_logical = t.get("logical_name") or _normalize_logical_name(extra_name)
+                                    extra_cols = []
+                                    for c in (t.get("columns") or []):
+                                        if not isinstance(c, dict) or not c.get("name"):
+                                            continue
+                                        extra_cols.append({
+                                            "name": str(c["name"]),
+                                            "type": str(c.get("type") or c.get("data_type") or "STRING"),
+                                            "nullable": bool(c.get("nullable", True)),
+                                            "description": c.get("description"),
+                                        })
+                                    table_schemas.append(TableSchema(
+                                        logical_name=extra_logical,
+                                        physical_name=extra_physical,
+                                        description=t.get("description"),
+                                        columns=extra_cols,
+                                    ))
+                        except Exception as merge_err:
+                            log_event("load_agent_config_merge_extra_conn_error", {"extra_cid": extra_cid, "error": str(merge_err)[:300]})
+
                 agent = AgentConfig(
                     id=f"agent-conn-{connection_id}",
                     name=f"Agent for connection {connection_id}",
@@ -2645,6 +2707,7 @@ async def load_agent_config_from_connection(
                     {
                         "space_id": space_id,
                         "connection_id": connection_id,
+                        "extra_connection_ids": extra_conn_ids,
                         "dialect": dialect.value,
                         "num_tables": len(table_schemas),
                     },
@@ -4350,7 +4413,7 @@ async def _stream_connection_query(
                 )
                 crew_ids = []
 
-        # Carregar AgentConfig
+        # Carregar AgentConfig (multi-connection when body.connection_ids provided)
         try:
             agent_config = await load_agent_config_from_connection(
                 db=db,
@@ -4358,6 +4421,7 @@ async def _stream_connection_query(
                 connection_id=connection_id,
                 crew_ids=crew_ids if crew_ids else None,
                 authorized_tables=body.authorized_tables,
+                connection_ids=body.connection_ids or None,
             )
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
