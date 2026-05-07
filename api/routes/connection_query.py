@@ -4817,8 +4817,8 @@ async def _stream_connection_query(
             )
 
             # Last-mile: transform raw sample and infer widget type
-            formatted_sample = _transform_data_for_format(
-                raw_sample, body.response_format
+            formatted_sample = _serialize_for_json(
+                _transform_data_for_format(raw_sample, body.response_format)
             )
             recommended_widget_type = _infer_widget_type(
                 formatted_sample, body.response_format
