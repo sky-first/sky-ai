@@ -13,6 +13,13 @@ permissions:
 env:
   ACR_NAME: skyacrstagingj3minh
   IMAGE_NAME: sky-poc-ai
+  # AWS staging ECR — pushed alongside ACR during the Azure→AWS
+  # transition. argocd-image-updater on the AWS cluster watches the
+  # ECR `^sha-.*` tag and bumps values-sky-ai-stg-aws.yaml on commit.
+  # Once Azure is decommissioned, drop the ACR steps.
+  ECR_REGISTRY: 741375879811.dkr.ecr.eu-west-1.amazonaws.com
+  ECR_REPO: sky-ai
+  AWS_REGION: eu-west-1
 
 jobs:
   deploy:
@@ -32,9 +39,27 @@ jobs:
       - name: Login to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
 
+      # AWS auth via GitHub OIDC. The role sky-gha-sky-ai is defined in
+      # sky-poc-infra/infra/aws/_registry/github-oidc.tf — its trust
+      # policy admits any branch in sky-first/sky-ai (StringLike on
+      # `repo:sky-first/sky-ai:*`) and grants ECR push scoped to the
+      # sky-ai repository.
+      - name: AWS Login (GitHub OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::741375879811:role/sky-gha-sky-ai
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Single build, four tags. Both registries get the mutable
+      # `staging` (sanity reference for humans) and the immutable
+      # `sha-<commit>` tag. argocd-image-updater on AWS only matches
+      # `^sha-.*`, so it ignores the `staging` digest churn.
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
@@ -43,6 +68,8 @@ jobs:
           tags: |
             ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:staging
             ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:staging
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
