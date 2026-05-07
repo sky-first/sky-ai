@@ -130,9 +130,12 @@ Controlled by `AI_PROVIDER` env var (`openai`, `ollama`, or `bedrock`):
 
 | Role | OpenAI model | Ollama model | Bedrock model |
 |---|---|---|---|
-| Orchestrator | `gpt-4o-mini` | `qwen2.5-coder:32b` | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Orchestrator | `gpt-4o-mini` | `qwen2.5-coder:32b` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` |
 | Specialist | `gpt-4o` | `qwen2.5-coder:32b` | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Formatter | `gpt-4o-mini` | `qwen2.5-coder:32b` | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` |
 | Embeddings | `text-embedding-3-large` | `nomic-embed-text` (768 dims) | _(falls back to OpenAI — Bedrock embeddings TBD)_ |
+
+Bedrock model tiering: Haiku 4.5 for orchestrator + formatter (cheap intent routing / formatting paths), Sonnet 4.5 for the specialist (SQL generation, where output quality drives answer correctness). Each role is overrideable via `BEDROCK_MODEL_{ORCHESTRATOR,SPECIALIST,FORMATTER}`.
 
 Ollama base URL: `https://ollama.skyfirstlabs.com` (configurable via `OLLAMA_BASE_URL`).
 

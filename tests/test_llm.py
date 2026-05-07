@@ -40,10 +40,12 @@ def test_factory_returns_bedrock_provider_when_ai_provider_is_bedrock(monkeypatc
     monkeypatch.setattr(settings, "use_local_models", False)
     monkeypatch.setattr(settings, "use_bedrock", True)
     monkeypatch.setattr(settings, "bedrock_region", "eu-west-1")
+    # Pin the orchestrator model explicitly so the test doesn't drift
+    # if cost-tier defaults change (e.g. Haiku ↔ Sonnet flip).
     monkeypatch.setattr(
         settings,
         "llm_model_orchestrator_bedrock",
-        "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
     )
 
     import sys
@@ -63,5 +65,5 @@ def test_factory_returns_bedrock_provider_when_ai_provider_is_bedrock(monkeypatc
 
     llm = create_llm_orchestrator()
     assert isinstance(llm, BedrockChatProvider)
-    assert llm.model_name == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert llm.model_name == "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
     assert llm._chat.kwargs["region_name"] == "eu-west-1"

@@ -124,8 +124,18 @@ class Settings(BaseSettings):
     # the bare foundation-model ID for newer Claude releases in eu-west-1
     # with "on-demand throughput isn't supported"; the inference profile
     # routes to the underlying foundation model across EU regions.
+    #
+    # Cost tiering by role to avoid burning Anthropic credits ($10,100
+    # ceiling until 2028-05). Haiku 4.5 runs the cheap paths (intent
+    # routing, response formatting); Sonnet 4.5 runs the SQL specialist
+    # where output quality directly affects answer correctness.
+    # Approx Bedrock pricing per 1M tokens:
+    #   - Haiku 4.5:  ~$1 in / ~$5 out
+    #   - Sonnet 4.5: ~$3 in / ~$15 out
+    # Override any of the three via env vars to flip everything to the
+    # same model, or to bump to Sonnet 4.6 / Opus when those land in EU.
     llm_model_orchestrator_bedrock: str = Field(
-        default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
         validation_alias=AliasChoices("BEDROCK_MODEL_ORCHESTRATOR", "llm_model_orchestrator_bedrock"),
     )
     llm_model_specialist_bedrock: str = Field(
@@ -133,7 +143,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("BEDROCK_MODEL_SPECIALIST", "llm_model_specialist_bedrock"),
     )
     llm_model_formatter_bedrock: str = Field(
-        default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
         validation_alias=AliasChoices("BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"),
     )
     
