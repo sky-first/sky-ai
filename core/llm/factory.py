@@ -35,8 +35,15 @@ def _convert_creativity_to_temperature(creativity: Optional[int]) -> float:
 
 def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
     """
-    Creates LLM orchestrator using configuring provider (OpenAI or Ollama).
+    Creates LLM orchestrator using the configured provider (OpenAI / Ollama / Bedrock).
     """
+    if settings.use_bedrock:
+        from core.llm.providers import BedrockChatProvider
+        return BedrockChatProvider(
+            model=settings.llm_model_orchestrator_bedrock,
+            region=settings.bedrock_region,
+            temperature=0.0,
+        )
     if settings.use_local_models:
         return OllamaProvider(
             model=settings.llm_model_orchestrator_local,
@@ -44,33 +51,37 @@ def create_llm_orchestrator(creativity: Optional[int] = None, length: Optional[i
             temperature=0.0,
             num_ctx=getattr(settings, "ollama_num_ctx_orchestrator", 4096)
         )
-    else:
-        # OpenAI Strategy utilizing the proper wrapper for tools support
-        from core.llm.providers import LangChainChatOpenAIProvider
-        return LangChainChatOpenAIProvider(
-            model=settings.llm_model_orchestrator,
-            temperature=0.0
-        )
+    # OpenAI Strategy utilizing the proper wrapper for tools support
+    from core.llm.providers import LangChainChatOpenAIProvider
+    return LangChainChatOpenAIProvider(
+        model=settings.llm_model_orchestrator,
+        temperature=0.0
+    )
 
 
 def create_llm_specialist(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
     """
     Creates LLM specialist (SQL Expert).
     """
+    if settings.use_bedrock:
+        from core.llm.providers import BedrockChatProvider
+        return BedrockChatProvider(
+            model=settings.llm_model_specialist_bedrock,
+            region=settings.bedrock_region,
+            temperature=0.0,
+        )
     if settings.use_local_models:
         return OllamaProvider(
             model=settings.llm_model_specialist_local,
             base_url=settings.ollama_base_url,
-            temperature=0.0, 
+            temperature=0.0,
             num_ctx=getattr(settings, "ollama_num_ctx_specialist", 8192)
         )
-    else:
-        # OpenAI Strategy
-        from core.llm.providers import LangChainChatOpenAIProvider
-        return LangChainChatOpenAIProvider(
-            model=settings.llm_model_specialist,
-            temperature=0.0
-        )
+    from core.llm.providers import LangChainChatOpenAIProvider
+    return LangChainChatOpenAIProvider(
+        model=settings.llm_model_specialist,
+        temperature=0.0
+    )
 
 
 def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int] = None) -> LLMProvider:
@@ -78,7 +89,14 @@ def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int]
     Creates LLM for formatting/summarization.
     """
     temp = _convert_creativity_to_temperature(creativity)
-    
+
+    if settings.use_bedrock:
+        from core.llm.providers import BedrockChatProvider
+        return BedrockChatProvider(
+            model=settings.llm_model_formatter_bedrock,
+            region=settings.bedrock_region,
+            temperature=temp,
+        )
     if settings.use_local_models:
         return OllamaProvider(
             model=settings.llm_model_formatter_local,
@@ -86,13 +104,11 @@ def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int]
             temperature=temp,
             num_ctx=getattr(settings, "ollama_num_ctx_formatter", 4096)
         )
-    else:
-        # OpenAI Strategy
-        from core.llm.providers import LangChainChatOpenAIProvider
-        return LangChainChatOpenAIProvider(
-            model=settings.llm_model_formatter,
-            temperature=temp
-        )
+    from core.llm.providers import LangChainChatOpenAIProvider
+    return LangChainChatOpenAIProvider(
+        model=settings.llm_model_formatter,
+        temperature=temp
+    )
 
 
 def create_embedding_provider() -> EmbeddingProvider:

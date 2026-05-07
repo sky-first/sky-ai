@@ -84,8 +84,9 @@ class Settings(BaseSettings):
     gcp_project_id: Optional[str] = None
     
     # ===== AI PROVIDER SWITCH =====
-    # "ollama" (default — RunPod-hosted Qwen 2.5 Coder 32B, pay-per-hour)
-    # "openai" (fallback — gpt-4o, pay-per-token, only for premium tier)
+    # "ollama"  — RunPod-hosted Qwen 2.5 Coder 32B (pay-per-hour, Azure path)
+    # "openai"  — gpt-4o family (pay-per-token, fallback / premium tier)
+    # "bedrock" — AWS Bedrock Claude (Sonnet 4.5 default, AWS path)
     # Flipped from "openai" to "ollama" on 2026-04-16 after confirming the
     # old Ollama endpoint in the .env was dead (404) and OpenAI was silently
     # burning through ~$10/day of credits in dev.
@@ -93,6 +94,10 @@ class Settings(BaseSettings):
         default="ollama",
         validation_alias=AliasChoices("AI_PROVIDER", "ai_provider")
     )
+    # Derived flag set by the validator from `ai_provider`. Kept separate
+    # from `use_local_models` so existing call sites that branch on the
+    # OpenAI/Ollama dichotomy stay untouched.
+    use_bedrock: bool = False
 
     # ===== OPENAI CONFIGURATION (ACTIVE IF AI_PROVIDER="openai") =====
     # OpenAI API Key
@@ -103,6 +108,34 @@ class Settings(BaseSettings):
     llm_model_specialist: str = "gpt-4o"
     llm_model_formatter: str = "gpt-4o-mini"
     llm_model_default: str = "gpt-4o"
+
+    # ===== BEDROCK CONFIGURATION (ACTIVE IF AI_PROVIDER="bedrock") =====
+    # Credentials are picked up via IRSA when running on EKS — boto3
+    # reads the OIDC token mounted at
+    # /var/run/secrets/eks.amazonaws.com/serviceaccount/token. The role
+    # `sky-eks-staging-bedrock` (terraform-managed, infra/aws/_eks_staging/
+    # irsa.tf) grants bedrock:InvokeModel scoped to Anthropic Claude in
+    # eu-west-1 only.
+    bedrock_region: str = Field(
+        default="eu-west-1",
+        validation_alias=AliasChoices("BEDROCK_REGION", "bedrock_region"),
+    )
+    # Cross-region inference profile IDs (eu.* prefix). Bedrock rejects
+    # the bare foundation-model ID for newer Claude releases in eu-west-1
+    # with "on-demand throughput isn't supported"; the inference profile
+    # routes to the underlying foundation model across EU regions.
+    llm_model_orchestrator_bedrock: str = Field(
+        default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        validation_alias=AliasChoices("BEDROCK_MODEL_ORCHESTRATOR", "llm_model_orchestrator_bedrock"),
+    )
+    llm_model_specialist_bedrock: str = Field(
+        default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        validation_alias=AliasChoices("BEDROCK_MODEL_SPECIALIST", "llm_model_specialist_bedrock"),
+    )
+    llm_model_formatter_bedrock: str = Field(
+        default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        validation_alias=AliasChoices("BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"),
+    )
     
     # Embedding Model (OpenAI)
     embedding_model: str = "text-embedding-3-large"
@@ -195,12 +228,22 @@ class Settings(BaseSettings):
             self.celery_result_backend = self.celery_result_backend or f"redis://:{rp}@redis:6379/2"
 
         # AI Provider Logic
-        # Controls use_local_models based on AI_PROVIDER env var
-        if self.ai_provider.lower() == "openai":
+        # Sets the (use_local_models, use_bedrock) tuple from AI_PROVIDER.
+        # Embeddings still branch on use_local_models — when AI_PROVIDER
+        # is "bedrock", embeddings fall back to the OpenAI path until a
+        # Bedrock embedding provider lands (separate PR; needs schema
+        # dimension migration in pgvector).
+        provider = self.ai_provider.lower()
+        if provider == "openai":
             self.use_local_models = False
-        elif self.ai_provider.lower() == "ollama":
+            self.use_bedrock = False
+        elif provider == "ollama":
             self.use_local_models = True
-        
+            self.use_bedrock = False
+        elif provider == "bedrock":
+            self.use_local_models = False
+            self.use_bedrock = True
+
         return self
 
 
