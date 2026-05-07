@@ -109,6 +109,16 @@ class QueryRequest(BaseModel):
         description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
     )
 
+    # Agent mode hint — set by the backend when the query originates from an
+    # agent run (scan, sql, context, question). When "scan", "sql", or
+    # "context", the intent classifier forces "data" routing so the graph
+    # always goes through orchestrator → specialist instead of mixed_dispatch
+    # or other non-SQL paths.
+    agent_mode: Optional[str] = Field(
+        default=None,
+        description="Agent execution mode (scan, sql, context, question). Forces data-path routing for non-question modes.",
+    )
+
 
 class Citation(BaseModel):
     """A source chunk that grounded the AI's answer."""

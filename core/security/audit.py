@@ -178,7 +178,6 @@ async def _ensure_audit_table_async() -> None:
                         user_id VARCHAR(255),
                         space_id UUID,
                         crew_ids TEXT[],
-                        crew_ids TEXT[],
                         thread_id VARCHAR(255),
                         platform_role VARCHAR(50),
                         crew_role VARCHAR(50),

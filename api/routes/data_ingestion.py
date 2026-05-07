@@ -63,7 +63,7 @@ async def ingest_metadata(
             }
         else:
             # Executar síncrono
-            inserted = run_metadata_ingestion(
+            inserted = await run_metadata_ingestion(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
@@ -195,7 +195,7 @@ async def full_refresh(
             }
         else:
             # Executar síncrono
-            summary = run_full_refresh_for_connection(
+            summary = await run_full_refresh_for_connection(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
