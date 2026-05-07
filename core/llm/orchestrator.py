@@ -959,7 +959,14 @@ def run_orchestrator(
             state["plan"] = final_msg_content
 
             # ── Scope & Clarify detection ──────────────────────────────────
-            if re.search(r'\bOUT_OF_SCOPE\b', final_msg_content, re.IGNORECASE):
+            # Skip out-of-scope guard when the backend forced a data-path
+            # execution (scan/sql/context/datasource). These modes are
+            # autonomous agents that must always produce a SQL answer even
+            # for broad, open-ended questions — blocking them here would
+            # cause every scheduled agent run to return an error.
+            _agent_mode = state.get("agent_mode") or ""
+            _is_forced_data = _agent_mode in ("scan", "sql", "context", "datasource")
+            if not _is_forced_data and re.search(r'\bOUT_OF_SCOPE\b', final_msg_content, re.IGNORECASE):
                 state["answer"] = (
                     "I'm designed to answer questions about your business data. "
                     "That question doesn't seem related to your data. "

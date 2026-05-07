@@ -119,6 +119,14 @@ class QueryRequest(BaseModel):
         description="Agent execution mode (scan, sql, context, question). Forces data-path routing for non-question modes.",
     )
 
+    # Multi-connection support: when provided the orchestrator aggregates
+    # metadata from ALL listed connections so it can build cross-schema SQL.
+    # The primary connection_id (path param) is still used for SQL execution.
+    connection_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Additional connection IDs whose table metadata should be merged into the agent context. Enables cross-schema queries when connections share the same database host.",
+    )
+
 
 class Citation(BaseModel):
     """A source chunk that grounded the AI's answer."""
