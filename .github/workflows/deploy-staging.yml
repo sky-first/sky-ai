@@ -46,19 +46,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger GitOps Deploy (Infrastructure Repo)
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.GITOPS_PUSH_TOKEN }}
-          repository: sky-first/sky-infra
-          event-type: deploy-trigger
-          client-payload: |
-            {
-              "app_name": "ai",
-              "env": "staging",
-              "image_tag": "sha-${{ github.sha }}"
-            }
-
       - name: Open Issue on Deploy Failure
         if: failure()
         uses: actions/github-script@v7
