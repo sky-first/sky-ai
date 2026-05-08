@@ -4581,8 +4581,8 @@ async def _stream_connection_query(
                                     allowed_tables=allowed_tables,
                                     allowed_columns=None,
                                     max_limit=5000,
-                                    max_columns=10,
-                                    max_group_by=3,
+                                    max_columns=50,
+                                    max_group_by=50,
                                 )
                                 ok, validation_error = validator.validate(
                                     sql, connection_type
@@ -4591,7 +4591,7 @@ async def _stream_connection_query(
                                     log_event(
                                         "ai_generated_invalid_sql_stream",
                                         {
-                                            +"connection_id": connection_id,
+                                            "connection_id": connection_id,
                                             "user_id": body.user_id,
                                             "sql": sql[:500],
                                             "error": validation_error,

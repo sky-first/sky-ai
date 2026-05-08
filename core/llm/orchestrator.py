@@ -1185,20 +1185,35 @@ def run_orchestrator(
                     },
                 )
         elif len(chosen_logicals) == 1:
-            # ✅ FIX: Handle single table choice when multiple are available
             chosen_logical = chosen_logicals[0]
             chosen_table_obj = next(
                 (t for t in agent_config.tables if t.logical_name == chosen_logical),
                 agent_config.tables[0],
             )
-
-
-
-            # For compatibility with specialist multi-table path
             state["chosen_tables"] = [chosen_table_obj.logical_name]
             state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
+            state["chosen_table"] = chosen_table_obj.logical_name
+            state["chosen_table_physical"] = chosen_table_obj.physical_name
 
-
+        else:
+            # LLM returned no recognisable table names — fall back to all available
+            # tables so that context/scan/datasource agents never stall on an empty
+            # table list. For question-mode queries this is a last resort; the
+            # specialist will scope down via its own reasoning.
+            chosen_logicals = [t.logical_name for t in agent_config.tables]
+            state["chosen_tables"] = chosen_logicals
+            state["chosen_tables_physical"] = [t.physical_name for t in agent_config.tables]
+            state["chosen_table"] = agent_config.tables[0].logical_name
+            state["chosen_table_physical"] = agent_config.tables[0].physical_name
+            log_event(
+                "orchestrator_fallback_all_tables",
+                {
+                    "agent_id": agent_config.id,
+                    "question": question[:200],
+                    "num_tables": len(agent_config.tables),
+                    "note": "LLM returned no table names; using all tables as fallback",
+                },
+            )
 
         # Multi-connection check on chosen logicals
         # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
