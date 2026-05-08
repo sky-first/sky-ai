@@ -209,6 +209,7 @@ class Settings(BaseSettings):
         # DEVOPS: também carrega o `.env` do sky-poc-infra quando rodando no monorepo.
         env_file = (".env", "../.env", "../sky-poc-infra/.env")
         case_sensitive = False
+        extra = "ignore"
 
     @model_validator(mode="after")
     def devops_build_defaults(self):
