@@ -673,6 +673,7 @@ def build_generic_sql_graph(
                     # For data specialist, run the existing orchestrator + specialist pipeline
                     from core.llm.orchestrator import run_orchestrator
                     from core.llm.specialist import run_specialist as run_sql_specialist
+                    from core.llm.formatter import run_formatter as run_sql_formatter
                     from core.llm.factory import (
                         create_llm_orchestrator,
                         create_llm_specialist,
@@ -703,7 +704,14 @@ def build_generic_sql_graph(
                             data_source=data_source,
                             llm=spec_llm,
                         )
-                        result = sql_result
+                        # Run formatter so answer text is populated; organizer
+                        # filters out results where answer is empty.
+                        fmt_result = run_sql_formatter(
+                            state=sql_result,
+                            agent_config=agent_config,
+                            llm=dynamic_llm,
+                        )
+                        result = fmt_result
                     finally:
                         db.close()
                 else:
@@ -799,9 +807,21 @@ def build_generic_sql_graph(
         )
 
         state["answer"] = answer
-        state["data"] = []
-        state["sql"] = None
-        state["generated_title"] = f"Analysis: {question[:50]}"
+        # Preserve data/sql from the data specialist when it's the only one,
+        # so the frontend can still render a table or chart.
+        data_result = specialist_results.get("data", {})
+        if len(specialist_results) == 1 and data_result.get("data"):
+            state["data"] = data_result["data"]
+            state["sql"] = data_result.get("sql")
+            title = data_result.get("generated_title")
+            if title:
+                state["generated_title"] = title
+            else:
+                state["generated_title"] = f"Analysis: {question[:50]}"
+        else:
+            state["data"] = []
+            state["sql"] = None
+            state["generated_title"] = f"Analysis: {question[:50]}"
         return state
 
     # ── Multi-agent: Relationships Specialist Node ───────────

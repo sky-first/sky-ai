@@ -45,7 +45,7 @@ _KNOWLEDGE_PATTERNS = re.compile(
     r"pillar|pillars|initiative|initiatives|"
     r"goal|goals|"
     r"strategy|strategic|"
-    r"on.?track|at.?risk|off.?track|"
+    r"on.?track|off.?track|"
     r"progress|milestone|milestones|"
     r"business.?plan|roadmap|vision|mission|"
     r"budget.?plan|forecast|assumption|assumptions|"
@@ -53,7 +53,8 @@ _KNOWLEDGE_PATTERNS = re.compile(
     # Knowledge layer terms (post-refactor)
     r"metric|metrics|kpi|kpis|"
     r"glossary|glossaries|term|terms|definition|definitions|"
-    r"what.?(?:is|are|does)|what.?means?|define|"
+    # Narrow "what is/are/does" to knowledge-only contexts (not generic data questions)
+    r"what.?(?:is|are|does)\s+(?:a\s+|an\s+|the\s+)?(?:definition|formula|kpi|okr|metric|term|glossary)|what.{0,40}means?\b|define|"
     r"formula|formulas"
     r")\b",
     re.IGNORECASE,
@@ -65,12 +66,15 @@ _STRATEGY_PATTERNS = _KNOWLEDGE_PATTERNS
 
 _SIGNALS_PATTERNS = re.compile(
     r"\b("
-    r"signal|signals|event|events|"
+    r"signal|signals|"
+    # "events" alone is too broad — web_analytics.events is a data table.
+    # Only match when preceded by qualifiers that imply intelligence signals.
+    r"intelligence.?event|market.?event|business.?event|"
     r"anomaly|anomalies|"
     r"alert|alerts|notification|"
     r"spike|drop|surge|"
-    r"market|competitor|regulatory|"
-    r"external|internal.?event|"
+    r"competitor|regulatory|"
+    r"external.?signal|internal.?event|"
     r"deviation|warning|"
     r"macro|geopolitic"
     r")\b",
@@ -80,7 +84,9 @@ _SIGNALS_PATTERNS = re.compile(
 _RELATIONSHIPS_PATTERNS = re.compile(
     r"\b("
     r"relationship|relationships|"
-    r"drives?|depends.?on|correlates?|"
+    # "drives" alone is too broad (e.g. "which utm_source drives sessions").
+    # Only match when followed by cross-entity language.
+    r"depends.?on|correlates?|"
     r"cross.?space|across.?space|across.?department|"
     r"how.?does.+affect|"
     r"enterprise.?context|business.?context|"
@@ -131,7 +137,13 @@ _DATA_BOOST_PATTERNS = re.compile(
     r"last.?month|this.?month|yesterday|today|"
     r"group.?by|filter|where|"
     r"top.?\d|bottom.?\d|"
-    r"trends?|trending|growth|churn|cancellations?"
+    r"trends?|trending|growth|churn|cancellations?|"
+    # Web analytics & product usage vocabulary — always data queries
+    r"sessions?|page.?path|page.?view|utm_source|utm_campaign|utm|"
+    r"signup.?count|signups?|conversion|converted|"
+    r"feature.?adoption|feature.?use|times.?used|seats.?used|seats.?paid|"
+    r"health.?score|account.?health|at.?risk|risk.?level|logged.?in|last.?login|"
+    r"subscri|cancelled|cancell"
     r")\b",
     re.IGNORECASE,
 )
