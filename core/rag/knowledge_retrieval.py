@@ -138,7 +138,7 @@ async def _search(
         is_personal=is_personal,
     )
 
-    if not file_ids_clause:
+    if file_ids_clause is None:
         return []
 
     # Fetch files matching scope

@@ -198,7 +198,7 @@ async def _search_context_documents(
     # is a keyword-overlap proxy over title || body — cheap and
     # good-enough until the tsvector index is queried directly.
     if embedding is not None:
-        params["q_vec"] = list(embedding)
+        params["q_vec"] = "[" + ",".join(str(x) for x in embedding) + "]"
         sql = text(
             f"""
             SELECT id, kind, source_table, source_id, title, body,
