@@ -1020,12 +1020,39 @@ def run_specialist(
     # 🔄 RETRY ON IMPOSSIBLE: try once with a simplified approach hint
     if re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE) and not state.get("_specialist_retry_done"):
         state["_specialist_retry_done"] = True
-        retry_user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Table schema(s):\n{schema_text}\n"
-                f"{context_block}"
+        agent_mode = (state.get("agent_mode") or "").lower()
+        # For autonomous agent modes the question is always broad by design —
+        # IMPOSSIBLE is never acceptable; force a concrete aggregate query instead.
+        if agent_mode in ("datasource", "scan"):
+            retry_hint = (
+                "\n\nYour previous response was IMPOSSIBLE. For a datasource scan you MUST "
+                "always generate SQL — broad questions are expected and acceptable.\n"
+                "Pick the MOST IMPORTANT numeric and date columns in the schema and return:\n"
+                "  SELECT COUNT(*) AS total_records,\n"
+                "         MAX(<date_col>) AS latest_record,\n"
+                "         MIN(<date_col>) AS oldest_record\n"
+                "  FROM <table>\n"
+                "Replace <date_col> and <table> with the actual names from the schema above.\n"
+                "If there are numeric columns, add SUM or AVG of the most relevant one.\n"
+                "IMPORTANT: NEVER respond IMPOSSIBLE for a datasource scan — always return SQL."
+            )
+            retry_extra = ""
+        elif agent_mode == "sql":
+            retry_hint = (
+                "\n\nYour previous response was IMPOSSIBLE. For SQL mode you MUST always "
+                "return SQL — NEVER return IMPOSSIBLE.\n"
+                "Apply these adaptations to the user's base query in the SQL-SPECIFIC INSTRUCTIONS "
+                "and return valid SQL:\n"
+                "  1. Replace SELECT * with explicit column names from the schema above.\n"
+                "  2. Qualify bare table names with the schema prefix "
+                "(e.g., INVOICES → finance.invoices).\n"
+                "  3. Add LIMIT 100 if no LIMIT clause is present.\n"
+                "  4. Prefix with -- TITLE: comment.\n"
+                "DO NOT add date filters, extra JOINs, or change WHERE logic."
+            )
+            retry_extra = sql_instructions_block  # re-inject the user's original SQL
+        else:
+            retry_hint = (
                 "\n\nYour previous response was IMPOSSIBLE. Try again with a SIMPLER approach:\n"
                 "- For trends (up/down/growing): compare SUM of two time periods using CASE WHEN\n"
                 "- For frequency/loyalty: GROUP BY customer_id + COUNT(*) + ORDER BY\n"
@@ -1034,6 +1061,16 @@ def run_specialist(
                 "- For churn rate: 100 - retention_rate (i.e. customers with no order in 90 days)\n"
                 "- Use ONLY the columns shown in the schema above\n"
                 "Return only valid SQL or IMPOSSIBLE: <specific reason>."
+            )
+            retry_extra = ""
+        retry_user_msg = {
+            "role": "user",
+            "content": (
+                f"User question:\n{question}\n\n"
+                f"Table schema(s):\n{schema_text}\n"
+                f"{context_block}"
+                f"{retry_extra}"
+                f"{retry_hint}"
             ),
         }
         try:
