@@ -3492,6 +3492,7 @@ async def _query_connection_inner(
             connection_id=connection_id,
             crew_ids=crew_ids if crew_ids else None,
             authorized_tables=body.authorized_tables,
+            connection_ids=body.connection_ids or None,
         )
 
         log_event(

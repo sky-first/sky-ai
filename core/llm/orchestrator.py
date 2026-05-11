@@ -975,7 +975,7 @@ def run_orchestrator(
             react_agent = create_react_agent(chat_model, tools=tools, state_modifier=agentic_system_msg)
             result = react_agent.invoke(
                 {"messages": [HumanMessage(content=user_prompt)]},
-                config={"recursion_limit": 6},
+                config={"recursion_limit": 10},
             )
             final_msg_content = result["messages"][-1].content
             
