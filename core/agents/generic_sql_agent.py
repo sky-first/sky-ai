@@ -1043,6 +1043,7 @@ def run_agent_once(
     selected_datasets: Optional[List[str]] = None,
     chat_history: Optional[List[Dict[str, str]]] = None,
     explicit_relationships: Optional[List[Dict[str, str]]] = None,
+    agent_mode: Optional[str] = None,
 ) -> AgentState:
     """
     Função de alto nível:
@@ -1104,6 +1105,7 @@ def run_agent_once(
         "selected_datasets": selected_datasets,
         "explicit_relationships": explicit_relationships
         or [],  # Relacionamentos documentados pelo cliente
+        "agent_mode": agent_mode,
     }
 
     # Use checkpointer context manager to acquire and release connection

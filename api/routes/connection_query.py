@@ -3780,6 +3780,7 @@ async def _query_connection_inner(
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
             explicit_relationships=explicit_relationships or None,
+            agent_mode=getattr(body, "agent_mode", None),
         )
     except Exception as e:
         import traceback

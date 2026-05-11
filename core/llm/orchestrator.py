@@ -690,17 +690,34 @@ def run_orchestrator(
                     unique_selected_names.add(table_obj.logical_name)
 
         if valid_selection:
-            # ✅ REFACTOR (Non-destructive): Instead of deleting other tables,
-            # we store the preferred ones and pass them as context to the LLM.
-            # This prevents session/dashboard context from blocking necessary tables.
-            state["preferred_tables"] = [t.logical_name for t in valid_selection]
+            agent_mode = state.get("agent_mode") or ""
+            if agent_mode == "datasource":
+                # Hard restriction: user explicitly picked these tables.
+                # Pre-select them and skip LLM table selection entirely.
+                logical_names = [t.logical_name for t in valid_selection]
+                physical_names = [t.physical_name for t in valid_selection]
+                state["chosen_table"] = logical_names[0]
+                state["chosen_table_physical"] = physical_names[0]
+                state["chosen_tables"] = logical_names
+                state["chosen_tables_physical"] = physical_names
+                log_event(
+                    "orchestrator_datasource_hard_selection",
+                    {
+                        "agent_id": agent_config.id,
+                        "selected_tables": logical_names,
+                    },
+                )
+                return state
+            else:
+                # Soft hint for other modes: LLM can still use other tables if needed.
+                state["preferred_tables"] = [t.logical_name for t in valid_selection]
             log_event(
                 "orchestrator_frontend_selection_noted",
                 {
                     "agent_id": agent_config.id,
                     "original_count": len(authorized_map) // 2,
                     "selected_requested": selected_datasets,
-                    "selected_applied": state["preferred_tables"],
+                    "selected_applied": state.get("preferred_tables", state.get("chosen_tables")),
                 },
             )
         else:
