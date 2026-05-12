@@ -3492,6 +3492,7 @@ async def _query_connection_inner(
             connection_id=connection_id,
             crew_ids=crew_ids if crew_ids else None,
             authorized_tables=body.authorized_tables,
+            connection_ids=body.connection_ids or None,
         )
 
         log_event(
@@ -3780,6 +3781,7 @@ async def _query_connection_inner(
             sql_instructions=body.sql_instructions,
             selected_datasets=body.selected_datasets,
             explicit_relationships=explicit_relationships or None,
+            agent_mode=getattr(body, "agent_mode", None),
         )
     except Exception as e:
         import traceback
