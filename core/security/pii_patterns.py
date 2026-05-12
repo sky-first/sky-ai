@@ -323,8 +323,8 @@ NAME_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
      PIISeverity.WARN, PIIType.NAME),  # Pode ter falsos positivos
     
     # Nome com palavras-chave explícitas (múltiplos idiomas)
-    (re.compile(r'\b(nome|name|nome\s+completo|full\s+name|nombre\s+completo|nom\s+complet|vollständiger\s+name|名前|이름)\s*:?\s*[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+(?:\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+)+', 
-                re.IGNORECASE), PIISeverity.BLOCK, PIIType.NAME),
+    (re.compile(r'\b(?:nome|name|nome\s+completo|full\s+name|nombre\s+completo|nom\s+complet|vollständiger\s+name|名前|이름)\s*:?\s*[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+(?:\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+)+'),
+     PIISeverity.BLOCK, PIIType.NAME),
     (re.compile(r'\b(meu\s+nome|my\s+name|mi\s+nombre|mon\s+nom|ich\s+heiße|chamo-me|i\s+am|私の名前は)\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+', 
                 re.IGNORECASE), PIISeverity.WARN, PIIType.NAME),
     
