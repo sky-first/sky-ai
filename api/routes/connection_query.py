@@ -4441,6 +4441,9 @@ async def _stream_connection_query(
         elif not isinstance(conn_config, dict):
             conn_config = {}
 
+        from core.security.config_decryption import decrypt_config
+        conn_config = decrypt_config(conn_config)
+
         class TempDataConnection:
             def __init__(self, id, name, type, config):
                 self.id = id
