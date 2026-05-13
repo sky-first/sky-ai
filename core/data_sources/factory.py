@@ -15,6 +15,7 @@ from core.data_sources.bigquery_source import BigQueryDataSource
 from core.logging_utils import log_event
 from core.dialects import Dialect
 from core.data_sources.api_source import APISource
+from core.security.config_decryption import decrypt_config
 
 class DataSourceFactory:
     """
@@ -32,7 +33,10 @@ class DataSourceFactory:
         """
         Lê DataConnection.config e monta o DataSource adequado.
         """
-        cfg_dict = conn.config or {}
+        # Backend stores config as {"__encrypted": "<fernet>"}; some callers
+        # decrypt before passing in, others don't. decrypt_config is idempotent
+        # (passes plaintext through), so calling here covers both paths.
+        cfg_dict = decrypt_config(conn.config or {})
 
         # Handle variations: Model has connector_id, but some code expects .type
         ds_type = getattr(conn, "type", None) or getattr(conn, "connector_id", None) or ""
