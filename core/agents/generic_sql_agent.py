@@ -95,6 +95,9 @@ class AgentState(TypedDict, total=False):
     # Saída final
     answer: Optional[str]
 
+    # Mixed dispatch: raw specialist results saved for mixed_merger_node
+    mixed_specialist_results: Optional[Dict[str, Any]]
+
     # Agent mode from backend (scan, sql, context, question)
     agent_mode: Optional[str]
 
@@ -386,6 +389,94 @@ def build_generic_sql_graph(
         # Use the orchestrator LLM (smart model) for merger
         # If dynamic config exists, we might want to create one, but for now reuse orchestrator
         return run_merger(state, agent_config, llm_orchestrator)
+
+    def mixed_merger_node(state: AgentState) -> AgentState:
+        """
+        Routes mixed_dispatch results to either DuckDB merger (tabular with
+        a detected join) or LLM organizer (contextual / no join).
+        """
+        from core.llm.organizer import run_organizer
+        from core.llm.merger import run_merger
+        from core.llm.factory import create_llm_formatter
+
+        specialist_results = state.get("mixed_specialist_results") or {}
+        if not specialist_results:
+            return state
+
+        question = state.get("question", "")
+        merge_strategy = state.get("plan") or "narrative"
+        creativity = state.get("creativity")
+        length = state.get("length")
+        dynamic_llm = (
+            create_llm_formatter(creativity=creativity, length=length)
+            if (creativity is not None or length is not None)
+            else llm_formatter
+        )
+
+        tabular = {k: v for k, v in specialist_results.items() if v.get("data")}
+        contextual = {k: v for k, v in specialist_results.items() if not v.get("data")}
+
+        def _has_relationship(results_list):
+            if state.get("explicit_relationships") or state.get("join_relationships"):
+                return True
+            if len(results_list) >= 2:
+                cols = [
+                    set(r["data"][0].keys()) if r.get("data") else set()
+                    for r in results_list
+                ]
+                return bool(len(cols) >= 2 and cols[0] & cols[1])
+            return False
+
+        if tabular and not contextual:
+            if len(tabular) >= 2 and _has_relationship(list(tabular.values())):
+                state["partial_results"] = list(tabular.values())
+                return run_merger(state, agent_config, llm_orchestrator)
+            elif len(tabular) >= 2:
+                # Multiple tabular results but no join — textual narrative
+                state["answer"] = run_organizer(
+                    question, specialist_results, "narrative", dynamic_llm
+                )
+                state["data"] = []
+                return state
+            else:
+                # Single tabular result — pass through directly
+                res = next(iter(tabular.values()))
+                state["data"] = res.get("data", [])
+                state["sql"] = res.get("sql")
+                state["answer"] = res.get("answer", "")
+                title = res.get("generated_title")
+                if title:
+                    state["generated_title"] = title
+                return state
+        elif contextual and not tabular:
+            state["answer"] = run_organizer(
+                question, specialist_results, merge_strategy, dynamic_llm
+            )
+            state["data"] = []
+            return state
+        else:
+            # Hybrid: inject contextual text into retrieval_context, handle tabular
+            ctx_text = "\n\n".join(
+                f"[{k}]: {v.get('answer', '')}"
+                for k, v in contextual.items()
+                if v.get("answer")
+            )
+            if ctx_text:
+                state["retrieval_context"] = [ctx_text] + (
+                    state.get("retrieval_context") or []
+                )
+            if len(tabular) >= 2 and _has_relationship(list(tabular.values())):
+                state["partial_results"] = list(tabular.values())
+                return run_merger(state, agent_config, llm_orchestrator)
+            else:
+                res = next(iter(tabular.values()))
+                state["data"] = res.get("data", [])
+                state["sql"] = res.get("sql")
+                state["answer"] = res.get("answer", "")
+                title = res.get("generated_title")
+                if title:
+                    state["generated_title"] = title
+                return state
 
     def formatter_node(state: AgentState) -> AgentState:
         """
@@ -789,39 +880,18 @@ def build_generic_sql_graph(
                                 "error": str(e),
                             }
 
-        # Step 4: Merge with the Organizer
-        answer = run_organizer(
-            question=question,
-            specialist_results=specialist_results,
-            merge_strategy=plan.merge_strategy,
-            llm=dynamic_llm,
-        )
-
         log_event(
             "mixed_dispatch_done",
             {
                 "question": question[:100],
                 "specialists_used": list(specialist_results.keys()),
-                "answer_preview": answer[:200] if answer else "",
             },
         )
 
-        state["answer"] = answer
-        # Preserve data/sql from the data specialist when it's the only one,
-        # so the frontend can still render a table or chart.
-        data_result = specialist_results.get("data", {})
-        if len(specialist_results) == 1 and data_result.get("data"):
-            state["data"] = data_result["data"]
-            state["sql"] = data_result.get("sql")
-            title = data_result.get("generated_title")
-            if title:
-                state["generated_title"] = title
-            else:
-                state["generated_title"] = f"Analysis: {question[:50]}"
-        else:
-            state["data"] = []
-            state["sql"] = None
-            state["generated_title"] = f"Analysis: {question[:50]}"
+        # Save raw results for mixed_merger_node to decide merge strategy
+        state["mixed_specialist_results"] = specialist_results
+        state["plan"] = plan.merge_strategy
+        state["generated_title"] = f"Analysis: {question[:50]}"
         return state
 
     # ── Multi-agent: Relationships Specialist Node ───────────
@@ -931,6 +1001,7 @@ def build_generic_sql_graph(
     graph.add_node("people_specialist", people_specialist_node)
     graph.add_node("widgets_specialist", widgets_specialist_node)
     graph.add_node("mixed_dispatch", mixed_dispatch_node)
+    graph.add_node("mixed_merger", mixed_merger_node)
 
     # ── Routing: Intent -> Specialist ──────────────────────
     def route_by_intent(state: AgentState):
@@ -986,7 +1057,22 @@ def build_generic_sql_graph(
     graph.add_edge("relationships_specialist", END)
     graph.add_edge("people_specialist", END)
     graph.add_edge("widgets_specialist", END)
-    graph.add_edge("mixed_dispatch", END)
+
+    # mixed_dispatch -> mixed_merger -> formatter (when tabular) or END (when textual)
+    graph.add_edge("mixed_dispatch", "mixed_merger")
+
+    def route_mixed_merger(state: AgentState):
+        # Route to formatter only when there is tabular data but no answer yet
+        # (merger filled data/sql, formatter will compose the narrative).
+        if state.get("data") and not state.get("answer"):
+            return "formatter"
+        return END
+
+    graph.add_conditional_edges(
+        "mixed_merger",
+        route_mixed_merger,
+        {"formatter": "formatter", END: END},
+    )
 
     # Data pipeline (existing, unchanged)
     graph.add_conditional_edges(

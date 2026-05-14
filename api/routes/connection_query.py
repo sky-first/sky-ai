@@ -4548,7 +4548,8 @@ async def _stream_connection_query(
                     if node_name in [
                         "orchestrator", "specialist",
                         "parallel_specialist", "merger",
-                        "mixed_dispatch", "people_specialist",
+                        "mixed_dispatch", "mixed_merger",
+                        "people_specialist",
                         "knowledge_specialist", "events_specialist",
                         "relationships_specialist", "widgets_specialist",
                     ]:
