@@ -4538,6 +4538,22 @@ async def _stream_connection_query(
                 body.thread_id or f"{body.user_id or 'anon'}-{connection_id}-stream"
             )
 
+            # Load chat history so follow-up questions have context
+            try:
+                _hist_result = await db.execute(
+                    select(ChatHistory)
+                    .where(ChatHistory.thread_id == thread_id)
+                    .order_by(desc(ChatHistory.created_at))
+                    .limit(10)
+                )
+                _recent = _hist_result.scalars().all()[::-1]
+                state["chat_history"] = [
+                    {"role": m.role, "content": m.content} for m in _recent
+                ]
+            except Exception as _e:
+                logger.error(f"Error loading stream chat history: {_e}")
+                state["chat_history"] = []
+
             # Executar até o specialist (orchestrator -> specialist)
             # Não executamos o formatter ainda, vamos fazer streaming dela
             final_state = None
@@ -4548,7 +4564,8 @@ async def _stream_connection_query(
                     if node_name in [
                         "orchestrator", "specialist",
                         "parallel_specialist", "merger",
-                        "mixed_dispatch", "people_specialist",
+                        "mixed_planner", "mixed_merger",
+                        "people_specialist",
                         "knowledge_specialist", "events_specialist",
                         "relationships_specialist", "widgets_specialist",
                     ]:
@@ -4696,6 +4713,21 @@ async def _stream_connection_query(
                 }
                 yield f"data: {json.dumps({'type': 'meta', 'meta': pre_meta, 'data_sample': []})}\n\n"
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                # Persist conversation turn for future follow-ups
+                try:
+                    await db.rollback()
+                    db.add(ChatHistory(thread_id=thread_id, role="user", content=body.question))
+                    db.add(ChatHistory(
+                        thread_id=thread_id, role="assistant", content=pre_answer,
+                        extra={"generated_title": pre_title},
+                    ))
+                    await db.commit()
+                except Exception as _e:
+                    logger.error(f"Error saving stream chat history (pre_answer): {_e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
                 return
 
             # Se não há dados mas há SQL executado, passar para o formatter — ele
@@ -4841,6 +4873,23 @@ async def _stream_connection_query(
 
             yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': formatted_sample, 'recommended_widget_type': recommended_widget_type})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+            # Persist conversation turn for future follow-ups
+            if accumulated_answer:
+                try:
+                    await db.rollback()
+                    db.add(ChatHistory(thread_id=thread_id, role="user", content=body.question))
+                    db.add(ChatHistory(
+                        thread_id=thread_id, role="assistant", content=accumulated_answer,
+                        extra={"sql": sql, "generated_title": final_state.get("generated_title")},
+                    ))
+                    await db.commit()
+                except Exception as _e:
+                    logger.error(f"Error saving stream chat history: {_e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
             # ✅ AUDITORIA (stream): registrar ao final
             try:
