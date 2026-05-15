@@ -28,15 +28,13 @@ CACHE_KEY_PREFIX = "emb_cache"
 # ── Inicialização do cliente Redis ────────────────────────────────────────────
 
 try:
-    import redis as _redis_lib
+    from core.redis_utils import make_redis_client
 
-    _redis_client = _redis_lib.from_url(
+    _redis_client = make_redis_client(
         settings.celery_broker_url,
-        decode_responses=True,
         socket_connect_timeout=1,
         socket_timeout=1,
     )
-    _redis_client.ping()
     REDIS_AVAILABLE = True
     log_event("embedding_cache_redis_connected", {"url": settings.celery_broker_url[:30]})
 except Exception as _e:

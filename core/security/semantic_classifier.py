@@ -17,14 +17,12 @@ _INTENT_CACHE_MEMORY: dict[str, Tuple[str, float]] = {}
 _CACHE_MAX_SIZE = 1000  # Limitar tamanho do cache em memória
 
 try:
-    import redis
-    redis_cache_client = redis.from_url(
+    from core.redis_utils import make_redis_client
+    redis_cache_client = make_redis_client(
         settings.celery_broker_url,
-        decode_responses=True,
         socket_connect_timeout=1,
         socket_timeout=1,
     )
-    redis_cache_client.ping()  # Testar conexão
     REDIS_CACHE_AVAILABLE = True
 except Exception:
     REDIS_CACHE_AVAILABLE = False
