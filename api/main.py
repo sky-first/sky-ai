@@ -13,6 +13,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
 
 from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import data_ingestion, pipeline, widget_titles, knowledge_graph, embeddings  # noqa: E402
+from api.routes import semantic_map, space_seed  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -133,3 +134,14 @@ app.include_router(knowledge_graph.router)
 
 # Knowledge Library embeddings (called by backend Celery worker)
 app.include_router(embeddings.router)
+
+# Semantic map + search (Universe Intelligence v2 — projects all
+# visible embeddings to 2D/3D via UMAP, top-K cosine search for the
+# RAG trace overlay). Called by the BE proxy on port 8000.
+app.include_router(semantic_map.router)
+
+# Per-Space seed-embeddings endpoint — fire-and-forget'd by the BE
+# demo signup so a fresh demo Space lands with all 5 entity kinds
+# (metrics + glossary + relationships + connections + agents) already
+# embedded and visible on the Universe canvas.
+app.include_router(space_seed.router)
