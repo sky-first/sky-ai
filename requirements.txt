@@ -58,3 +58,13 @@ PyJWT==2.8.0
 
 # --- Connection config decryption (Fernet, shared with backend) ---
 cryptography>=42.0.0
+
+# --- Semantic projection (Universe Intelligence v2 canvas) ---
+# UMAP reduces 768-dim Nomic embeddings to 2D/3D for the constellation
+# canvas; HDBSCAN clusters the projected coords so the FE can render
+# centroids at zoom-out vs. individuals at zoom-in. scikit-learn is a
+# transitive of both but pinned here to lock the version that umap-learn
+# resolves against.
+umap-learn>=0.5.5
+scikit-learn>=1.4.0
+hdbscan>=0.8.33

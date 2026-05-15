@@ -1,230 +1,435 @@
-"""Semantic map endpoint — Universe Intelligence v2.
+"""Semantic map + search endpoints — powers Universe Intelligence v2.
 
-Projects all Space-scoped embeddings to 2-D (or 3-D) coordinates so the
-frontend constellation can position dots without running a heavy UMAP on
-the client side. Also exposes a top-K cosine-similarity search used by the
-RAG trace overlay to highlight the most relevant nodes when the user
-inspects an AI answer.
+Two endpoints:
 
-Projection uses truncated SVD (numpy.linalg.svd) — no extra dependency.
-The result is deterministic for a given set of embeddings and is fast enough
-for the dataset sizes we handle (≤ 50 k rows per Space).
+  * ``POST /semantic/map`` — pulls all embeddings the caller can see
+    (ACL resolved upstream by the BE), runs UMAP server-side, runs
+    HDBSCAN for cluster IDs, and returns the rich shape the FE
+    constellation expects: per-point ``{id, source_id, kind, label,
+    snippet, x, y, z, cluster_id, source}`` plus relationship edges +
+    UMAP parameters at the top level.
+
+  * ``POST /semantic/search`` — embeds an incoming query string and
+    returns the top-K most similar embedding IDs via pgvector cosine
+    distance. Used for the "lit path" RAG-trace overlay (Phase E):
+    when a user asks a question in the chat, the FE highlights the K
+    points the retriever pulled.
+
+Both endpoints take an explicit ACL scope (``user_id`` / ``space_ids``
+/ ``crew_ids``). They do **not** consult the user database directly —
+the backend on port 8000 is the authority on what the caller can see
+and is responsible for passing the resolved scope down here.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.llm.factory import create_embedding_provider
+from core.rag.semantic_projection import (
+    ClusterParams,
+    ProjectionParams,
+    cluster_points,
+    project_to_low_dim,
+)
+from db.models import EmbeddingRecord
 from db.session import AsyncSessionLocal
 
+router = APIRouter(prefix="/semantic", tags=["Semantic Map"])
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/spaces", tags=["semantic-map"])
+
+# ─── Request / response schemas ──────────────────────────────────────
 
 
-# ── Pydantic models ────────────────────────────────────────────────────────
+class SemanticMapRequest(BaseModel):
+    """ACL-resolved scope payload from the BE. The AI service trusts
+    these IDs as authoritative — the BE is responsible for membership
+    checks before forwarding the request."""
 
-class EmbeddingPoint(BaseModel):
+    user_id: Optional[str] = None
+    space_ids: List[str] = Field(default_factory=list)
+    crew_ids: List[str] = Field(default_factory=list)
+    n_components: int = Field(default=3, ge=2, le=3)
+    n_neighbors: int = Field(default=15, ge=2, le=200)
+    min_dist: float = Field(default=0.1, ge=0.0, le=1.0)
+    enable_clustering: bool = True
+    min_cluster_size: int = Field(default=5, ge=2, le=200)
+    limit: int = Field(default=2000, ge=1, le=10000)
+
+
+class SemanticPoint(BaseModel):
     id: str
-    document_id: Optional[str] = None
-    text: str
+    source_id: Optional[str] = None
+    kind: str
+    label: str
+    snippet: Optional[str] = None
     x: float
     y: float
-    z: Optional[float] = None
-    metadata: Optional[Dict[str, Any]] = None
+    z: float = 0.0
+    cluster_id: int = -1
+    source: str = "embeddings"
+
+
+class SemanticEdge(BaseModel):
+    source_id: str
+    target_id: str
+    type: str
+    label: str
+    relationship_id: str
 
 
 class SemanticMapResponse(BaseModel):
-    space_id: str
-    dimensions: int
-    total: int
-    points: List[EmbeddingPoint]
+    points: List[SemanticPoint]
+    edges: List[SemanticEdge] = Field(default_factory=list)
+    model: str
+    dim: int
+    count: int
+    n_clusters: int
+    umap_params: Dict[str, Any]
 
 
-class SearchRequest(BaseModel):
-    query_vector: List[float] = Field(..., description="Query embedding vector (768 dims).")
+class SemanticSearchRequest(BaseModel):
+    user_id: Optional[str] = None
+    space_ids: List[str] = Field(default_factory=list)
+    crew_ids: List[str] = Field(default_factory=list)
+    query: str = Field(..., min_length=1)
     top_k: int = Field(default=10, ge=1, le=100)
 
 
-class SearchHit(BaseModel):
+class SemanticSearchHit(BaseModel):
     id: str
-    document_id: Optional[str] = None
-    text: str
     score: float
-    metadata: Optional[Dict[str, Any]] = None
+    kind: str
+    label: str
+    snippet: Optional[str] = None
 
 
-class SearchResponse(BaseModel):
-    space_id: str
-    top_k: int
-    hits: List[SearchHit]
+class SemanticSearchResponse(BaseModel):
+    query: str
+    hits: List[SemanticSearchHit]
+    model: str
+    dim: int
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-def _truncated_svd_2d(matrix: np.ndarray) -> np.ndarray:
-    """Project N×D matrix to N×2 using the top-2 right singular vectors."""
-    if matrix.shape[0] < 2:
-        return np.zeros((matrix.shape[0], 2))
-    # Center
-    centered = matrix - matrix.mean(axis=0)
-    # Economy SVD — only compute as many singular vectors as needed
-    n_components = min(3, centered.shape[0], centered.shape[1])
-    try:
-        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
-        return centered @ Vt[:n_components].T
-    except np.linalg.LinAlgError:
-        return np.zeros((matrix.shape[0], n_components))
+# ─── Helpers ────────────────────────────────────────────────────────
 
 
-def _cosine_similarity(matrix: np.ndarray, query: np.ndarray) -> np.ndarray:
-    """Return cosine similarity of each row in matrix against query."""
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    q_norm = np.linalg.norm(query)
-    if q_norm == 0:
-        return np.zeros(len(matrix))
-    safe_norms = np.where(norms == 0, 1.0, norms)
-    return (matrix / safe_norms) @ (query / q_norm)
+def _parse_uuid_list(values: List[str]) -> List[UUID]:
+    out: List[UUID] = []
+    for v in values:
+        try:
+            out.append(UUID(v))
+        except (ValueError, TypeError):
+            continue
+    return out
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────
+def _infer_kind(record: EmbeddingRecord) -> str:
+    """Best-effort classification of an embedding into a UI kind.
 
-@router.get("/{space_id}/semantic-map", response_model=SemanticMapResponse)
-async def get_semantic_map(
-    space_id: str,
-    dimensions: int = Query(default=2, ge=2, le=3),
-    limit: int = Query(default=2000, ge=1, le=10000),
-) -> SemanticMapResponse:
-    """Project all embeddings visible to ``space_id`` into 2-D or 3-D
-    coordinates via truncated SVD.
+    Prefers ``extra_metadata.kind`` when the seeder set it. Falls back
+    to FK-based heuristics so legacy rows still get a sensible label.
+    """
+    meta = record.extra_metadata or {}
+    if isinstance(meta, dict):
+        explicit = meta.get("kind") or meta.get("entity_kind") or meta.get("type")
+        if isinstance(explicit, str) and explicit:
+            return explicit
+    if record.table_metadata_id is not None:
+        if isinstance(meta, dict) and meta.get("column"):
+            return "column"
+        return "table"
+    if record.document_id:
+        return "document"
+    return "context"
 
-    The frontend Universe Intelligence canvas calls this once on load to
-    position every dot. Results are not cached — each call recomputes from
-    the live ``embeddings`` table so newly seeded entities appear immediately.
+
+def _label_for(record: EmbeddingRecord) -> str:
+    meta = record.extra_metadata or {}
+    if isinstance(meta, dict):
+        for key in ("label", "name", "title", "term", "metric_name"):
+            v = meta.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()[:80]
+    text = (record.text or "").strip()
+    return text[:80] if text else "(untitled)"
+
+
+def _source_id_for(record: EmbeddingRecord) -> Optional[str]:
+    if record.table_metadata_id is not None:
+        return str(record.table_metadata_id)
+    if record.document_id:
+        return record.document_id
+    return None
+
+
+async def _load_embeddings(
+    db: AsyncSession,
+    req: SemanticMapRequest,
+) -> List[EmbeddingRecord]:
+    """Pull every embedding visible to the resolved scope.
+
+    Visibility = OR across user_id, space_ids, crew_ids. None of those
+    are mandatory; an empty scope returns an empty list (the FE renders
+    the "no embeddings" empty state).
+    """
+    conditions = []
+    if req.user_id:
+        try:
+            conditions.append(EmbeddingRecord.user_id == UUID(req.user_id))
+        except (ValueError, TypeError):
+            pass
+    space_uuids = _parse_uuid_list(req.space_ids)
+    if space_uuids:
+        conditions.append(EmbeddingRecord.space_id.in_(space_uuids))
+    crew_uuids = _parse_uuid_list(req.crew_ids)
+    if crew_uuids:
+        conditions.append(EmbeddingRecord.crew_id.in_(crew_uuids))
+    if not conditions:
+        return []
+    stmt = (
+        select(EmbeddingRecord)
+        .where(or_(*conditions))
+        .order_by(EmbeddingRecord.created_at.desc())
+        .limit(req.limit)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+def _parse_vector(raw: Any) -> Optional[np.ndarray]:
+    """pgvector may surface as list[float] (SQLAlchemy) or as the
+    bracketed text fallback. Handle both shapes."""
+    if raw is None:
+        return None
+    if isinstance(raw, (list, tuple)):
+        try:
+            return np.asarray(raw, dtype=np.float32)
+        except (ValueError, TypeError):
+            return None
+    if isinstance(raw, str):
+        try:
+            cleaned = raw.strip().strip("[]")
+            if not cleaned:
+                return None
+            return np.array(
+                [float(v) for v in cleaned.split(",")], dtype=np.float32
+            )
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+# ─── /semantic/map ──────────────────────────────────────────────────
+
+
+@router.post("/map", response_model=SemanticMapResponse)
+async def post_semantic_map(req: SemanticMapRequest) -> SemanticMapResponse:
+    """Project every embedding visible to the resolved scope into 2-D
+    or 3-D coordinates + cluster IDs.
+
+    Returns the rich response shape the FE Universe Intelligence canvas
+    expects. The BE wraps this behind ``/api/v1/context/semantic-map``
+    with ACL resolution; we just trust the IDs it sends.
     """
     try:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                text("""
-                    SELECT id::text, document_id, text,
-                           embedding::text, metadata
-                    FROM embeddings
-                    WHERE space_id = CAST(:space_id AS uuid)
-                    ORDER BY created_at DESC
-                    LIMIT :limit
-                """),
-                {"space_id": space_id, "limit": limit},
-            )
-            rows = result.fetchall()
+            records = await _load_embeddings(db, req)
     except Exception as exc:
-        logger.exception("semantic-map DB error for space %s", space_id)
+        logger.exception("semantic-map DB query failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    if not rows:
+    if not records:
         return SemanticMapResponse(
-            space_id=space_id, dimensions=dimensions, total=0, points=[]
+            points=[],
+            edges=[],
+            model="nomic-embed-text",
+            dim=768,
+            count=0,
+            n_clusters=0,
+            umap_params={
+                "n_components": req.n_components,
+                "n_neighbors": req.n_neighbors,
+                "min_dist": req.min_dist,
+                "metric": "cosine",
+            },
         )
 
-    # Parse pgvector text format "[0.1,0.2,...]"
-    vectors = []
-    valid_rows = []
-    for row in rows:
-        try:
-            vec_str = row.embedding.strip("[]")
-            vec = np.array([float(v) for v in vec_str.split(",")], dtype=np.float32)
-            vectors.append(vec)
-            valid_rows.append(row)
-        except Exception:
-            continue
-
+    vectors: List[np.ndarray] = []
+    valid: List[EmbeddingRecord] = []
+    for r in records:
+        v = _parse_vector(r.embedding)
+        if v is not None and v.size > 0:
+            vectors.append(v)
+            valid.append(r)
     if not vectors:
         return SemanticMapResponse(
-            space_id=space_id, dimensions=dimensions, total=0, points=[]
+            points=[],
+            edges=[],
+            model="nomic-embed-text",
+            dim=768,
+            count=0,
+            n_clusters=0,
+            umap_params={
+                "n_components": req.n_components,
+                "n_neighbors": req.n_neighbors,
+                "min_dist": req.min_dist,
+                "metric": "cosine",
+            },
         )
 
     matrix = np.stack(vectors)
-    projected = _truncated_svd_2d(matrix)
+    coords = project_to_low_dim(
+        matrix,
+        ProjectionParams(
+            n_components=req.n_components,
+            n_neighbors=req.n_neighbors,
+            min_dist=req.min_dist,
+            metric="cosine",
+        ),
+    )
 
-    points: List[EmbeddingPoint] = []
-    for i, row in enumerate(valid_rows):
-        coords = projected[i]
+    if req.enable_clustering:
+        labels, n_clusters = cluster_points(
+            coords,
+            ClusterParams(min_cluster_size=req.min_cluster_size),
+        )
+    else:
+        labels = np.full(coords.shape[0], -1, dtype=np.int32)
+        n_clusters = 0
+
+    points: List[SemanticPoint] = []
+    for i, r in enumerate(valid):
+        c = coords[i]
+        kind = _infer_kind(r)
+        text = (r.text or "").strip()
         points.append(
-            EmbeddingPoint(
-                id=row.id,
-                document_id=row.document_id,
-                text=row.text[:200],
-                x=float(coords[0]),
-                y=float(coords[1]),
-                z=float(coords[2]) if dimensions == 3 and len(coords) > 2 else None,
-                metadata=row.metadata,
+            SemanticPoint(
+                id=str(r.id),
+                source_id=_source_id_for(r),
+                kind=kind,
+                label=_label_for(r),
+                snippet=text[:200] if text else None,
+                x=float(c[0]),
+                y=float(c[1]),
+                z=float(c[2]) if c.shape[0] > 2 else 0.0,
+                cluster_id=int(labels[i]),
+                source="embeddings",
             )
         )
 
     return SemanticMapResponse(
-        space_id=space_id,
-        dimensions=dimensions,
-        total=len(points),
         points=points,
+        edges=[],  # Relationship edges not yet wired into the embeddings table.
+        model="nomic-embed-text",
+        dim=int(matrix.shape[1]),
+        count=len(points),
+        n_clusters=int(n_clusters),
+        umap_params={
+            "n_components": req.n_components,
+            "n_neighbors": req.n_neighbors,
+            "min_dist": req.min_dist,
+            "metric": "cosine",
+        },
     )
 
 
-@router.post("/{space_id}/semantic-search", response_model=SearchResponse)
-async def semantic_search(
-    space_id: str,
-    body: SearchRequest,
-) -> SearchResponse:
-    """Top-K cosine similarity search over the Space's embeddings.
+# ─── /semantic/search ───────────────────────────────────────────────
 
-    Used by the RAG trace overlay: when the user inspects an AI answer the
-    frontend sends the answer's embedding and highlights the K nearest nodes
-    on the Universe canvas.
-    """
-    query_vec = np.array(body.query_vector, dtype=np.float32)
 
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                text("""
-                    SELECT id::text, document_id, text,
-                           embedding::text, metadata
-                    FROM embeddings
-                    WHERE space_id = CAST(:space_id AS uuid)
-                    ORDER BY embedding <=> CAST(:qvec AS vector)
-                    LIMIT :top_k
-                """),
-                {
-                    "space_id": space_id,
-                    "qvec": f"[{','.join(str(v) for v in body.query_vector)}]",
-                    "top_k": body.top_k,
-                },
-            )
-            rows = result.fetchall()
-    except Exception as exc:
-        logger.exception("semantic-search DB error for space %s", space_id)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    hits: List[SearchHit] = []
-    for row in rows:
-        try:
-            vec_str = row.embedding.strip("[]")
-            vec = np.array([float(v) for v in vec_str.split(",")], dtype=np.float32)
-            score = float(_cosine_similarity(vec.reshape(1, -1), query_vec)[0])
-        except Exception:
-            score = 0.0
-        hits.append(
-            SearchHit(
-                id=row.id,
-                document_id=row.document_id,
-                text=row.text[:200],
-                score=score,
-                metadata=row.metadata,
-            )
+@router.post("/search", response_model=SemanticSearchResponse)
+async def post_semantic_search(req: SemanticSearchRequest) -> SemanticSearchResponse:
+    """Embed ``query`` and return the top-K nearest embedding IDs in
+    the caller's scope, with kind/label/snippet so the FE can highlight
+    matched nodes on the constellation."""
+    if not req.user_id and not req.space_ids and not req.crew_ids:
+        return SemanticSearchResponse(
+            query=req.query,
+            hits=[],
+            model="nomic-embed-text",
+            dim=768,
         )
 
-    return SearchResponse(space_id=space_id, top_k=body.top_k, hits=hits)
+    # Embed the query — same provider the rest of the AI stack uses so
+    # the comparison happens in matching vector space.
+    try:
+        provider = create_embedding_provider()
+        vectors = await provider.embed_async([req.query])
+    except Exception as exc:
+        logger.exception("semantic-search embedding failed")
+        raise HTTPException(
+            status_code=503, detail=f"Embedding service unavailable: {exc}"
+        ) from exc
+
+    if not vectors:
+        return SemanticSearchResponse(
+            query=req.query,
+            hits=[],
+            model="nomic-embed-text",
+            dim=768,
+        )
+    qvec = np.asarray(vectors[0], dtype=np.float32)
+    qnorm = float(np.linalg.norm(qvec))
+    if qnorm == 0:
+        return SemanticSearchResponse(
+            query=req.query,
+            hits=[],
+            model="nomic-embed-text",
+            dim=int(qvec.size),
+        )
+
+    # Pull candidate embeddings scoped to the caller, compute cosine
+    # similarity in Python. For typical scopes (≤ a few thousand rows)
+    # this is fast enough; bigger scopes should switch to pgvector's
+    # native ``<=>`` order-by.
+    map_req = SemanticMapRequest(
+        user_id=req.user_id,
+        space_ids=req.space_ids,
+        crew_ids=req.crew_ids,
+        limit=2000,
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            records = await _load_embeddings(db, map_req)
+    except Exception as exc:
+        logger.exception("semantic-search DB query failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    scored: List[tuple[float, EmbeddingRecord]] = []
+    for r in records:
+        v = _parse_vector(r.embedding)
+        if v is None or v.size != qvec.size:
+            continue
+        nv = float(np.linalg.norm(v))
+        if nv == 0:
+            continue
+        score = float(np.dot(v, qvec) / (nv * qnorm))
+        scored.append((score, r))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    top = scored[: req.top_k]
+    hits = [
+        SemanticSearchHit(
+            id=str(r.id),
+            score=score,
+            kind=_infer_kind(r),
+            label=_label_for(r),
+            snippet=((r.text or "").strip()[:200] or None),
+        )
+        for score, r in top
+    ]
+    return SemanticSearchResponse(
+        query=req.query,
+        hits=hits,
+        model="nomic-embed-text",
+        dim=int(qvec.size),
+    )
