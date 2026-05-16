@@ -115,6 +115,16 @@ def test_infer_kind_uses_explicit_metadata_kind():
     assert _infer_kind(rec) == "metric"
 
 
+def test_infer_kind_prefers_entity_type_over_coarse_kind():
+    # Seeder stores ``kind=knowledge`` as the coarse classifier with
+    # the granular type in ``entity_type``. We need the granular form
+    # so the FE can map each kind to its own concentric orbit.
+    for granular in ("glossary", "metric", "agent", "relationship", "connection",
+                     "widget", "dashboard", "space", "crew", "page"):
+        rec = _stub(extra_metadata={"kind": "knowledge", "entity_type": granular})
+        assert _infer_kind(rec) == granular
+
+
 def test_infer_kind_falls_back_to_table_for_table_metadata_fk():
     rec = _stub(table_metadata_id=uuid4())
     assert _infer_kind(rec) == "table"

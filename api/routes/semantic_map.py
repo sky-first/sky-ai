@@ -136,17 +136,25 @@ def _parse_uuid_list(values: List[str]) -> List[UUID]:
 def _infer_kind(record: EmbeddingRecord) -> str:
     """Best-effort classification of an embedding into a UI kind.
 
-    Prefers ``extra_metadata.kind`` when the seeder set it. Falls back
-    to FK-based heuristics so legacy rows still get a sensible label.
+    The ingestion pipeline stores a *coarse* classifier in
+    ``metadata.kind`` (``knowledge`` / ``knowledge_graph`` /
+    ``table_metadata``) and the *granular* type in
+    ``metadata.entity_type`` (``glossary`` / ``metric`` / ``agent`` /
+    ``relationship`` / ``connection`` / ``widget`` / ``dashboard`` /
+    …). The FE constellation needs the granular kind to assign each
+    point to its own concentric orbit — falling back to the coarse
+    kind put everything on a single ring.
 
-    Note: the ingestion pipeline stores ``kind == "table_metadata"`` on
-    column-level rows. The FE constellation renders at table level, so
-    we canonicalise that to ``"table"`` here. The dedupe in
-    ``_collapse_table_columns`` already folds the column rows into one
-    representative per table.
+    Resolution order:
+      1. ``entity_type`` if set — most granular, matches FE orbits 1:1.
+      2. ``kind`` with ``"table_metadata"`` canonicalised to ``"table"``.
+      3. FK-based heuristic for legacy rows that predate the seeder.
     """
     meta = record.extra_metadata or {}
     if isinstance(meta, dict):
+        entity_type = meta.get("entity_type")
+        if isinstance(entity_type, str) and entity_type:
+            return entity_type
         explicit = meta.get("kind") or meta.get("entity_kind") or meta.get("type")
         if isinstance(explicit, str) and explicit:
             if explicit == "table_metadata":
