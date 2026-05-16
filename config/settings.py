@@ -146,9 +146,40 @@ class Settings(BaseSettings):
         default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
         validation_alias=AliasChoices("BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"),
     )
-    
-    # Embedding Model (OpenAI)
-    embedding_model: str = "text-embedding-3-large"
+
+    # ===== EMBEDDING CONFIGURATION =====
+    # Provider is independent of AI_PROVIDER — chat can stay on the
+    # mantle proxy while embeddings go straight to Bedrock via boto3.
+    # Resolution order:
+    #   1. Explicit EMBEDDING_PROVIDER env var (ollama|openai|bedrock)
+    #   2. Derived from AI_PROVIDER in the model_validator below
+    embedding_provider: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("EMBEDDING_PROVIDER", "embedding_provider"),
+    )
+    # Bedrock Titan v2 default — 1024 dims, multilingual, accepts the
+    # OpenAI-compatible "dimensions" parameter for truncation. Switch
+    # to amazon.titan-embed-text-v1 (1536) or cohere.embed-multilingual-v3
+    # (1024) via env if needed.
+    embedding_model_bedrock: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        validation_alias=AliasChoices("BEDROCK_EMBEDDING_MODEL", "embedding_model_bedrock"),
+    )
+    # Pgvector column dimension. Must match the active embedding model:
+    #   - Titan v2:    256 / 512 / 1024
+    #   - Cohere v3:   1024 (fixed)
+    #   - Ollama mxbai-embed-large: 1024
+    #   - OpenAI text-embedding-3-large: any via dimensions param (we use 1024)
+    embedding_dim: int = Field(
+        default=1024,
+        validation_alias=AliasChoices("EMBEDDING_DIM", "embedding_dim"),
+    )
+    # Legacy OpenAI embedding model — kept so existing local setups
+    # that explicitly set EMBEDDING_MODEL keep working.
+    embedding_model: str = Field(
+        default="amazon.titan-embed-text-v2:0",
+        validation_alias=AliasChoices("EMBEDDING_MODEL", "embedding_model"),
+    )
     
     # JWT Secret (shared with backend for service-to-service auth)
     jwt_secret_key: str = Field(
@@ -239,11 +270,8 @@ class Settings(BaseSettings):
             self.celery_result_backend = self.celery_result_backend or f"redis://:{rp}@redis:6379/2"
 
         # AI Provider Logic
-        # Sets the (use_local_models, use_bedrock) tuple from AI_PROVIDER.
-        # Embeddings still branch on use_local_models — when AI_PROVIDER
-        # is "bedrock", embeddings fall back to the OpenAI path until a
-        # Bedrock embedding provider lands (separate PR; needs schema
-        # dimension migration in pgvector).
+        # Sets the (use_local_models, use_bedrock) tuple from AI_PROVIDER
+        # and derives the embedding provider if not explicitly set.
         provider = self.ai_provider.lower()
         if provider == "openai":
             self.use_local_models = False
@@ -254,6 +282,12 @@ class Settings(BaseSettings):
         elif provider == "bedrock":
             self.use_local_models = False
             self.use_bedrock = True
+
+        # Embedding provider — explicit EMBEDDING_PROVIDER wins, else
+        # mirror AI_PROVIDER. Keeps existing deployments working without
+        # an env change.
+        if not self.embedding_provider:
+            self.embedding_provider = provider
 
         return self
 

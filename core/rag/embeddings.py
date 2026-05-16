@@ -136,6 +136,41 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return self._client.embed_documents(list(texts))
 
 
+# AWS Bedrock provider (Cloud, IRSA-authenticated)
+class BedrockEmbeddingProvider(EmbeddingProvider):
+    """Provider that talks to AWS Bedrock directly via boto3.
+
+    Authentication is via IRSA when running on EKS — boto3 transparently
+    picks up the OIDC token mounted at
+    ``/var/run/secrets/eks.amazonaws.com/serviceaccount/token`` and
+    exchanges it for the EKS role. Mirrors the ``ChatBedrockConverse``
+    auth path used by the chat models, so there's no extra secret to
+    rotate.
+
+    Default model: ``amazon.titan-embed-text-v2:0`` (1024 dims native,
+    multilingual). Swap via ``BEDROCK_EMBEDDING_MODEL`` env. The
+    schema's ``Vector(N)`` column must match the model's output dim —
+    see ``settings.embedding_dim``.
+    """
+
+    def __init__(self, model: str = None, region: str = None):
+        from config.settings import settings
+        from langchain_aws import BedrockEmbeddings  # type: ignore
+
+        self.model = model or settings.embedding_model_bedrock
+        self.region = region or settings.bedrock_region
+        self._client = BedrockEmbeddings(
+            model_id=self.model,
+            region_name=self.region,
+        )
+
+    def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        """Direct Bedrock call (no cache). Use ``embed_with_cache`` instead."""
+        if not texts:
+            return []
+        return self._client.embed_documents(list(texts))
+
+
 # ========= HELPERS PARA TEXTO DE METADADOS =========
 
 def build_metadata_text(tm: TableMetadata) -> str:

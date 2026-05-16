@@ -112,15 +112,36 @@ def create_llm_formatter(creativity: Optional[int] = None, length: Optional[int]
 
 
 def create_embedding_provider() -> EmbeddingProvider:
+    """Creates an embedding provider matching ``settings.embedding_provider``.
+
+    Resolution: the validator on Settings derives ``embedding_provider``
+    from ``AI_PROVIDER`` when unset, so a caller running with
+    ``AI_PROVIDER=bedrock`` automatically gets Bedrock embeddings. Set
+    ``EMBEDDING_PROVIDER`` explicitly to mix providers — e.g. keep chat
+    on the mantle proxy (``AI_PROVIDER=openai``) while routing
+    embeddings to Bedrock direct (``EMBEDDING_PROVIDER=bedrock``).
     """
-    Creates embedding provider.
-    """
-    if settings.use_local_models:
+    provider = (settings.embedding_provider or "").lower()
+    if provider == "bedrock":
+        from core.rag.embeddings import BedrockEmbeddingProvider
+        return BedrockEmbeddingProvider(
+            model=settings.embedding_model_bedrock,
+            region=settings.bedrock_region,
+        )
+    if provider == "ollama":
         return OllamaEmbeddingProvider()
-    else:
-        # OpenAI Strategy utilizing the proper wrapper
+    if provider == "openai":
         from core.rag.embeddings import OpenAIEmbeddingProvider
         return OpenAIEmbeddingProvider(
             model=settings.embedding_model,
-            api_key=settings.openai_api_key
+            api_key=settings.openai_api_key,
         )
+    # Fallback to the legacy use_local_models toggle for setups that
+    # haven't migrated to the explicit setting yet.
+    if settings.use_local_models:
+        return OllamaEmbeddingProvider()
+    from core.rag.embeddings import OpenAIEmbeddingProvider
+    return OpenAIEmbeddingProvider(
+        model=settings.embedding_model,
+        api_key=settings.openai_api_key,
+    )
