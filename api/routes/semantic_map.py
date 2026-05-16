@@ -138,11 +138,19 @@ def _infer_kind(record: EmbeddingRecord) -> str:
 
     Prefers ``extra_metadata.kind`` when the seeder set it. Falls back
     to FK-based heuristics so legacy rows still get a sensible label.
+
+    Note: the ingestion pipeline stores ``kind == "table_metadata"`` on
+    column-level rows. The FE constellation renders at table level, so
+    we canonicalise that to ``"table"`` here. The dedupe in
+    ``_collapse_table_columns`` already folds the column rows into one
+    representative per table.
     """
     meta = record.extra_metadata or {}
     if isinstance(meta, dict):
         explicit = meta.get("kind") or meta.get("entity_kind") or meta.get("type")
         if isinstance(explicit, str) and explicit:
+            if explicit == "table_metadata":
+                return "table"
             return explicit
     if record.table_metadata_id is not None:
         if isinstance(meta, dict) and meta.get("column"):
@@ -160,6 +168,11 @@ def _label_for(record: EmbeddingRecord) -> str:
             v = meta.get(key)
             if isinstance(v, str) and v.strip():
                 return v.strip()[:80]
+        # Schema-derived rows ship ``table_name`` (+ ``column_name``).
+        # Prefer those over the verbose "Table: X | Column: Y | …" text.
+        tn = meta.get("table_name")
+        if isinstance(tn, str) and tn.strip():
+            return tn.strip()[:80]
     text = (record.text or "").strip()
     return text[:80] if text else "(untitled)"
 
@@ -235,6 +248,52 @@ def _parse_vector(raw: Any) -> Optional[np.ndarray]:
     return None
 
 
+def _collapse_table_columns(
+    records: List[EmbeddingRecord],
+    vectors: List[np.ndarray],
+) -> tuple[List[EmbeddingRecord], List[np.ndarray]]:
+    """Fold column-level table_metadata rows into one node per table.
+
+    A seeded connection can generate one embedding **per column**: a
+    medium schema yields 80–500 near-identical vectors that dominate
+    UMAP and collapse the projection to a 1-D line. The Universe view
+    is meant to show ~one node per business object, so we group rows
+    by ``(space_id, data_connection_id, table_name)`` and keep a
+    single representative whose vector is the per-group mean.
+
+    Non-table_metadata rows pass through untouched.
+    """
+    keep_records: List[EmbeddingRecord] = []
+    keep_vectors: List[np.ndarray] = []
+    # group_key → (representative_record, list_of_vectors)
+    groups: Dict[tuple, tuple[EmbeddingRecord, List[np.ndarray]]] = {}
+
+    for r, v in zip(records, vectors):
+        meta = r.extra_metadata if isinstance(r.extra_metadata, dict) else {}
+        if meta.get("kind") != "table_metadata":
+            keep_records.append(r)
+            keep_vectors.append(v)
+            continue
+        table_name = meta.get("table_name")
+        conn_id = meta.get("data_connection_id")
+        if not isinstance(table_name, str) or not table_name:
+            # Mis-seeded row — fall back to per-row rendering.
+            keep_records.append(r)
+            keep_vectors.append(v)
+            continue
+        key = (str(r.space_id), str(conn_id) if conn_id else "", table_name)
+        if key not in groups:
+            groups[key] = (r, [v])
+        else:
+            groups[key][1].append(v)
+
+    for _, (rep, vecs) in groups.items():
+        keep_records.append(rep)
+        keep_vectors.append(np.mean(np.stack(vecs), axis=0))
+
+    return keep_records, keep_vectors
+
+
 # ─── /semantic/map ──────────────────────────────────────────────────
 
 
@@ -277,6 +336,11 @@ async def post_semantic_map(req: SemanticMapRequest) -> SemanticMapResponse:
         if v is not None and v.size > 0:
             vectors.append(v)
             valid.append(r)
+    # Collapse per-column table_metadata rows into one node per table —
+    # otherwise hundreds of near-identical schema vectors flatten UMAP
+    # into a horizontal line and dominate the canvas with column-level
+    # labels. The mean vector keeps the table semantically positioned.
+    valid, vectors = _collapse_table_columns(valid, vectors)
     if not vectors:
         return SemanticMapResponse(
             points=[],
