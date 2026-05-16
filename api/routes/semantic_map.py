@@ -207,10 +207,16 @@ async def _load_embeddings(
 
 
 def _parse_vector(raw: Any) -> Optional[np.ndarray]:
-    """pgvector may surface as list[float] (SQLAlchemy) or as the
-    bracketed text fallback. Handle both shapes."""
+    """pgvector surfaces in three shapes depending on the read path:
+    ``numpy.ndarray`` when the ORM uses ``pgvector.sqlalchemy.Vector``,
+    ``list[float]`` for some raw selects, and the bracketed text fallback
+    (``"[0.1,0.2,...]"``) when the column is cast to text. Missing the
+    ndarray case dropped every row as "invalid vector" so /semantic/map
+    returned count=0 despite embeddings existing in the DB."""
     if raw is None:
         return None
+    if isinstance(raw, np.ndarray):
+        return raw.astype(np.float32, copy=False)
     if isinstance(raw, (list, tuple)):
         try:
             return np.asarray(raw, dtype=np.float32)

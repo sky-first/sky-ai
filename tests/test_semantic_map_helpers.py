@@ -63,6 +63,18 @@ def test_parse_vector_handles_list_input():
     assert v.dtype == np.float32
 
 
+def test_parse_vector_handles_numpy_ndarray():
+    # pgvector.sqlalchemy.Vector returns ndarray on ORM read — regression
+    # test for the bug where every row was dropped as "invalid vector"
+    # and /semantic/map returned count=0 despite embeddings existing.
+    raw = np.asarray([0.1, 0.2, 0.3], dtype=np.float64)
+    v = _parse_vector(raw)
+    assert v is not None
+    assert v.shape == (3,)
+    assert v.dtype == np.float32
+    np.testing.assert_allclose(v, [0.1, 0.2, 0.3], atol=1e-5)
+
+
 def test_parse_vector_handles_pgvector_text_format():
     v = _parse_vector("[0.1,0.2,0.3]")
     assert v is not None
