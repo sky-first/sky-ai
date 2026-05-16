@@ -136,13 +136,29 @@ def _parse_uuid_list(values: List[str]) -> List[UUID]:
 def _infer_kind(record: EmbeddingRecord) -> str:
     """Best-effort classification of an embedding into a UI kind.
 
-    Prefers ``extra_metadata.kind`` when the seeder set it. Falls back
-    to FK-based heuristics so legacy rows still get a sensible label.
+    The ingestion pipeline stores a *coarse* classifier in
+    ``metadata.kind`` (``knowledge`` / ``knowledge_graph`` /
+    ``table_metadata``) and the *granular* type in
+    ``metadata.entity_type`` (``glossary`` / ``metric`` / ``agent`` /
+    ``relationship`` / ``connection`` / ``widget`` / ``dashboard`` /
+    …). The FE constellation needs the granular kind to assign each
+    point to its own concentric orbit — falling back to the coarse
+    kind put everything on a single ring.
+
+    Resolution order:
+      1. ``entity_type`` if set — most granular, matches FE orbits 1:1.
+      2. ``kind`` with ``"table_metadata"`` canonicalised to ``"table"``.
+      3. FK-based heuristic for legacy rows that predate the seeder.
     """
     meta = record.extra_metadata or {}
     if isinstance(meta, dict):
+        entity_type = meta.get("entity_type")
+        if isinstance(entity_type, str) and entity_type:
+            return entity_type
         explicit = meta.get("kind") or meta.get("entity_kind") or meta.get("type")
         if isinstance(explicit, str) and explicit:
+            if explicit == "table_metadata":
+                return "table"
             return explicit
     if record.table_metadata_id is not None:
         if isinstance(meta, dict) and meta.get("column"):
@@ -160,6 +176,11 @@ def _label_for(record: EmbeddingRecord) -> str:
             v = meta.get(key)
             if isinstance(v, str) and v.strip():
                 return v.strip()[:80]
+        # Schema-derived rows ship ``table_name`` (+ ``column_name``).
+        # Prefer those over the verbose "Table: X | Column: Y | …" text.
+        tn = meta.get("table_name")
+        if isinstance(tn, str) and tn.strip():
+            return tn.strip()[:80]
     text = (record.text or "").strip()
     return text[:80] if text else "(untitled)"
 
@@ -207,10 +228,16 @@ async def _load_embeddings(
 
 
 def _parse_vector(raw: Any) -> Optional[np.ndarray]:
-    """pgvector may surface as list[float] (SQLAlchemy) or as the
-    bracketed text fallback. Handle both shapes."""
+    """pgvector surfaces in three shapes depending on the read path:
+    ``numpy.ndarray`` when the ORM uses ``pgvector.sqlalchemy.Vector``,
+    ``list[float]`` for some raw selects, and the bracketed text fallback
+    (``"[0.1,0.2,...]"``) when the column is cast to text. Missing the
+    ndarray case dropped every row as "invalid vector" so /semantic/map
+    returned count=0 despite embeddings existing in the DB."""
     if raw is None:
         return None
+    if isinstance(raw, np.ndarray):
+        return raw.astype(np.float32, copy=False)
     if isinstance(raw, (list, tuple)):
         try:
             return np.asarray(raw, dtype=np.float32)
@@ -227,6 +254,52 @@ def _parse_vector(raw: Any) -> Optional[np.ndarray]:
         except (ValueError, TypeError):
             return None
     return None
+
+
+def _collapse_table_columns(
+    records: List[EmbeddingRecord],
+    vectors: List[np.ndarray],
+) -> tuple[List[EmbeddingRecord], List[np.ndarray]]:
+    """Fold column-level table_metadata rows into one node per table.
+
+    A seeded connection can generate one embedding **per column**: a
+    medium schema yields 80–500 near-identical vectors that dominate
+    UMAP and collapse the projection to a 1-D line. The Universe view
+    is meant to show ~one node per business object, so we group rows
+    by ``(space_id, data_connection_id, table_name)`` and keep a
+    single representative whose vector is the per-group mean.
+
+    Non-table_metadata rows pass through untouched.
+    """
+    keep_records: List[EmbeddingRecord] = []
+    keep_vectors: List[np.ndarray] = []
+    # group_key → (representative_record, list_of_vectors)
+    groups: Dict[tuple, tuple[EmbeddingRecord, List[np.ndarray]]] = {}
+
+    for r, v in zip(records, vectors):
+        meta = r.extra_metadata if isinstance(r.extra_metadata, dict) else {}
+        if meta.get("kind") != "table_metadata":
+            keep_records.append(r)
+            keep_vectors.append(v)
+            continue
+        table_name = meta.get("table_name")
+        conn_id = meta.get("data_connection_id")
+        if not isinstance(table_name, str) or not table_name:
+            # Mis-seeded row — fall back to per-row rendering.
+            keep_records.append(r)
+            keep_vectors.append(v)
+            continue
+        key = (str(r.space_id), str(conn_id) if conn_id else "", table_name)
+        if key not in groups:
+            groups[key] = (r, [v])
+        else:
+            groups[key][1].append(v)
+
+    for _, (rep, vecs) in groups.items():
+        keep_records.append(rep)
+        keep_vectors.append(np.mean(np.stack(vecs), axis=0))
+
+    return keep_records, keep_vectors
 
 
 # ─── /semantic/map ──────────────────────────────────────────────────
@@ -271,6 +344,11 @@ async def post_semantic_map(req: SemanticMapRequest) -> SemanticMapResponse:
         if v is not None and v.size > 0:
             vectors.append(v)
             valid.append(r)
+    # Collapse per-column table_metadata rows into one node per table —
+    # otherwise hundreds of near-identical schema vectors flatten UMAP
+    # into a horizontal line and dominate the canvas with column-level
+    # labels. The mean vector keeps the table semantically positioned.
+    valid, vectors = _collapse_table_columns(valid, vectors)
     if not vectors:
         return SemanticMapResponse(
             points=[],
