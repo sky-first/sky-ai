@@ -23,6 +23,14 @@ from sqlalchemy.orm import (
 )
 from pgvector.sqlalchemy import Vector
 
+from config.settings import settings
+
+# Pgvector column dimension — driven by the active embedding model.
+# Bedrock Titan v2 = 1024, Cohere v3 = 1024, OpenAI text-embedding-3-*
+# can target 1024 via the ``dimensions`` param, Ollama mxbai-embed-large
+# = 1024. Keep this in sync with settings.embedding_dim (default 1024).
+EMBEDDING_DIM = settings.embedding_dim
+
 Base = declarative_base()
 
 
@@ -176,8 +184,9 @@ class EmbeddingRecord(Base):
     table_metadata_id = Column(UUID(as_uuid=True), ForeignKey("table_metadata.id"), nullable=True)
     document_id = Column(String, nullable=True)
 
-    # Vetor de embedding (dimensão depende do modelo)
-    embedding = Column(Vector(768), nullable=False)  # Ollama nomic-embed-text: 768 dims
+    # Vetor de embedding — dimensão controlada por settings.embedding_dim
+    # (default 1024; matches Bedrock Titan v2 / Cohere v3 / mxbai-large).
+    embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
 
     # Texto original embedado (metadado, chunk de doc, query, etc)
     text = Column(Text, nullable=False)
@@ -261,8 +270,8 @@ class SemanticCacheRecord(Base):
     user_id = Column(String, nullable=True, index=True)
 
     question = Column(Text, nullable=False)
-    # The dimension is typically 768 for nomic or forced OpenAI 768.
-    embedding = Column(Vector(768), nullable=False)
+    # Dim controlled by settings.embedding_dim (default 1024).
+    embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
 
     # Full serialized QueryResponse Dict
     response_json = Column(JSON, nullable=False)
@@ -305,8 +314,8 @@ class KnowledgeFileChunk(Base):
     page_number = Column(Integer, nullable=True)
     text = Column(Text, nullable=False)
     tokens = Column(Integer, nullable=False, default=0)
-    # Dimension matches the embedding provider (768 for Ollama nomic-embed-text).
-    embedding = Column(Vector(768), nullable=True)
+    # Dim controlled by settings.embedding_dim (default 1024).
+    embedding = Column(Vector(EMBEDDING_DIM), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     file = relationship("KnowledgeFile", back_populates="chunks")
