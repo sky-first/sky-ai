@@ -18,7 +18,7 @@ Create Date: 2026-05-18
 from alembic import op
 
 revision = "004_audit_security_columns"
-down_revision = "003_embeddings_1024"
+down_revision = "agent_finding_viz_kind_20260515"
 branch_labels = None
 depends_on = None
 
