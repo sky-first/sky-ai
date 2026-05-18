@@ -40,7 +40,7 @@ FROM (
     SELECT DISTINCT ON (connection_id)
            connection_id, space_id
     FROM space_connections
-    ORDER BY connection_id, created_at ASC
+    ORDER BY connection_id
 ) sc
 WHERE dc.id = sc.connection_id
   AND dc.space_id IS NULL;
