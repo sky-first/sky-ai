@@ -132,16 +132,13 @@ def create_embedding_provider() -> EmbeddingProvider:
         return OllamaEmbeddingProvider()
     if provider == "openai":
         from core.rag.embeddings import OpenAIEmbeddingProvider
-        return OpenAIEmbeddingProvider(
-            model=settings.embedding_model,
-            api_key=settings.openai_api_key,
-        )
+        # Do NOT pass model=settings.embedding_model — that field defaults to
+        # a Bedrock model name (amazon.titan-embed-text-v2:0) and causes 404s.
+        # OpenAIEmbeddingProvider uses text-embedding-3-large as its own default.
+        return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
     # Fallback to the legacy use_local_models toggle for setups that
     # haven't migrated to the explicit setting yet.
     if settings.use_local_models:
         return OllamaEmbeddingProvider()
     from core.rag.embeddings import OpenAIEmbeddingProvider
-    return OpenAIEmbeddingProvider(
-        model=settings.embedding_model,
-        api_key=settings.openai_api_key,
-    )
+    return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
