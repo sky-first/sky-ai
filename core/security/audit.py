@@ -223,30 +223,7 @@ async def _ensure_audit_table_async() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_audit_escalation ON query_audit_log(progressive_escalation_detected) WHERE progressive_escalation_detected = TRUE;"
                 )
             )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_blocked ON query_audit_log(pii_blocked) WHERE pii_blocked = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
-
-            # --- Migrations para colunas novas (Best-effort) ---
-            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
-            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
+            # PII indexes and role/PII columns are managed by Alembic migration 004.
             await db.commit()
             
             # --- Tabela security_alerts ---
