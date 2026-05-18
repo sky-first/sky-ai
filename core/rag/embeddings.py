@@ -110,22 +110,25 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """
     Provider baseado em OpenAI (Cloud).
-    Usa text-embedding-3-large por padrão.
-    Força dimensions=768 para compatibilidade com o esquema de banco legado (Ollama).
+    Usa text-embedding-3-large por padrão com dimensions=1024.
     """
     def __init__(self, model: str = None, api_key: str = None):
         from config.settings import settings
         from langchain_openai import OpenAIEmbeddings
-        
+
         self.model = model or settings.embedding_model
         api_key = api_key or settings.openai_api_key
-        
-        # IMPORTANTE: O banco define Vector(768). O text-embedding-3-large gera 3072.
-        # Precisamos truncar para 768 via parâmetro da API.
+
+        # base_url is set explicitly so langchain_openai never inherits
+        # OPENAI_BASE_URL from the environment. In staging that variable
+        # points to bedrock-mantle, which serves LLM calls but returns
+        # 404 for /v1/embeddings — causing every embed call to fail and
+        # falling back to text search silently.
         self._client = OpenAIEmbeddings(
             model=self.model,
             openai_api_key=api_key,
-            dimensions=768
+            dimensions=settings.embedding_dim,
+            base_url="https://api.openai.com/v1",
         )
     
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
