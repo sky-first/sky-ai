@@ -112,11 +112,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     Provider baseado em OpenAI (Cloud).
     Usa text-embedding-3-large por padrão com dimensions=1024.
     """
+    # Default OpenAI embedding model — NOT picked from settings.embedding_model
+    # because that field defaults to a Bedrock model name (amazon.titan-embed-text-v2:0)
+    # which causes 404s when called via the OpenAI endpoint.
+    _DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-large"
+
     def __init__(self, model: str = None, api_key: str = None):
         from config.settings import settings
         from langchain_openai import OpenAIEmbeddings
 
-        self.model = model or settings.embedding_model
+        # Use explicit arg, then fall back to the OpenAI-specific default.
+        # Intentionally NOT using settings.embedding_model here — that field
+        # shares its default with the Bedrock model name.
+        self.model = model or self._DEFAULT_OPENAI_EMBED_MODEL
         api_key = api_key or settings.openai_api_key
 
         # base_url is set explicitly so langchain_openai never inherits
@@ -416,13 +424,22 @@ async def create_embeddings_for_table_metadata(
 def get_embedding_provider() -> EmbeddingProvider:
     """
     Factory function to return the correct embedding provider based on settings.
+
+    Uses ``settings.embedding_provider`` (which may be overridden independently
+    from ``AI_PROVIDER`` via the ``EMBEDDING_PROVIDER`` env var) rather than
+    ``settings.ai_provider`` directly.
     """
     from config.settings import settings
-    
-    provider_type = settings.ai_provider.lower()
-    
+
+    # settings.embedding_provider is resolved by the model_validator:
+    # it mirrors AI_PROVIDER unless EMBEDDING_PROVIDER is set explicitly.
+    provider_type = (settings.embedding_provider or settings.ai_provider).lower()
+
     if provider_type == "openai":
         return OpenAIEmbeddingProvider()
-    
+
+    if provider_type == "bedrock":
+        return BedrockEmbeddingProvider()
+
     # Default to Ollama
     return OllamaEmbeddingProvider()

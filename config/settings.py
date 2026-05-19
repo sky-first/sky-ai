@@ -174,10 +174,10 @@ class Settings(BaseSettings):
         default=1024,
         validation_alias=AliasChoices("EMBEDDING_DIM", "embedding_dim"),
     )
-    # Legacy OpenAI embedding model — kept so existing local setups
-    # that explicitly set EMBEDDING_MODEL keep working.
+    # OpenAI embedding model. Override via EMBEDDING_MODEL env var.
+    # Bedrock uses embedding_model_bedrock instead.
     embedding_model: str = Field(
-        default="amazon.titan-embed-text-v2:0",
+        default="text-embedding-3-large",
         validation_alias=AliasChoices("EMBEDDING_MODEL", "embedding_model"),
     )
     
