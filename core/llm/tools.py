@@ -52,8 +52,7 @@ class ToolFactory:
                     f"Columns:\n  - {col_list}"
                 )
             
-            # Formatação robusta para o LLM não se perder
-            return "DATABASE SCHEMA AND METADATA:\\n" + "\\n\\n".join(tables_info)
+            return "DATABASE SCHEMA AND METADATA:\n\n" + "\n\n".join(tables_info)
 
         return search_database_metadata
 
