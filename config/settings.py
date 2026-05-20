@@ -4,7 +4,7 @@ DEVOPS: Este módulo deve aceitar as MESMAS variáveis do `.env` do sky-poc-infr
 Objetivo: padronizar apontamentos/ports/URLs e evitar divergências por repo.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import Field, AliasChoices, model_validator
 from pydantic_settings import BaseSettings
@@ -208,6 +208,19 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("AI_SERVICE_USER_EMAIL", "ai_service_user_email"),
         description="Email claim that pairs with ai_service_user_id.",
+    )
+
+    # Demo connections — shared across all demo users (staging + prod).
+    # Embeddings for these connections are stored with space_id=NULL so
+    # every demo visitor can query them without a per-user seed.
+    # Value: comma-separated UUIDs, same as DEMO_DATASET_CONNECTION_IDS
+    # in sky-poc-backend's .env.
+    demo_dataset_connection_ids: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DEMO_DATASET_CONNECTION_IDS", "demo_dataset_connection_ids"
+        ),
+        description="Comma-separated UUIDs of demo connections whose embeddings are shared (space_id=NULL).",
     )
 
     # Security
