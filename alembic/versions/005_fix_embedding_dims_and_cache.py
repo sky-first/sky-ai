@@ -60,7 +60,7 @@ def upgrade() -> None:
         row = conn.execute(
             text("""SELECT format_type(atttypid, atttypmod)
                FROM pg_attribute
-               WHERE attrelid = :table::regclass AND attname = :column"""),
+               WHERE attrelid = to_regclass(:table) AND attname = :column"""),
             {"table": table, "column": column},
         ).fetchone()
         current_dim = row[0] if row else None
