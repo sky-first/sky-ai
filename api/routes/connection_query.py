@@ -2533,7 +2533,7 @@ async def load_agent_config_from_connection(
                         SELECT table_name, column_name, description
                         FROM table_metadata
                         WHERE data_connection_id = :conn_id
-                          AND space_id = :space_id
+                          AND (space_id = :space_id OR space_id IS NULL)
                           AND description IS NOT NULL
                     """
                     ),

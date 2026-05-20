@@ -939,13 +939,15 @@ def run_orchestrator(
                 "3. Use the 'search_corporate_strategy' tool ONLY if the user asks about business goals, targets, OKRs, or long-term strategy.\n"
                 "4. Use the 'search_market_signals' tool ONLY if the user asks about anomalies, market events, news, or sudden drops/spikes.\n"
                 "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n"
-                "6. QUESTION SCOPE — before selecting tables, classify the question:\n"
-                "   a) If the question has NOTHING to do with business data (weather, jokes, math, IT support, etc.) → respond ONLY with: OUT_OF_SCOPE\n"
+                "6. MANDATORY: Call search_database_metadata FIRST before making any scope or table decision. Do NOT classify the question as OUT_OF_SCOPE before inspecting the schema — many questions use business terms (like 'health score', 'MRR', 'churn') that only map to the right table once you see the column names and descriptions.\n"
+                "7. QUESTION SCOPE — AFTER calling the metadata tool, classify the question:\n"
+                "   a) ONLY return OUT_OF_SCOPE if the question is CLEARLY about something with NO possible connection to business data (weather forecasts, jokes, math homework, IT help-desk tickets, etc.). Anything involving customers, revenue, subscriptions, health scores, marketing, web traffic, product usage, pipelines, leads, invoices, or any other business concept is IN SCOPE — even if you are not 100% sure which table answers it.\n"
                 "   b) CLARIFY is an ABSOLUTE LAST RESORT. Use it ONLY when the question asks for a very specific thing that could mean multiple incompatible tables (e.g. 'payments' could be payables OR receivables and both exist). NEVER clarify counting, aggregation, listing, or overview questions — those always have a reasonable default answer. BEFORE emitting CLARIFY, ask yourself: 'could I just pick the most-obvious matching table and answer?' — if yes, do that instead.\n"
                 "   c) Counting / aggregation shortcuts — these ALWAYS go to path (d) even if the noun is generic:\n"
                 "       'how many X', 'how much X', 'count of X', 'total X', 'sum of X', 'number of X'\n"
                 "      → If ANY table name contains X or is obviously the X table (e.g. 'invoices' → fct_invoices, silver_invoices), pick it and produce SELECT COUNT(*) or SUM(...). Do NOT ask the user whether they want refunds vs paid vs draft — pick the most inclusive table and answer.\n"
-                "   d) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n\n"
+                "   d) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n"
+                "   e) If you are uncertain which table is the best match but the question is about business data → pick the closest table and proceed. Do NOT return OUT_OF_SCOPE just because you are unsure.\n\n"
                 "FINAL OUTPUT FORMAT:\n"
                 "After thinking and using the tools, finish your response with ONLY ONE of:\n"
                 "  - The logical table name(s) separated by commas (e.g. 'table1, table2')\n"
@@ -957,10 +959,20 @@ def run_orchestrator(
                 f"{instructions_block}"
             )
             
+            # Always inject the schema upfront — the LLM sees the catalog
+            # before deciding scope, eliminating false OUT_OF_SCOPE on
+            # questions where the relevant table only becomes obvious from
+            # column names (e.g. "health score" → account_health.score).
+            # The metadata tool remains available for follow-up exploration.
+            _metadata_tool = ToolFactory.create_metadata_tool(agent_config)
+            _schema_context = _metadata_tool.invoke({})
+
             user_prompt = (
+                f"DATABASE SCHEMA:\n{_schema_context}\n\n"
                 f"User question:\n{question}\n\n"
                 f"{context_block}\n"
-                "Remember: Use your tools to investigate, think step-by-step, and end your response with the logical table name(s) needed."
+                "Based on the schema above, identify which table(s) answer this question. "
+                "End your response with the logical table name(s)."
             )
             
             # Loop Agentic (ReAct)
@@ -990,13 +1002,26 @@ def run_orchestrator(
             # cause every scheduled agent run to return an error.
             _agent_mode = state.get("agent_mode") or ""
             _is_forced_data = _agent_mode in ("scan", "sql", "context", "datasource")
-            if not _is_forced_data and re.search(r'\bOUT_OF_SCOPE\b', final_msg_content, re.IGNORECASE):
+            # Only check the final line for OUT_OF_SCOPE — scanning the full
+            # message false-positives on chain-of-thought like "this is NOT
+            # out_of_scope" which the agent emits while reasoning through scope.
+            _final_lines = [l.strip() for l in final_msg_content.splitlines() if l.strip()]
+            _final_line = _final_lines[-1] if _final_lines else ""
+            if not _is_forced_data and re.search(r'\bOUT_OF_SCOPE\b', _final_line, re.IGNORECASE):
                 state["answer"] = (
                     "I'm designed to answer questions about your business data. "
                     "That question doesn't seem related to your data. "
                     "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
                 )
-                log_event("orchestrator_out_of_scope", {"question": question[:100]})
+                log_event("orchestrator_out_of_scope", {
+                    "question": question[:100],
+                    "tool_called": any(
+                        hasattr(m, "type") and getattr(m, "type", "") == "tool"
+                        for m in result.get("messages", [])
+                    ),
+                    "num_messages": len(result.get("messages", [])),
+                    "final_msg_preview": final_msg_content[:300],
+                })
                 return state
 
             clarify_match = re.search(
