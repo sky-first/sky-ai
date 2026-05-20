@@ -22,6 +22,7 @@ Create Date: 2026-05-18
 """
 
 from alembic import op
+from sqlalchemy import text
 
 revision = "005_fix_embedding_dims_and_cache"
 down_revision = "agent_finding_viz_kind_20260515"
@@ -50,16 +51,17 @@ def upgrade() -> None:
     ]
     for table, column, not_null in _TABLES:
         exists = conn.execute(
-            "SELECT 1 FROM pg_class WHERE relname = %s", (table,)
+            text("SELECT 1 FROM pg_class WHERE relname = :name"),
+            {"name": table},
         ).fetchone()
         if not exists:
             continue
 
         row = conn.execute(
-            """SELECT format_type(atttypid, atttypmod)
+            text("""SELECT format_type(atttypid, atttypmod)
                FROM pg_attribute
-               WHERE attrelid = %s::regclass AND attname = %s""",
-            (table, column),
+               WHERE attrelid = :table::regclass AND attname = :column"""),
+            {"table": table, "column": column},
         ).fetchone()
         current_dim = row[0] if row else None
         if current_dim == "vector(1024)":
