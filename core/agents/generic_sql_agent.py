@@ -389,17 +389,83 @@ def build_generic_sql_graph(
                                 db=db,
                                 embedding_provider=embedding_provider,
                             )
-                            sql_result = _run_sql(
-                                state=orch_result,
-                                agent_config=agent_config,
-                                data_source=data_source,
-                                llm=spec_llm,
-                            )
-                            result = _run_fmt(
-                                state=sql_result,
-                                agent_config=agent_config,
-                                llm=dynamic_llm,
-                            )
+                            # Multi-source: run each chosen table against its own
+                            # data source (via dispatch_map), then merge with DuckDB
+                            # when 2+ tabular results are available. Without this,
+                            # a mixed question spanning multiple databases would only
+                            # hit the primary data_source and silently drop all other
+                            # connections' data.
+                            tbl_names = orch_result.get("chosen_tables") or []
+                            if orch_result.get("is_multi_source") and len(tbl_names) > 1:
+                                from core.llm.merger import run_merger as _run_merger
+                                partial_results = []
+                                tbl_futures: Dict[Any, str] = {}
+                                with concurrent.futures.ThreadPoolExecutor(
+                                    max_workers=min(len(tbl_names), 4)
+                                ) as tbl_ex:
+                                    for tbl_name in tbl_names:
+                                        tbl_obj = next(
+                                            (t for t in agent_config.tables if t.logical_name == tbl_name),
+                                            None,
+                                        )
+                                        if not tbl_obj:
+                                            continue
+                                        conn_id = str(getattr(tbl_obj, "data_connection_id", ""))
+                                        src = (dispatch_map or {}).get(conn_id) or data_source
+                                        thr = dict(orch_result)
+                                        thr["chosen_table"] = tbl_name
+                                        thr["chosen_table_physical"] = getattr(tbl_obj, "physical_name", tbl_name)
+                                        thr["chosen_tables"] = None
+                                        thr["chosen_tables_physical"] = None
+                                        tbl_futures[
+                                            tbl_ex.submit(_run_sql, thr, agent_config, src, spec_llm)
+                                        ] = tbl_name
+                                    for fut in concurrent.futures.as_completed(tbl_futures):
+                                        tbl_name = tbl_futures[fut]
+                                        try:
+                                            r = fut.result()
+                                            if r.get("data"):
+                                                partial_results.append({
+                                                    "table": tbl_name,
+                                                    "data": r["data"],
+                                                    "sql": r.get("sql"),
+                                                    "metadata": {
+                                                        "source": "unknown",
+                                                        "title": r.get("generated_title"),
+                                                        "dialect": "unknown",
+                                                    },
+                                                })
+                                        except Exception as tbl_exc:
+                                            log_event("mixed_data_sub_table_error", {"table": tbl_name, "error": str(tbl_exc)})
+
+                                if len(partial_results) >= 2:
+                                    merged = _run_merger(
+                                        {**orch_result, "partial_results": partial_results},
+                                        agent_config,
+                                        orch_llm,
+                                    )
+                                    result = _run_fmt(state=merged, agent_config=agent_config, llm=dynamic_llm)
+                                elif partial_results:
+                                    r = partial_results[0]
+                                    result = _run_fmt(
+                                        state={**orch_result, "data": r["data"], "sql": r.get("sql")},
+                                        agent_config=agent_config,
+                                        llm=dynamic_llm,
+                                    )
+                                else:
+                                    result = {"answer": "No data found across the queried connections.", "data": [], "sql": None, "error": "no_data"}
+                            else:
+                                sql_result = _run_sql(
+                                    state=orch_result,
+                                    agent_config=agent_config,
+                                    data_source=data_source,
+                                    llm=spec_llm,
+                                )
+                                result = _run_fmt(
+                                    state=sql_result,
+                                    agent_config=agent_config,
+                                    llm=dynamic_llm,
+                                )
                         finally:
                             db.close()
                     else:

@@ -182,12 +182,15 @@ def classify_question_intent(
     if catalog_score > 0 and data_score == 0:
         return QuestionIntent.CATALOG
 
-    # DATA_OVERRIDE: strong data signal with at most one weak non-data signal → DATA
+    # DATA_OVERRIDE: strong data signal with NO competing non-data signals → DATA
+    # Using non_data_max == 0 (not <= 1) because even a single non-data signal
+    # alongside data terms indicates a genuinely mixed question (e.g. "revenue vs OKR
+    # targets" has both data=revenue and strategy=OKR).
     non_data_max = max(
         [strategy_score, signals_score, relationships_score, people_score, widgets_score],
         default=0,
     )
-    if data_score >= 2 and non_data_max <= 1:
+    if data_score >= 2 and non_data_max == 0:
         return QuestionIntent.DATA
 
     # Check for mixed intent (multiple non-data intents scored, or strategy+data combo)

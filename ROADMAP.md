@@ -52,16 +52,16 @@ Status: ✅ feito | 🔄 em andamento | ⏳ pendente | 🗂 backlog
 
 ## Fase 5 — Scheduler (runs automáticos por hora)
 
-- ⏳ 23. Celery Beat task para disparar scan por space a cada X horas (configurável)
-- ⏳ 24. Endpoint para configurar frequência de scan por space (ex: hourly, daily)
-- ⏳ 25. Webhook/notificação quando insight gerado (backend consome e notifica usuário)
-- ⏳ 26. "Silent run" — se scorer não encontrar nada acima do threshold, não notifica
+- ✅ 23. Celery Beat task para disparar scan por space a cada X horas (configurável)
+- ✅ 24. Endpoint para configurar frequência de scan por space (ex: hourly, daily)
+- ✅ 25. Webhook/notificação quando insight gerado (backend consome e notifica usuário)
+- ✅ 26. "Silent run" — se scorer não encontrar nada acima do threshold, não notifica
 
 ---
 
 ## Fase 6 — Bug fixes pendentes
 
-- ⏳ 27. Mixed dispatch multi-source bug — perguntas cruzando múltiplos DBs + OKRs/signals não passam pelo DuckDB merger (dois caminhos do LangGraph não integram)
+- ✅ 27. Mixed dispatch multi-source bug — perguntas cruzando múltiplos DBs + OKRs/signals não passam pelo DuckDB merger (dois caminhos do LangGraph não integram)
 
 ---
 
