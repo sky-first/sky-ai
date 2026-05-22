@@ -141,6 +141,145 @@ async def load_dataset_embeddings_for_scorer(
         return {}
 
 
+async def load_row_count_snapshots_for_scorer(
+    db: AsyncSession,
+    space_id: str,
+) -> Dict[str, List[int]]:
+    """Load the last 2 row_count snapshots per table for volatility calculation.
+
+    Returns {logical_name: [count_newest, count_older]} — newest first.
+    Tables with fewer than 2 snapshots get a shorter list.
+    Empty dict on failure or no snapshots.
+    """
+    try:
+        result = await db.execute(
+            text(
+                "SELECT metadata->>'logical_name', "
+                "       CAST(metadata->>'row_count' AS INTEGER), "
+                "       created_at "
+                "FROM embeddings "
+                "WHERE space_id = :space_id "
+                "AND metadata->>'kind' = 'row_count_snapshot' "
+                "ORDER BY created_at DESC"
+            ),
+            {"space_id": space_id},
+        )
+        rows = result.fetchall()
+        snapshots: Dict[str, List[int]] = {}
+        for logical_name, row_count, _created_at in rows:
+            if not logical_name or row_count is None:
+                continue
+            bucket = snapshots.setdefault(logical_name, [])
+            if len(bucket) < 2:
+                bucket.append(row_count)
+        return snapshots
+    except Exception as exc:
+        logger.warning("load_row_count_snapshots_for_scorer failed: %s", exc)
+        return {}
+
+
+async def save_row_count_snapshots(
+    db: AsyncSession,
+    space_id: str,
+    tables: List[Any],
+) -> int:
+    """Persist a row_count snapshot for each table using connection_metadata as source.
+
+    Reads `connection_metadata.tables[].row_count` (populated during /discover).
+    Skips tables where row_count == -1 (unknown) or the connection has no catalog.
+    Snapshots accumulate over time — the load function always reads only the latest 2.
+
+    Returns the number of records saved.
+    """
+    from uuid import uuid4, UUID as _UUID
+    from db.models import EmbeddingRecord
+
+    if not tables or not space_id:
+        return 0
+
+    # Group tables by data_connection_id for a single query per connection
+    conn_to_tables: Dict[Optional[str], List[Any]] = {}
+    for t in tables:
+        cid = getattr(t, "data_connection_id", None)
+        conn_to_tables.setdefault(cid, []).append(t)
+
+    # Build map: {logical_name → row_count} from connection_metadata
+    row_count_map: Dict[str, int] = {}
+    for conn_id, conn_tables in conn_to_tables.items():
+        if not conn_id:
+            continue
+        try:
+            result = await db.execute(
+                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+                {"cid": conn_id},
+            )
+            tables_json = result.scalar_one_or_none()
+        except Exception as exc:
+            logger.debug("save_row_count_snapshots: connection_metadata fetch failed for %s: %s", conn_id, exc)
+            continue
+
+        if not tables_json or not isinstance(tables_json, list):
+            continue
+
+        # Build a lookup: logical_name → row_count from the catalog
+        catalog: Dict[str, int] = {}
+        for entry in tables_json:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name") or entry.get("table_name")
+            if not name:
+                continue
+            schema = entry.get("schema") or ""
+            logical = f"{schema}.{name}" if schema else name
+            rc = entry.get("row_count", -1)
+            if isinstance(rc, int) and rc >= 0:
+                catalog[logical] = rc
+                catalog[name] = rc  # also index by bare name for fallback
+
+        for t in conn_tables:
+            rc = catalog.get(t.logical_name) or catalog.get(getattr(t, "physical_name", ""))
+            if rc is not None and rc >= 0:
+                row_count_map[t.logical_name] = rc
+
+    if not row_count_map:
+        return 0
+
+    try:
+        space_uuid = _UUID(space_id)
+    except Exception:
+        return 0
+
+    dummy_embedding = [0.0] * 1024
+    created = 0
+    for logical_name, row_count in row_count_map.items():
+        db.add(EmbeddingRecord(
+            id=uuid4(),
+            space_id=space_uuid,
+            user_id=None,
+            embedding=dummy_embedding,
+            text=f"row_count_snapshot:{logical_name}:{row_count}",
+            extra_metadata={
+                "kind": "row_count_snapshot",
+                "logical_name": logical_name,
+                "row_count": row_count,
+            },
+        ))
+        created += 1
+
+    try:
+        await db.flush()
+    except Exception as exc:
+        logger.warning("save_row_count_snapshots flush failed: %s", exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return 0
+
+    logger.debug("save_row_count_snapshots: saved %d snapshots for space %s", created, space_id)
+    return created
+
+
 # ─── Data structures ──────────────────────────────────────────────────────────
 
 
@@ -228,6 +367,7 @@ class DatasetPriorityScorer:
         staleness_window_hours: int = STALENESS_WINDOW_HOURS,
         okr_vectors: Optional[List[List[float]]] = None,
         dataset_embeddings: Optional[Dict[str, List[float]]] = None,
+        row_count_snapshots: Optional[Dict[str, List[int]]] = None,
     ) -> None:
         self._brain_context = brain_context.lower()
         self._top_k = top_k
@@ -237,6 +377,8 @@ class DatasetPriorityScorer:
         # Cosine similarity inputs (items 17-18)
         self._okr_vectors: List[List[float]] = okr_vectors or []
         self._dataset_embeddings: Dict[str, List[float]] = dataset_embeddings or {}
+        # Row-count snapshots for volatility (items 20-22)
+        self._row_count_snapshots: Dict[str, List[int]] = row_count_snapshots or {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -262,7 +404,7 @@ class DatasetPriorityScorer:
             )
             relevance = self._strategic_relevance_score(table)
             depth = self._depth_score(table, max_cols)
-            volatility = self._volatility_score()
+            volatility = self._volatility_score(table)
 
             score = (
                 self.WEIGHTS["staleness"]           * staleness
@@ -348,7 +490,7 @@ class DatasetPriorityScorer:
             )
             relevance = self._strategic_relevance_score(table)
             depth = self._depth_score(table, max_cols)
-            volatility = self._volatility_score()
+            volatility = self._volatility_score(table)
             score = (
                 self.WEIGHTS["staleness"]            * staleness
                 + self.WEIGHTS["strategic_relevance"] * relevance
@@ -456,9 +598,25 @@ class DatasetPriorityScorer:
         num_cols = len(table.columns or [])
         return min(1.0, num_cols / max_cols)
 
-    def _volatility_score(self) -> float:
-        """Placeholder = 0.5 until row-count snapshots exist (items 20-22)."""
-        return 0.5
+    def _volatility_score(self, table: Any) -> float:
+        """Delta percentual de row_count entre os últimos 2 snapshots (items 20-22).
+
+        Returns 0.5 (neutral) when fewer than 2 snapshots exist.
+        High-churn event tables (large % delta) approach 1.0.
+        Static reference tables with no change stay at 0.0.
+        """
+        counts = self._row_count_snapshots.get(table.logical_name, [])
+        if len(counts) < 2:
+            return 0.5  # neutral — not enough history yet
+
+        newest, older = counts[0], counts[1]
+        if older == 0:
+            # Table was empty last time; any rows now = maximum volatility
+            return 1.0 if newest > 0 else 0.5
+
+        delta_pct = abs(newest - older) / older
+        # Cap at 100% delta → 1.0; linear scale below that
+        return min(1.0, delta_pct)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

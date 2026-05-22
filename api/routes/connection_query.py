@@ -3825,6 +3825,8 @@ async def _query_connection_inner(
                 load_insights_for_scorer,
                 load_okr_embeddings_for_scorer,
                 load_dataset_embeddings_for_scorer,
+                load_row_count_snapshots_for_scorer,
+                save_row_count_snapshots,
             )
             from core.agents.scan_briefing import count_scan_insights
 
@@ -3839,11 +3841,15 @@ async def _query_connection_inner(
             _dataset_embeddings = await load_dataset_embeddings_for_scorer(db, body.space_id)
             _using_cosine = bool(_okr_vectors and _dataset_embeddings)
 
+            # Item 20: load row_count snapshots for volatility scoring
+            _row_count_snapshots = await load_row_count_snapshots_for_scorer(db, body.space_id)
+
             _scorer = DatasetPriorityScorer(
                 brain_context="",
                 top_k=5,
                 okr_vectors=_okr_vectors,
                 dataset_embeddings=_dataset_embeddings,
+                row_count_snapshots=_row_count_snapshots,
             )
             if _is_cross_dataset_run:
                 _top_tables = _scorer.cross_dataset_rank(agent_config.tables, _raw_insights)
@@ -3866,7 +3872,13 @@ async def _query_connection_inner(
                     "using_cosine_relevance": _using_cosine,
                     "num_okr_vectors": len(_okr_vectors),
                     "num_dataset_embeddings": len(_dataset_embeddings),
+                    "num_row_count_snapshots": len(_row_count_snapshots),
                 })
+
+                # Item 20: persist row_count snapshot for all candidate tables
+                # (all tables, not just top-K, so volatility history is complete)
+                await save_row_count_snapshots(db, body.space_id, agent_config.tables)
+
                 agent_config = AgentConfig(
                     id=agent_config.id,
                     name=agent_config.name,

@@ -44,9 +44,9 @@ Status: ✅ feito | 🔄 em andamento | ⏳ pendente | 🗂 backlog
 
 ## Fase 4 — Volatility Tracker
 
-- ⏳ 20. Salvar snapshot de `row_count` por dataset a cada run do scorer
-- ⏳ 21. Calcular `volatility_score` = delta percentual de row_count entre últimos 2 snapshots
-- ⏳ 22. Datasets de eventos em tempo real sobem automaticamente no ranking
+- ✅ 20. `save_row_count_snapshots`: lê `connection_metadata.tables[].row_count`, salva 1 EmbeddingRecord por tabela com `kind=row_count_snapshot` a cada scan run
+- ✅ 21. `_volatility_score(table)` substituído por delta % real: `abs(new-old)/old`, neutro 0.5 com <2 snapshots, capped em 1.0
+- ✅ 22. Tabelas de eventos com alta variação de row_count sobem automaticamente no ranking via peso 0.10 no score final
 
 ---
 
