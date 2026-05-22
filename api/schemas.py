@@ -186,6 +186,15 @@ class QueryResponse(BaseModel):
         default_factory=list,
         description="User-readable steps the system took (Reasoning tab).",
     )
+    # Scan-mode fields — only populated when agent_mode=scan
+    scan_silent: Optional[bool] = Field(
+        default=None,
+        description="True when the scan produced no insight worth saving (answer too short).",
+    )
+    scan_insight_title: Optional[str] = Field(
+        default=None,
+        description="First line of the insight saved by the scan agent.",
+    )
 
 
 class ChatBootstrapSuggestion(BaseModel):

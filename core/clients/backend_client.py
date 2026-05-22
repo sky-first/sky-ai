@@ -299,6 +299,26 @@ class BackendClient:
             logger.warning(f"BackendClient.get_ai_history failed: {e}")
             return []
 
+    def notify_scan_insight(
+        self,
+        space_id: str,
+        title: str,
+        summary: str = "",
+    ) -> bool:
+        """POST /ai/scan-insights/notify — tell the backend a new insight was generated.
+
+        The backend uses this to push a notification to connected users.
+        Returns True on success, False on any error (never raises).
+        """
+        try:
+            payload = {"space_id": space_id, "title": title, "summary": summary[:500]}
+            r = self._http.post("/ai/scan-insights/notify", json=payload)
+            r.raise_for_status()
+            return True
+        except Exception as exc:
+            logger.debug("BackendClient.notify_scan_insight failed (non-critical): %s", exc)
+            return False
+
     def close(self):
         self._http.close()
 

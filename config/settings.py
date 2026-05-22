@@ -210,6 +210,20 @@ class Settings(BaseSettings):
         description="Email claim that pairs with ai_service_user_id.",
     )
 
+    # Self-URL for Celery-→-AI internal scan calls (item 23).
+    ai_service_url: str = Field(
+        default="http://localhost:8001",
+        validation_alias=AliasChoices("AI_SERVICE_URL", "ai_service_url"),
+        description="Base URL of this AI service (used by Celery scan tasks to call /query).",
+    )
+
+    # Minimum answer length (chars) for a scan insight to be considered non-silent (item 26).
+    scan_min_insight_length: int = Field(
+        default=120,
+        validation_alias=AliasChoices("SCAN_MIN_INSIGHT_LENGTH", "scan_min_insight_length"),
+        description="Answer shorter than this is treated as a silent run — not saved, not notified.",
+    )
+
     # Demo connections — shared across all demo users (staging + prod).
     # Embeddings for these connections are stored with space_id=NULL so
     # every demo visitor can query them without a per-user seed.

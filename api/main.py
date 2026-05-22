@@ -14,6 +14,7 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
 from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import data_ingestion, pipeline, widget_titles, knowledge_graph, embeddings  # noqa: E402
 from api.routes import semantic_map, space_seed  # noqa: E402
+from api.routes import scan_schedule  # noqa: E402
 from core.logging_utils import log_event
 
 
@@ -145,3 +146,6 @@ app.include_router(semantic_map.router)
 # (metrics + glossary + relationships + connections + agents) already
 # embedded and visible on the Universe canvas.
 app.include_router(space_seed.router)
+
+# Scan schedule — PUT/GET/DELETE /spaces/{id}/scan-schedule + POST trigger (items 23-24)
+app.include_router(scan_schedule.router)

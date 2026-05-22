@@ -4136,22 +4136,39 @@ async def _query_connection_inner(
             except Exception:
                 pass
 
-    # Persist scan insight for future deduplication
+    # Persist scan insight + notify (items 25-26)
+    _scan_silent: bool = True
+    _scan_insight_title: Optional[str] = None
     if getattr(body, "agent_mode", None) == "scan" and final_state.get("answer"):
-        try:
-            from core.agents.scan_briefing import save_scan_insight
-            _insight_text = final_state.get("answer", "")
-            _title = _insight_text[:80].split("\n")[0].strip("# ").strip()
-            await save_scan_insight(
-                db=db,
-                space_id=body.space_id,
-                user_id=getattr(body, "user_id", None),
-                text_content=_insight_text,
-                title=_title,
-                tables_queried=final_state.get("tables_queried") or [],
-            )
-        except Exception as _exc:
-            logger.warning("Failed to save scan insight: %s", _exc)
+        from config.settings import settings as _settings
+        _insight_text = final_state.get("answer", "")
+        _is_silent = len(_insight_text.strip()) < _settings.scan_min_insight_length
+        _scan_silent = _is_silent
+        if not _is_silent:
+            try:
+                from core.agents.scan_briefing import save_scan_insight
+                _title = _insight_text[:80].split("\n")[0].strip("# ").strip()
+                _scan_insight_title = _title
+                await save_scan_insight(
+                    db=db,
+                    space_id=body.space_id,
+                    user_id=getattr(body, "user_id", None),
+                    text_content=_insight_text,
+                    title=_title,
+                    tables_queried=final_state.get("tables_queried") or [],
+                )
+                # Notify backend so connected users receive a push notification
+                try:
+                    from core.clients.backend_client import get_backend_client
+                    get_backend_client().notify_scan_insight(
+                        space_id=body.space_id,
+                        title=_title,
+                        summary=_insight_text[:500],
+                    )
+                except Exception as _notify_exc:
+                    logger.debug("notify_scan_insight failed (non-critical): %s", _notify_exc)
+            except Exception as _exc:
+                logger.warning("Failed to save scan insight: %s", _exc)
 
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
@@ -4561,6 +4578,8 @@ async def _query_connection_inner(
         meta=meta,
         evidence=final_state.get("evidence") or [],
         reasoning_steps=final_state.get("reasoning_steps") or [],
+        scan_silent=_scan_silent if getattr(body, "agent_mode", None) == "scan" else None,
+        scan_insight_title=_scan_insight_title,
     )
 
 
