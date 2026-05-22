@@ -107,6 +107,10 @@ class AgentState(TypedDict, total=False):
     # Scan mode: logical table names actually queried in this run
     tables_queried: Optional[List[str]]
 
+    # Scan mode: raw SQL strings executed by query_table inside full_context_agent.
+    # Used by depth_tracker in connection_query.py to record (dim × metric) combos.
+    executed_sqls: Optional[List[str]]
+
     # Multi-agent intent classification
     intent: Optional[str]  # "data" | "strategy" | "signals" | "context" | "mixed"
     strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
