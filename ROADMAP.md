@@ -67,10 +67,10 @@ Status: ✅ feito | 🔄 em andamento | ⏳ pendente | 🗂 backlog
 
 ## Fase 7 — Conectores novos
 
-- ⏳ 28. Conector MongoDB — Aggregation Pipeline, pymongo
-- ⏳ 29. Conector DynamoDB — PartiQL, boto3
-- ⏳ 30. Conector Elasticsearch — DSL JSON, elasticsearch-py
-- ⏳ 31. Completar stubs Redshift e Databricks (SQLAlchemy fallback já funciona)
+- ✅ 28. Conector MongoDB — Aggregation Pipeline, pymongo
+- ✅ 29. Conector DynamoDB — PartiQL, boto3
+- ✅ 30. Conector Elasticsearch — DSL JSON, elasticsearch-py
+- ✅ 31. Completar stubs Redshift e Databricks (SQLAlchemy fallback já funciona)
 
 ---
 

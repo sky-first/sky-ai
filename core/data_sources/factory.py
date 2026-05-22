@@ -158,30 +158,103 @@ class DataSourceFactory:
             
             return SQLAlchemyDataSource(engine=engine, dialect=dialect, label=label)
 
-        elif ds_type in ["mysql", "sqlserver", "sqlite", "oracle", "snowflake", "databricks", "redshift"]:
-            # Generic handler for other SQL dialects that use SQLAlchemy
-            # Similar to postgres block but handles them if they fall through or are explicit
+        elif ds_type == "redshift":
             dsn = cfg_dict.get("dsn")
             if not dsn:
-                 raise ValueError(f"DataConnection {conn.id} of type {ds_type} requires config.dsn")
-            
+                host = cfg_dict.get("host")
+                user = cfg_dict.get("username") or cfg_dict.get("user")
+                pwd = cfg_dict.get("password") or ""
+                db = cfg_dict.get("database") or cfg_dict.get("dbname")
+                port = cfg_dict.get("port") or 5439
+                if host and user and db:
+                    from urllib.parse import quote_plus
+                    dsn = f"redshift+redshift_connector://{quote_plus(str(user))}:{quote_plus(str(pwd))}@{host}:{port}/{db}"
+            if not dsn:
+                raise ValueError(
+                    f"Redshift connection {conn.id} needs host/user/database or dsn in config"
+                )
+            engine = create_engine(dsn, future=True)
+            log_event("build_redshift_datasource", {"connection_id": conn.id, "dsn_preview": dsn[:80]})
+            return SQLAlchemyDataSource(engine=engine, dialect=Dialect.REDSHIFT, label=f"redshift:{conn.id}")
+
+        elif ds_type == "databricks":
+            dsn = cfg_dict.get("dsn")
+            if not dsn:
+                host = cfg_dict.get("server_hostname") or cfg_dict.get("host")
+                http_path = cfg_dict.get("http_path")
+                token = cfg_dict.get("access_token") or cfg_dict.get("token")
+                catalog = cfg_dict.get("catalog") or "hive_metastore"
+                if host and http_path and token:
+                    from urllib.parse import quote_plus
+                    dsn = (
+                        f"databricks+connector://token:{quote_plus(str(token))}"
+                        f"@{host}:443/{catalog}"
+                        f"?http_path={quote_plus(str(http_path))}"
+                    )
+            if not dsn:
+                raise ValueError(
+                    f"Databricks connection {conn.id} needs server_hostname/http_path/access_token or dsn in config"
+                )
+            engine = create_engine(dsn, future=True)
+            log_event("build_databricks_datasource", {"connection_id": conn.id, "dsn_preview": dsn[:80]})
+            return SQLAlchemyDataSource(engine=engine, dialect=Dialect.DATABRICKS, label=f"databricks:{conn.id}")
+
+        elif ds_type == "mongodb":
+            from core.data_sources.mongodb_source import MongoDBSource
+            uri = cfg_dict.get("uri") or cfg_dict.get("connection_string")
+            database = cfg_dict.get("database")
+            collection = cfg_dict.get("collection") or cfg_dict.get("default_collection") or "default"
+            if not uri or not database:
+                raise ValueError(f"MongoDB connection {conn.id} needs uri and database in config")
+            log_event("build_mongodb_datasource", {"connection_id": conn.id, "database": database, "collection": collection})
+            return MongoDBSource(uri=uri, database=database, collection=collection, label=f"mongodb:{conn.id}")
+
+        elif ds_type == "dynamodb":
+            from core.data_sources.dynamodb_source import DynamoDBSource
+            region = cfg_dict.get("region") or "us-east-1"
+            table_name = cfg_dict.get("table_name") or cfg_dict.get("table") or "default"
+            access_key = cfg_dict.get("access_key_id") or cfg_dict.get("access_key") or ""
+            secret_key = cfg_dict.get("secret_access_key") or cfg_dict.get("secret_key") or ""
+            log_event("build_dynamodb_datasource", {"connection_id": conn.id, "region": region, "table_name": table_name})
+            return DynamoDBSource(
+                region=region,
+                table_name=table_name,
+                access_key=access_key,
+                secret_key=secret_key,
+                label=f"dynamodb:{conn.id}",
+            )
+
+        elif ds_type == "elasticsearch":
+            from core.data_sources.elasticsearch_source import ElasticsearchSource
+            hosts = cfg_dict.get("hosts") or [cfg_dict.get("host", "http://localhost:9200")]
+            if isinstance(hosts, str):
+                hosts = [hosts]
+            index = cfg_dict.get("index") or cfg_dict.get("default_index") or "*"
+            api_key = cfg_dict.get("api_key") or ""
+            log_event("build_elasticsearch_datasource", {"connection_id": conn.id, "index": index})
+            return ElasticsearchSource(hosts=hosts, index=index, api_key=api_key, label=f"elasticsearch:{conn.id}")
+
+        elif ds_type in ["mysql", "sqlserver", "sqlite", "oracle", "snowflake"]:
+            # Generic handler for remaining SQL dialects that use SQLAlchemy
+            dsn = cfg_dict.get("dsn")
+            if not dsn:
+                raise ValueError(f"DataConnection {conn.id} of type {ds_type} requires config.dsn")
+
             engine = create_engine(dsn, future=True)
             label = f"{ds_type}:{conn.id}"
-            
+
             dialect_map = {
                 "mysql": Dialect.MYSQL,
                 "sqlserver": Dialect.SQLSERVER,
                 "sqlite": Dialect.SQLITE,
                 "oracle": Dialect.ORACLE,
                 "snowflake": Dialect.SNOWFLAKE,
-                "databricks": Dialect.DATABRICKS,
-                "redshift": Dialect.REDSHIFT,
             }
-            
+
             return SQLAlchemyDataSource(
-                engine=engine, 
+                engine=engine,
                 dialect=dialect_map.get(ds_type, Dialect.POSTGRES),
-                label=label
+                label=label,
             )
 
         else:
