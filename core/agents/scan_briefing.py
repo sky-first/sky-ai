@@ -194,6 +194,56 @@ async def load_recent_scan_insights(
         return []
 
 
+# ─── Semantic Deduplication ──────────────────────────────────────────────
+
+
+async def is_semantic_duplicate(
+    db: AsyncSession,
+    space_id: str,
+    embedding_vec: List[float],
+    threshold: float = 0.85,
+) -> bool:
+    """Return True if any existing scan_insight for this space is semantically
+    similar to the given embedding (cosine similarity >= threshold).
+
+    Uses pgvector's cosine distance operator (<=>).  Falls back to False
+    (never suppress) when pgvector is unavailable or the query fails.
+    """
+    if not embedding_vec or all(v == 0.0 for v in embedding_vec):
+        return False
+
+    try:
+        vec_literal = "[" + ",".join(str(v) for v in embedding_vec) + "]"
+        result = await db.execute(
+            text(
+                "SELECT 1 - (embedding <=> CAST(:vec AS vector)) AS similarity "
+                "FROM embeddings "
+                "WHERE space_id = CAST(:sid AS uuid) "
+                "AND metadata->>'type' = 'scan_insight' "
+                "ORDER BY embedding <=> CAST(:vec AS vector) "
+                "LIMIT 1"
+            ),
+            {"vec": vec_literal, "sid": space_id},
+        )
+        row = result.fetchone()
+        if row is None:
+            return False
+        similarity = row[0]
+        if similarity is None or (isinstance(similarity, float) and similarity != similarity):
+            return False
+        is_dup = float(similarity) >= threshold
+        if is_dup:
+            logger.debug("is_semantic_duplicate: suppressed (similarity=%.3f)", similarity)
+        return is_dup
+    except Exception as exc:
+        logger.debug("is_semantic_duplicate: pgvector check failed (non-critical): %s", exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return False
+
+
 # ─── Save Scan Insight ────────────────────────────────────────────────────
 
 
@@ -204,10 +254,12 @@ async def save_scan_insight(
     text_content: str,
     title: str = "",
     tables_queried: Optional[List[str]] = None,
+    embedding: Optional[List[float]] = None,
 ) -> None:
     """Persist a generated insight to EmbeddingRecord for future deduplication.
 
-    Uses a dummy embedding ([0.0] * 1024) — no semantic dedup yet.
+    embedding: real vector from the embedding provider; falls back to a
+    zero vector when not provided (no semantic dedup on that record).
     extra_metadata = {"type": "scan_insight", "title": title, "tables_queried": [...]}.
     tables_queried is consumed by DatasetPriorityScorer for staleness calculation.
     """
@@ -222,7 +274,7 @@ async def save_scan_insight(
             except Exception:
                 space_uuid = None
 
-        dummy_embedding = [0.0] * 1024
+        stored_embedding = embedding if embedding else [0.0] * 1024
 
         # user_id is intentionally not set — insights are scoped by space_id.
         # Setting user_id would require the UUID to exist in the users table,
@@ -231,7 +283,7 @@ async def save_scan_insight(
             id=uuid4(),
             space_id=space_uuid,
             user_id=None,
-            embedding=dummy_embedding,
+            embedding=stored_embedding,
             text=text_content[:4000],
             extra_metadata={
                 "type": "scan_insight",

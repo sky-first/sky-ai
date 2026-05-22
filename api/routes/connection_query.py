@@ -4136,7 +4136,7 @@ async def _query_connection_inner(
             except Exception:
                 pass
 
-    # Persist scan insight + notify (items 25-26)
+    # Persist scan insight + notify (items 25-26, 33)
     _scan_silent: bool = True
     _scan_insight_title: Optional[str] = None
     if getattr(body, "agent_mode", None) == "scan" and final_state.get("answer"):
@@ -4146,27 +4146,49 @@ async def _query_connection_inner(
         _scan_silent = _is_silent
         if not _is_silent:
             try:
-                from core.agents.scan_briefing import save_scan_insight
+                from core.agents.scan_briefing import save_scan_insight, is_semantic_duplicate
                 _title = _insight_text[:80].split("\n")[0].strip("# ").strip()
                 _scan_insight_title = _title
-                await save_scan_insight(
-                    db=db,
-                    space_id=body.space_id,
-                    user_id=getattr(body, "user_id", None),
-                    text_content=_insight_text,
-                    title=_title,
-                    tables_queried=final_state.get("tables_queried") or [],
-                )
-                # Notify backend so connected users receive a push notification
+
+                # Item 33: embed the insight and suppress if semantically duplicate
+                _insight_embedding: Optional[list] = None
                 try:
-                    from core.clients.backend_client import get_backend_client
-                    get_backend_client().notify_scan_insight(
+                    _embed_vecs = await embedding_provider.embed_async([_insight_text[:2000]])
+                    _insight_embedding = _embed_vecs[0] if _embed_vecs else None
+                except Exception as _emb_exc:
+                    logger.debug("scan insight embed failed (non-critical): %s", _emb_exc)
+
+                if _insight_embedding:
+                    _is_dup = await is_semantic_duplicate(
+                        db=db,
                         space_id=body.space_id,
-                        title=_title,
-                        summary=_insight_text[:500],
+                        embedding_vec=_insight_embedding,
+                        threshold=0.85,
                     )
-                except Exception as _notify_exc:
-                    logger.debug("notify_scan_insight failed (non-critical): %s", _notify_exc)
+                    if _is_dup:
+                        _scan_silent = True
+                        logger.debug("scan insight suppressed: semantic duplicate detected")
+
+                if not _scan_silent:
+                    await save_scan_insight(
+                        db=db,
+                        space_id=body.space_id,
+                        user_id=getattr(body, "user_id", None),
+                        text_content=_insight_text,
+                        title=_title,
+                        tables_queried=final_state.get("tables_queried") or [],
+                        embedding=_insight_embedding,
+                    )
+                    # Notify backend so connected users receive a push notification
+                    try:
+                        from core.clients.backend_client import get_backend_client
+                        get_backend_client().notify_scan_insight(
+                            space_id=body.space_id,
+                            title=_title,
+                            summary=_insight_text[:500],
+                        )
+                    except Exception as _notify_exc:
+                        logger.debug("notify_scan_insight failed (non-critical): %s", _notify_exc)
             except Exception as _exc:
                 logger.warning("Failed to save scan insight: %s", _exc)
 
