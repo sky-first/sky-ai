@@ -210,18 +210,26 @@ def _fetch_brain_context_sync(db: Session, space_id: str, crew_ids: list) -> str
         return ""
 
 
-def _build_system_prompt(brain_context: str) -> str:
-    """Append per-client strategic context to the universal BASE prompt."""
-    if not brain_context:
-        return _BASE_SYSTEM_PROMPT
-    return (
-        _BASE_SYSTEM_PROMPT
-        + "\n══════════════════════════════════════════\n"
-        "ORGANISATION CONTEXT (prioritise findings aligned with these):\n"
-        "══════════════════════════════════════════\n"
-        + brain_context
-        + "\n"
-    )
+def _build_system_prompt(brain_context: str, briefing: str = "") -> str:
+    """Append per-client strategic context and optional scan briefing to the BASE prompt."""
+    prompt = _BASE_SYSTEM_PROMPT
+
+    # Inject scan briefing (direction block) before the organisation context
+    # so the agent reads its mission before the OKR/KPI details.
+    if briefing:
+        prompt = prompt + briefing
+
+    if brain_context:
+        prompt = (
+            prompt
+            + "\n══════════════════════════════════════════\n"
+            "ORGANISATION CONTEXT (prioritise findings aligned with these):\n"
+            "══════════════════════════════════════════\n"
+            + brain_context
+            + "\n"
+        )
+
+    return prompt
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────
@@ -251,6 +259,7 @@ def run_full_context_agent(
     embedding_provider: EmbeddingProvider,
     data_source: Optional[BaseDataSource] = None,
     dispatch_map: Optional[dict] = None,
+    briefing: str = "",
 ) -> AgentState:
     """Execute one full-context investigation cycle.
 
@@ -309,6 +318,11 @@ def run_full_context_agent(
 
     # ── Build tools ───────────────────────────────────────────────────────
 
+    # Tracks which logical table names were actually queried this run.
+    # Populated inside query_table at execution time — more reliable than
+    # parsing message objects after the fact.
+    _queried_logical_names: list[str] = []
+
     # Build connection labels for list_tables grouping (only when multi-source)
     _connection_labels: Optional[dict] = None
     if dispatch_map and len(dispatch_map) > 1:
@@ -322,9 +336,9 @@ def run_full_context_agent(
     strategy_tool = ToolFactory.create_strategy_tool(db, embedding_provider, space_id, crew_ids)
     signals_tool = ToolFactory.create_signals_tool(db, embedding_provider, space_id, crew_ids)
 
-    # ── Dynamic system prompt (BASE + per-client OKR/pillar context) ──────
+    # ── Dynamic system prompt (BASE + scan briefing + per-client OKR/pillar context) ──────
     brain_context = _fetch_brain_context_sync(db, space_id, crew_ids)
-    system_prompt = _build_system_prompt(brain_context)
+    system_prompt = _build_system_prompt(brain_context, briefing=briefing)
 
     @tool
     def query_table(sql: str) -> str:
@@ -354,14 +368,32 @@ def run_full_context_agent(
             return preview + suffix
 
         try:
-            return _run_and_format(source, sql)
+            result_str = _run_and_format(source, sql)
+            # Track which logical tables were actually queried.
+            # Check both full physical name ("crm.opportunities") and
+            # unqualified name ("opportunities") since the agent may omit schema.
+            sql_upper = sql.upper()
+            for table in agent_config.tables:
+                phys = (table.physical_name or "").upper()
+                phys_bare = phys.split(".")[-1]  # "opportunities"
+                if phys and (phys in sql_upper or (phys_bare and phys_bare in sql_upper)):
+                    if table.logical_name not in _queried_logical_names:
+                        _queried_logical_names.append(table.logical_name)
+            return result_str
         except Exception as exc:
             err_str = str(exc)
             if "does not exist" in err_str:
                 resolved = _resolve_schema_qualified_sql(sql, source)
                 if resolved and resolved != sql:
                     try:
-                        return _run_and_format(source, resolved)
+                        result_str = _run_and_format(source, resolved)
+                        sql_upper = resolved.upper()
+                        for table in agent_config.tables:
+                            phys = (table.physical_name or "").upper()
+                            if phys and phys in sql_upper:
+                                if table.logical_name not in _queried_logical_names:
+                                    _queried_logical_names.append(table.logical_name)
+                        return result_str
                     except Exception as exc2:
                         logger.warning("query_table resolved retry failed: %s", exc2)
                         return f"Query failed: {exc2}"
@@ -399,17 +431,21 @@ def run_full_context_agent(
         )
         answer = result["messages"][-1].content
 
-        # Count tool calls for observability
+        # Count tool calls (ToolMessage = one completed tool invocation)
         tool_calls = sum(
             1 for m in result.get("messages", [])
             if hasattr(m, "type") and getattr(m, "type", "") == "tool"
         )
+
+        # tables_queried was populated in real-time inside query_table
+        tables_queried = list(_queried_logical_names)
 
         log_event("full_context_agent_done", {
             "agent_id": agent_id,
             "tool_calls": tool_calls,
             "answer_len": len(answer),
             "silent": "SILENT" in answer.upper(),
+            "tables_queried": tables_queried,
         })
 
     except Exception as exc:
@@ -420,6 +456,10 @@ def run_full_context_agent(
             "Please try again later."
         )
         return state
+
+    # Always persist tables_queried so the scorer can update staleness
+    # even when the agent returns SILENT (no insight worth surfacing).
+    state["tables_queried"] = tables_queried
 
     # ── Silent mode — agent found nothing worth surfacing ─────────────────
     if re.search(r"\bSILENT\b", answer, re.IGNORECASE):

@@ -104,6 +104,9 @@ class AgentState(TypedDict, total=False):
     # Agent mode from backend (scan, sql, context, question)
     agent_mode: Optional[str]
 
+    # Scan mode: logical table names actually queried in this run
+    tables_queried: Optional[List[str]]
+
     # Multi-agent intent classification
     intent: Optional[str]  # "data" | "strategy" | "signals" | "context" | "mixed"
     strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
@@ -191,6 +194,7 @@ def build_generic_sql_graph(
     checkpointer: Optional[Any] = None,
     backend_client: Optional[Any] = None,
     dispatch_map: Optional[dict] = None,
+    briefing: str = "",
 ):
     """
     Sistema de Query - Executor de Perguntas
@@ -723,6 +727,10 @@ def build_generic_sql_graph(
         Triggered when agent_mode='scan'. Bypasses the SQL pipeline
         entirely — the agent investigates, cross-references, and either
         surfaces one insight or stays silent (state['answer'] = None).
+
+        The `briefing` variable is captured from the outer scope of
+        build_generic_sql_graph so the scan directional context is
+        injected into the agent's system prompt.
         """
         from core.agents.full_context_agent import run_full_context_agent
 
@@ -736,6 +744,7 @@ def build_generic_sql_graph(
                 embedding_provider=embedding_provider,
                 data_source=data_source,
                 dispatch_map=dispatch_map,
+                briefing=briefing,
             )
         finally:
             db.close()
@@ -1171,6 +1180,7 @@ def run_agent_once(
     explicit_relationships: Optional[List[Dict[str, str]]] = None,
     agent_mode: Optional[str] = None,
     dispatch_map: Optional[dict] = None,
+    briefing: str = "",
 ) -> AgentState:
     """
     Função de alto nível:
@@ -1255,6 +1265,7 @@ def run_agent_once(
             checkpointer=checkpointer,
             backend_client=_backend_client,
             dispatch_map=dispatch_map,
+            briefing=briefing,
         )
 
         final_state: AgentState = app.invoke(
