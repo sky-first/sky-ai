@@ -237,6 +237,12 @@ class Settings(BaseSettings):
     max_sql_length: int = 10000
     query_timeout_seconds: int = 300
     
+    # Langfuse — LLM observability
+    langfuse_enabled: bool = Field(default=False, validation_alias=AliasChoices("LANGFUSE_ENABLED", "langfuse_enabled"))
+    langfuse_public_key: str = Field(default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "langfuse_public_key"))
+    langfuse_secret_key: str = Field(default="", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "langfuse_secret_key"))
+    langfuse_host: str = Field(default="http://localhost:3001", validation_alias=AliasChoices("LANGFUSE_HOST", "langfuse_host"))
+
     # Bootstrap suggestions
     bootstrap_variation_window_seconds: int = 300  # Frequência de variação das sugestões (5 minutos)
     

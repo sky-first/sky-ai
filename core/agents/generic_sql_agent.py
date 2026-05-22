@@ -663,11 +663,24 @@ def build_generic_sql_graph(
         """
         from core.intent.question_intent import classify_question_intent
 
-        # When the backend signals a SQL-bound execution mode (scan, sql,
-        # context), skip probabilistic intent classification and force the
-        # data path so the graph always runs orchestrator → specialist.
+        # When the backend signals a SQL-bound execution mode, force the
+        # data path. Exception: "scan" routes to the full_context_agent
+        # (autonomous proactive intelligence) — it bypasses the SQL pipeline.
         agent_mode = state.get("agent_mode") or ""
-        if agent_mode in ("scan", "sql", "context", "datasource"):
+        if agent_mode == "scan":
+            print(f"[INTENT_CLASSIFIER] agent_mode='scan' → routing to full_context")
+            log_event(
+                "intent_classified",
+                {
+                    "question": state.get("question", "")[:100],
+                    "intent": "full_context",
+                    "agent_mode": agent_mode,
+                    "forced": True,
+                },
+            )
+            state["intent"] = "full_context"
+            return state
+        if agent_mode in ("sql", "context", "datasource"):
             print(
                 f"[INTENT_CLASSIFIER] agent_mode='{agent_mode}' → forcing intent=data"
             )
@@ -701,6 +714,29 @@ def build_generic_sql_graph(
         )
         state["intent"] = intent.value
         return state
+
+    # ── Full Context Node — Autonomous Proactive Intelligence ─────────────
+    def full_context_node(state: AgentState) -> AgentState:
+        """Runs the autonomous full-context ReAct agent.
+
+        Triggered when agent_mode='scan'. Bypasses the SQL pipeline
+        entirely — the agent investigates, cross-references, and either
+        surfaces one insight or stays silent (state['answer'] = None).
+        """
+        from core.agents.full_context_agent import run_full_context_agent
+
+        db = db_session_factory()
+        try:
+            return run_full_context_agent(
+                state=state,
+                agent_config=agent_config,
+                llm=llm_orchestrator,
+                db=db,
+                embedding_provider=embedding_provider,
+                data_source=data_source,
+            )
+        finally:
+            db.close()
 
     # ── Context Layer: Brain Retrieval Node (Phase 2.6b) ───
     def brain_retrieval_node(state: AgentState) -> AgentState:
@@ -975,6 +1011,7 @@ def build_generic_sql_graph(
 
     # Register all nodes
     graph.add_node("intent_classifier", intent_classifier_node)
+    graph.add_node("full_context", full_context_node)
     graph.add_node("brain_retrieval", brain_retrieval_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("specialist", specialist_node)
@@ -993,6 +1030,7 @@ def build_generic_sql_graph(
     def route_by_intent(state: AgentState):
         intent = state.get("intent", "data")
         routing = {
+            "full_context": "full_context",
             # Knowledge layer (Metrics + Glossary + Relationships)
             # replaced the old Strategy entities — both intents
             # land on the same specialist now.
@@ -1027,6 +1065,7 @@ def build_generic_sql_graph(
         "brain_retrieval",
         route_by_intent,
         {
+            "full_context": "full_context",
             "knowledge_specialist": "knowledge_specialist",
             "events_specialist": "events_specialist",
             "relationships_specialist": "relationships_specialist",
@@ -1036,6 +1075,9 @@ def build_generic_sql_graph(
             "orchestrator": "orchestrator",
         },
     )
+
+    # full_context → END (answer already set by the autonomous agent)
+    graph.add_edge("full_context", END)
 
     # Non-data specialists -> END (skip formatter — answer is already set by each specialist)
     graph.add_edge("knowledge_specialist", END)
