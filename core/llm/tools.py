@@ -19,14 +19,13 @@ class ToolFactory:
         @tool
         def search_database_metadata() -> str:
             """
-            OBRIGATÓRIO: Use esta ferramenta para explorar a estrutura do banco de dados, descobrir quais tabelas existem, 
+            OBRIGATÓRIO: Use esta ferramenta para explorar a estrutura do banco de dados, descobrir quais tabelas existem,
             ler as descrições dos dados e mapear chaves estrangeiras (JOINs). Acione sempre antes de formular perguntas a dados reais
             ou responder sobre a estrutura do banco.
             """
             tables_info = []
             for t in agent_config.tables:
                 desc = getattr(t, "description", None) or "No description provided."
-                # Build column list with semantic descriptions when available
                 col_parts = []
                 for c in t.columns:
                     if isinstance(c, dict):
@@ -37,8 +36,6 @@ class ToolFactory:
                         name = getattr(c, "name", "")
                         ctype = getattr(c, "type", "")
                         cdesc = getattr(c, "description", "") or ""
-                    # Strip the "TABLE: ... COLUMN: ..." prefix stored by update_semantic_metadata
-                    # to keep just the "COLUMN MEANING:" part for brevity
                     if cdesc and "COLUMN MEANING:" in cdesc:
                         cdesc = cdesc.split("COLUMN MEANING:")[-1].strip()
                     col_entry = f"{name} ({ctype})"
@@ -51,27 +48,107 @@ class ToolFactory:
                     f"Description: {desc}\n"
                     f"Columns:\n  - {col_list}"
                 )
-            
+
             return "DATABASE SCHEMA AND METADATA:\n\n" + "\n\n".join(tables_info)
 
         return search_database_metadata
+
+    @staticmethod
+    def create_list_tables_tool(agent_config: AgentConfig):
+        """Compact catalogue — name + 1-line description, ~800 tokens for 77 tables."""
+        @tool
+        def list_tables() -> str:
+            """List all available database tables with a one-line description.
+            Call this FIRST to understand what data exists. Returns logical name,
+            physical name, and a brief description for each table.
+            Use get_table_schema(table_name) afterwards to see full column details.
+            """
+            if not agent_config.tables:
+                return "No tables available in this data space."
+            lines = ["AVAILABLE TABLES (logical → physical: description)\n"]
+            for t in agent_config.tables:
+                desc = getattr(t, "description", None) or "No description."
+                if len(desc) > 120:
+                    desc = desc[:117] + "..."
+                lines.append(f"- {t.logical_name} → {t.physical_name}: {desc}")
+            return "\n".join(lines)
+
+        return list_tables
+
+    @staticmethod
+    def create_table_schema_tool(agent_config: AgentConfig):
+        """Full column detail for a single table — called on demand."""
+        class _Input(BaseModel):
+            table_name: str = Field(
+                ...,
+                description="Logical table name as returned by list_tables(). "
+                            "Also accepts the physical name.",
+            )
+
+        @tool(args_schema=_Input)
+        def get_table_schema(table_name: str) -> str:
+            """Return the full column schema for a specific table.
+            Call list_tables() first to discover valid table names, then call
+            this for the 1-2 tables you actually want to query.
+            """
+            target = None
+            for t in agent_config.tables:
+                if t.logical_name == table_name or t.physical_name == table_name:
+                    target = t
+                    break
+
+            if target is None:
+                available = ", ".join(t.logical_name for t in agent_config.tables)
+                return (
+                    f"Table '{table_name}' not found. "
+                    f"Available logical names: {available}"
+                )
+
+            desc = getattr(target, "description", None) or "No description provided."
+            col_parts = []
+            for c in target.columns:
+                if isinstance(c, dict):
+                    name = c.get("name", "")
+                    ctype = c.get("type", "")
+                    cdesc = c.get("description", "") or ""
+                else:
+                    name = getattr(c, "name", "")
+                    ctype = getattr(c, "type", "")
+                    cdesc = getattr(c, "description", "") or ""
+                if cdesc and "COLUMN MEANING:" in cdesc:
+                    cdesc = cdesc.split("COLUMN MEANING:")[-1].strip()
+                entry = f"  - {name} ({ctype})"
+                if cdesc:
+                    entry += f": {cdesc}"
+                col_parts.append(entry)
+
+            return (
+                f"Table: {target.logical_name} | Physical: {target.physical_name}\n"
+                f"Description: {desc}\n"
+                f"Columns:\n" + "\n".join(col_parts)
+            )
+
+        return get_table_schema
 
     @staticmethod
     def create_strategy_tool(db: Session, embedding_provider: EmbeddingProvider, space_id: str, crew_ids: Optional[List[str]]):
         @tool
         def search_corporate_strategy(query: str) -> str:
             """
-            Busca informações sobre os objetivos (OKRs), metas e pilares estratégicos da empresa. 
+            Busca informações sobre os objetivos (OKRs), metas e pilares estratégicos da empresa.
             Use apenas quando a intenção do usuário envolver estratégia, negócios corporativos ou viés de longo prazo.
             """
-            records = search_embeddings(
-                db=db,
-                embedding_provider=embedding_provider,
-                space_id=space_id,
-                crew_ids=crew_ids,
-                query_text=query,
-                top_k=10
-            )
+            try:
+                records = search_embeddings(
+                    db=db,
+                    embedding_provider=embedding_provider,
+                    space_id=space_id or None,
+                    crew_ids=crew_ids,
+                    query_text=query,
+                    top_k=10
+                )
+            except Exception:
+                return "No strategic documentation found for this query."
 
             # Filtramos localmente apenas o que for do tipo business_context ou target
             strategy_contexts = []
@@ -83,8 +160,8 @@ class ToolFactory:
 
             if not strategy_contexts:
                 return "No strategic documentation found for this query."
-            
-            return "\\n\\n".join(strategy_contexts)
+
+            return "\n\n".join(strategy_contexts)
 
         return search_corporate_strategy
 
@@ -93,17 +170,20 @@ class ToolFactory:
         @tool
         def search_market_signals(query: str) -> str:
             """
-            Recupera anomalias recentes, sinais externos de mercado e eventos atípicos. 
+            Recupera anomalias recentes, sinais externos de mercado e eventos atípicos.
             Acione se a dúvida do usuário estiver ligada a flutuações, quedas repentinas, riscos ou contexto externo de mercado.
             """
-            records = search_embeddings(
-                db=db,
-                embedding_provider=embedding_provider,
-                space_id=space_id,
-                crew_ids=crew_ids,
-                query_text=query,
-                top_k=8
-            )
+            try:
+                records = search_embeddings(
+                    db=db,
+                    embedding_provider=embedding_provider,
+                    space_id=space_id or None,
+                    crew_ids=crew_ids,
+                    query_text=query,
+                    top_k=8
+                )
+            except Exception:
+                return "No market signals or events found for this query."
 
             # Filtramos localmente eventos e anomalias
             signals_contexts = []
@@ -115,8 +195,8 @@ class ToolFactory:
 
             if not signals_contexts:
                 return "No market signals or events found for this query."
-            
-            return "\\n\\n".join(signals_contexts)
+
+            return "\n\n".join(signals_contexts)
 
         return search_market_signals
 

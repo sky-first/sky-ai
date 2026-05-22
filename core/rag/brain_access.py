@@ -184,6 +184,23 @@ def sherlock_context_section(access: BrainAccess) -> str:
     )
 
 
+def agent_run_context_section(access: BrainAccess) -> str:
+    """Strategic context block used by the full-context autonomous agent.
+
+    Surfaces OKRs, goals, KPIs and market signals so the agent can
+    prioritise findings that matter to the organisation rather than
+    surfacing arbitrary facts.
+    """
+    if access.empty:
+        return ""
+    return (
+        "<contexto_organizacao>\n"
+        "OKRs, metas, KPIs e sinais relevantes para esta investigação:\n"
+        f"{access.prompt_block}\n"
+        "</contexto_organizacao>"
+    )
+
+
 def davinci_context_section(access: BrainAccess) -> str:
     """Wider intro used by the dashboard planner.
 
