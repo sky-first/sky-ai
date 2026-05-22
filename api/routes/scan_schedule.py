@@ -169,3 +169,47 @@ async def get_okr_suggestions(
         "brain_is_empty": brain_empty,
         "suggestions": suggestions,
     }
+
+
+# ─── Item 35: Dataset coverage dashboard ──────────────────────────────────────
+
+
+@router.get("/{space_id}/dataset-coverage")
+async def get_dataset_coverage(
+    space_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return per-dataset scan coverage stats for the given space.
+
+    Aggregates data from three sources in the embeddings table:
+      - scan_insight records → last_queried_at, times_queried per table
+      - depth_tracker records → combos_explored per table
+      - row_count_snapshot records → latest row count per table
+
+    Response:
+      {
+        "space_id": "...",
+        "total_datasets": N,
+        "coverage": [
+          {
+            "logical_name": "orders",
+            "last_queried_at": "2024-01-01T00:00:00+00:00" | null,
+            "times_queried": 3,
+            "combos_explored": 5,
+            "latest_row_count": 12000 | null,
+            "depth_remaining_pct": 75   // 100=pristine, 0=saturated
+          }, ...
+        ]
+      }
+    Results are ordered by recency (most recently queried first),
+    then alphabetically for datasets never queried.
+    """
+    from core.agents.coverage_report import build_coverage_report
+
+    coverage = await build_coverage_report(db, space_id)
+
+    return {
+        "space_id": space_id,
+        "total_datasets": len(coverage),
+        "coverage": coverage,
+    }

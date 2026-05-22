@@ -79,4 +79,4 @@ Status: ✅ feito | 🔄 em andamento | ⏳ pendente | 🗂 backlog
 - ✅ 32. Onboarding estratégico — agente sugere OKRs baseado nos datasets detectados quando brain está vazio
 - ✅ 33. Semantic deduplication real — embedding do insight gerado vs insights anteriores (cosine > 0.85 → suprimir)
 - ✅ 34. Depth tracker — registrar quais combinações (dimensão × métrica) já foram exploradas por dataset
-- 🗂 35. Dashboard de cobertura — UI mostrando quais datasets foram explorados, quando, e o score atual de cada um
+- ✅ 35. Dashboard de cobertura — UI mostrando quais datasets foram explorados, quando, e o score atual de cada um
