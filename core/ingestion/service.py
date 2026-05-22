@@ -250,6 +250,159 @@ async def run_metadata_embeddings(
     return created
 
 
+async def run_dataset_description_embeddings(
+    db: AsyncSession,
+    connection_id: str,
+    space_id: Optional[str] = None,
+    embedding_provider: Optional[EmbeddingProvider] = None,
+) -> int:
+    """Generate one EmbeddingRecord per table using table-level description + column names.
+
+    Reads from `connection_metadata.tables` (backend source of truth) so descriptions
+    captured by the backend UI are always picked up — even when column-level metadata
+    has no description yet.
+
+    Records are stored with extra_metadata.kind = 'dataset_description' and used by
+    DatasetPriorityScorer (item 17) for cosine OKR→dataset relevance scoring.
+
+    Safe to call repeatedly — deletes existing dataset_description records for this
+    connection+space before inserting, acting as an upsert.
+    """
+    from sqlalchemy import text as _text
+    from uuid import UUID as _UUID, uuid4
+
+    if embedding_provider is None:
+        embedding_provider = get_embedding_provider()
+
+    # Load table catalog from connection_metadata (source of truth)
+    try:
+        result = await db.execute(
+            _text(
+                "SELECT tables FROM connection_metadata "
+                "WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+            ),
+            {"cid": connection_id},
+        )
+        tables_json = result.scalar_one_or_none()
+    except Exception as exc:
+        log_event("dataset_description_embed_load_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        return 0
+
+    if not tables_json or not isinstance(tables_json, list):
+        return 0
+
+    space_uuid: Optional[_UUID] = None
+    if space_id:
+        try:
+            space_uuid = _UUID(space_id)
+        except Exception:
+            pass
+
+    # Delete stale dataset_description embeddings for this connection+space
+    try:
+        if space_uuid:
+            await db.execute(
+                _text(
+                    "DELETE FROM embeddings "
+                    "WHERE space_id = CAST(:sid AS uuid) "
+                    "AND metadata->>'kind' = 'dataset_description' "
+                    "AND metadata->>'data_connection_id' = :cid"
+                ),
+                {"sid": str(space_uuid), "cid": connection_id},
+            )
+        else:
+            await db.execute(
+                _text(
+                    "DELETE FROM embeddings "
+                    "WHERE space_id IS NULL "
+                    "AND metadata->>'kind' = 'dataset_description' "
+                    "AND metadata->>'data_connection_id' = :cid"
+                ),
+                {"cid": connection_id},
+            )
+    except Exception as exc:
+        log_event("dataset_description_embed_delete_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return 0
+
+    # Build one text blob per table
+    items = []
+    for table in tables_json:
+        if not isinstance(table, dict):
+            continue
+        table_name = table.get("name") or table.get("table_name")
+        if not table_name:
+            continue
+        schema = table.get("schema") or ""
+        logical_name = f"{schema}.{table_name}" if schema else table_name
+        description = table.get("description") or table.get("desc") or ""
+        columns = table.get("columns") or []
+        col_names = [
+            (c.get("name") if isinstance(c, dict) else str(c))
+            for c in columns
+            if c
+        ]
+
+        text_parts = [f"Dataset: {logical_name}"]
+        if description:
+            text_parts.append(f"Description: {description}")
+        if col_names:
+            text_parts.append(f"Columns: {', '.join(col_names[:30])}")
+        text = " | ".join(text_parts)
+
+        items.append({
+            "logical_name": logical_name,
+            "table_name": table_name,
+            "text": text,
+        })
+
+    if not items:
+        return 0
+
+    # Embed all texts in one call
+    try:
+        vectors = await embedding_provider.embed_async([item["text"] for item in items])
+    except Exception as exc:
+        log_event("dataset_description_embed_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        return 0
+
+    created = 0
+    for item, vec in zip(items, vectors):
+        db.add(EmbeddingRecord(
+            id=uuid4(),
+            space_id=space_uuid,
+            user_id=None,
+            crew_id=None,
+            table_metadata_id=None,
+            embedding=vec,
+            text=item["text"],
+            extra_metadata={
+                "kind": "dataset_description",
+                "data_connection_id": connection_id,
+                "table_name": item["table_name"],
+                "logical_name": item["logical_name"],
+            },
+        ))
+        created += 1
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        log_event("dataset_description_embed_commit_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        return 0
+
+    log_event("dataset_description_embeddings_created", {
+        "connection_id": connection_id,
+        "space_id": space_id,
+        "created": created,
+    })
+    return created
+
+
 async def run_full_refresh_for_connection(
     db: AsyncSession,
     connection_id: str,
@@ -279,9 +432,17 @@ async def run_full_refresh_for_connection(
         embedding_provider=embedding_provider,
     )
 
+    dataset_emb = await run_dataset_description_embeddings(
+        db=db,
+        connection_id=connection_id,
+        space_id=space_id,
+        embedding_provider=embedding_provider,
+    )
+
     summary = {
         "metadata_rows_inserted": inserted,
         "embeddings_created": created,
+        "dataset_embeddings_created": dataset_emb,
     }
 
     log_event(

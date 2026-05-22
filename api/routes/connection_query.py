@@ -383,6 +383,66 @@ def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
         )
 
 
+async def _build_merged_agent_config_for_scan(
+    db: AsyncSession,
+    dispatch_map: dict,
+    space_ids: List[str],
+    crew_ids: Optional[List[str]],
+    base_config: "AgentConfig",
+) -> "AgentConfig":
+    """Merge TableSchema objects from all connections in dispatch_map into one AgentConfig.
+
+    Each TableSchema retains data_connection_id so full_context_agent can route
+    query_table() calls to the right database via _find_datasource_for_sql.
+    Only used for personal mode scan, where the user has access to all their connections.
+    Falls back to base_config on any error.
+    """
+    if not dispatch_map:
+        return base_config
+
+    merged_tables: list[TableSchema] = []
+    seen_physicals: set = set()
+
+    for conn_id in dispatch_map:
+        try:
+            cfg = await load_agent_config_from_connection(
+                db=db,
+                space_id=space_ids[0] if space_ids else "",
+                connection_id=conn_id,
+                crew_ids=crew_ids or None,
+                authorized_tables=None,
+                connection_ids=None,
+                space_ids=space_ids or None,
+            )
+            for t in cfg.tables:
+                if t.physical_name not in seen_physicals:
+                    seen_physicals.add(t.physical_name)
+                    t.data_connection_id = conn_id
+                    merged_tables.append(t)
+        except Exception as _exc:
+            logger.warning(
+                "_build_merged_agent_config_for_scan: skipping connection %s: %s",
+                conn_id, _exc,
+            )
+
+    if not merged_tables:
+        return base_config
+
+    log_event("scan_merged_agent_config_built", {
+        "space_ids": space_ids,
+        "num_connections": len(dispatch_map),
+        "num_tables": len(merged_tables),
+    })
+
+    return AgentConfig(
+        id=base_config.id,
+        name=base_config.name,
+        tables=merged_tables,
+        dialect=base_config.dialect,
+        extra=base_config.extra,
+    )
+
+
 async def _build_dispatch_map_for_scan(
     db: AsyncSession,
     space_ids: List[str],
@@ -3734,6 +3794,106 @@ async def _query_connection_inner(
             except Exception as _exc:
                 logger.warning("Failed to build scan dispatch_map: %s", _exc)
 
+        # Personal mode: merge tables from ALL connections so the agent sees
+        # the full data landscape, not just the primary connection's tables.
+        if dispatch_map and getattr(body, "is_personal", False):
+            try:
+                agent_config = await _build_merged_agent_config_for_scan(
+                    db=db,
+                    dispatch_map=dispatch_map,
+                    space_ids=_scan_space_ids,
+                    crew_ids=crew_ids if crew_ids else None,
+                    base_config=agent_config,
+                )
+                log_event("scan_merged_agent_config_applied", {
+                    "connection_id": connection_id,
+                    "num_tables": len(agent_config.tables),
+                })
+            except Exception as _exc:
+                logger.warning("Failed to build merged agent config for scan: %s", _exc)
+
+    # DatasetPriorityScorer: rank all tables and keep top-K most valuable ones
+    # before handing the config to the agent (roadmap items 13-14).
+    # Every CROSS_DATASET_EVERY_N runs, use cross_dataset_rank() to force
+    # one table per connection and explore cross-source correlations (item 15).
+    _is_cross_dataset_run = False
+    if getattr(body, "agent_mode", None) == "scan" and agent_config.tables:
+        try:
+            from core.agents.dataset_priority_scorer import (
+                CROSS_DATASET_EVERY_N,
+                DatasetPriorityScorer,
+                load_insights_for_scorer,
+                load_okr_embeddings_for_scorer,
+                load_dataset_embeddings_for_scorer,
+            )
+            from core.agents.scan_briefing import count_scan_insights
+
+            _raw_insights = await load_insights_for_scorer(db, body.space_id)
+            _run_count = await count_scan_insights(db, body.space_id)
+            _is_cross_dataset_run = (
+                _run_count > 0 and (_run_count % CROSS_DATASET_EVERY_N == 0)
+            )
+
+            # Items 17-18: load embeddings for cosine relevance scoring
+            _okr_vectors = await load_okr_embeddings_for_scorer(db, body.space_id)
+            _dataset_embeddings = await load_dataset_embeddings_for_scorer(db, body.space_id)
+            _using_cosine = bool(_okr_vectors and _dataset_embeddings)
+
+            _scorer = DatasetPriorityScorer(
+                brain_context="",
+                top_k=5,
+                okr_vectors=_okr_vectors,
+                dataset_embeddings=_dataset_embeddings,
+            )
+            if _is_cross_dataset_run:
+                _top_tables = _scorer.cross_dataset_rank(agent_config.tables, _raw_insights)
+            else:
+                _top_tables = _scorer.rank(agent_config.tables, _raw_insights)
+
+            if _top_tables:
+                _breakdown = _scorer.score_breakdown(agent_config.tables, _raw_insights)
+                logger.debug(
+                    "DatasetPriorityScorer breakdown:\n%s",
+                    "\n".join(f"  {s}" for s in _breakdown),
+                )
+                log_event("scan_dataset_priority_applied", {
+                    "space_id": body.space_id,
+                    "total_tables": len(agent_config.tables),
+                    "top_k_tables": [t.logical_name for t in _top_tables],
+                    "num_insights": len(_raw_insights),
+                    "run_count": _run_count,
+                    "is_cross_dataset_run": _is_cross_dataset_run,
+                    "using_cosine_relevance": _using_cosine,
+                    "num_okr_vectors": len(_okr_vectors),
+                    "num_dataset_embeddings": len(_dataset_embeddings),
+                })
+                agent_config = AgentConfig(
+                    id=agent_config.id,
+                    name=agent_config.name,
+                    tables=_top_tables,
+                    dialect=agent_config.dialect,
+                    extra=agent_config.extra,
+                )
+        except Exception as _exc:
+            logger.warning("DatasetPriorityScorer failed, using all tables: %s", _exc)
+
+    # Build scan briefing (direction for the proactive agent)
+    scan_briefing = ""
+    if getattr(body, "agent_mode", None) == "scan":
+        try:
+            from core.agents.scan_briefing import prepare_scan_briefing
+            scan_briefing = await prepare_scan_briefing(
+                db=db,
+                space_id=body.space_id,
+                user_id=getattr(body, "user_id", None),
+                llm=create_llm_orchestrator(creativity=10, length=10),
+                brain_context="",  # brain_context fetched inside agent; empty here is fine
+                table_count=len(agent_config.tables),
+                is_cross_dataset=_is_cross_dataset_run,
+            )
+        except Exception as _exc:
+            logger.warning("Failed to build scan briefing: %s", _exc)
+
     # LLMs usando factory centralizado
     try:
         llm_orchestrator = create_llm_orchestrator()
@@ -3887,6 +4047,7 @@ async def _query_connection_inner(
             explicit_relationships=explicit_relationships or None,
             agent_mode=getattr(body, "agent_mode", None),
             dispatch_map=dispatch_map,
+            briefing=scan_briefing,
         )
     except Exception as e:
         import traceback
@@ -3962,6 +4123,23 @@ async def _query_connection_inner(
                 await db.rollback()
             except Exception:
                 pass
+
+    # Persist scan insight for future deduplication
+    if getattr(body, "agent_mode", None) == "scan" and final_state.get("answer"):
+        try:
+            from core.agents.scan_briefing import save_scan_insight
+            _insight_text = final_state.get("answer", "")
+            _title = _insight_text[:80].split("\n")[0].strip("# ").strip()
+            await save_scan_insight(
+                db=db,
+                space_id=body.space_id,
+                user_id=getattr(body, "user_id", None),
+                text_content=_insight_text,
+                title=_title,
+                tables_queried=final_state.get("tables_queried") or [],
+            )
+        except Exception as _exc:
+            logger.warning("Failed to save scan insight: %s", _exc)
 
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
