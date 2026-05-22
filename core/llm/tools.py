@@ -54,23 +54,53 @@ class ToolFactory:
         return search_database_metadata
 
     @staticmethod
-    def create_list_tables_tool(agent_config: AgentConfig):
-        """Compact catalogue — name + 1-line description, ~800 tokens for 77 tables."""
+    def create_list_tables_tool(
+        agent_config: AgentConfig,
+        connection_labels: Optional[dict] = None,
+    ):
+        """Compact catalogue — name + 1-line description, ~800 tokens for 77 tables.
+
+        connection_labels: {connection_id: "label"} — when provided, tables are
+        grouped by data source so the agent knows which DB to query.
+        """
         @tool
         def list_tables() -> str:
             """List all available database tables with a one-line description.
             Call this FIRST to understand what data exists. Returns logical name,
             physical name, and a brief description for each table.
+            Tables are grouped by data source when multiple connections are available.
             Use get_table_schema(table_name) afterwards to see full column details.
             """
             if not agent_config.tables:
                 return "No tables available in this data space."
-            lines = ["AVAILABLE TABLES (logical → physical: description)\n"]
-            for t in agent_config.tables:
-                desc = getattr(t, "description", None) or "No description."
-                if len(desc) > 120:
-                    desc = desc[:117] + "..."
-                lines.append(f"- {t.logical_name} → {t.physical_name}: {desc}")
+
+            labels = connection_labels or {}
+
+            # Group tables by connection_id when labels are provided
+            if labels:
+                from collections import defaultdict
+                groups: dict = defaultdict(list)
+                for t in agent_config.tables:
+                    conn_id = str(getattr(t, "data_connection_id", "") or "")
+                    groups[conn_id].append(t)
+
+                lines = ["AVAILABLE TABLES (grouped by data source)\n"]
+                for conn_id, tables in groups.items():
+                    label = labels.get(conn_id, f"source:{conn_id[:8]}")
+                    lines.append(f"\n[{label}]")
+                    for t in tables:
+                        desc = getattr(t, "description", None) or "No description."
+                        if len(desc) > 100:
+                            desc = desc[:97] + "..."
+                        lines.append(f"  - {t.logical_name} → {t.physical_name}: {desc}")
+            else:
+                lines = ["AVAILABLE TABLES (logical → physical: description)\n"]
+                for t in agent_config.tables:
+                    desc = getattr(t, "description", None) or "No description."
+                    if len(desc) > 120:
+                        desc = desc[:117] + "..."
+                    lines.append(f"- {t.logical_name} → {t.physical_name}: {desc}")
+
             return "\n".join(lines)
 
         return list_tables

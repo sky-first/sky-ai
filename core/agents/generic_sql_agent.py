@@ -190,6 +190,7 @@ def build_generic_sql_graph(
     llm_formatter: LLMProvider,
     checkpointer: Optional[Any] = None,
     backend_client: Optional[Any] = None,
+    dispatch_map: Optional[dict] = None,
 ):
     """
     Sistema de Query - Executor de Perguntas
@@ -734,6 +735,7 @@ def build_generic_sql_graph(
                 db=db,
                 embedding_provider=embedding_provider,
                 data_source=data_source,
+                dispatch_map=dispatch_map,
             )
         finally:
             db.close()
@@ -1168,6 +1170,7 @@ def run_agent_once(
     chat_history: Optional[List[Dict[str, str]]] = None,
     explicit_relationships: Optional[List[Dict[str, str]]] = None,
     agent_mode: Optional[str] = None,
+    dispatch_map: Optional[dict] = None,
 ) -> AgentState:
     """
     Função de alto nível:
@@ -1251,6 +1254,7 @@ def run_agent_once(
             llm_formatter=llm_formatter,
             checkpointer=checkpointer,
             backend_client=_backend_client,
+            dispatch_map=dispatch_map,
         )
 
         final_state: AgentState = app.invoke(

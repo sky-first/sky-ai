@@ -226,13 +226,31 @@ def _build_system_prompt(brain_context: str) -> str:
 
 # ─── Main entry point ─────────────────────────────────────────────────────
 
+def _find_datasource_for_sql(
+    sql: str,
+    agent_config: AgentConfig,
+    dispatch_map: dict,
+) -> Any:
+    """Pick the right DataSource from dispatch_map by matching physical table names in SQL."""
+    sql_upper = sql.upper()
+    for table in agent_config.tables:
+        phys = (table.physical_name or "").upper()
+        if phys and phys in sql_upper:
+            conn_id = str(getattr(table, "data_connection_id", "") or "")
+            if conn_id in dispatch_map:
+                return dispatch_map[conn_id]
+    # fallback: first source in map
+    return next(iter(dispatch_map.values()), None)
+
+
 def run_full_context_agent(
     state: AgentState,
     agent_config: AgentConfig,
     llm: Any,
     db: Session,
     embedding_provider: EmbeddingProvider,
-    data_source: BaseDataSource,
+    data_source: Optional[BaseDataSource] = None,
+    dispatch_map: Optional[dict] = None,
 ) -> AgentState:
     """Execute one full-context investigation cycle.
 
@@ -265,9 +283,41 @@ def run_full_context_agent(
         )
         return state
 
+    # ── Build effective dispatch map ──────────────────────────────────────
+    # dispatch_map: {connection_id → DataSource}
+    # Allows query_table to route SQL to the right database.
+    # Backward compat: if only data_source is passed, wrap it in a map.
+    if dispatch_map:
+        _dispatch = {str(k): v for k, v in dispatch_map.items()}
+    elif data_source is not None:
+        _dispatch = {"__default__": data_source}
+    else:
+        _dispatch = {}
+
+    def _active_source(sql: str) -> Any:
+        if not _dispatch:
+            return None
+        if len(_dispatch) == 1:
+            return next(iter(_dispatch.values()))
+        return _find_datasource_for_sql(sql, agent_config, _dispatch)
+
+    log_event("full_context_agent_dispatch", {
+        "agent_id": agent_id,
+        "num_sources": len(_dispatch),
+        "connection_ids": [k for k in _dispatch if k != "__default__"],
+    })
+
     # ── Build tools ───────────────────────────────────────────────────────
 
-    list_tables_tool = ToolFactory.create_list_tables_tool(agent_config)
+    # Build connection labels for list_tables grouping (only when multi-source)
+    _connection_labels: Optional[dict] = None
+    if dispatch_map and len(dispatch_map) > 1:
+        _connection_labels = {
+            str(k): getattr(v, "label", None) or str(k)[:16]
+            for k, v in dispatch_map.items()
+        }
+
+    list_tables_tool = ToolFactory.create_list_tables_tool(agent_config, _connection_labels)
     get_schema_tool = ToolFactory.create_table_schema_tool(agent_config)
     strategy_tool = ToolFactory.create_strategy_tool(db, embedding_provider, space_id, crew_ids)
     signals_tool = ToolFactory.create_signals_tool(db, embedding_provider, space_id, crew_ids)
@@ -287,32 +337,31 @@ def run_full_context_agent(
         """
         if not _is_safe_sql(sql):
             return "ERROR: Only SELECT statements are permitted."
-        try:
-            rows = data_source.run_query(sql)
+
+        source = _active_source(sql)
+        if source is None:
+            return "ERROR: No data source available."
+
+        def _run_and_format(s: Any, q: str) -> str:
+            rows = s.run_query(q)
             if not rows:
                 return "Query returned 0 rows."
             rows = rows[:MAX_SQL_ROWS]
-            lines = [" | ".join(str(v) for v in row.values()) for row in rows[:5]]
             header = " | ".join(rows[0].keys())
+            lines = [" | ".join(str(v) for v in row.values()) for row in rows[:5]]
             preview = "\n".join([header, "---"] + lines)
             suffix = f"\n... ({len(rows)} rows total)" if len(rows) > 5 else ""
             return preview + suffix
+
+        try:
+            return _run_and_format(source, sql)
         except Exception as exc:
             err_str = str(exc)
-            # Auto-resolve unqualified table names when "relation does not exist"
             if "does not exist" in err_str:
-                resolved = _resolve_schema_qualified_sql(sql, data_source)
+                resolved = _resolve_schema_qualified_sql(sql, source)
                 if resolved and resolved != sql:
                     try:
-                        rows = data_source.run_query(resolved)
-                        if not rows:
-                            return "Query returned 0 rows."
-                        rows = rows[:MAX_SQL_ROWS]
-                        lines = [" | ".join(str(v) for v in row.values()) for row in rows[:5]]
-                        header = " | ".join(rows[0].keys())
-                        preview = "\n".join([header, "---"] + lines)
-                        suffix = f"\n... ({len(rows)} rows total)" if len(rows) > 5 else ""
-                        return preview + suffix
+                        return _run_and_format(source, resolved)
                     except Exception as exc2:
                         logger.warning("query_table resolved retry failed: %s", exc2)
                         return f"Query failed: {exc2}"

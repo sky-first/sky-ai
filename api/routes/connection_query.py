@@ -383,6 +383,78 @@ def _set_cached_dashboard_plan(cache_key: str, response: DashboardPlanResponse):
         )
 
 
+async def _build_dispatch_map_for_scan(
+    db: AsyncSession,
+    space_ids: List[str],
+) -> dict:
+    """Build {connection_id: DataSource} for all connections in the given spaces.
+
+    Used by the full_context_agent in scan mode so it can route query_table()
+    calls to the right database when the user has multiple connections.
+    Returns an empty dict on failure (agent falls back to single data_source).
+    """
+    from core.data_sources.factory import DataSourceFactory
+    from core.security.config_decryption import decrypt_config as _decrypt
+
+    if not space_ids:
+        return {}
+
+    try:
+        rows = await db.execute(
+            text(
+                """
+                SELECT dc.id, dc.name, dc.connector_id, dc.config
+                FROM data_connections dc
+                WHERE dc.id IN (
+                    SELECT DISTINCT sc.connection_id
+                    FROM space_connections sc
+                    WHERE sc.space_id = ANY(CAST(:space_ids AS uuid[]))
+                )
+                """
+            ),
+            {"space_ids": space_ids},
+        )
+    except Exception as exc:
+        logger.warning("_build_dispatch_map_for_scan: query failed: %s", exc)
+        return {}
+
+    class _TempConn:
+        def __init__(self, id, name, type, config):
+            self.id = id
+            self.name = name
+            self.type = type
+            self.config = config
+
+    dispatch_map: dict = {}
+    for row in rows.fetchall():
+        conn_id = str(row[0])
+        name = row[1] or conn_id
+        conn_type = (row[2] or "postgres").lower()
+        raw_config = row[3]
+        try:
+            if isinstance(raw_config, str):
+                raw_config = json.loads(raw_config)
+            config = _decrypt(raw_config or {})
+            ds = DataSourceFactory.build_from_dataconnection(
+                _TempConn(conn_id, name, conn_type, config)
+            )
+            # Attach label so list_tables can show a human-readable source name
+            ds.label = f"{name} ({conn_type})"
+            dispatch_map[conn_id] = ds
+        except Exception as exc:
+            logger.warning(
+                "_build_dispatch_map_for_scan: skipping connection %s (%s): %s",
+                conn_id, name, exc,
+            )
+
+    log_event("scan_dispatch_map_built", {
+        "space_ids": space_ids,
+        "num_connections": len(dispatch_map),
+        "connection_ids": list(dispatch_map.keys()),
+    })
+    return dispatch_map
+
+
 async def _load_connection_metadata_tables(
     db: AsyncSession, connection_id: str
 ) -> list[dict]:
@@ -3649,6 +3721,19 @@ async def _query_connection_inner(
         error_detail = f"Erro ao criar DataSource: {str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=error_detail)
 
+    # For scan mode: build multi-source dispatch_map so the full_context_agent
+    # can query any of the user's connections, not just the primary one.
+    dispatch_map: Optional[dict] = None
+    if getattr(body, "agent_mode", None) == "scan":
+        _scan_space_ids = getattr(body, "space_ids", None) or (
+            [body.space_id] if body.space_id else []
+        )
+        if _scan_space_ids:
+            try:
+                dispatch_map = await _build_dispatch_map_for_scan(db, _scan_space_ids)
+            except Exception as _exc:
+                logger.warning("Failed to build scan dispatch_map: %s", _exc)
+
     # LLMs usando factory centralizado
     try:
         llm_orchestrator = create_llm_orchestrator()
@@ -3801,6 +3886,7 @@ async def _query_connection_inner(
             selected_datasets=body.selected_datasets,
             explicit_relationships=explicit_relationships or None,
             agent_mode=getattr(body, "agent_mode", None),
+            dispatch_map=dispatch_map,
         )
     except Exception as e:
         import traceback
