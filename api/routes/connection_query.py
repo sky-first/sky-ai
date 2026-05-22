@@ -4198,21 +4198,32 @@ async def _query_connection_inner(
             except Exception as _exc:
                 logger.warning("Failed to save scan insight: %s", _exc)
 
-        # Item 34: record explored (dimension × metric) combos for depth tracking
+        # Item 34: record explored (dimension × metric) combos for depth tracking.
         # Runs regardless of whether the insight was saved or marked silent.
+        # For regular queries: uses final_state["sql"] (LangGraph specialist node).
+        # For scan mode (full_context_agent): uses final_state["executed_sqls"]
+        # — a list of every SQL run by query_table during the ReAct loop.
         try:
             from core.agents.depth_tracker import extract_explored_combos, record_depth_combos
-            _scan_sql = final_state.get("sql") or ""
             _scan_tables = final_state.get("tables_queried") or []
-            if _scan_sql and _scan_tables:
-                _combos = extract_explored_combos(_scan_sql)
-                if _combos:
+            _sqls_to_track: list = []
+            _single_sql = final_state.get("sql") or ""
+            if _single_sql:
+                _sqls_to_track = [_single_sql]
+            else:
+                _sqls_to_track = final_state.get("executed_sqls") or []
+
+            if _sqls_to_track and _scan_tables:
+                _all_combos: set = set()
+                for _s in _sqls_to_track:
+                    _all_combos |= extract_explored_combos(_s)
+                if _all_combos:
                     for _tbl in _scan_tables:
                         await record_depth_combos(
                             db=db,
                             space_id=body.space_id,
                             table_name=_tbl,
-                            combos=_combos,
+                            combos=_all_combos,
                         )
         except Exception as _depth_exc:
             logger.debug("depth_tracker record failed (non-critical): %s", _depth_exc)

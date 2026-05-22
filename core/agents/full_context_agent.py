@@ -323,6 +323,11 @@ def run_full_context_agent(
     # parsing message objects after the fact.
     _queried_logical_names: list[str] = []
 
+    # Accumulates every SQL string executed successfully — used by the
+    # depth tracker in connection_query.py to record (dim × metric) combos
+    # without needing async DB access inside this sync tool.
+    _sql_executions: list[str] = []
+
     # Build connection labels for list_tables grouping (only when multi-source)
     _connection_labels: Optional[dict] = None
     if dispatch_map and len(dispatch_map) > 1:
@@ -379,6 +384,8 @@ def run_full_context_agent(
                 if phys and (phys in sql_upper or (phys_bare and phys_bare in sql_upper)):
                     if table.logical_name not in _queried_logical_names:
                         _queried_logical_names.append(table.logical_name)
+            # Accumulate for depth tracker (item 34 — async flush happens in caller)
+            _sql_executions.append(sql)
             return result_str
         except Exception as exc:
             err_str = str(exc)
@@ -393,6 +400,7 @@ def run_full_context_agent(
                             if phys and phys in sql_upper:
                                 if table.logical_name not in _queried_logical_names:
                                     _queried_logical_names.append(table.logical_name)
+                        _sql_executions.append(resolved)
                         return result_str
                     except Exception as exc2:
                         logger.warning("query_table resolved retry failed: %s", exc2)
@@ -437,8 +445,9 @@ def run_full_context_agent(
             if hasattr(m, "type") and getattr(m, "type", "") == "tool"
         )
 
-        # tables_queried was populated in real-time inside query_table
+        # tables_queried and executed_sqls were populated inside query_table
         tables_queried = list(_queried_logical_names)
+        executed_sqls = list(_sql_executions)
 
         log_event("full_context_agent_done", {
             "agent_id": agent_id,
@@ -457,9 +466,11 @@ def run_full_context_agent(
         )
         return state
 
-    # Always persist tables_queried so the scorer can update staleness
-    # even when the agent returns SILENT (no insight worth surfacing).
+    # Always persist tables_queried and executed_sqls so downstream
+    # components (staleness scorer, depth tracker) can consume them
+    # even when the agent returns SILENT.
     state["tables_queried"] = tables_queried
+    state["executed_sqls"] = executed_sqls
 
     # ── Silent mode — agent found nothing worth surfacing ─────────────────
     if re.search(r"\bSILENT\b", answer, re.IGNORECASE):
