@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,17 +83,17 @@ async def get_scan_schedule_route(
     )
 
 
-@router.delete("/{space_id}/scan-schedule", status_code=204)
+@router.delete("/{space_id}/scan-schedule", status_code=204, response_class=Response)
 async def disable_scan_schedule(
     space_id: str,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """Disable scheduled scans for a space (keeps config, sets enabled=False)."""
     from core.agents.scan_schedule import get_scan_schedule, set_scan_schedule as _set
 
     config = await get_scan_schedule(db, space_id)
     if not config:
-        return  # nothing to disable
+        return Response(status_code=204)
 
     try:
         await _set(
@@ -104,6 +104,7 @@ async def disable_scan_schedule(
         )
     except ValueError:
         pass  # existing config has valid interval — this won't fail
+    return Response(status_code=204)
 
 
 @router.post("/{space_id}/scan-schedule/trigger", status_code=202)
