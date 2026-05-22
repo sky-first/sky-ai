@@ -1,4 +1,5 @@
 # api/routes/knowledge_graph.py
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -14,6 +15,20 @@ from core.rag.embeddings import build_strategy_text, build_signal_text
 
 router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"])
 logger = logging.getLogger(__name__)
+
+# Entity types that represent strategic OKR/brain context relevant to the scorer.
+# Excludes enterprise_graph_node (relationship edges) and signal_event (operational logs).
+_OKR_ENTITY_TYPES = {
+    "pillar", "okr", "kpi", "metric",
+    "strategy_okr", "strategy_kpi", "strategy_pillar", "strategy_goal",
+    "strategic_objective",
+}
+
+
+def _is_okr_relevant(entity_type: str) -> bool:
+    if entity_type in _OKR_ENTITY_TYPES:
+        return True
+    return entity_type.startswith("strategy_") or entity_type.startswith("strategic_")
 
 
 class SourceEntity(BaseModel):
@@ -129,6 +144,20 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
 
         await db.commit()
         logger.info(f"Knowledge Graph Node {payload.id} safely ingested and vectorized.")
+
+        # Item 19: when a strategic OKR/brain doc is saved, regenerate dataset_description
+        # embeddings for all connections in the space so the cosine scorer stays fresh.
+        if payload.space_id and _is_okr_relevant(payload.entity_type):
+            from core.ingestion.service import refresh_dataset_embeddings_for_space
+            asyncio.create_task(
+                refresh_dataset_embeddings_for_space(payload.space_id),
+                name=f"refresh_dataset_emb_{payload.space_id[:8]}",
+            )
+            logger.debug(
+                "Scheduled dataset embedding refresh for space %s after OKR ingest (%s)",
+                payload.space_id,
+                payload.entity_type,
+            )
 
     except Exception as e:
         await db.rollback()

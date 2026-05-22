@@ -38,7 +38,7 @@ Status: ✅ feito | 🔄 em andamento | ⏳ pendente | 🗂 backlog
 - ✅ 16. Gerar embeddings para `description` de cada dataset — `run_dataset_description_embeddings` em `service.py`, 1 EmbeddingRecord por tabela com `kind=dataset_description`, hookado no `/discover`
 - ✅ 17. Loaders `load_okr_embeddings_for_scorer` e `load_dataset_embeddings_for_scorer` — buscam vetores do Postgres para uso no scorer
 - ✅ 18. `_strategic_relevance_score` substituído por cosine similarity real — max(sim(dataset_vec, okr_vecs)); fallback para keyword quando embeddings não existem ainda
-- ⏳ 19. Auto-recalcular scores quando novo OKR/KPI é adicionado ao brain
+- ✅ 19. Hook em `/knowledge-graph/ingest` — quando OKR/brain doc é salvo, dispara `refresh_dataset_embeddings_for_space` como asyncio.create_task (fire-and-forget), garantindo que o caminho cosine esteja sempre pronto após mudança estratégica
 
 ---
 

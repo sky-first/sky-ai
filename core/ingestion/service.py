@@ -1,10 +1,13 @@
 # core/ingestion/service.py
 from __future__ import annotations
 
+import logging
 from typing import Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text as _text
+
+logger = logging.getLogger(__name__)
 
 from db.models import DataConnection, EmbeddingRecord, Space, TableMetadata
 from core.ingestion.db_metadata import ingest_metadata_for_connection
@@ -455,3 +458,56 @@ async def run_full_refresh_for_connection(
         },
     )
     return summary
+
+
+async def refresh_dataset_embeddings_for_space(space_id: str) -> int:
+    """Regenerate dataset_description embeddings for every connection in a space.
+
+    Creates its own DB session so it can be launched as a fire-and-forget
+    asyncio task (e.g. after a new OKR/KPI is added to the brain — item 19).
+
+    Returns the total number of EmbeddingRecords created across all connections.
+    """
+    from db.session import AsyncSessionLocal
+
+    embedding_provider = get_embedding_provider()
+    total_created = 0
+
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                _text(
+                    "SELECT connection_id FROM space_connections "
+                    "WHERE space_id = CAST(:sid AS uuid)"
+                ),
+                {"sid": space_id},
+            )
+            connection_ids = [str(row[0]) for row in result.fetchall()]
+
+        if not connection_ids:
+            logger.debug(
+                "refresh_dataset_embeddings_for_space: no connections for space %s", space_id
+            )
+            return 0
+
+        for conn_id in connection_ids:
+            async with AsyncSessionLocal() as db:
+                created = await run_dataset_description_embeddings(
+                    db=db,
+                    connection_id=conn_id,
+                    space_id=space_id,
+                    embedding_provider=embedding_provider,
+                )
+                total_created += created
+
+        log_event("dataset_embeddings_refreshed_on_okr_change", {
+            "space_id": space_id,
+            "connections_refreshed": len(connection_ids),
+            "total_embeddings_created": total_created,
+        })
+    except Exception as exc:
+        logger.warning(
+            "refresh_dataset_embeddings_for_space failed for space %s: %s", space_id, exc
+        )
+
+    return total_created
