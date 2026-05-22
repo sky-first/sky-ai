@@ -2443,6 +2443,7 @@ async def load_agent_config_from_connection(
     crew_ids: Optional[List[str]] = None,
     authorized_tables: Optional[List[str]] = None,
     connection_ids: Optional[List[str]] = None,
+    space_ids: Optional[List[str]] = None,
 ) -> AgentConfig:
     """
     Carrega TableMetadata e monta AgentConfig automaticamente para uma conexão.
@@ -2527,18 +2528,35 @@ async def load_agent_config_from_connection(
             # This allows users to add semantic descriptions to tables/columns via UI
             # and have the AI use them for better table selection.
             try:
-                desc_result = await db.execute(
-                    text(
-                        """
-                        SELECT table_name, column_name, description
-                        FROM table_metadata
-                        WHERE data_connection_id = :conn_id
-                          AND (space_id = :space_id OR space_id IS NULL)
-                          AND description IS NOT NULL
-                    """
-                    ),
-                    {"conn_id": connection_id, "space_id": space_id},
-                )
+                # Em modo personal space_ids contém todos os spaces do utilizador;
+                # em modo collaborative usa apenas space_id (singular).
+                _eff_space_ids = space_ids if space_ids else ([space_id] if space_id else [])
+                if _eff_space_ids:
+                    desc_result = await db.execute(
+                        text(
+                            """
+                            SELECT table_name, column_name, description
+                            FROM table_metadata
+                            WHERE data_connection_id = :conn_id
+                              AND (space_id = ANY(CAST(:space_ids AS uuid[])) OR space_id IS NULL)
+                              AND description IS NOT NULL
+                            """
+                        ),
+                        {"conn_id": connection_id, "space_ids": _eff_space_ids},
+                    )
+                else:
+                    desc_result = await db.execute(
+                        text(
+                            """
+                            SELECT table_name, column_name, description
+                            FROM table_metadata
+                            WHERE data_connection_id = :conn_id
+                              AND space_id IS NULL
+                              AND description IS NOT NULL
+                            """
+                        ),
+                        {"conn_id": connection_id},
+                    )
                 desc_rows = desc_result.fetchall()
                 if desc_rows:
                     # Build lookup: { table_name -> { col_name -> description, "_table_" -> description } }
@@ -3493,6 +3511,7 @@ async def _query_connection_inner(
             crew_ids=crew_ids if crew_ids else None,
             authorized_tables=body.authorized_tables,
             connection_ids=body.connection_ids or None,
+            space_ids=getattr(body, "space_ids", None) or None,
         )
 
         log_event(
@@ -4424,6 +4443,7 @@ async def _stream_connection_query(
                 crew_ids=crew_ids if crew_ids else None,
                 authorized_tables=body.authorized_tables,
                 connection_ids=body.connection_ids or None,
+                space_ids=getattr(body, "space_ids", None) or None,
             )
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

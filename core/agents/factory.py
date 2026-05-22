@@ -91,15 +91,17 @@ def build_agent_config_for_user_space(
     agent_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     dialect: Dialect = Dialect.POSTGRES,
+    space_ids: Optional[List[str]] = None,
 ) -> AgentConfig:
     """
     Constrói um AgentConfig a partir de TableMetadata, respeitando:
-      - space_id
+      - space_id  (modo collaborative — um único space)
+      - space_ids (modo personal — todos os spaces do utilizador; sobrepõe-se a space_id)
       - crew_ids do usuário (permissões)
       - opcionalmente data_connection_id (se houver mais de uma conexão por Space)
 
     Fluxo:
-      1. Busca TableMetadata do space_id (+ connection opcional)
+      1. Busca TableMetadata do(s) space_id(s) (+ connection opcional)
       2. Filtra por permissão: crew_id IN user_ctx.crew_ids OR crew_id IS NULL
       3. Agrupa por (table_name, data_connection_id)
       4. Monta TableSchema para cada grupo
@@ -107,17 +109,20 @@ def build_agent_config_for_user_space(
     """
     user_crew_ids: List[str] = getattr(user_ctx, "crew_ids", []) or []
 
-    # space_id IS NULL → "shared/global" metadata seeded for connections
-    # that every Space sharing the connection should see (e.g. the public
-    # demo dataset). The RAG retrieval at vector_store._build_embedding_base_query
-    # already does this OR-NULL match — without mirroring it here the
-    # orchestrator builds an empty AgentConfig (no tables) for the demo
-    # visitor, the specialist returns "no data", and the formatter answers
-    # "Sorry, I couldn't find any data". Lucas's 2026-05-05 review.
-    q = db.query(TableMetadata).filter(
-        (TableMetadata.space_id == space_id)
-        | (TableMetadata.space_id == None)  # noqa: E711
-    )
+    # Em modo personal, space_ids contém todos os spaces do utilizador.
+    # Em modo collaborative, usa apenas space_id (singular).
+    # space_id IS NULL → metadados "globais/shared" visíveis em todos os spaces.
+    effective_space_ids: List[str] = space_ids if space_ids else ([space_id] if space_id else [])
+
+    if effective_space_ids:
+        q = db.query(TableMetadata).filter(
+            (TableMetadata.space_id.in_(effective_space_ids))
+            | (TableMetadata.space_id == None)  # noqa: E711
+        )
+    else:
+        q = db.query(TableMetadata).filter(
+            TableMetadata.space_id == None  # noqa: E711
+        )
 
     if data_connection_id:
         q = q.filter(TableMetadata.data_connection_id == data_connection_id)
@@ -229,6 +234,7 @@ def build_agent_config_for_user_space(
         dialect=dialect,
         extra={
             "space_id": space_id,
+            "space_ids": effective_space_ids,
             "data_connection_id": data_connection_id,
             "user_id": getattr(user_ctx, "user_id", None),
             "crew_ids": user_crew_ids,
@@ -241,6 +247,8 @@ def build_agent_config_for_user_space(
             "agent_id": cfg.id,
             "agent_name": cfg.name,
             "space_id": space_id,
+            "space_ids": effective_space_ids,
+            "num_spaces": len(effective_space_ids),
             "data_connection_id": data_connection_id,
             "num_tables": len(tables),
             "user_id": getattr(user_ctx, "user_id", None),
