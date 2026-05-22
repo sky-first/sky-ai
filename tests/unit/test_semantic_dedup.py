@@ -10,6 +10,7 @@ Tests:
   - save_scan_insight stores real embedding when provided
   - save_scan_insight falls back to zero vector when embedding=None
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_db(fetchone_return=None):
     """Build a minimal async DB mock that replays a fetchone result."""
@@ -43,6 +45,7 @@ VEC = [0.5] * EMBED_DIM
 
 
 # ─── is_semantic_duplicate ────────────────────────────────────────────────────
+
 
 class TestIsSemanticDuplicate:
     @pytest.mark.asyncio
@@ -82,7 +85,9 @@ class TestIsSemanticDuplicate:
         from core.agents.scan_briefing import is_semantic_duplicate
 
         db = _make_db()
-        result = await is_semantic_duplicate(db, SPACE_ID, [0.0] * EMBED_DIM, threshold=0.85)
+        result = await is_semantic_duplicate(
+            db, SPACE_ID, [0.0] * EMBED_DIM, threshold=0.85
+        )
         assert result is False
         db.execute.assert_not_called()
 
@@ -142,6 +147,7 @@ class TestIsSemanticDuplicate:
 
 
 # ─── save_scan_insight with real embedding ────────────────────────────────────
+
 
 class TestSaveScanInsightEmbedding:
     @pytest.mark.asyncio

@@ -32,26 +32,39 @@ def validate_sql_strict(sql: str) -> Tuple[bool, Optional[str]]:
         return False, "🚫 Only SELECT queries are allowed."
 
     # Só uma query por vez
-    if sql_clean.count(";") > 1 or (sql_clean.count(";") == 1 and not sql_clean.rstrip().endswith(";")):
+    if sql_clean.count(";") > 1 or (
+        sql_clean.count(";") == 1 and not sql_clean.rstrip().endswith(";")
+    ):
         return False, "🚫 Only one SELECT query at a time is allowed."
 
     forbidden_keywords = [
-        "insert", "update", "delete", "drop", "create",
-        "alter", "truncate", "merge", "exec", "execute",
-        "grant", "revoke", "commit", "rollback"
+        "insert",
+        "update",
+        "delete",
+        "drop",
+        "create",
+        "alter",
+        "truncate",
+        "merge",
+        "exec",
+        "execute",
+        "grant",
+        "revoke",
+        "commit",
+        "rollback",
     ]
 
     for keyword in forbidden_keywords:
-        pattern = rf'\b{re.escape(keyword)}\b'
+        pattern = rf"\b{re.escape(keyword)}\b"
         if re.search(pattern, lower):
             return False, f"🚫 Command '{keyword.upper()}' is not allowed."
 
     injection_patterns = [
         # r'--',  <-- REMOVED: Allow comments for better SQL explanation
-        r'/\*',
-        r'union\s+select',
-        r'or\s+1\s*=\s*1',
-        r';.*drop',
+        r"/\*",
+        r"union\s+select",
+        r"or\s+1\s*=\s*1",
+        r";.*drop",
     ]
 
     for pattern in injection_patterns:

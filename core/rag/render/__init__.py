@@ -92,11 +92,15 @@ def _render_goal(row: dict[str, Any]) -> RenderedDoc:
         f"Budget: {row.get('budget') if row.get('budget') is not None else '—'}\n"
         f"Pillar: {row.get('pillar_title') or '—'}"
     )
-    return RenderedDoc(title=title, body=body, metadata={
-        "priority": row.get("priority"),
-        "status": row.get("status"),
-        "area": row.get("area"),
-    })
+    return RenderedDoc(
+        title=title,
+        body=body,
+        metadata={
+            "priority": row.get("priority"),
+            "status": row.get("status"),
+            "area": row.get("area"),
+        },
+    )
 
 
 def _render_okr(row: dict[str, Any]) -> RenderedDoc:
@@ -109,11 +113,15 @@ def _render_okr(row: dict[str, Any]) -> RenderedDoc:
         f"{row.get('target') if row.get('target') is not None else '—'}\n"
         f"Deadline: {row.get('deadline') or '—'}  |  Measurement: {row.get('measurement_frequency') or '—'}"
     )
-    return RenderedDoc(title=title, body=body, metadata={
-        "deadline": row.get("deadline"),
-        "baseline": row.get("baseline"),
-        "target": row.get("target"),
-    })
+    return RenderedDoc(
+        title=title,
+        body=body,
+        metadata={
+            "deadline": row.get("deadline"),
+            "baseline": row.get("baseline"),
+            "target": row.get("target"),
+        },
+    )
 
 
 def _render_initiative(row: dict[str, Any]) -> RenderedDoc:
@@ -172,10 +180,14 @@ def _render_event_generic(category: str):
             f"Start: {row.get('start_date') or '—'}  |  Impact: {row.get('impact_date') or '—'}\n"
             f"Related: {_coerce(row.get('relations'))}"
         )
-        return RenderedDoc(title=title, body=body, metadata={
-            "nature": row.get("nature"),
-            "confidence": row.get("confidence"),
-        })
+        return RenderedDoc(
+            title=title,
+            body=body,
+            metadata={
+                "nature": row.get("nature"),
+                "confidence": row.get("confidence"),
+            },
+        )
 
     return _renderer
 
@@ -250,10 +262,14 @@ def _render_table(row: dict[str, Any]) -> RenderedDoc:
         f"Columns: {_coerce(row.get('columns'))}\n"
         f"Row count estimate: {row.get('row_count') if row.get('row_count') is not None else '—'}"
     )
-    return RenderedDoc(title=title, body=body, metadata={
-        "connection_id": row.get("connection_id"),
-        "row_count": row.get("row_count"),
-    })
+    return RenderedDoc(
+        title=title,
+        body=body,
+        metadata={
+            "connection_id": row.get("connection_id"),
+            "row_count": row.get("row_count"),
+        },
+    )
 
 
 def _render_column(row: dict[str, Any]) -> RenderedDoc:
@@ -341,7 +357,9 @@ def _render_message(row: dict[str, Any]) -> RenderedDoc:
 
 
 def _render_like(row: dict[str, Any]) -> RenderedDoc:
-    title = f"Like on {row.get('target_kind') or 'item'}: {row.get('target_title') or '—'}"
+    title = (
+        f"Like on {row.get('target_kind') or 'item'}: {row.get('target_title') or '—'}"
+    )
     body = (
         f"User {row.get('user_name') or '—'} liked "
         f"{row.get('target_kind') or 'item'} '{row.get('target_title') or '—'}' "

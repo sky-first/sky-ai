@@ -29,12 +29,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
-BASE_URL      = "http://localhost:8001"
+BASE_URL = "http://localhost:8001"
 CONNECTION_ID = "aaaa0001-0000-4000-a000-000000000001"
-SPACE_ID      = "d21795e0-430c-4f72-99ae-4c61512e17d1"
-USER_ID       = "32a2a83c-5dc9-4a82-b228-6fa976c173b1"
+SPACE_ID = "d21795e0-430c-4f72-99ae-4c61512e17d1"
+USER_ID = "32a2a83c-5dc9-4a82-b228-6fa976c173b1"
 CREW_IDS: List[str] = []
-TIMEOUT       = 120.0
+TIMEOUT = 120.0
 
 # ─── Test Cases ───────────────────────────────────────────────────────────────
 # These 10 were chosen because they all failed with "No SQL generated" in the
@@ -116,6 +116,7 @@ TEST_CASES = [
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _check_sql_keywords(sql: str, keywords: List[str]) -> Dict[str, bool]:
     """Check which expected keywords appear in the generated SQL (case-insensitive)."""
     sql_upper = sql.upper()
@@ -127,61 +128,61 @@ def _evaluate(tc: Dict, resp_data: Dict, elapsed: float) -> Dict[str, Any]:
     meta = resp_data.get("meta", {}) or {}
 
     # Determine outcome
-    error      = meta.get("error") or resp_data.get("error", "")
-    sql        = meta.get("sql") or resp_data.get("sql", "")
-    answer     = resp_data.get("answer", "")
-    data_rows  = meta.get("data") or resp_data.get("data", [])
+    error = meta.get("error") or resp_data.get("error", "")
+    sql = meta.get("sql") or resp_data.get("sql", "")
+    answer = resp_data.get("answer", "")
+    data_rows = meta.get("data") or resp_data.get("data", [])
     result_type = meta.get("result_type", "")
 
     # Fail conditions
-    has_sql        = bool(sql and sql.strip())
-    has_answer     = bool(answer and answer.strip())
-    has_data       = len(data_rows) > 0 if isinstance(data_rows, list) else False
-    is_error       = bool(error)
-    is_no_data     = result_type in {"no_data", "no_tables", "technical_error"}
+    has_sql = bool(sql and sql.strip())
+    has_answer = bool(answer and answer.strip())
+    has_data = len(data_rows) > 0 if isinstance(data_rows, list) else False
+    is_error = bool(error)
+    is_no_data = result_type in {"no_data", "no_tables", "technical_error"}
 
     kw_check: Dict[str, bool] = {}
     if has_sql and tc.get("expected_sql_keywords"):
         kw_check = _check_sql_keywords(sql, tc["expected_sql_keywords"])
 
     if not has_sql and not is_no_data:
-        status  = "FAIL"
-        reason  = "No SQL generated — Orchestrator did not select a table"
+        status = "FAIL"
+        reason = "No SQL generated — Orchestrator did not select a table"
     elif is_error:
-        status  = "FAIL"
-        reason  = f"Pipeline error: {error[:150]}"
+        status = "FAIL"
+        reason = f"Pipeline error: {error[:150]}"
     elif not has_answer:
-        status  = "FAIL"
-        reason  = "No answer text returned"
+        status = "FAIL"
+        reason = "No answer text returned"
     elif kw_check and not all(kw_check.values()):
         missing = [k for k, v in kw_check.items() if not v]
-        status  = "WARN"
-        reason  = f"SQL generated but missing expected keywords: {missing}"
+        status = "WARN"
+        reason = f"SQL generated but missing expected keywords: {missing}"
     else:
-        status  = "PASS"
-        reason  = "OK"
+        status = "PASS"
+        reason = "OK"
 
     return {
-        "id":           tc["id"],
-        "category":     tc["category"],
-        "question":     tc["question"],
-        "status":       status,
-        "reason":       reason,
-        "elapsed":      round(elapsed, 2),
-        "sql":          sql[:300] if sql else "",
-        "answer":       answer[:200] if answer else "",
-        "kw_check":     kw_check,
-        "notes":        tc.get("notes", ""),
+        "id": tc["id"],
+        "category": tc["category"],
+        "question": tc["question"],
+        "status": status,
+        "reason": reason,
+        "elapsed": round(elapsed, 2),
+        "sql": sql[:300] if sql else "",
+        "answer": answer[:200] if answer else "",
+        "kw_check": kw_check,
+        "notes": tc.get("notes", ""),
     }
 
 
 async def run_query(client: httpx.AsyncClient, tc: Dict) -> Dict[str, Any]:
     thread_id = f"sem-{tc['id'].lower()}-{uuid.uuid4().hex[:6]}"
     payload = {
-        "question":  tc["question"],
-        "space_id":  SPACE_ID,
-        "user_id":   USER_ID,
-        "crew_ids":  CREW_IDS,
+        "question": tc["question"],
+        "space_id": SPACE_ID,
+        "user_id": USER_ID,
+        "crew_ids": CREW_IDS,
         "thread_id": thread_id,
     }
     start = time.monotonic()
@@ -194,33 +195,45 @@ async def run_query(client: httpx.AsyncClient, tc: Dict) -> Dict[str, Any]:
         elapsed = time.monotonic() - start
         if resp.status_code != 200:
             return {
-                "id": tc["id"], "category": tc["category"],
+                "id": tc["id"],
+                "category": tc["category"],
                 "question": tc["question"],
                 "status": "FAIL",
                 "reason": f"HTTP {resp.status_code}: {resp.text[:200]}",
                 "elapsed": round(elapsed, 2),
-                "sql": "", "answer": "", "kw_check": {}, "notes": tc.get("notes", ""),
+                "sql": "",
+                "answer": "",
+                "kw_check": {},
+                "notes": tc.get("notes", ""),
             }
         return _evaluate(tc, resp.json(), elapsed)
     except httpx.TimeoutException:
         elapsed = time.monotonic() - start
         return {
-            "id": tc["id"], "category": tc["category"],
+            "id": tc["id"],
+            "category": tc["category"],
             "question": tc["question"],
             "status": "FAIL",
             "reason": f"Timeout after {elapsed:.0f}s",
             "elapsed": round(elapsed, 2),
-            "sql": "", "answer": "", "kw_check": {}, "notes": tc.get("notes", ""),
+            "sql": "",
+            "answer": "",
+            "kw_check": {},
+            "notes": tc.get("notes", ""),
         }
     except Exception as exc:
         elapsed = time.monotonic() - start
         return {
-            "id": tc["id"], "category": tc["category"],
+            "id": tc["id"],
+            "category": tc["category"],
             "question": tc["question"],
             "status": "FAIL",
             "reason": f"Exception: {str(exc)[:200]}",
             "elapsed": round(elapsed, 2),
-            "sql": "", "answer": "", "kw_check": {}, "notes": tc.get("notes", ""),
+            "sql": "",
+            "answer": "",
+            "kw_check": {},
+            "notes": tc.get("notes", ""),
         }
 
 
@@ -231,22 +244,26 @@ STATUS_ICON = {"PASS": "✅", "WARN": "⚠️ ", "FAIL": "❌"}
 
 def _print_live(result: Dict):
     icon = STATUS_ICON.get(result["status"], "?")
-    kw   = result.get("kw_check", {})
+    kw = result.get("kw_check", {})
     kw_str = " | ".join(f"{k}={'✓' if v else '✗'}" for k, v in kw.items())
     print(
         f"  {icon} [{result['id']}] {result['status']:4s}  {result['elapsed']:5.1f}s  "
         f"{result['question'][:55]:<55}"
         + (f"\n         KW check: {kw_str}" if kw_str else "")
-        + (f"\n         Reason:   {result['reason']}" if result["status"] != "PASS" else "")
+        + (
+            f"\n         Reason:   {result['reason']}"
+            if result["status"] != "PASS"
+            else ""
+        )
     )
     if result["sql"]:
         print(f"         SQL:      {result['sql'][:120]}")
 
 
 def _write_report(results: List[Dict], total_elapsed: float):
-    passed  = [r for r in results if r["status"] == "PASS"]
-    warned  = [r for r in results if r["status"] == "WARN"]
-    failed  = [r for r in results if r["status"] == "FAIL"]
+    passed = [r for r in results if r["status"] == "PASS"]
+    warned = [r for r in results if r["status"] == "WARN"]
+    failed = [r for r in results if r["status"] == "FAIL"]
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
@@ -277,9 +294,12 @@ def _write_report(results: List[Dict], total_elapsed: float):
         "|----|----------|--------|------|----------|--------------------|--------|",
     ]
     for r in results:
-        kw_str = ", ".join(
-            f"{'✓' if v else '✗'}{k}" for k, v in r.get("kw_check", {}).items()
-        ) or "—"
+        kw_str = (
+            ", ".join(
+                f"{'✓' if v else '✗'}{k}" for k, v in r.get("kw_check", {}).items()
+            )
+            or "—"
+        )
         lines.append(
             f"| {r['id']} | {r['category']} | "
             f"{STATUS_ICON.get(r['status'], r['status'])} {r['status']} | "
@@ -292,7 +312,11 @@ def _write_report(results: List[Dict], total_elapsed: float):
         for r in passed:
             lines += [
                 f"### {r['id']} — {r['question']}",
-                f"- **SQL**: `{r['sql'][:200]}`" if r['sql'] else "- _No SQL (soft pass)_",
+                (
+                    f"- **SQL**: `{r['sql'][:200]}`"
+                    if r["sql"]
+                    else "- _No SQL (soft pass)_"
+                ),
                 f"- **Answer**: {r['answer'][:150]}",
                 "",
             ]
@@ -305,7 +329,7 @@ def _write_report(results: List[Dict], total_elapsed: float):
                 f"### {r['id']} — {r['question']}",
                 f"- **Reason**: {r['reason']}",
                 f"- **Notes**: {r['notes']}",
-                f"- **SQL**: `{r['sql']}`" if r['sql'] else "- _No SQL generated_",
+                f"- **SQL**: `{r['sql']}`" if r["sql"] else "- _No SQL generated_",
                 "",
             ]
 
@@ -347,17 +371,20 @@ def _write_report(results: List[Dict], total_elapsed: float):
         f"_Generated by `tests/test_semantic_10.py` on {now_str}_",
     ]
 
-    md_path   = Path(__file__).parent / "test_semantic_report.md"
+    md_path = Path(__file__).parent / "test_semantic_report.md"
     json_path = Path(__file__).parent / "test_semantic_report.json"
 
     md_path.write_text("\n".join(lines), encoding="utf-8")
-    json_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     print(f"\n📄  Report saved to: {md_path}")
     print(f"📊  Raw JSON saved to: {json_path}")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
+
 
 async def main():
     print("=" * 70)
@@ -397,8 +424,12 @@ async def main():
     failed = sum(1 for r in results if r["status"] == "FAIL")
 
     print("\n" + "=" * 70)
-    print(f"  RESULTS: {passed}/{len(results)} passed  |  {warned} warnings  |  {failed} failed")
-    print(f"  Time   : {total_elapsed:.1f}s total  ({total_elapsed/len(results):.1f}s avg)")
+    print(
+        f"  RESULTS: {passed}/{len(results)} passed  |  {warned} warnings  |  {failed} failed"
+    )
+    print(
+        f"  Time   : {total_elapsed:.1f}s total  ({total_elapsed/len(results):.1f}s avg)"
+    )
     print("=" * 70)
 
     if passed == len(results):
@@ -408,9 +439,13 @@ async def main():
         print("     Investigate the remaining failures for edge cases.")
     elif passed >= 5:
         print(f"\n  ⚠️  {passed}/10 passed — partial improvement.")
-        print("     Consider also updating the Orchestrator system prompt with synonyms.")
+        print(
+            "     Consider also updating the Orchestrator system prompt with synonyms."
+        )
     else:
-        print(f"\n  ❌ Only {passed}/10 passed — semantic metadata alone is not enough.")
+        print(
+            f"\n  ❌ Only {passed}/10 passed — semantic metadata alone is not enough."
+        )
         print("     Check if embeddings were re-computed after metadata update.")
         print("     Run: POST /connections/{id}/refresh to trigger re-embedding.")
 

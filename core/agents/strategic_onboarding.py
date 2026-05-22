@@ -84,6 +84,7 @@ def suggest_okrs_from_datasets(
         chat_model = getattr(llm, "_chat", None) or llm
         if hasattr(chat_model, "invoke"):
             from langchain_core.messages import HumanMessage
+
             resp = chat_model.invoke([HumanMessage(content=prompt)])
             raw = resp.content if hasattr(resp, "content") else str(resp)
         elif hasattr(chat_model, "predict"):
@@ -106,11 +107,13 @@ def suggest_okrs_from_datasets(
         for item in parsed[:6]:
             if not isinstance(item, dict) or "title" not in item:
                 continue
-            suggestions.append({
-                "title": str(item.get("title", ""))[:300],
-                "type": str(item.get("type", "okr")).lower(),
-                "category": str(item.get("category", "general")).lower(),
-            })
+            suggestions.append(
+                {
+                    "title": str(item.get("title", ""))[:300],
+                    "type": str(item.get("type", "okr")).lower(),
+                    "category": str(item.get("category", "general")).lower(),
+                }
+            )
         return suggestions if suggestions else _generic_suggestions()
 
     except Exception as exc:
@@ -147,23 +150,26 @@ async def save_okr_suggestions(
         )
 
         for s in suggestions:
-            db.add(EmbeddingRecord(
-                id=uuid4(),
-                space_id=space_uuid,
-                user_id=None,
-                embedding=[0.0] * 1024,
-                text=s["title"],
-                extra_metadata={
-                    "kind": "okr_suggestion",
-                    "type": s.get("type", "okr"),
-                    "category": s.get("category", "general"),
-                },
-            ))
+            db.add(
+                EmbeddingRecord(
+                    id=uuid4(),
+                    space_id=space_uuid,
+                    user_id=None,
+                    embedding=[0.0] * 1024,
+                    text=s["title"],
+                    extra_metadata={
+                        "kind": "okr_suggestion",
+                        "type": s.get("type", "okr"),
+                        "category": s.get("category", "general"),
+                    },
+                )
+            )
 
         await db.flush()
         logger.debug(
             "save_okr_suggestions: saved %d suggestions for space %s",
-            len(suggestions), space_id,
+            len(suggestions),
+            space_id,
         )
 
     except Exception as exc:
@@ -199,11 +205,13 @@ async def load_okr_suggestions(
         for title, meta in rows:
             if not title:
                 continue
-            suggestions.append({
-                "title": title,
-                "type": (meta or {}).get("type", "okr"),
-                "category": (meta or {}).get("category", "general"),
-            })
+            suggestions.append(
+                {
+                    "title": title,
+                    "type": (meta or {}).get("type", "okr"),
+                    "category": (meta or {}).get("category", "general"),
+                }
+            )
         return suggestions
     except Exception as exc:
         logger.debug("load_okr_suggestions failed: %s", exc)
@@ -216,8 +224,24 @@ async def load_okr_suggestions(
 def _generic_suggestions() -> List[Dict[str, str]]:
     """Generic OKR suggestions when no dataset context is available."""
     return [
-        {"title": "Grow monthly recurring revenue by 20% this quarter", "type": "okr", "category": "revenue"},
-        {"title": "Reduce customer churn rate below 5% per month", "type": "kpi", "category": "retention"},
-        {"title": "Increase active users by 15% month-over-month", "type": "okr", "category": "growth"},
-        {"title": "Achieve NPS score above 50 across all customer segments", "type": "kpi", "category": "satisfaction"},
+        {
+            "title": "Grow monthly recurring revenue by 20% this quarter",
+            "type": "okr",
+            "category": "revenue",
+        },
+        {
+            "title": "Reduce customer churn rate below 5% per month",
+            "type": "kpi",
+            "category": "retention",
+        },
+        {
+            "title": "Increase active users by 15% month-over-month",
+            "type": "okr",
+            "category": "growth",
+        },
+        {
+            "title": "Achieve NPS score above 50 across all customer segments",
+            "type": "kpi",
+            "category": "satisfaction",
+        },
     ]

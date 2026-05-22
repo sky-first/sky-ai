@@ -1,4 +1,3 @@
-
 import asyncio
 
 import httpx
@@ -13,7 +12,7 @@ async def run_bootstrap_test():
     payload = {
         "user_id": "test-user",
         "space_id": SPACE_ID,
-        "language": "pt"  # Forcing PT
+        "language": "pt",  # Forcing PT
     }
 
     async with httpx.AsyncClient() as client:
@@ -27,6 +26,7 @@ async def run_bootstrap_test():
                 print(f"  Question: {s.get('question')}")
         else:
             print(f"Error {resp.status_code}: {resp.text}")
+
 
 if __name__ == "__main__":
     asyncio.run(run_bootstrap_test())

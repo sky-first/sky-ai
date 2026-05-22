@@ -105,6 +105,7 @@ async def retrieve_knowledge_context(
 
 # ─────────────────────────── internals ────────────────────────────────────
 
+
 async def _embed(provider: EmbeddingProvider, text_: str) -> Optional[List[float]]:
     vecs = await provider.embed_async([text_])
     return vecs[0] if vecs else None
@@ -204,8 +205,8 @@ async def _search(
     mentioned_hits = [h for h in hits if str(h.chunk.file_id) in mentioned_set]
     other_hits = [h for h in hits if str(h.chunk.file_id) not in mentioned_set]
 
-    final = mentioned_hits + other_hits[:max(0, top_k - len(mentioned_hits))]
-    return final[:top_k + len(mentioned_hits)]
+    final = mentioned_hits + other_hits[: max(0, top_k - len(mentioned_hits))]
+    return final[: top_k + len(mentioned_hits)]
 
 
 def _build_scope_filter(

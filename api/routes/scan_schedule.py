@@ -5,6 +5,7 @@ GET /spaces/{space_id}/scan-schedule  — read current config
 DELETE /spaces/{space_id}/scan-schedule  — disable scheduled scans
 POST /spaces/{space_id}/scan-schedule/trigger  — manual one-off trigger
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,7 +49,9 @@ async def set_scan_schedule(
     from core.agents.scan_schedule import set_scan_schedule as _set, get_scan_schedule
 
     try:
-        await _set(db, space_id, interval_hours=body.interval_hours, enabled=body.enabled)
+        await _set(
+            db, space_id, interval_hours=body.interval_hours, enabled=body.enabled
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -119,20 +122,27 @@ async def trigger_scan_now(
     # Get any active connection for the space
     try:
         result = await db.execute(
-            text("SELECT connection_id FROM space_connections WHERE space_id = CAST(:sid AS uuid) LIMIT 1"),
+            text(
+                "SELECT connection_id FROM space_connections WHERE space_id = CAST(:sid AS uuid) LIMIT 1"
+            ),
             {"sid": space_id},
         )
         row = result.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="No connections found for this space")
+            raise HTTPException(
+                status_code=404, detail="No connections found for this space"
+            )
         connection_id = str(row[0])
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load connections: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load connections: {exc}"
+        )
 
     try:
         from worker.scan_tasks import run_scan_for_space
+
         task = run_scan_for_space.delay(space_id=space_id, connection_id=connection_id)
         return {
             "queued": True,
@@ -141,7 +151,9 @@ async def trigger_scan_now(
             "connection_id": connection_id,
         }
     except Exception as exc:
-        logger.error("trigger_scan_now: failed to enqueue for space %s: %s", space_id, exc)
+        logger.error(
+            "trigger_scan_now: failed to enqueue for space %s: %s", space_id, exc
+        )
         raise HTTPException(status_code=500, detail=f"Failed to enqueue scan: {exc}")
 
 

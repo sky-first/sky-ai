@@ -2,6 +2,7 @@
 API endpoint to trigger RAG Phase 1 setup.
 Add to api/routes/admin.py or create new file.
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -20,10 +21,7 @@ class SetupRAGRequest(BaseModel):
 
 
 @router.post("/setup-rag")
-async def setup_rag_endpoint(
-    body: SetupRAGRequest,
-    db: AsyncSession = Depends(get_db)
-):
+async def setup_rag_endpoint(body: SetupRAGRequest, db: AsyncSession = Depends(get_db)):
     """
     Trigger RAG Phase 1 setup via API.
     This runs the embedding generation using the service's database credentials.
@@ -31,30 +29,29 @@ async def setup_rag_endpoint(
     try:
         # Step 1: Embed table metadata
         embedding_provider = create_embedding_provider()
-        
+
         num_embeddings = await create_embeddings_for_table_metadata(
             db=db,
             embedding_provider=embedding_provider,
             space_id=body.space_id,
             data_connection_id=body.connection_id,
             batch_size=20,
-            delay_between_batches=1.0
+            delay_between_batches=1.0,
         )
-        
+
         log_event(
             "admin_setup_rag_complete",
-            {"space_id": body.space_id, "num_embeddings": num_embeddings}
+            {"space_id": body.space_id, "num_embeddings": num_embeddings},
         )
-        
+
         return {
             "success": True,
             "embeddings_created": num_embeddings,
-            "message": f"RAG setup complete! Created {num_embeddings} embeddings."
+            "message": f"RAG setup complete! Created {num_embeddings} embeddings.",
         }
-        
+
     except Exception as e:
         log_event(
-            "admin_setup_rag_error",
-            {"space_id": body.space_id, "error": str(e)[:500]}
+            "admin_setup_rag_error", {"space_id": body.space_id, "error": str(e)[:500]}
         )
         raise HTTPException(status_code=500, detail=str(e))

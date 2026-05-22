@@ -24,7 +24,7 @@ from sqlalchemy import text
 DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
 
 CONNECTION_ID = "aaaa0001-0000-4000-a000-000000000001"
-SPACE_ID      = "d21795e0-430c-4f72-99ae-4c61512e17d1"
+SPACE_ID = "d21795e0-430c-4f72-99ae-4c61512e17d1"
 
 random.seed(99)
 
@@ -56,14 +56,36 @@ TRUNCATE = [
 ]
 
 USER_NAMES = [
-    "Alice Johnson", "Bob Smith", "Carol White", "David Brown",
-    "Eva Martinez", "Frank Lee", "Grace Kim", "Henry Wilson",
-    "Iris Chen", "Jack Davis", "Kate Thompson", "Liam Garcia",
-    "Mia Anderson", "Noah Taylor", "Olivia Moore", "Paul Jackson",
-    "Quinn Harris", "Rachel Clark", "Sam Lewis", "Tina Robinson",
-    "Uma Scott", "Victor Hall", "Wendy Allen", "Xavier Young",
-    "Yara King", "Zach Wright", "Ana Perez", "Ben Turner",
-    "Chloe Nguyen", "Dan Hill",
+    "Alice Johnson",
+    "Bob Smith",
+    "Carol White",
+    "David Brown",
+    "Eva Martinez",
+    "Frank Lee",
+    "Grace Kim",
+    "Henry Wilson",
+    "Iris Chen",
+    "Jack Davis",
+    "Kate Thompson",
+    "Liam Garcia",
+    "Mia Anderson",
+    "Noah Taylor",
+    "Olivia Moore",
+    "Paul Jackson",
+    "Quinn Harris",
+    "Rachel Clark",
+    "Sam Lewis",
+    "Tina Robinson",
+    "Uma Scott",
+    "Victor Hall",
+    "Wendy Allen",
+    "Xavier Young",
+    "Yara King",
+    "Zach Wright",
+    "Ana Perez",
+    "Ben Turner",
+    "Chloe Nguyen",
+    "Dan Hill",
 ]
 
 
@@ -74,14 +96,23 @@ async def seed_data(conn):
         is_active = random.random() > 0.2
         role = random.choice(["admin", "manager", "user", "user", "user"])
         created = datetime.now() - timedelta(days=random.randint(10, 500))
-        await conn.execute(text("""
+        await conn.execute(
+            text(
+                """
             INSERT INTO sky_test_users (id, name, email, is_active, role, created_at)
             VALUES (:id, :name, :email, :active, :role, :created)
             ON CONFLICT (email) DO NOTHING
-        """), {
-            "id": str(uuid.uuid4()), "name": name, "email": email,
-            "active": is_active, "role": role, "created": created,
-        })
+        """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "email": email,
+                "active": is_active,
+                "role": role,
+                "created": created,
+            },
+        )
     active_count = sum(1 for _ in USER_NAMES if random.random() > 0.2)
     print(f"  ✅ Seeded {len(USER_NAMES)} users")
 
@@ -92,25 +123,42 @@ async def seed_data(conn):
         dt = now - timedelta(days=month_offset * 30)
         year, month = dt.year, dt.month
         # Targets grow ~5% month-over-month with some variance
-        target = round(base_target * (1 + 0.05 * month_offset) * random.uniform(0.95, 1.05), 2)
+        target = round(
+            base_target * (1 + 0.05 * month_offset) * random.uniform(0.95, 1.05), 2
+        )
         target = max(target, 10_000.0)
-        await conn.execute(text("""
+        await conn.execute(
+            text(
+                """
             INSERT INTO sky_test_targets (id, year, month, target_revenue)
             VALUES (:id, :year, :month, :target)
             ON CONFLICT (year, month) DO UPDATE SET target_revenue = EXCLUDED.target_revenue
-        """), {
-            "id": str(uuid.uuid4()), "year": year, "month": month, "target": target,
-        })
-    print(f"  ✅ Seeded monthly targets for 14 months (including current: {now.year}-{now.month:02d})")
+        """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "year": year,
+                "month": month,
+                "target": target,
+            },
+        )
+    print(
+        f"  ✅ Seeded monthly targets for 14 months (including current: {now.year}-{now.month:02d})"
+    )
 
 
 async def register_metadata(conn):
     # Remove old entries for these two tables only
     for tname in ("sky_test_users", "sky_test_targets"):
-        await conn.execute(text("""
+        await conn.execute(
+            text(
+                """
             DELETE FROM table_metadata
             WHERE data_connection_id = :cid AND table_name = :tname
-        """), {"cid": CONNECTION_ID, "tname": tname})
+        """
+            ),
+            {"cid": CONNECTION_ID, "tname": tname},
+        )
 
     tables = {
         "sky_test_users": {
@@ -123,12 +171,24 @@ async def register_metadata(conn):
                 "role = admin/manager/user; created_at = signup date."
             ),
             "columns": [
-                ("id",         "uuid",      "Unique user identifier (primary key)"),
-                ("name",       "varchar",   "User full name"),
-                ("email",      "varchar",   "User email address"),
-                ("is_active",  "boolean",   "TRUE = active user. FALSE = deactivated. Filter WHERE is_active = TRUE for active user count."),
-                ("role",       "varchar",   "User role: admin, manager, user. GROUP BY role for role distribution."),
-                ("created_at", "timestamp", "Date the user registered / was created. Use for user growth analysis."),
+                ("id", "uuid", "Unique user identifier (primary key)"),
+                ("name", "varchar", "User full name"),
+                ("email", "varchar", "User email address"),
+                (
+                    "is_active",
+                    "boolean",
+                    "TRUE = active user. FALSE = deactivated. Filter WHERE is_active = TRUE for active user count.",
+                ),
+                (
+                    "role",
+                    "varchar",
+                    "User role: admin, manager, user. GROUP BY role for role distribution.",
+                ),
+                (
+                    "created_at",
+                    "timestamp",
+                    "Date the user registered / was created. Use for user growth analysis.",
+                ),
             ],
         },
         "sky_test_targets": {
@@ -142,11 +202,23 @@ async def register_metadata(conn):
                 "To compare actual vs target: JOIN with sky_test_orders on year/month extracted from created_at."
             ),
             "columns": [
-                ("id",             "uuid",    "Unique record identifier (primary key)"),
-                ("year",           "integer", "Calendar year (e.g. 2026). Use with month for a specific period."),
-                ("month",          "integer", "Calendar month number 1-12. Use EXTRACT(MONTH FROM NOW()) for current month."),
-                ("target_revenue", "numeric", "Budgeted/planned revenue for this month in USD. Compare with SUM(total_amount) from sky_test_orders for actual vs target."),
-                ("created_at",     "timestamp", "When this target was set."),
+                ("id", "uuid", "Unique record identifier (primary key)"),
+                (
+                    "year",
+                    "integer",
+                    "Calendar year (e.g. 2026). Use with month for a specific period.",
+                ),
+                (
+                    "month",
+                    "integer",
+                    "Calendar month number 1-12. Use EXTRACT(MONTH FROM NOW()) for current month.",
+                ),
+                (
+                    "target_revenue",
+                    "numeric",
+                    "Budgeted/planned revenue for this month in USD. Compare with SUM(total_amount) from sky_test_orders for actual vs target.",
+                ),
+                ("created_at", "timestamp", "When this target was set."),
             ],
         },
     }
@@ -161,7 +233,9 @@ async def register_metadata(conn):
                 f"COLUMN: {col_name} ({data_type})\n"
                 f"COLUMN MEANING: {col_desc}"
             )
-            await conn.execute(text("""
+            await conn.execute(
+                text(
+                    """
                 INSERT INTO table_metadata
                     (id, data_connection_id, space_id, crew_id,
                      table_name, column_name, data_type, is_nullable,
@@ -170,18 +244,23 @@ async def register_metadata(conn):
                     (gen_random_uuid(), :conn_id, :space_id, NULL,
                      :table_name, :col_name, :data_type, TRUE,
                      :description, :extra, NOW())
-            """), {
-                "conn_id":     CONNECTION_ID,
-                "space_id":    SPACE_ID,
-                "table_name":  table_name,
-                "col_name":    col_name,
-                "data_type":   data_type,
-                "description": full_description,
-                "extra":       json.dumps({
-                    "table_description": table_desc,
-                    "column_description": col_desc,
-                }),
-            })
+            """
+                ),
+                {
+                    "conn_id": CONNECTION_ID,
+                    "space_id": SPACE_ID,
+                    "table_name": table_name,
+                    "col_name": col_name,
+                    "data_type": data_type,
+                    "description": full_description,
+                    "extra": json.dumps(
+                        {
+                            "table_description": table_desc,
+                            "column_description": col_desc,
+                        }
+                    ),
+                },
+            )
             total_cols += 1
 
     print(f"  ✅ TableMetadata registered: 2 tables, {total_cols} columns")

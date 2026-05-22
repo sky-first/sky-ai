@@ -10,6 +10,7 @@ Fields stored in extra_metadata:
   enabled:         bool
   last_scan_at:    ISO-8601 UTC string or null
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,8 +38,7 @@ async def get_scan_schedule(db: AsyncSession, space_id: str) -> Optional[dict]:
     try:
         result = await db.execute(
             text(
-                "SELECT metadata FROM embeddings "
-                "WHERE document_id = :doc_id LIMIT 1"
+                "SELECT metadata FROM embeddings " "WHERE document_id = :doc_id LIMIT 1"
             ),
             {"doc_id": _doc_id(space_id)},
         )
@@ -64,7 +64,9 @@ async def set_scan_schedule(
     """
     valid = {1, 6, 12, 24}
     if interval_hours not in valid:
-        raise ValueError(f"interval_hours must be one of {sorted(valid)}, got {interval_hours}")
+        raise ValueError(
+            f"interval_hours must be one of {sorted(valid)}, got {interval_hours}"
+        )
 
     from uuid import uuid4, UUID as _UUID
     from db.models import EmbeddingRecord
@@ -88,25 +90,29 @@ async def set_scan_schedule(
     )
 
     dummy_embedding = [0.0] * 1024
-    db.add(EmbeddingRecord(
-        id=uuid4(),
-        space_id=space_uuid,
-        user_id=None,
-        document_id=doc_id,
-        embedding=dummy_embedding,
-        text=f"scan_schedule for space {space_id}",
-        extra_metadata={
-            "kind": "scan_schedule",
-            "space_id": space_id,
-            "interval_hours": interval_hours,
-            "enabled": enabled,
-            "last_scan_at": last_scan_at,
-        },
-    ))
+    db.add(
+        EmbeddingRecord(
+            id=uuid4(),
+            space_id=space_uuid,
+            user_id=None,
+            document_id=doc_id,
+            embedding=dummy_embedding,
+            text=f"scan_schedule for space {space_id}",
+            extra_metadata={
+                "kind": "scan_schedule",
+                "space_id": space_id,
+                "interval_hours": interval_hours,
+                "enabled": enabled,
+                "last_scan_at": last_scan_at,
+            },
+        )
+    )
     await db.flush()
     logger.info(
         "set_scan_schedule: space=%s interval_hours=%d enabled=%s",
-        space_id, interval_hours, enabled,
+        space_id,
+        interval_hours,
+        enabled,
     )
 
 

@@ -42,6 +42,7 @@ MAX_SQL_ROWS = 100
 
 # ─── Safety guard ─────────────────────────────────────────────────────────
 
+
 def _is_safe_sql(sql: str) -> bool:
     """Accept only SELECT / WITH (CTE) statements."""
     cleaned = sql.strip().lstrip("-– \n\r\t")
@@ -51,6 +52,7 @@ def _is_safe_sql(sql: str) -> bool:
 
 # ─── Langfuse callback (optional) ─────────────────────────────────────────
 
+
 def _get_langfuse_callback(agent_id: str, user_id: str, space_id: str) -> Optional[Any]:
     """Build a Langfuse LangChain callback handler if observability is enabled.
 
@@ -59,9 +61,11 @@ def _get_langfuse_callback(agent_id: str, user_id: str, space_id: str) -> Option
     """
     try:
         from config.settings import settings
+
         if not settings.langfuse_enabled:
             return None
         from langfuse.callback import CallbackHandler
+
         return CallbackHandler(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
@@ -149,7 +153,9 @@ OUTPUT FORMAT — use ONLY when you have something meaningful to surface:
 - Question 1
 - Question 2
 - Question 3
-""".format(max_rows=MAX_SQL_ROWS)
+""".format(
+    max_rows=MAX_SQL_ROWS
+)
 
 
 def _fetch_brain_context_sync(db: Session, space_id: str, crew_ids: list) -> str:
@@ -166,8 +172,14 @@ def _fetch_brain_context_sync(db: Session, space_id: str, crew_ids: list) -> str
         from uuid import UUID as _UUID
 
         strategy_kinds = {
-            "pillar", "goal", "okr", "kpi", "metric",
-            "objective", "key_result", "target",
+            "pillar",
+            "goal",
+            "okr",
+            "kpi",
+            "metric",
+            "objective",
+            "key_result",
+            "target",
         }
 
         q = db.query(EmbeddingRecord.text, EmbeddingRecord.extra_metadata)
@@ -180,7 +192,9 @@ def _fetch_brain_context_sync(db: Session, space_id: str, crew_ids: list) -> str
                 scope_conditions.append(EmbeddingRecord.space_id == space_id)
         if crew_ids:
             try:
-                uuid_crew_ids = [_UUID(c) if isinstance(c, str) else c for c in crew_ids]
+                uuid_crew_ids = [
+                    _UUID(c) if isinstance(c, str) else c for c in crew_ids
+                ]
                 scope_conditions.append(EmbeddingRecord.crew_id.in_(uuid_crew_ids))
             except Exception:
                 pass
@@ -221,18 +235,16 @@ def _build_system_prompt(brain_context: str, briefing: str = "") -> str:
 
     if brain_context:
         prompt = (
-            prompt
-            + "\n══════════════════════════════════════════\n"
+            prompt + "\n══════════════════════════════════════════\n"
             "ORGANISATION CONTEXT (prioritise findings aligned with these):\n"
-            "══════════════════════════════════════════\n"
-            + brain_context
-            + "\n"
+            "══════════════════════════════════════════\n" + brain_context + "\n"
         )
 
     return prompt
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────
+
 
 def _find_datasource_for_sql(
     sql: str,
@@ -277,11 +289,14 @@ def run_full_context_agent(
     user_id = state.get("user_id") or ""
     agent_id = str(agent_config.id) if agent_config.id else "unknown"
 
-    log_event("full_context_agent_start", {
-        "agent_id": agent_id,
-        "space_id": space_id,
-        "question": question[:100],
-    })
+    log_event(
+        "full_context_agent_start",
+        {
+            "agent_id": agent_id,
+            "space_id": space_id,
+            "question": question[:100],
+        },
+    )
 
     # ── Chat model check ──────────────────────────────────────────────────
     chat_model = getattr(llm, "_chat", None)
@@ -310,11 +325,14 @@ def run_full_context_agent(
             return next(iter(_dispatch.values()))
         return _find_datasource_for_sql(sql, agent_config, _dispatch)
 
-    log_event("full_context_agent_dispatch", {
-        "agent_id": agent_id,
-        "num_sources": len(_dispatch),
-        "connection_ids": [k for k in _dispatch if k != "__default__"],
-    })
+    log_event(
+        "full_context_agent_dispatch",
+        {
+            "agent_id": agent_id,
+            "num_sources": len(_dispatch),
+            "connection_ids": [k for k in _dispatch if k != "__default__"],
+        },
+    )
 
     # ── Build tools ───────────────────────────────────────────────────────
 
@@ -336,10 +354,16 @@ def run_full_context_agent(
             for k, v in dispatch_map.items()
         }
 
-    list_tables_tool = ToolFactory.create_list_tables_tool(agent_config, _connection_labels)
+    list_tables_tool = ToolFactory.create_list_tables_tool(
+        agent_config, _connection_labels
+    )
     get_schema_tool = ToolFactory.create_table_schema_tool(agent_config)
-    strategy_tool = ToolFactory.create_strategy_tool(db, embedding_provider, space_id, crew_ids)
-    signals_tool = ToolFactory.create_signals_tool(db, embedding_provider, space_id, crew_ids)
+    strategy_tool = ToolFactory.create_strategy_tool(
+        db, embedding_provider, space_id, crew_ids
+    )
+    signals_tool = ToolFactory.create_signals_tool(
+        db, embedding_provider, space_id, crew_ids
+    )
 
     # ── Dynamic system prompt (BASE + scan briefing + per-client OKR/pillar context) ──────
     brain_context = _fetch_brain_context_sync(db, space_id, crew_ids)
@@ -381,7 +405,9 @@ def run_full_context_agent(
             for table in agent_config.tables:
                 phys = (table.physical_name or "").upper()
                 phys_bare = phys.split(".")[-1]  # "opportunities"
-                if phys and (phys in sql_upper or (phys_bare and phys_bare in sql_upper)):
+                if phys and (
+                    phys in sql_upper or (phys_bare and phys_bare in sql_upper)
+                ):
                     if table.logical_name not in _queried_logical_names:
                         _queried_logical_names.append(table.logical_name)
             # Accumulate for depth tracker (item 34 — async flush happens in caller)
@@ -408,7 +434,13 @@ def run_full_context_agent(
             logger.warning("query_table failed: %s", exc)
             return f"Query failed: {exc}"
 
-    tools = [list_tables_tool, get_schema_tool, strategy_tool, signals_tool, query_table]
+    tools = [
+        list_tables_tool,
+        get_schema_tool,
+        strategy_tool,
+        signals_tool,
+        query_table,
+    ]
 
     # ── Langfuse callback ─────────────────────────────────────────────────
     langfuse_cb = _get_langfuse_callback(agent_id, user_id, space_id)
@@ -418,13 +450,17 @@ def run_full_context_agent(
 
     # ── Build and run ReAct agent ─────────────────────────────────────────
     user_prompt = (
-        f"Agent focus: {question}\n\n"
-        "Investigate autonomously and surface one meaningful insight. "
-        "Follow the INVESTIGATION PROTOCOL in your instructions."
-    ) if question else (
-        "Investigate the available data autonomously and surface one "
-        "meaningful insight for the data owner. Follow the INVESTIGATION "
-        "PROTOCOL in your instructions."
+        (
+            f"Agent focus: {question}\n\n"
+            "Investigate autonomously and surface one meaningful insight. "
+            "Follow the INVESTIGATION PROTOCOL in your instructions."
+        )
+        if question
+        else (
+            "Investigate the available data autonomously and surface one "
+            "meaningful insight for the data owner. Follow the INVESTIGATION "
+            "PROTOCOL in your instructions."
+        )
     )
 
     try:
@@ -441,7 +477,8 @@ def run_full_context_agent(
 
         # Count tool calls (ToolMessage = one completed tool invocation)
         tool_calls = sum(
-            1 for m in result.get("messages", [])
+            1
+            for m in result.get("messages", [])
             if hasattr(m, "type") and getattr(m, "type", "") == "tool"
         )
 
@@ -449,17 +486,22 @@ def run_full_context_agent(
         tables_queried = list(_queried_logical_names)
         executed_sqls = list(_sql_executions)
 
-        log_event("full_context_agent_done", {
-            "agent_id": agent_id,
-            "tool_calls": tool_calls,
-            "answer_len": len(answer),
-            "silent": "SILENT" in answer.upper(),
-            "tables_queried": tables_queried,
-        })
+        log_event(
+            "full_context_agent_done",
+            {
+                "agent_id": agent_id,
+                "tool_calls": tool_calls,
+                "answer_len": len(answer),
+                "silent": "SILENT" in answer.upper(),
+                "tables_queried": tables_queried,
+            },
+        )
 
     except Exception as exc:
         logger.exception("full_context_agent failed")
-        log_event("full_context_agent_error", {"agent_id": agent_id, "error": str(exc)[:300]})
+        log_event(
+            "full_context_agent_error", {"agent_id": agent_id, "error": str(exc)[:300]}
+        )
         state["answer"] = (
             "The autonomous agent encountered an error during investigation. "
             "Please try again later."
@@ -484,13 +526,16 @@ def run_full_context_agent(
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
+
 def _extract_title(answer: str) -> Optional[str]:
     """Pull the first ## heading from the markdown output as the title."""
     match = re.search(r"^##\s+(.+)$", answer, re.MULTILINE)
     return match.group(1).strip() if match else None
 
 
-def _resolve_schema_qualified_sql(sql: str, data_source: "BaseDataSource") -> Optional[str]:
+def _resolve_schema_qualified_sql(
+    sql: str, data_source: "BaseDataSource"
+) -> Optional[str]:
     """Replace unqualified table names in SQL with schema-qualified ones.
 
     Queries information_schema.tables on the data source to find the correct
@@ -506,7 +551,7 @@ def _resolve_schema_qualified_sql(sql: str, data_source: "BaseDataSource") -> Op
         )
         # Build mapping: unqualified_name → schema.table_name (first match wins)
         schema_map: dict[str, str] = {}
-        for row in (schema_rows or []):
+        for row in schema_rows or []:
             vals = list(row.values())
             tschema, tname = str(vals[0]), str(vals[1])
             if tname not in schema_map:

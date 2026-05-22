@@ -26,7 +26,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/connections", tags=["connection_discover"])
 
 
-async def _load_connection_metadata_tables(db: AsyncSession, connection_id: str) -> List[Dict[str, Any]]:
+async def _load_connection_metadata_tables(
+    db: AsyncSession, connection_id: str
+) -> List[Dict[str, Any]]:
     """
     Load tables catalog from backend `connection_metadata.tables` (JSON).
     Returns a list of dicts like: [{name, schema, columns:[...]}]
@@ -59,7 +61,9 @@ def _count_metadata_rows(tables: List[Dict[str, Any]]) -> int:
     return total
 
 
-async def _get_last_metadata_update(db: AsyncSession, connection_id: str) -> Optional[datetime]:
+async def _get_last_metadata_update(
+    db: AsyncSession, connection_id: str
+) -> Optional[datetime]:
     try:
         result = await db.execute(
             text(
@@ -94,7 +98,9 @@ async def discover_tables(
     connection_id: str,
     background_tasks: BackgroundTasks,
     space_id: Optional[str] = Query(None, description="Optional space ID for scoping"),
-    table_names: Optional[List[str]] = Query(None, description="Optional list of specific tables to sync (granular sync)"),
+    table_names: Optional[List[str]] = Query(
+        None, description="Optional list of specific tables to sync (granular sync)"
+    ),
     db: AsyncSession = Depends(get_db),
     run_in_background: bool = False,
     auto_generate_embeddings: bool = True,  # ✅ ENABLED: Auto-generate embeddings on discover
@@ -110,7 +116,7 @@ async def discover_tables(
     """
     Descobre automaticamente todas as tabelas de uma DataConnection.
     Por padrão, também gera embeddings automaticamente após descobrir os metadados.
-    
+
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter, opcional)
@@ -118,7 +124,10 @@ async def discover_tables(
     - auto_generate_embeddings: Se True, gera embeddings automaticamente após descobrir (default: True)
     """
     try:
-        from core.ingestion.service import run_metadata_ingestion, run_metadata_embeddings
+        from core.ingestion.service import (
+            run_metadata_ingestion,
+            run_metadata_embeddings,
+        )
         from core.llm.factory import create_embedding_provider
 
         # Race-protection: when N concurrent demo signups fire
@@ -132,15 +141,23 @@ async def discover_tables(
                 from sqlalchemy import text as _text
 
                 row = (
-                    await db.execute(
-                        _text(
-                            "SELECT EXTRACT(EPOCH FROM (NOW() - last_metadata_update))::int AS age "
-                            "FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"
-                        ),
-                        {"cid": connection_id},
+                    (
+                        await db.execute(
+                            _text(
+                                "SELECT EXTRACT(EPOCH FROM (NOW() - last_metadata_update))::int AS age "
+                                "FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"
+                            ),
+                            {"cid": connection_id},
+                        )
                     )
-                ).mappings().first()
-                if row and row["age"] is not None and row["age"] < skip_if_recent_seconds:
+                    .mappings()
+                    .first()
+                )
+                if (
+                    row
+                    and row["age"] is not None
+                    and row["age"] < skip_if_recent_seconds
+                ):
                     log_event(
                         "discover_skipped_recent",
                         {
@@ -169,9 +186,11 @@ async def discover_tables(
 
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
+
             async def _discover_and_embed():
                 from db.session import get_db
                 from db.base import SessionLocal as AsyncSessionLocal
+
                 async with AsyncSessionLocal() as bg_db:
                     try:
                         await _discover_tables_sync(bg_db, connection_id=connection_id)
@@ -196,10 +215,18 @@ async def discover_tables(
                                     table_names=table_names,
                                 )
                                 # ✅ OPTION 1: Enrich with date ranges
-                                from core.ingestion.enrichment import enrich_table_date_ranges
-                                await enrich_table_date_ranges(db=bg_db, connection_id=connection_id)
+                                from core.ingestion.enrichment import (
+                                    enrich_table_date_ranges,
+                                )
+
+                                await enrich_table_date_ranges(
+                                    db=bg_db, connection_id=connection_id
+                                )
                                 # Dataset-level description embeddings (item 16)
-                                from core.ingestion.service import run_dataset_description_embeddings
+                                from core.ingestion.service import (
+                                    run_dataset_description_embeddings,
+                                )
+
                                 await run_dataset_description_embeddings(
                                     db=bg_db,
                                     connection_id=connection_id,
@@ -214,25 +241,41 @@ async def discover_tables(
                                             suggest_okrs_from_datasets,
                                             save_okr_suggestions,
                                         )
+
                                         if await is_brain_empty(bg_db, space_id):
-                                            _bg_tables = await _load_connection_metadata_tables(bg_db, connection_id)
+                                            _bg_tables = (
+                                                await _load_connection_metadata_tables(
+                                                    bg_db, connection_id
+                                                )
+                                            )
                                             _bg_names = [
                                                 t.get("name") or t.get("table_name", "")
-                                                for t in _bg_tables if isinstance(t, dict)
+                                                for t in _bg_tables
+                                                if isinstance(t, dict)
                                             ]
-                                            from core.llm.factory import create_llm_orchestrator
+                                            from core.llm.factory import (
+                                                create_llm_orchestrator,
+                                            )
+
                                             _bg_llm = create_llm_orchestrator()
-                                            _bg_sugg = suggest_okrs_from_datasets(_bg_names, _bg_llm)
-                                            await save_okr_suggestions(bg_db, space_id, _bg_sugg)
+                                            _bg_sugg = suggest_okrs_from_datasets(
+                                                _bg_names, _bg_llm
+                                            )
+                                            await save_okr_suggestions(
+                                                bg_db, space_id, _bg_sugg
+                                            )
                                     except Exception as _bg_onb_exc:
-                                        logger.debug("bg strategic_onboarding failed: %s", _bg_onb_exc)
+                                        logger.debug(
+                                            "bg strategic_onboarding failed: %s",
+                                            _bg_onb_exc,
+                                        )
                             except Exception as e:
                                 # ✅ PATCH 2: CRITICAL - Rollback em background task também
                                 try:
                                     await bg_db.rollback()
                                 except Exception:
                                     pass
-                                
+
                                 log_event(
                                     "discover_auto_embed_error",
                                     {
@@ -250,7 +293,7 @@ async def discover_tables(
                                 "error": str(e)[:500],
                             },
                         )
-            
+
             background_tasks.add_task(_discover_and_embed)
 
             return {
@@ -263,7 +306,7 @@ async def discover_tables(
 
         result = await _discover_tables_sync(db, connection_id=connection_id)
         result["space_id"] = space_id
-        
+
         # Gerar embeddings automaticamente se solicitado
         if auto_generate_embeddings:
             try:
@@ -275,7 +318,7 @@ async def discover_tables(
                     crew_id=None,
                     table_names=table_names,
                 )
-                
+
                 # Gerar embeddings
                 embedding_provider = create_embedding_provider()
                 created = await run_metadata_embeddings(
@@ -286,12 +329,16 @@ async def discover_tables(
                     embedding_provider=embedding_provider,
                     table_names=table_names,
                 )
-                
+
                 # ✅ OPTION 1: Enrich with date ranges
                 from core.ingestion.enrichment import enrich_table_date_ranges
-                enriched_count = await enrich_table_date_ranges(db=db, connection_id=connection_id)
+
+                enriched_count = await enrich_table_date_ranges(
+                    db=db, connection_id=connection_id
+                )
                 # Dataset-level description embeddings (item 16)
                 from core.ingestion.service import run_dataset_description_embeddings
+
                 dataset_emb_count = await run_dataset_description_embeddings(
                     db=db,
                     connection_id=connection_id,
@@ -312,15 +359,22 @@ async def discover_tables(
                             suggest_okrs_from_datasets,
                             save_okr_suggestions,
                         )
+
                         if await is_brain_empty(db, space_id):
-                            _tables = await _load_connection_metadata_tables(db, connection_id)
+                            _tables = await _load_connection_metadata_tables(
+                                db, connection_id
+                            )
                             _table_names = [
                                 t.get("name") or t.get("table_name", "")
-                                for t in _tables if isinstance(t, dict)
+                                for t in _tables
+                                if isinstance(t, dict)
                             ]
                             from core.llm.factory import create_llm_orchestrator
+
                             _llm = create_llm_orchestrator()
-                            _suggestions = suggest_okrs_from_datasets(_table_names, _llm)
+                            _suggestions = suggest_okrs_from_datasets(
+                                _table_names, _llm
+                            )
                             await save_okr_suggestions(db, space_id, _suggestions)
                             result["okr_suggestions"] = _suggestions
                             log_event(
@@ -328,7 +382,9 @@ async def discover_tables(
                                 {"space_id": space_id, "count": len(_suggestions)},
                             )
                     except Exception as _onb_exc:
-                        logger.debug("strategic_onboarding failed (non-critical): %s", _onb_exc)
+                        logger.debug(
+                            "strategic_onboarding failed (non-critical): %s", _onb_exc
+                        )
 
                 log_event(
                     "discover_auto_embed_success",
@@ -362,8 +418,9 @@ async def discover_tables(
     except Exception as e:
         # Log technical details internally
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         logger.error(
             "Table discovery failed",
             extra={
@@ -371,13 +428,13 @@ async def discover_tables(
                 "error_type": type(e).__name__,
                 "connection_id": connection_id,
                 "space_id": space_id,
-            }
+            },
         )
-        
+
         # User-friendly message (NO database/connection details)
         raise HTTPException(
             status_code=500,
-            detail="Unable to load data source information. Please try again or contact support."
+            detail="Unable to load data source information. Please try again or contact support.",
         )
 
 

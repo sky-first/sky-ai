@@ -36,7 +36,9 @@ try:
         socket_timeout=1,
     )
     REDIS_AVAILABLE = True
-    log_event("embedding_cache_redis_connected", {"url": settings.celery_broker_url[:30]})
+    log_event(
+        "embedding_cache_redis_connected", {"url": settings.celery_broker_url[:30]}
+    )
 except Exception as _e:
     REDIS_AVAILABLE = False
     _redis_client = None
@@ -49,6 +51,7 @@ _stats = {"hits": 0, "misses": 0, "errors": 0}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_key(text: str) -> str:
     """Gera chave Redis a partir do texto normalizado."""
@@ -66,6 +69,7 @@ def _deserialize(raw: str) -> List[float]:
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
+
 
 def get_cached_embedding(text: str) -> Optional[List[float]]:
     """

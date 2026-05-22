@@ -14,7 +14,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-engine = create_engine(os.getenv('DATABASE_URL'), future=True)
+engine = create_engine(os.getenv("DATABASE_URL"), future=True)
 
 print("=" * 60)
 print("🔍 VERIFICAÇÃO DO PGVECTOR")
@@ -24,13 +24,17 @@ print("=" * 60)
 print("\n1️⃣ Verificando extensão pgvector...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT EXISTS(
                 SELECT 1 FROM pg_extension WHERE extname = 'vector'
             ) as extension_exists
-        """))
+        """
+            )
+        )
         exists = result.first()[0]
-        
+
         if exists:
             print("   ✅ Extensão 'vector' está instalada!")
         else:
@@ -53,7 +57,9 @@ except Exception as e:
 print("\n3️⃣ Verificando tabela embeddings...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT 
                 column_name, 
                 data_type,
@@ -61,21 +67,27 @@ try:
             FROM information_schema.columns 
             WHERE table_name = 'embeddings' 
             AND column_name = 'embedding'
-        """))
+        """
+            )
+        )
         row = result.first()
-        
+
         if row:
             col_name, data_type, udt_name = row
             print(f"   📊 Coluna 'embedding':")
             print(f"      - data_type: {data_type}")
             print(f"      - udt_name: {udt_name}")
-            
-            if udt_name == 'vector':
+
+            if udt_name == "vector":
                 print("   ✅ Tabela usa tipo vector (busca vetorial habilitada)")
             else:
-                print(f"   ⚠️  Tabela usa tipo {udt_name} (busca vetorial NÃO habilitada)")
+                print(
+                    f"   ⚠️  Tabela usa tipo {udt_name} (busca vetorial NÃO habilitada)"
+                )
         else:
-            print("   ⚠️  Tabela 'embeddings' não existe ou coluna 'embedding' não encontrada")
+            print(
+                "   ⚠️  Tabela 'embeddings' não existe ou coluna 'embedding' não encontrada"
+            )
 except Exception as e:
     print(f"   ⚠️  Erro ao verificar tabela: {e}")
 
@@ -83,16 +95,20 @@ except Exception as e:
 print("\n4️⃣ Verificando índices vetoriais...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT 
                 indexname, 
                 indexdef
             FROM pg_indexes 
             WHERE tablename = 'embeddings'
             AND indexdef LIKE '%vector%'
-        """))
+        """
+            )
+        )
         indexes = list(result)
-        
+
         if indexes:
             print(f"   ✅ Encontrados {len(indexes)} índice(s) vetorial(is):")
             for idx_name, idx_def in indexes:

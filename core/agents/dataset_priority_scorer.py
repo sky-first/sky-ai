@@ -210,12 +210,18 @@ async def save_row_count_snapshots(
             continue
         try:
             result = await db.execute(
-                text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"),
+                text(
+                    "SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid) LIMIT 1"
+                ),
                 {"cid": conn_id},
             )
             tables_json = result.scalar_one_or_none()
         except Exception as exc:
-            logger.debug("save_row_count_snapshots: connection_metadata fetch failed for %s: %s", conn_id, exc)
+            logger.debug(
+                "save_row_count_snapshots: connection_metadata fetch failed for %s: %s",
+                conn_id,
+                exc,
+            )
             continue
 
         if not tables_json or not isinstance(tables_json, list):
@@ -237,7 +243,9 @@ async def save_row_count_snapshots(
                 catalog[name] = rc  # also index by bare name for fallback
 
         for t in conn_tables:
-            rc = catalog.get(t.logical_name) or catalog.get(getattr(t, "physical_name", ""))
+            rc = catalog.get(t.logical_name) or catalog.get(
+                getattr(t, "physical_name", "")
+            )
             if rc is not None and rc >= 0:
                 row_count_map[t.logical_name] = rc
 
@@ -252,18 +260,20 @@ async def save_row_count_snapshots(
     dummy_embedding = [0.0] * 1024
     created = 0
     for logical_name, row_count in row_count_map.items():
-        db.add(EmbeddingRecord(
-            id=uuid4(),
-            space_id=space_uuid,
-            user_id=None,
-            embedding=dummy_embedding,
-            text=f"row_count_snapshot:{logical_name}:{row_count}",
-            extra_metadata={
-                "kind": "row_count_snapshot",
-                "logical_name": logical_name,
-                "row_count": row_count,
-            },
-        ))
+        db.add(
+            EmbeddingRecord(
+                id=uuid4(),
+                space_id=space_uuid,
+                user_id=None,
+                embedding=dummy_embedding,
+                text=f"row_count_snapshot:{logical_name}:{row_count}",
+                extra_metadata={
+                    "kind": "row_count_snapshot",
+                    "logical_name": logical_name,
+                    "row_count": row_count,
+                },
+            )
+        )
         created += 1
 
     try:
@@ -276,7 +286,9 @@ async def save_row_count_snapshots(
             pass
         return 0
 
-    logger.debug("save_row_count_snapshots: saved %d snapshots for space %s", created, space_id)
+    logger.debug(
+        "save_row_count_snapshots: saved %d snapshots for space %s", created, space_id
+    )
     return created
 
 
@@ -354,10 +366,10 @@ class DatasetPriorityScorer:
     """
 
     WEIGHTS = {
-        "staleness":            0.45,
-        "strategic_relevance":  0.30,
-        "depth":                0.15,
-        "volatility":           0.10,
+        "staleness": 0.45,
+        "strategic_relevance": 0.30,
+        "depth": 0.15,
+        "volatility": 0.10,
     }
 
     def __init__(
@@ -410,28 +422,31 @@ class DatasetPriorityScorer:
             volatility = self._volatility_score(table)
 
             score = (
-                self.WEIGHTS["staleness"]           * staleness
+                self.WEIGHTS["staleness"] * staleness
                 + self.WEIGHTS["strategic_relevance"] * relevance
-                + self.WEIGHTS["depth"]               * depth
-                + self.WEIGHTS["volatility"]          * volatility
+                + self.WEIGHTS["depth"] * depth
+                + self.WEIGHTS["volatility"] * volatility
             )
 
-            scores.append(TableScore(
-                logical_name=table.logical_name,
-                score=score,
-                staleness=staleness,
-                strategic_relevance=relevance,
-                depth=depth,
-                volatility=volatility,
-                last_queried_at=last_queried_at,
-            ))
+            scores.append(
+                TableScore(
+                    logical_name=table.logical_name,
+                    score=score,
+                    staleness=staleness,
+                    strategic_relevance=relevance,
+                    depth=depth,
+                    volatility=volatility,
+                    last_queried_at=last_queried_at,
+                )
+            )
 
         scores.sort(key=lambda s: s.score, reverse=True)
 
         logger.debug(
             "DatasetPriorityScorer: top-%d from %d tables\n%s",
-            self._top_k, len(tables),
-            "\n".join(f"  {s}" for s in scores[:self._top_k]),
+            self._top_k,
+            len(tables),
+            "\n".join(f"  {s}" for s in scores[: self._top_k]),
         )
 
         top_k = max(1, self._top_k)
@@ -463,7 +478,9 @@ class DatasetPriorityScorer:
             # Single connection — cross-dataset mode has no effect; use normal rank
             return self.rank(tables, insights)
 
-        scores_map = {s.logical_name: s.score for s in self.score_breakdown(tables, insights)}
+        scores_map = {
+            s.logical_name: s.score for s in self.score_breakdown(tables, insights)
+        }
 
         selected = []
         for group_tables in groups.values():
@@ -495,20 +512,22 @@ class DatasetPriorityScorer:
             depth = self._depth_score(table, max_cols)
             volatility = self._volatility_score(table)
             score = (
-                self.WEIGHTS["staleness"]            * staleness
+                self.WEIGHTS["staleness"] * staleness
                 + self.WEIGHTS["strategic_relevance"] * relevance
-                + self.WEIGHTS["depth"]               * depth
-                + self.WEIGHTS["volatility"]          * volatility
+                + self.WEIGHTS["depth"] * depth
+                + self.WEIGHTS["volatility"] * volatility
             )
-            out.append(TableScore(
-                logical_name=table.logical_name,
-                score=score,
-                staleness=staleness,
-                strategic_relevance=relevance,
-                depth=depth,
-                volatility=volatility,
-                last_queried_at=last_queried_at,
-            ))
+            out.append(
+                TableScore(
+                    logical_name=table.logical_name,
+                    score=score,
+                    staleness=staleness,
+                    strategic_relevance=relevance,
+                    depth=depth,
+                    volatility=volatility,
+                    last_queried_at=last_queried_at,
+                )
+            )
         out.sort(key=lambda s: s.score, reverse=True)
         return out
 
@@ -573,14 +592,23 @@ class DatasetPriorityScorer:
         if not self._brain_keywords:
             return 0.5
 
-        table_text = " ".join(filter(None, [
-            str(table.description or ""),
-            table.logical_name,
-            " ".join(
-                str(c.get("name", "") if isinstance(c, dict) else getattr(c, "name", ""))
-                for c in (table.columns or [])
-            ),
-        ])).lower()
+        table_text = " ".join(
+            filter(
+                None,
+                [
+                    str(table.description or ""),
+                    table.logical_name,
+                    " ".join(
+                        str(
+                            c.get("name", "")
+                            if isinstance(c, dict)
+                            else getattr(c, "name", "")
+                        )
+                        for c in (table.columns or [])
+                    ),
+                ],
+            )
+        ).lower()
 
         table_keywords = self._extract_keywords(table_text)
         if not table_keywords:
@@ -600,6 +628,7 @@ class DatasetPriorityScorer:
         explored = self._depth_combos.get(table.logical_name)
         if explored is not None:
             from core.agents.depth_tracker import depth_remaining_score
+
             return depth_remaining_score(
                 table_name=table.logical_name,
                 columns=table.columns or [],
@@ -637,10 +666,37 @@ class DatasetPriorityScorer:
     def _extract_keywords(text: str) -> set:
         """Extract meaningful words (length >= 4) from text, ignoring stop words."""
         stop_words = {
-            "this", "that", "with", "from", "have", "will", "been", "they",
-            "their", "when", "than", "into", "your", "each", "which", "also",
-            "more", "most", "over", "such", "then", "only", "like", "both",
-            "data", "table", "column", "value", "values", "field", "type",
+            "this",
+            "that",
+            "with",
+            "from",
+            "have",
+            "will",
+            "been",
+            "they",
+            "their",
+            "when",
+            "than",
+            "into",
+            "your",
+            "each",
+            "which",
+            "also",
+            "more",
+            "most",
+            "over",
+            "such",
+            "then",
+            "only",
+            "like",
+            "both",
+            "data",
+            "table",
+            "column",
+            "value",
+            "values",
+            "field",
+            "type",
         }
         words = re.findall(r"[a-z][a-z0-9_]{2,}", text.lower())
         return {w for w in words if w not in stop_words and len(w) >= 4}

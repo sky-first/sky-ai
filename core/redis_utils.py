@@ -22,7 +22,7 @@ from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 logger = logging.getLogger(__name__)
 
 _CERT_MAP: dict[str, int] = {
-    "CERT_NONE":     ssl.CERT_NONE,
+    "CERT_NONE": ssl.CERT_NONE,
     "CERT_OPTIONAL": ssl.CERT_OPTIONAL,
     "CERT_REQUIRED": ssl.CERT_REQUIRED,
 }
@@ -43,7 +43,9 @@ def _strip_ssl_cert_reqs(url: str) -> tuple[str, Optional[int]]:
         except ValueError:
             cert_reqs = _CERT_MAP.get(raw.upper())
             if cert_reqs is None:
-                logger.warning("Unknown ssl_cert_reqs value %r — defaulting to CERT_REQUIRED", raw)
+                logger.warning(
+                    "Unknown ssl_cert_reqs value %r — defaulting to CERT_REQUIRED", raw
+                )
                 cert_reqs = ssl.CERT_REQUIRED
 
     clean_query = urlencode(params, doseq=True)
@@ -77,7 +79,9 @@ def make_redis_client(
     is_ssl = clean_url.startswith("rediss://")
     if is_ssl:
         # Inject the enum value redis-py actually accepts.
-        kwargs["ssl_cert_reqs"] = cert_reqs if cert_reqs is not None else ssl.CERT_REQUIRED
+        kwargs["ssl_cert_reqs"] = (
+            cert_reqs if cert_reqs is not None else ssl.CERT_REQUIRED
+        )
 
     client = redis.from_url(clean_url, **kwargs)
     client.ping()

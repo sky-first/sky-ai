@@ -31,9 +31,9 @@ branch_labels = None
 depends_on = None
 
 _TABLES = [
-    ("embeddings", "embedding", True),            # NOT NULL
-    ("semantic_cache", "embedding", True),         # NOT NULL
-    ("knowledge_file_chunks", "embedding", False), # nullable
+    ("embeddings", "embedding", True),  # NOT NULL
+    ("semantic_cache", "embedding", True),  # NOT NULL
+    ("knowledge_file_chunks", "embedding", False),  # nullable
 ]
 
 
@@ -88,6 +88,4 @@ def downgrade() -> None:
         op.execute(f"TRUNCATE TABLE {table} CASCADE")
         op.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         null_clause = "NOT NULL" if not_null else ""
-        op.execute(
-            f"ALTER TABLE {table} ADD COLUMN {column} vector(768) {null_clause}"
-        )
+        op.execute(f"ALTER TABLE {table} ADD COLUMN {column} vector(768) {null_clause}")

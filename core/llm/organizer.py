@@ -77,21 +77,29 @@ def run_organizer(
     Returns:
         Unified answer string
     """
-    log_event("organizer_start", {
-        "question": question[:100],
-        "specialists": list(specialist_results.keys()),
-        "merge_strategy": merge_strategy,
-    })
+    log_event(
+        "organizer_start",
+        {
+            "question": question[:100],
+            "specialists": list(specialist_results.keys()),
+            "merge_strategy": merge_strategy,
+        },
+    )
 
     # Filter out empty/error-only results
     valid_results = {
-        k: v for k, v in specialist_results.items()
-        if v.get("answer") and not v["answer"].startswith("No ") and "not available" not in v.get("answer", "").lower()
+        k: v
+        for k, v in specialist_results.items()
+        if v.get("answer")
+        and not v["answer"].startswith("No ")
+        and "not available" not in v.get("answer", "").lower()
     }
 
     if not valid_results:
         # All specialists returned empty — return best effort
-        all_answers = [v.get("answer", "") for v in specialist_results.values() if v.get("answer")]
+        all_answers = [
+            v.get("answer", "") for v in specialist_results.values() if v.get("answer")
+        ]
         if all_answers:
             return all_answers[0]
         return "I couldn't find relevant information across any of the available data sources."
@@ -99,7 +107,9 @@ def run_organizer(
     # If only one specialist returned useful data, just use its answer directly
     if len(valid_results) == 1:
         only_result = list(valid_results.values())[0]
-        log_event("organizer_single_source", {"specialist": list(valid_results.keys())[0]})
+        log_event(
+            "organizer_single_source", {"specialist": list(valid_results.keys())[0]}
+        )
         return only_result["answer"]
 
     # Multiple results — ask LLM to merge
@@ -111,10 +121,12 @@ def run_organizer(
     )
 
     try:
-        response = llm.invoke([
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": question},
-        ])
+        response = llm.invoke(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": question},
+            ]
+        )
         answer = response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         logger.error(f"Organizer LLM error: {e}")
@@ -124,10 +136,13 @@ def run_organizer(
             parts.append(f"**{name.title()}**: {result['answer']}")
         answer = "\n\n".join(parts)
 
-    log_event("organizer_done", {
-        "question": question[:100],
-        "num_sources": len(valid_results),
-        "answer_preview": answer[:200] if answer else "",
-    })
+    log_event(
+        "organizer_done",
+        {
+            "question": question[:100],
+            "num_sources": len(valid_results),
+            "answer_preview": answer[:200] if answer else "",
+        },
+    )
 
     return answer

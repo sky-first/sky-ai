@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import sys
@@ -30,7 +29,7 @@ async def run_query(question: str):
                     "space_id": SPACE_ID,
                     "crew_ids": CREW_IDS,
                 },
-                timeout=120.0
+                timeout=120.0,
             )
             elapsed = time.time() - start_time
             data = response.json()
@@ -50,16 +49,15 @@ async def main():
     print(f"   Pergunta: '{q1}'")
     data1, time1, status1 = await run_query(q1)
 
-    if status1 == 200 and data1.get(
-            "answer") and not data1["meta"].get("error"):
+    if status1 == 200 and data1.get("answer") and not data1["meta"].get("error"):
         sql = data1["meta"].get("sql", "")
         if "status_clean" in sql or "status_pt" in sql or "clean" in sql:
             print(
-                f"   {GREEN}✅ PASSOU: SQL gerado corretamente usando convenção agnóstica.{RESET}")
+                f"   {GREEN}✅ PASSOU: SQL gerado corretamente usando convenção agnóstica.{RESET}"
+            )
             print(f"   SQL Snippet: {sql[:100]}...")
         else:
-            print(
-                f"   ⚠️ ALERTA: SQL gerado, mas verifique as colunas: {sql[:100]}")
+            print(f"   ⚠️ ALERTA: SQL gerado, mas verifique as colunas: {sql[:100]}")
     else:
         print(f"   {RED}❌ FALHOU: Erro na resposta.{RESET}")
         print(f"   Erro: {data1.get('meta', {}).get('error') or data1}")
@@ -77,8 +75,7 @@ async def main():
     if "pessoais sensíveis" in answer2:
         print(f"   {RED}❌ FALHOU: Resposta bloqueada por PII.{RESET}")
     elif status2 == 200 and answer2:
-        print(
-            f"   {GREEN}✅ PASSOU: Resposta permitida (whitelist ativa).{RESET}")
+        print(f"   {GREEN}✅ PASSOU: Resposta permitida (whitelist ativa).{RESET}")
         print(f"   Resposta: {answer2[:100]}...")
     else:
         print(f"   {RED}❌ FALHOU: Erro técnico.{RESET}")
@@ -96,8 +93,7 @@ async def main():
     answer3 = data3.get("answer", "")
 
     if "pii_prompt_blocked" in error_meta or "bloqueada por segurança" in answer3:
-        print(
-            f"   {GREEN}✅ PASSOU: Prompt bloqueado corretamente na entrada.{RESET}")
+        print(f"   {GREEN}✅ PASSOU: Prompt bloqueado corretamente na entrada.{RESET}")
         print(f"   Mensagem: {answer3}")
     else:
         print(f"   {RED}❌ FALHOU: Prompt NÃO foi bloqueado!{RESET}")
@@ -115,9 +111,8 @@ async def main():
     try:
         # Tentar conectar ao banco se possível
         sys.path.insert(
-            0, os.path.abspath(
-                os.path.join(
-                    os.path.dirname(__file__), '..')))
+            0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        )
         from sqlalchemy import text
 
         from db.base import SessionLocal
@@ -125,26 +120,28 @@ async def main():
         async with SessionLocal() as db:
             result = await db.execute(
                 text(
-                    "SELECT * FROM security_alerts WHERE user_id = :uid ORDER BY timestamp DESC LIMIT 1"),
-                {"uid": USER_ID}
+                    "SELECT * FROM security_alerts WHERE user_id = :uid ORDER BY timestamp DESC LIMIT 1"
+                ),
+                {"uid": USER_ID},
             )
             row = result.fetchone()
 
             if row:
-                print(
-                    f"   {GREEN}✅ PASSOU: Alerta encontrado no banco!{RESET}")
+                print(f"   {GREEN}✅ PASSOU: Alerta encontrado no banco!{RESET}")
                 print(f"   ID: {row.id}")
                 print(f"   Tipo: {row.alert_type}")
                 print(f"   Detalhes: {row.details}")
             else:
                 print(
-                    f"   {RED}❌ FALHOU: Nenhum alerta encontrado para o usuário {USER_ID}.{RESET}")
+                    f"   {RED}❌ FALHOU: Nenhum alerta encontrado para o usuário {USER_ID}.{RESET}"
+                )
 
     except Exception as e:
         print(f"   ⚠️ Não foi possível verificar o banco diretamente: {e}")
         print("   (Isso é esperado se o script não tiver acesso ao ambiente do DB)")
 
     print("\n" + "=" * 50)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

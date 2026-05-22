@@ -8,6 +8,7 @@ from core.agents.generic_sql_agent import AgentConfig
 from core.rag.embeddings import EmbeddingProvider
 from core.rag.vector_store import search_embeddings
 
+
 class ToolFactory:
     """
     Fábrica responsável por criar as ferramentas dinâmicas para o Orquestrador
@@ -63,6 +64,7 @@ class ToolFactory:
         connection_labels: {connection_id: "label"} — when provided, tables are
         grouped by data source so the agent knows which DB to query.
         """
+
         @tool
         def list_tables() -> str:
             """List all available database tables with a one-line description.
@@ -79,6 +81,7 @@ class ToolFactory:
             # Group tables by connection_id when labels are provided
             if labels:
                 from collections import defaultdict
+
                 groups: dict = defaultdict(list)
                 for t in agent_config.tables:
                     conn_id = str(getattr(t, "data_connection_id", "") or "")
@@ -92,7 +95,9 @@ class ToolFactory:
                         desc = getattr(t, "description", None) or "No description."
                         if len(desc) > 100:
                             desc = desc[:97] + "..."
-                        lines.append(f"  - {t.logical_name} → {t.physical_name}: {desc}")
+                        lines.append(
+                            f"  - {t.logical_name} → {t.physical_name}: {desc}"
+                        )
             else:
                 lines = ["AVAILABLE TABLES (logical → physical: description)\n"]
                 for t in agent_config.tables:
@@ -108,11 +113,12 @@ class ToolFactory:
     @staticmethod
     def create_table_schema_tool(agent_config: AgentConfig):
         """Full column detail for a single table — called on demand."""
+
         class _Input(BaseModel):
             table_name: str = Field(
                 ...,
                 description="Logical table name as returned by list_tables(). "
-                            "Also accepts the physical name.",
+                "Also accepts the physical name.",
             )
 
         @tool(args_schema=_Input)
@@ -161,7 +167,12 @@ class ToolFactory:
         return get_table_schema
 
     @staticmethod
-    def create_strategy_tool(db: Session, embedding_provider: EmbeddingProvider, space_id: str, crew_ids: Optional[List[str]]):
+    def create_strategy_tool(
+        db: Session,
+        embedding_provider: EmbeddingProvider,
+        space_id: str,
+        crew_ids: Optional[List[str]],
+    ):
         @tool
         def search_corporate_strategy(query: str) -> str:
             """
@@ -175,7 +186,7 @@ class ToolFactory:
                     space_id=space_id or None,
                     crew_ids=crew_ids,
                     query_text=query,
-                    top_k=10
+                    top_k=10,
                 )
             except Exception:
                 return "No strategic documentation found for this query."
@@ -183,10 +194,20 @@ class ToolFactory:
             # Filtramos localmente apenas o que for do tipo business_context ou target
             strategy_contexts = []
             for rec in records:
-                meta = rec.extra_metadata if isinstance(rec.extra_metadata, dict) else {}
+                meta = (
+                    rec.extra_metadata if isinstance(rec.extra_metadata, dict) else {}
+                )
                 kind = meta.get("type", "") or meta.get("kind", "")
-                if kind in ("business_context", "objective", "key_result", "target", "pillar"):
-                    strategy_contexts.append(f"[STRATEGY] {meta.get('name', 'Unknown')}: {rec.text}")
+                if kind in (
+                    "business_context",
+                    "objective",
+                    "key_result",
+                    "target",
+                    "pillar",
+                ):
+                    strategy_contexts.append(
+                        f"[STRATEGY] {meta.get('name', 'Unknown')}: {rec.text}"
+                    )
 
             if not strategy_contexts:
                 return "No strategic documentation found for this query."
@@ -196,7 +217,12 @@ class ToolFactory:
         return search_corporate_strategy
 
     @staticmethod
-    def create_signals_tool(db: Session, embedding_provider: EmbeddingProvider, space_id: str, crew_ids: Optional[List[str]]):
+    def create_signals_tool(
+        db: Session,
+        embedding_provider: EmbeddingProvider,
+        space_id: str,
+        crew_ids: Optional[List[str]],
+    ):
         @tool
         def search_market_signals(query: str) -> str:
             """
@@ -210,7 +236,7 @@ class ToolFactory:
                     space_id=space_id or None,
                     crew_ids=crew_ids,
                     query_text=query,
-                    top_k=8
+                    top_k=8,
                 )
             except Exception:
                 return "No market signals or events found for this query."
@@ -218,10 +244,14 @@ class ToolFactory:
             # Filtramos localmente eventos e anomalias
             signals_contexts = []
             for rec in records:
-                meta = rec.extra_metadata if isinstance(rec.extra_metadata, dict) else {}
+                meta = (
+                    rec.extra_metadata if isinstance(rec.extra_metadata, dict) else {}
+                )
                 kind = meta.get("type", "") or meta.get("kind", "")
                 if kind in ("signal", "event", "anomaly", "news"):
-                    signals_contexts.append(f"[SIGNAL/EVENT] {meta.get('name', 'Unknown')}: {rec.text}")
+                    signals_contexts.append(
+                        f"[SIGNAL/EVENT] {meta.get('name', 'Unknown')}: {rec.text}"
+                    )
 
             if not signals_contexts:
                 return "No market signals or events found for this query."
@@ -229,4 +259,3 @@ class ToolFactory:
             return "\n\n".join(signals_contexts)
 
         return search_market_signals
-

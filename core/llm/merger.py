@@ -8,25 +8,24 @@ from core.llm.providers import LLMProvider
 from core.logging_utils import log_event
 from core.data_manager.duck_engine import DuckEngine
 
+
 def _generate_merger_prompt(
-    question: str,
-    partial_results: List[Dict[str, Any]],
-    plan: str
+    question: str, partial_results: List[Dict[str, Any]], plan: str
 ) -> List[Dict[str, str]]:
     """
     Creates the prompt for the Merger agent.
     Describes the partial data (tables) and asks for DuckDB SQL.
     """
-    
+
     # Summarize checks
     data_summary = []
     for i, res in enumerate(partial_results):
         meta = res.get("metadata", {})
         rows = res.get("data", [])
-        
+
         # Determine table name alias
         alias = f"dataset_{i+1}"
-        
+
         columns = []
         row_count = 0
         sample_data = []
@@ -34,6 +33,7 @@ def _generate_merger_prompt(
         is_arrow = False
         try:
             import pyarrow as pa
+
             if isinstance(rows, pa.Table):
                 is_arrow = True
                 columns = rows.column_names
@@ -48,7 +48,7 @@ def _generate_merger_prompt(
             if rows and len(rows) > 0:
                 columns = list(rows[0].keys())
             sample_data = rows[:2]
-        
+
         summary = (
             f"--- TABLE '{alias}' ---\n"
             f"Original Source: {meta.get('source', 'Unknown')}\n"
@@ -73,7 +73,7 @@ def _generate_merger_prompt(
             "3. Output ONLY the valid SQL query (inside ```sql ... ```). No explanations.\n"
             "4. Start with `SELECT`.\n"
             "5. Handle type mismatches (e.g., cast string to int if needed) using DuckDB syntax.\n"
-        )
+        ),
     }
 
     user_msg = {
@@ -83,10 +83,11 @@ def _generate_merger_prompt(
             f"Plan Context: {plan}\n\n"
             f"Available Tables (DuckDB):\n{data_block}\n\n"
             "Generate the DuckDB SQL query."
-        )
+        ),
     }
 
     return [system_msg, user_msg]
+
 
 def _extract_sql_code(text: str) -> str:
     """Extracts code from ```sql ... ``` blocks."""
@@ -99,10 +100,9 @@ def _extract_sql_code(text: str) -> str:
         return cleaned
     return cleaned
 
+
 def run_merger(
-    state: AgentState,
-    agent_config: AgentConfig,
-    llm: LLMProvider
+    state: AgentState, agent_config: AgentConfig, llm: LLMProvider
 ) -> AgentState:
     """
     Merger Node:
@@ -119,8 +119,8 @@ def run_merger(
         {
             "agent_id": agent_config.id,
             "num_datasets": len(partial_results),
-            "question": question[:100]
-        }
+            "question": question[:100],
+        },
     )
 
     if not partial_results:
@@ -131,7 +131,9 @@ def run_merger(
     prompt = _generate_merger_prompt(question, partial_results, plan)
     try:
         response = llm.invoke(prompt)
-        text_response = response.content if hasattr(response, "content") else str(response)
+        text_response = (
+            response.content if hasattr(response, "content") else str(response)
+        )
         sql_query = _extract_sql_code(text_response)
     except Exception as e:
         state["error"] = f"Merger LLM generation failed: {str(e)}"
@@ -141,38 +143,28 @@ def run_merger(
     engine = None
     try:
         engine = DuckEngine()
-        
+
         # Register tables
         for i, res in enumerate(partial_results):
             alias = f"dataset_{i+1}"
             data = res.get("data", [])
             engine.register_data(alias, data)
-        
+
         # Execute Query
         print(f"[Merger] Executing SQL: {sql_query}")
         final_data = engine.execute(sql_query)
-        
+
         state["data"] = final_data
-        state["generated_title"] = f"Consolidated Report ({len(partial_results)} Sources)"
-        state["sql"] = sql_query  # Save the merger SQL for debugging/explanation
-        
-        log_event(
-            "merger_success",
-            {
-                "final_rows": len(final_data),
-                "sql": sql_query
-            }
+        state["generated_title"] = (
+            f"Consolidated Report ({len(partial_results)} Sources)"
         )
+        state["sql"] = sql_query  # Save the merger SQL for debugging/explanation
+
+        log_event("merger_success", {"final_rows": len(final_data), "sql": sql_query})
 
     except Exception as e:
         state["error"] = f"Merger DuckDB execution failed: {str(e)}"
-        log_event(
-            "merger_execution_error",
-            {
-                "error": str(e),
-                "sql": sql_query
-            }
-        )
+        log_event("merger_execution_error", {"error": str(e), "sql": sql_query})
     finally:
         if engine:
             engine.close()

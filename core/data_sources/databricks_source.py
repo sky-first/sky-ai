@@ -49,11 +49,14 @@ class DatabricksSource(SQLAlchemyDataSource):
                     "(or an explicit dsn)"
                 )
             from urllib.parse import quote_plus
+
             dsn = (
                 f"databricks+connector://token:{quote_plus(str(access_token))}"
                 f"@{server_hostname}:443/{catalog}"
                 f"?http_path={quote_plus(str(http_path))}"
             )
         engine = create_engine(dsn, future=True)
-        log_event("build_databricks_datasource", {"label": label, "dsn_preview": dsn[:80]})
+        log_event(
+            "build_databricks_datasource", {"label": label, "dsn_preview": dsn[:80]}
+        )
         super().__init__(engine=engine, dialect=Dialect.DATABRICKS, label=label)

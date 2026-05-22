@@ -58,9 +58,16 @@ class MongoDBSource:
                 result[k] = MongoDBSource._normalize_doc(v)
             elif isinstance(v, list):
                 result[k] = [
-                    MongoDBSource._normalize_doc(item)
-                    if isinstance(item, dict)
-                    else (str(item) if hasattr(item, "__class__") and item.__class__.__name__ == "ObjectId" else item)
+                    (
+                        MongoDBSource._normalize_doc(item)
+                        if isinstance(item, dict)
+                        else (
+                            str(item)
+                            if hasattr(item, "__class__")
+                            and item.__class__.__name__ == "ObjectId"
+                            else item
+                        )
+                    )
                     for item in v
                 ]
             else:
@@ -136,7 +143,9 @@ class MongoDBSource:
             import pymongo  # lazy import
 
             if self._client is None:
-                self._client = pymongo.MongoClient(self._uri, serverSelectionTimeoutMS=5000)
+                self._client = pymongo.MongoClient(
+                    self._uri, serverSelectionTimeoutMS=5000
+                )
             self._client.admin.command("ping")
             return True
         except Exception as exc:

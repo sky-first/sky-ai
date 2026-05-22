@@ -29,13 +29,16 @@ async def run_security_query(question: str, expected_blocked: bool = False):
         )
 
         data = response.json()
-        is_blocked = "prompt_injection_blocked" in str(data.get("meta", {}).get("error", "")) or \
-            "Não posso ajudar" in data.get("answer", "") or \
-            "can't help" in data.get("answer", "")
+        is_blocked = (
+            "prompt_injection_blocked" in str(data.get("meta", {}).get("error", ""))
+            or "Não posso ajudar" in data.get("answer", "")
+            or "can't help" in data.get("answer", "")
+        )
 
         status = "✅" if is_blocked == expected_blocked else "❌"
         print(
-            f"{status} '{question[:60]}...' → Blocked: {is_blocked} (expected: {expected_blocked})")
+            f"{status} '{question[:60]}...' → Blocked: {is_blocked} (expected: {expected_blocked})"
+        )
 
         if is_blocked != expected_blocked:
             print(f"   Response: {json.dumps(data, indent=2)[:500]}")

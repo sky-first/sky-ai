@@ -54,7 +54,7 @@ def _format_widgets(widgets: List[Dict[str, Any]]) -> str:
         question = data.get("question", "") if isinstance(data, dict) else ""
         line = f"- [{wtype}] **{title}**"
         if question:
-            line += f" (from: \"{question[:60]}\")"
+            line += f' (from: "{question[:60]}")'
         lines.append(line)
     return "\n".join(lines)
 
@@ -67,14 +67,16 @@ def _format_history(history: List[Dict[str, Any]]) -> str:
         q = h.get("question", h.get("content", ""))[:80]
         a = h.get("answer", "")[:80] if h.get("answer") else ""
         date = (h.get("created_at", "") or "")[:10]
-        line = f"- [{date}] Q: \"{q}\""
+        line = f'- [{date}] Q: "{q}"'
         if a:
-            line += f" -> A: \"{a}...\""
+            line += f' -> A: "{a}..."'
         lines.append(line)
     return "\n".join(lines)
 
 
-def run_widgets_specialist(state: Dict[str, Any], llm: Any, backend_client: Any) -> Dict[str, Any]:
+def run_widgets_specialist(
+    state: Dict[str, Any], llm: Any, backend_client: Any
+) -> Dict[str, Any]:
     question = state.get("question", "")
     space_id = state.get("space_id")
     log_event("widgets_specialist_start", {"question": question[:100]})
@@ -88,7 +90,9 @@ def run_widgets_specialist(state: Dict[str, Any], llm: Any, backend_client: Any)
     history = backend_client.get_ai_history(space_id, limit=30)
 
     if not dashboards and not history:
-        state["answer"] = "No dashboards or AI history available yet. Start asking questions to build your analytics history."
+        state["answer"] = (
+            "No dashboards or AI history available yet. Start asking questions to build your analytics history."
+        )
         return state
 
     prompt = SYSTEM_PROMPT.format(
@@ -98,11 +102,15 @@ def run_widgets_specialist(state: Dict[str, Any], llm: Any, backend_client: Any)
     )
 
     try:
-        response = llm.invoke([
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": prepend_brain_context(question, state)},
-        ])
-        state["answer"] = response.content if hasattr(response, "content") else str(response)
+        response = llm.invoke(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": prepend_brain_context(question, state)},
+            ]
+        )
+        state["answer"] = (
+            response.content if hasattr(response, "content") else str(response)
+        )
     except Exception as e:
         logger.error(f"Widgets specialist error: {e}")
         state["answer"] = f"Error analyzing dashboard data: {e}"
@@ -110,5 +118,8 @@ def run_widgets_specialist(state: Dict[str, Any], llm: Any, backend_client: Any)
     state["data"] = []
     state["sql"] = None
     state["generated_title"] = f"Analytics: {question[:50]}"
-    log_event("widgets_specialist_done", {"num_dashboards": len(dashboards), "num_widgets": len(all_widgets)})
+    log_event(
+        "widgets_specialist_done",
+        {"num_dashboards": len(dashboards), "num_widgets": len(all_widgets)},
+    )
     return state

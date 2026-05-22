@@ -73,7 +73,7 @@ class TestStaleness:
         scorer = DatasetPriorityScorer(staleness_window_hours=24)
         insights = [
             _insight(["orders"], hours_ago=20),
-            _insight(["orders"], hours_ago=2),   # most recent
+            _insight(["orders"], hours_ago=2),  # most recent
         ]
         result = scorer.score_breakdown([_Table("orders")], insights)
         assert result[0].staleness < 0.2  # driven by 2-hour-ago insight
@@ -150,7 +150,9 @@ class TestStrategicRelevance:
         assert result[0].strategic_relevance >= 0.1
 
     def test_high_overlap_capped_at_095(self):
-        long_brain = " ".join(["revenue", "orders", "amount", "profit", "sales", "growth"] * 10)
+        long_brain = " ".join(
+            ["revenue", "orders", "amount", "profit", "sales", "growth"] * 10
+        )
         scorer = DatasetPriorityScorer(brain_context=long_brain)
         t = _Table(
             "orders",
@@ -185,7 +187,10 @@ class TestScoreFormula:
         fresh_small = _Table("small", columns=[_col("c1")])
 
         insights = [_insight(["small"], hours_ago=0.5)]  # small was just queried
-        scores = {s.logical_name: s for s in scorer.score_breakdown([stale_deep, fresh_small], insights)}
+        scores = {
+            s.logical_name: s
+            for s in scorer.score_breakdown([stale_deep, fresh_small], insights)
+        }
 
         assert scores["big"].score > scores["small"].score
 
@@ -254,7 +259,7 @@ class TestCrossDatasetRank:
         scorer = DatasetPriorityScorer(top_k=5)
         tables = [
             _Table("orders", data_connection_id="conn-crm"),
-            _Table("deals",  data_connection_id="conn-crm"),
+            _Table("deals", data_connection_id="conn-crm"),
             _Table("sessions", data_connection_id="conn-web"),
             _Table("campaigns", data_connection_id="conn-marketing"),
         ]
@@ -266,10 +271,12 @@ class TestCrossDatasetRank:
     def test_selects_best_scored_table_per_connection(self):
         """The stale (never queried) table should beat the fresh one within the same conn."""
         scorer = DatasetPriorityScorer(staleness_window_hours=24, top_k=5)
-        stale = _Table("big", data_connection_id="conn-a",
-                       columns=[_col(f"c{i}") for i in range(10)])
-        fresh = _Table("small", data_connection_id="conn-a",
-                       columns=[_col("c1")])
+        stale = _Table(
+            "big",
+            data_connection_id="conn-a",
+            columns=[_col(f"c{i}") for i in range(10)],
+        )
+        fresh = _Table("small", data_connection_id="conn-a", columns=[_col("c1")])
         other = _Table("other", data_connection_id="conn-b")
 
         insights = [_insight(["small"], hours_ago=0.1)]
@@ -281,8 +288,8 @@ class TestCrossDatasetRank:
     def test_single_connection_falls_back_to_normal_rank(self):
         scorer = DatasetPriorityScorer(top_k=2)
         tables = [
-            _Table("orders",   data_connection_id="conn-a"),
-            _Table("users",    data_connection_id="conn-a"),
+            _Table("orders", data_connection_id="conn-a"),
+            _Table("users", data_connection_id="conn-a"),
             _Table("products", data_connection_id="conn-a"),
         ]
         result = scorer.cross_dataset_rank(tables, insights=[])
@@ -315,10 +322,12 @@ class TestCrossDatasetRank:
 class TestScanBriefingCrossDataset:
     def _make_topic_map(self):
         from core.agents.scan_briefing import TopicMap
+
         return TopicMap(has_history=False)
 
     def test_cross_dataset_block_appears_when_flag_true(self):
         from core.agents.scan_briefing import build_scan_briefing
+
         briefing = build_scan_briefing(
             topic_map=self._make_topic_map(),
             brain_context="",
@@ -330,6 +339,7 @@ class TestScanBriefingCrossDataset:
 
     def test_cross_dataset_block_absent_when_flag_false(self):
         from core.agents.scan_briefing import build_scan_briefing
+
         briefing = build_scan_briefing(
             topic_map=self._make_topic_map(),
             brain_context="",
@@ -341,6 +351,7 @@ class TestScanBriefingCrossDataset:
 
     def test_cross_dataset_mentions_correlations(self):
         from core.agents.scan_briefing import build_scan_briefing
+
         briefing = build_scan_briefing(
             topic_map=self._make_topic_map(),
             brain_context="",
@@ -401,6 +412,7 @@ class TestCosineSimilarity:
         b = [1.0, 0.0, 0.0]
         sim = cosine_similarity(a, b)
         import math
+
         expected = 1.0 / math.sqrt(2)
         assert abs(sim - expected) < 1e-6
 
@@ -448,11 +460,13 @@ class TestStrategicRelevanceCosine:
         scorer = DatasetPriorityScorer(
             okr_vectors=[okr],
             dataset_embeddings={
-                "close": [0.9, 0.6, 0.3],   # high cosine
-                "far":   self._unrelated_dataset_vec(),  # low cosine
+                "close": [0.9, 0.6, 0.3],  # high cosine
+                "far": self._unrelated_dataset_vec(),  # low cosine
             },
         )
-        assert scorer._strategic_relevance_score(close) > scorer._strategic_relevance_score(far)
+        assert scorer._strategic_relevance_score(
+            close
+        ) > scorer._strategic_relevance_score(far)
 
     def test_score_clamped_to_0_1_0_95(self):
         t = _Table("revenue")
@@ -482,7 +496,7 @@ class TestStrategicRelevanceCosine:
 
     def test_uses_max_similarity_across_multiple_okr_vectors(self):
         t = _Table("revenue")
-        low_okr = [0.0, 0.0, 1.0]   # orthogonal to dataset
+        low_okr = [0.0, 0.0, 1.0]  # orthogonal to dataset
         high_okr = [1.0, 0.5, 0.2]  # similar to dataset
         scorer = DatasetPriorityScorer(
             okr_vectors=[low_okr, high_okr],
@@ -506,8 +520,8 @@ class TestStrategicRelevanceCosine:
             top_k=1,
             okr_vectors=[okr_vec],
             dataset_embeddings={
-                "revenue": [0.9, 0.6, 0.0],   # similar to OKR
-                "logs":    [0.0, 0.0, 1.0],   # unrelated
+                "revenue": [0.9, 0.6, 0.0],  # similar to OKR
+                "logs": [0.0, 0.0, 1.0],  # unrelated
             },
         )
         top = scorer.rank([revenue, logs], insights=[])

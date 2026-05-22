@@ -3,6 +3,7 @@
 Tests focus on the text-building logic and the upsert/delete contract.
 DB-dependent paths are covered via async mocks so no real DB is needed.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_tables_json(tables):
     """Return a list simulating connection_metadata.tables JSON."""
@@ -40,8 +42,7 @@ class TestDatasetTextBuilding:
         description = table.get("description") or table.get("desc") or ""
         columns = table.get("columns") or []
         col_names = [
-            (c.get("name") if isinstance(c, dict) else str(c))
-            for c in columns if c
+            (c.get("name") if isinstance(c, dict) else str(c)) for c in columns if c
         ]
         parts = [f"Dataset: {logical_name}"]
         if description:

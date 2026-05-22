@@ -160,7 +160,9 @@ def _recency_decay(updated_at: Optional[datetime]) -> float:
     if updated_at is None:
         return 0.0
     now = datetime.now(timezone.utc)
-    age_days = max(0.0, (now - updated_at.astimezone(timezone.utc)).total_seconds() / 86_400.0)
+    age_days = max(
+        0.0, (now - updated_at.astimezone(timezone.utc)).total_seconds() / 86_400.0
+    )
     # Halving time ~ 30 days; shape chosen so a 30-day-old doc scores ~0.5.
     return math.exp(-age_days / 30.0)
 

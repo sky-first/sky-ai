@@ -5,6 +5,7 @@ Tests cover:
   - refresh_dataset_embeddings_for_space: loads connections + calls run_dataset_description_embeddings
   - _process_ingestion hook: asyncio.create_task fired for OKR types, skipped for non-OKR
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +25,14 @@ from api.routes.knowledge_graph import (
 
 class TestIsOkrRelevant:
     def test_explicit_okr_types_are_relevant(self):
-        for t in ("okr", "pillar", "kpi", "metric", "strategy_okr", "strategic_objective"):
+        for t in (
+            "okr",
+            "pillar",
+            "kpi",
+            "metric",
+            "strategy_okr",
+            "strategic_objective",
+        ):
             assert _is_okr_relevant(t), f"{t!r} should be OKR-relevant"
 
     def test_strategy_prefix_is_relevant(self):
@@ -82,9 +90,12 @@ async def test_refresh_calls_run_for_each_connection():
             new_callable=AsyncMock,
             return_value=3,
         ) as mock_run,
-        patch("core.ingestion.service.get_embedding_provider", return_value=MagicMock()),
+        patch(
+            "core.ingestion.service.get_embedding_provider", return_value=MagicMock()
+        ),
     ):
         from core.ingestion.service import refresh_dataset_embeddings_for_space
+
         total = await refresh_dataset_embeddings_for_space(space_id)
 
     # Should have been called once per connection
@@ -112,9 +123,12 @@ async def test_refresh_returns_zero_when_no_connections():
             "core.ingestion.service.run_dataset_description_embeddings",
             new_callable=AsyncMock,
         ) as mock_run,
-        patch("core.ingestion.service.get_embedding_provider", return_value=MagicMock()),
+        patch(
+            "core.ingestion.service.get_embedding_provider", return_value=MagicMock()
+        ),
     ):
         from core.ingestion.service import refresh_dataset_embeddings_for_space
+
         total = await refresh_dataset_embeddings_for_space(space_id)
 
     assert total == 0
@@ -135,9 +149,12 @@ async def test_refresh_does_not_raise_on_db_error():
 
     with (
         patch("db.session.AsyncSessionLocal", mock_sessionmaker),
-        patch("core.ingestion.service.get_embedding_provider", return_value=MagicMock()),
+        patch(
+            "core.ingestion.service.get_embedding_provider", return_value=MagicMock()
+        ),
     ):
         from core.ingestion.service import refresh_dataset_embeddings_for_space
+
         total = await refresh_dataset_embeddings_for_space(space_id)  # must not raise
 
     assert total == 0
@@ -156,7 +173,9 @@ def _make_db_mock() -> AsyncMock:
     return db
 
 
-def _make_payload(entity_type: str, space_id: str = "cb9d1501-949a-4238-b0cd-2463a80ddefd") -> KnowledgeGraphIngestPayload:
+def _make_payload(
+    entity_type: str, space_id: str = "cb9d1501-949a-4238-b0cd-2463a80ddefd"
+) -> KnowledgeGraphIngestPayload:
     return KnowledgeGraphIngestPayload(
         id="test-entity-001",
         name="Test OKR",
@@ -187,9 +206,18 @@ async def test_process_ingestion_creates_task_for_okr_type():
         return MagicMock()
 
     with (
-        patch("api.routes.knowledge_graph.create_embedding_provider", return_value=fake_provider),
-        patch("api.routes.knowledge_graph.asyncio.create_task", side_effect=fake_create_task),
-        patch("core.ingestion.service.refresh_dataset_embeddings_for_space", new=fake_refresh),
+        patch(
+            "api.routes.knowledge_graph.create_embedding_provider",
+            return_value=fake_provider,
+        ),
+        patch(
+            "api.routes.knowledge_graph.asyncio.create_task",
+            side_effect=fake_create_task,
+        ),
+        patch(
+            "core.ingestion.service.refresh_dataset_embeddings_for_space",
+            new=fake_refresh,
+        ),
     ):
         await _process_ingestion(payload, db)
 
@@ -215,9 +243,18 @@ async def test_process_ingestion_creates_task_for_pillar_type():
         pass
 
     with (
-        patch("api.routes.knowledge_graph.create_embedding_provider", return_value=fake_provider),
-        patch("api.routes.knowledge_graph.asyncio.create_task", side_effect=fake_create_task),
-        patch("core.ingestion.service.refresh_dataset_embeddings_for_space", new=fake_refresh),
+        patch(
+            "api.routes.knowledge_graph.create_embedding_provider",
+            return_value=fake_provider,
+        ),
+        patch(
+            "api.routes.knowledge_graph.asyncio.create_task",
+            side_effect=fake_create_task,
+        ),
+        patch(
+            "core.ingestion.service.refresh_dataset_embeddings_for_space",
+            new=fake_refresh,
+        ),
     ):
         await _process_ingestion(payload, db)
 
@@ -245,8 +282,14 @@ async def test_process_ingestion_skips_task_for_enterprise_graph_node():
         return MagicMock()
 
     with (
-        patch("api.routes.knowledge_graph.create_embedding_provider", return_value=fake_provider),
-        patch("api.routes.knowledge_graph.asyncio.create_task", side_effect=fake_create_task),
+        patch(
+            "api.routes.knowledge_graph.create_embedding_provider",
+            return_value=fake_provider,
+        ),
+        patch(
+            "api.routes.knowledge_graph.asyncio.create_task",
+            side_effect=fake_create_task,
+        ),
     ):
         await _process_ingestion(payload, db)
 
@@ -275,8 +318,14 @@ async def test_process_ingestion_skips_task_when_no_space_id():
         return MagicMock()
 
     with (
-        patch("api.routes.knowledge_graph.create_embedding_provider", return_value=fake_provider),
-        patch("api.routes.knowledge_graph.asyncio.create_task", side_effect=fake_create_task),
+        patch(
+            "api.routes.knowledge_graph.create_embedding_provider",
+            return_value=fake_provider,
+        ),
+        patch(
+            "api.routes.knowledge_graph.asyncio.create_task",
+            side_effect=fake_create_task,
+        ),
     ):
         await _process_ingestion(payload, db)
 

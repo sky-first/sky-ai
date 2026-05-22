@@ -69,7 +69,9 @@ async def test_fetch_populates_doc_ids_prompt_block_kinds(monkeypatch):
 async def test_chat_bootstrap_defaults_to_strategic_kinds(monkeypatch):
     captured: dict = {}
 
-    async def fake_retrieve(query, scope, *, searcher, query_embedder, intent, kinds, k):
+    async def fake_retrieve(
+        query, scope, *, searcher, query_embedder, intent, kinds, k
+    ):
         captured["kinds"] = list(kinds) if kinds else None
         captured["k"] = k
         return []
@@ -85,7 +87,15 @@ async def test_chat_bootstrap_defaults_to_strategic_kinds(monkeypatch):
     )
     # chat_bootstrap has a tight k (8) and a strategic-kind filter.
     assert captured["k"] == 8
-    assert captured["kinds"] == ["pillar", "goal", "okr", "kpi", "table", "column", "connection"]
+    assert captured["kinds"] == [
+        "pillar",
+        "goal",
+        "okr",
+        "kpi",
+        "table",
+        "column",
+        "connection",
+    ]
 
 
 @pytest.mark.asyncio

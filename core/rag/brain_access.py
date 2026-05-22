@@ -38,10 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 Surface = Literal[
-    "chat_bootstrap",    # Sherlock
-    "chat_query",        # main query endpoint (LangGraph path already wired)
-    "dashboard_plan",    # Davinci
-    "agent_run",         # scheduled agent invocation
+    "chat_bootstrap",  # Sherlock
+    "chat_query",  # main query endpoint (LangGraph path already wired)
+    "dashboard_plan",  # Davinci
+    "agent_run",  # scheduled agent invocation
 ]
 
 

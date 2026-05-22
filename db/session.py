@@ -34,7 +34,9 @@ def _default_database_url() -> str:
 # Se DATABASE_URL tiver psycopg2, converter para asyncpg
 DATABASE_URL = os.getenv("DATABASE_URL") or _default_database_url()
 if DATABASE_URL.startswith("postgresql+psycopg2://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql+psycopg2://", "postgresql+asyncpg://"
+    )
 elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
     # Se for postgresql:// sem driver, adicionar asyncpg
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
@@ -42,11 +44,13 @@ elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
 import json
 from datetime import date, datetime
 
+
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
+
 
 engine = create_async_engine(
     DATABASE_URL,

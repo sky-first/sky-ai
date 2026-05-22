@@ -111,9 +111,11 @@ def _agent_text(row: Dict[str, Any]) -> str:
     if row.get("depth"):
         # Map depth → tier label so the embedding text reads
         # naturally instead of "depth: quick".
-        tier_label = {"quick": "L1 delta", "standard": "L2 triage", "deep": "L3 deep"}.get(
-            row["depth"], row["depth"]
-        )
+        tier_label = {
+            "quick": "L1 delta",
+            "standard": "L2 triage",
+            "deep": "L3 deep",
+        }.get(row["depth"], row["depth"])
         parts.append(f"tier: {tier_label}")
     if row.get("focus"):
         parts.append(f"focus: {row['focus']}")

@@ -265,6 +265,7 @@ NEW_FUNCTION_CODE = r'''def generate_dashboard_plan(
         )
 '''
 
+
 def apply_replacement():
     with open(TARGET_FILE, "r") as f:
         content = f.read()
@@ -277,7 +278,9 @@ def apply_replacement():
         if idx != -1:
             content = content[:idx] + MISSING_HELPERS + "\n" + content[idx:]
         else:
-             print("Could not find start of generate_dashboard_plan -- skipping helper injection")
+            print(
+                "Could not find start of generate_dashboard_plan -- skipping helper injection"
+            )
 
     # 2. Add imports if needed (handled in previous run, but good to ensure)
     if "core.agents.schema_intelligence" not in content:
@@ -285,23 +288,24 @@ def apply_replacement():
         idx = content.find(import_marker)
         if idx != -1:
             end_line = content.find("\n", idx)
-            content = content[:end_line+1] + IMPORTS_TO_ADD + content[end_line+1:]
+            content = content[: end_line + 1] + IMPORTS_TO_ADD + content[end_line + 1 :]
 
     # 3. Replace Function
     start_marker = "def generate_dashboard_plan("
     start_idx = content.find(start_marker)
-    
+
     if start_idx == -1:
         print("Could not find start of generate_dashboard_plan")
         return
 
     # Replace to end of file
     new_content = content[:start_idx] + NEW_FUNCTION_CODE + "\n"
-    
+
     with open(TARGET_FILE, "w") as f:
         f.write(new_content)
-    
+
     print("Successfully replaced generate_dashboard_plan logic.")
+
 
 if __name__ == "__main__":
     apply_replacement()

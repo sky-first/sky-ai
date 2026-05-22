@@ -15,9 +15,9 @@ class LLMProvider(Protocol):
     no formato [{'role': 'system'|'user'|'assistant', 'content': '...'}]
     e retornar um objeto com atributo .content (string).
     """
-    def invoke(self, messages: List[Dict[str, str]]) -> Any:
-        ...
-    
+
+    def invoke(self, messages: List[Dict[str, str]]) -> Any: ...
+
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         """
         Stream tokens from LLM response.
@@ -31,6 +31,7 @@ class LangChainChatOpenAIProvider:
     Implementação concreta usando langchain-openai ChatOpenAI.
     Permite plugar gpt-4o, gpt-4o-mini etc. de forma agnóstica.
     """
+
     def __init__(
         self,
         model: str = "gpt-4o",
@@ -84,7 +85,7 @@ class LangChainChatOpenAIProvider:
                 },
             )
             raise
-    
+
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         """
         Stream tokens from LLM response.
@@ -169,7 +170,11 @@ class BedrockChatProvider:
         except Exception as e:
             log_event(
                 "bedrock_invoke_error",
-                {"model": self.model_name, "num_messages": len(messages), "error": str(e)[:500]},
+                {
+                    "model": self.model_name,
+                    "num_messages": len(messages),
+                    "error": str(e)[:500],
+                },
             )
             raise
 
@@ -204,20 +209,20 @@ class OllamaProvider:
     """
     Provider para modelos locais via Ollama (usando langchain-ollama).
     """
-    
+
     def __init__(
-        self, 
-        model: str, 
+        self,
+        model: str,
         base_url: str = "http://localhost:11434",
         temperature: float = 0.0,
-        num_ctx: int = 4096
+        num_ctx: int = 4096,
     ):
         try:
             from langchain_ollama import ChatOllama
         except ImportError:
             # Fallback seguro caso a lib não esteja instalada (evita crash imediato)
             from langchain_community.chat_models import ChatOllama
-        
+
         self.model_name = model
         self._chat = ChatOllama(
             base_url=base_url,
@@ -225,9 +230,9 @@ class OllamaProvider:
             temperature=temperature,
             num_ctx=num_ctx,
             # Timeout alto para cold start (RunPod pode demorar)
-            timeout=300, 
+            timeout=300,
         )
-    
+
     def _convert_messages(self, messages: List[Dict[str, str]]):
         """
         Converte dicts para SystemMessage, HumanMessage, AIMessage.
@@ -244,29 +249,26 @@ class OllamaProvider:
             else:
                 lc_msgs.append(HumanMessage(content=content))
         return lc_msgs
-    
+
     def invoke(self, messages: List[Dict[str, str]]) -> Any:
         # Import cache here to avoid circular dependency
         from core.llm.cache import get_inference_cache, hash_prompt
-        
+
         # Check cache first
         cache = get_inference_cache()
         # Hash baseado na string crua das mensagens para consistência
         prompt_hash = hash_prompt(messages, self.model_name, 0.0)
         cached_response = cache.get(prompt_hash)
-        
+
         if cached_response is not None:
             log_event(
                 "ollama_cache_hit",
-                {
-                    "model": self.model_name,
-                    "saved_latency": "cached"
-                }
+                {"model": self.model_name, "saved_latency": "cached"},
             )
             return cached_response
-        
+
         lc_msgs = self._convert_messages(messages)
-        
+
         # Log start
         is_sql_query = "sqlcoder" in self.model_name
         if is_sql_query:
@@ -275,30 +277,30 @@ class OllamaProvider:
                 {
                     "model": self.model_name,
                     "expected_latency_seconds": "8-12",
-                    "num_messages": len(messages)
-                }
+                    "num_messages": len(messages),
+                },
             )
-        
+
         try:
             # Invoke ChatOllama directly (it handles prompting)
             resp = self._chat.invoke(lc_msgs)
-            
+
             # Wrapper para manter contrato .content
             class ResponseWrapper:
                 def __init__(self, content):
                     self.content = content
-            
+
             result = ResponseWrapper(content=resp.content)
-            
+
             # Cache result
             cache.set(prompt_hash, result)
-            
+
             log_event(
                 "ollama_invoke_success",
                 {
                     "model": self.model_name,
                     "response_length": len(resp.content),
-                    "cached": False
+                    "cached": False,
                 },
             )
             return result
@@ -314,12 +316,12 @@ class OllamaProvider:
 
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         lc_msgs = self._convert_messages(messages)
-        
+
         try:
             for chunk in self._chat.stream(lc_msgs):
                 if chunk.content:
                     yield chunk.content
-            
+
             log_event(
                 "ollama_stream_success",
                 {

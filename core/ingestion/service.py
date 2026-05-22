@@ -24,6 +24,7 @@ from core.logging_utils import log_event
 # Demo-connection helpers
 # ---------------------------------------------------------------------------
 
+
 def _demo_connection_ids() -> set:
     """Return the set of demo connection UUIDs (lowercased) from settings.
 
@@ -33,6 +34,7 @@ def _demo_connection_ids() -> set:
     without triggering a per-user re-seed.
     """
     from config.settings import settings
+
     raw = getattr(settings, "demo_dataset_connection_ids", "") or ""
     if isinstance(raw, (list, set, tuple)):
         return {str(x).strip().lower() for x in raw if str(x).strip()}
@@ -81,6 +83,7 @@ async def _demo_embeddings_exist(db: AsyncSession, connection_id) -> bool:
 # Errors
 # ---------------------------------------------------------------------------
 
+
 class ConnectionNotFoundError(Exception):
     pass
 
@@ -92,6 +95,7 @@ class SpaceNotFoundError(Exception):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 async def _get_connection_and_space(
     db: AsyncSession, connection_id: str, space_id: Optional[str] = None
@@ -139,6 +143,7 @@ async def _get_connection_and_space(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 async def run_metadata_ingestion(
     db: AsyncSession,
@@ -192,8 +197,11 @@ async def run_metadata_ingestion(
 
     # ✅ PATCH: Update backend timestamp to prevent immediate staleness (infinite loop fix)
     from sqlalchemy import text
+
     await db.execute(
-        text("UPDATE connection_metadata SET last_metadata_update = NOW() WHERE connection_id = :cid"),
+        text(
+            "UPDATE connection_metadata SET last_metadata_update = NOW() WHERE connection_id = :cid"
+        ),
         {"cid": connection_id},
     )
     await db.commit()
@@ -288,7 +296,10 @@ async def run_dataset_description_embeddings(
         )
         tables_json = result.scalar_one_or_none()
     except Exception as exc:
-        log_event("dataset_description_embed_load_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        log_event(
+            "dataset_description_embed_load_error",
+            {"connection_id": connection_id, "error": str(exc)[:300]},
+        )
         return 0
 
     if not tables_json or not isinstance(tables_json, list):
@@ -324,7 +335,10 @@ async def run_dataset_description_embeddings(
                 {"cid": connection_id},
             )
     except Exception as exc:
-        log_event("dataset_description_embed_delete_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        log_event(
+            "dataset_description_embed_delete_error",
+            {"connection_id": connection_id, "error": str(exc)[:300]},
+        )
         try:
             await db.rollback()
         except Exception:
@@ -344,9 +358,7 @@ async def run_dataset_description_embeddings(
         description = table.get("description") or table.get("desc") or ""
         columns = table.get("columns") or []
         col_names = [
-            (c.get("name") if isinstance(c, dict) else str(c))
-            for c in columns
-            if c
+            (c.get("name") if isinstance(c, dict) else str(c)) for c in columns if c
         ]
 
         text_parts = [f"Dataset: {logical_name}"]
@@ -356,11 +368,13 @@ async def run_dataset_description_embeddings(
             text_parts.append(f"Columns: {', '.join(col_names[:30])}")
         text = " | ".join(text_parts)
 
-        items.append({
-            "logical_name": logical_name,
-            "table_name": table_name,
-            "text": text,
-        })
+        items.append(
+            {
+                "logical_name": logical_name,
+                "table_name": table_name,
+                "text": text,
+            }
+        )
 
     if not items:
         return 0
@@ -369,40 +383,51 @@ async def run_dataset_description_embeddings(
     try:
         vectors = await embedding_provider.embed_async([item["text"] for item in items])
     except Exception as exc:
-        log_event("dataset_description_embed_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        log_event(
+            "dataset_description_embed_error",
+            {"connection_id": connection_id, "error": str(exc)[:300]},
+        )
         return 0
 
     created = 0
     for item, vec in zip(items, vectors):
-        db.add(EmbeddingRecord(
-            id=uuid4(),
-            space_id=space_uuid,
-            user_id=None,
-            crew_id=None,
-            table_metadata_id=None,
-            embedding=vec,
-            text=item["text"],
-            extra_metadata={
-                "kind": "dataset_description",
-                "data_connection_id": connection_id,
-                "table_name": item["table_name"],
-                "logical_name": item["logical_name"],
-            },
-        ))
+        db.add(
+            EmbeddingRecord(
+                id=uuid4(),
+                space_id=space_uuid,
+                user_id=None,
+                crew_id=None,
+                table_metadata_id=None,
+                embedding=vec,
+                text=item["text"],
+                extra_metadata={
+                    "kind": "dataset_description",
+                    "data_connection_id": connection_id,
+                    "table_name": item["table_name"],
+                    "logical_name": item["logical_name"],
+                },
+            )
+        )
         created += 1
 
     try:
         await db.commit()
     except Exception as exc:
         await db.rollback()
-        log_event("dataset_description_embed_commit_error", {"connection_id": connection_id, "error": str(exc)[:300]})
+        log_event(
+            "dataset_description_embed_commit_error",
+            {"connection_id": connection_id, "error": str(exc)[:300]},
+        )
         return 0
 
-    log_event("dataset_description_embeddings_created", {
-        "connection_id": connection_id,
-        "space_id": space_id,
-        "created": created,
-    })
+    log_event(
+        "dataset_description_embeddings_created",
+        {
+            "connection_id": connection_id,
+            "space_id": space_id,
+            "created": created,
+        },
+    )
     return created
 
 
@@ -486,7 +511,8 @@ async def refresh_dataset_embeddings_for_space(space_id: str) -> int:
 
         if not connection_ids:
             logger.debug(
-                "refresh_dataset_embeddings_for_space: no connections for space %s", space_id
+                "refresh_dataset_embeddings_for_space: no connections for space %s",
+                space_id,
             )
             return 0
 
@@ -500,14 +526,19 @@ async def refresh_dataset_embeddings_for_space(space_id: str) -> int:
                 )
                 total_created += created
 
-        log_event("dataset_embeddings_refreshed_on_okr_change", {
-            "space_id": space_id,
-            "connections_refreshed": len(connection_ids),
-            "total_embeddings_created": total_created,
-        })
+        log_event(
+            "dataset_embeddings_refreshed_on_okr_change",
+            {
+                "space_id": space_id,
+                "connections_refreshed": len(connection_ids),
+                "total_embeddings_created": total_created,
+            },
+        )
     except Exception as exc:
         logger.warning(
-            "refresh_dataset_embeddings_for_space failed for space %s: %s", space_id, exc
+            "refresh_dataset_embeddings_for_space failed for space %s: %s",
+            space_id,
+            exc,
         )
 
     return total_created

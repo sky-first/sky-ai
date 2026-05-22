@@ -48,7 +48,9 @@ def _format_strategy_for_prompt(tree: Dict[str, Any]) -> str:
         lines.append(f"### Strategic Pillars ({len(pillars)})")
         for p in pillars:
             status = p.get("status", "unknown")
-            lines.append(f"- **{p.get('name', 'Unnamed')}** [{status}]: {p.get('description', '')}")
+            lines.append(
+                f"- **{p.get('name', 'Unnamed')}** [{status}]: {p.get('description', '')}"
+            )
 
     # Objectives
     objectives = tree.get("objectives") or []
@@ -56,7 +58,9 @@ def _format_strategy_for_prompt(tree: Dict[str, Any]) -> str:
         lines.append(f"\n### Objectives ({len(objectives)})")
         for o in objectives:
             obj_type = o.get("type", "")
-            lines.append(f"- [{obj_type}] **{o.get('name', '')}**: {o.get('description', '')}")
+            lines.append(
+                f"- [{obj_type}] **{o.get('name', '')}**: {o.get('description', '')}"
+            )
 
     # OKRs
     okrs = tree.get("okrs") or []
@@ -78,7 +82,9 @@ def _format_strategy_for_prompt(tree: Dict[str, Any]) -> str:
         lines.append(f"\n### Key Results ({len(key_results)})")
         for kr in key_results:
             progress = kr.get("progress", 0)
-            lines.append(f"- **{kr.get('title', '')}**: {kr.get('description', '')} | Progress: {progress}%")
+            lines.append(
+                f"- **{kr.get('title', '')}**: {kr.get('description', '')} | Progress: {progress}%"
+            )
 
     # Initiatives
     initiatives = tree.get("initiatives") or []
@@ -86,7 +92,9 @@ def _format_strategy_for_prompt(tree: Dict[str, Any]) -> str:
         lines.append(f"\n### Initiatives ({len(initiatives)})")
         for ini in initiatives:
             status = ini.get("status", "unknown")
-            lines.append(f"- [{status}] **{ini.get('name', '')}**: {ini.get('description', '')}")
+            lines.append(
+                f"- [{status}] **{ini.get('name', '')}**: {ini.get('description', '')}"
+            )
 
     # Assumptions
     assumptions = tree.get("assumptions") or []
@@ -94,14 +102,18 @@ def _format_strategy_for_prompt(tree: Dict[str, Any]) -> str:
         lines.append(f"\n### Assumptions ({len(assumptions)})")
         for a in assumptions:
             risk = a.get("risk_level", "unknown")
-            lines.append(f"- [{risk}] **{a.get('title', '')}**: {a.get('description', '')}")
+            lines.append(
+                f"- [{risk}] **{a.get('title', '')}**: {a.get('description', '')}"
+            )
 
     # Cycles
     cycles = tree.get("cycles") or []
     if cycles:
         lines.append(f"\n### Active Cycles ({len(cycles)})")
         for c in cycles:
-            lines.append(f"- **{c.get('name', '')}**: {c.get('start_date', '')} → {c.get('end_date', '')}")
+            lines.append(
+                f"- **{c.get('name', '')}**: {c.get('start_date', '')} → {c.get('end_date', '')}"
+            )
 
     return "\n".join(lines) if lines else "(Strategy tree is empty)"
 
@@ -133,10 +145,13 @@ def run_strategy_specialist(
     question = state.get("question", "")
     space_id = state.get("space_id")
 
-    log_event("strategy_specialist_start", {
-        "question": question[:100],
-        "space_id": space_id,
-    })
+    log_event(
+        "strategy_specialist_start",
+        {
+            "question": question[:100],
+            "space_id": space_id,
+        },
+    )
 
     # Fetch strategy data from backend
     tree = backend_client.get_strategy_tree(space_id)
@@ -146,7 +161,13 @@ def run_strategy_specialist(
     health_text = _format_health_for_prompt(health)
 
     # Check if we have any data
-    has_data = bool(tree and any(tree.get(k) for k in ["pillars", "objectives", "okrs", "initiatives", "key_results"]))
+    has_data = bool(
+        tree
+        and any(
+            tree.get(k)
+            for k in ["pillars", "objectives", "okrs", "initiatives", "key_results"]
+        )
+    )
 
     if not has_data:
         log_event("strategy_specialist_no_data", {"space_id": space_id})
@@ -182,12 +203,15 @@ def run_strategy_specialist(
         logger.error(f"Strategy specialist LLM error: {e}")
         answer = f"I found strategy data but encountered an error analyzing it: {e}"
 
-    log_event("strategy_specialist_done", {
-        "question": question[:100],
-        "answer_preview": answer[:200] if answer else "",
-        "num_pillars": len(tree.get("pillars", [])),
-        "num_okrs": len(tree.get("okrs", [])),
-    })
+    log_event(
+        "strategy_specialist_done",
+        {
+            "question": question[:100],
+            "answer_preview": answer[:200] if answer else "",
+            "num_pillars": len(tree.get("pillars", [])),
+            "num_okrs": len(tree.get("okrs", [])),
+        },
+    )
 
     state["answer"] = answer
     state["strategy_data"] = tree

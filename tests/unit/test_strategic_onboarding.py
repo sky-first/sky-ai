@@ -24,6 +24,7 @@ Tests:
     - returns empty list when no rows
     - returns empty list on DB error
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ SPACE_ID = "00000000-0000-0000-0000-000000000001"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _db_scalar(val):
     db = AsyncMock()
@@ -66,22 +68,26 @@ def _llm_with_response(text: str):
 
 # ─── is_brain_empty ───────────────────────────────────────────────────────────
 
+
 class TestIsBrainEmpty:
     @pytest.mark.asyncio
     async def test_empty_when_count_is_zero(self):
         from core.agents.strategic_onboarding import is_brain_empty
+
         db = _db_scalar(0)
         assert await is_brain_empty(db, SPACE_ID) is True
 
     @pytest.mark.asyncio
     async def test_not_empty_when_count_positive(self):
         from core.agents.strategic_onboarding import is_brain_empty
+
         db = _db_scalar(3)
         assert await is_brain_empty(db, SPACE_ID) is False
 
     @pytest.mark.asyncio
     async def test_empty_when_db_error(self):
         from core.agents.strategic_onboarding import is_brain_empty
+
         db = AsyncMock()
         db.execute.side_effect = Exception("DB error")
         assert await is_brain_empty(db, SPACE_ID) is True
@@ -89,6 +95,7 @@ class TestIsBrainEmpty:
     @pytest.mark.asyncio
     async def test_empty_when_no_space_id(self):
         from core.agents.strategic_onboarding import is_brain_empty
+
         db = AsyncMock()
         assert await is_brain_empty(db, "") is True
         db.execute.assert_not_called()
@@ -96,9 +103,11 @@ class TestIsBrainEmpty:
 
 # ─── suggest_okrs_from_datasets ──────────────────────────────────────────────
 
+
 class TestSuggestOkrsFromDatasets:
     def test_no_llm_returns_generic_list(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
+
         result = suggest_okrs_from_datasets(["orders", "users"], llm=None)
         assert isinstance(result, list)
         assert len(result) >= 1
@@ -106,15 +115,23 @@ class TestSuggestOkrsFromDatasets:
 
     def test_empty_tables_returns_generic(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
+
         result = suggest_okrs_from_datasets([], llm=None)
         assert len(result) >= 1
 
     def test_llm_valid_json_response(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
-        llm_response = json.dumps([
-            {"title": "Grow MRR by 20%", "type": "okr", "category": "revenue"},
-            {"title": "Reduce churn below 5%", "type": "kpi", "category": "retention"},
-        ])
+
+        llm_response = json.dumps(
+            [
+                {"title": "Grow MRR by 20%", "type": "okr", "category": "revenue"},
+                {
+                    "title": "Reduce churn below 5%",
+                    "type": "kpi",
+                    "category": "retention",
+                },
+            ]
+        )
         llm = _llm_with_response(llm_response)
         result = suggest_okrs_from_datasets(["orders", "payments"], llm=llm)
         assert len(result) == 2
@@ -124,6 +141,7 @@ class TestSuggestOkrsFromDatasets:
 
     def test_llm_invalid_json_falls_back_to_generic(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
+
         llm = _llm_with_response("not valid json {{")
         result = suggest_okrs_from_datasets(["orders"], llm=llm)
         assert isinstance(result, list)
@@ -131,6 +149,7 @@ class TestSuggestOkrsFromDatasets:
 
     def test_llm_markdown_fence_stripped(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
+
         llm_response = (
             "```json\n"
             '[{"title": "Scale enterprise revenue", "type": "okr", "category": "revenue"}]\n'
@@ -142,6 +161,7 @@ class TestSuggestOkrsFromDatasets:
 
     def test_suggestion_fields_present(self):
         from core.agents.strategic_onboarding import suggest_okrs_from_datasets
+
         result = suggest_okrs_from_datasets(["orders", "users"], llm=None)
         for s in result:
             assert "title" in s
@@ -150,6 +170,7 @@ class TestSuggestOkrsFromDatasets:
 
 
 # ─── save_okr_suggestions ────────────────────────────────────────────────────
+
 
 class TestSaveOkrSuggestions:
     @pytest.mark.asyncio
@@ -186,7 +207,9 @@ class TestSaveOkrSuggestions:
 
         db = AsyncMock()
         db.add = MagicMock()
-        await save_okr_suggestions(db, "", [{"title": "test", "type": "okr", "category": "x"}])
+        await save_okr_suggestions(
+            db, "", [{"title": "test", "type": "okr", "category": "x"}]
+        )
         db.add.assert_not_called()
 
     @pytest.mark.asyncio
@@ -201,7 +224,8 @@ class TestSaveOkrSuggestions:
         with patch("db.models.EmbeddingRecord") as MockRecord:
             MockRecord.return_value = MagicMock()
             await save_okr_suggestions(
-                db, SPACE_ID,
+                db,
+                SPACE_ID,
                 [{"title": "Grow MRR", "type": "okr", "category": "revenue"}],
             )
 
@@ -212,14 +236,21 @@ class TestSaveOkrSuggestions:
 
 # ─── load_okr_suggestions ────────────────────────────────────────────────────
 
+
 class TestLoadOkrSuggestions:
     @pytest.mark.asyncio
     async def test_returns_suggestions_from_rows(self):
         from core.agents.strategic_onboarding import load_okr_suggestions
 
         rows = [
-            ("Grow MRR by 20%", {"kind": "okr_suggestion", "type": "okr", "category": "revenue"}),
-            ("Reduce churn below 5%", {"kind": "okr_suggestion", "type": "kpi", "category": "retention"}),
+            (
+                "Grow MRR by 20%",
+                {"kind": "okr_suggestion", "type": "okr", "category": "revenue"},
+            ),
+            (
+                "Reduce churn below 5%",
+                {"kind": "okr_suggestion", "type": "kpi", "category": "retention"},
+            ),
         ]
         db = _db_fetch(rows)
         result = await load_okr_suggestions(db, SPACE_ID)

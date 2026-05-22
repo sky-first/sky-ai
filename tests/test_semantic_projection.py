@@ -79,9 +79,7 @@ def test_project_to_low_dim_clamps_n_neighbors_to_n_minus_1():
     # n_neighbors > n-1 is invalid for UMAP — the helper must clamp.
     rng = np.random.RandomState(1)
     v = rng.randn(8, 16).astype(np.float32)
-    out = project_to_low_dim(
-        v, ProjectionParams(n_components=2, n_neighbors=50)
-    )
+    out = project_to_low_dim(v, ProjectionParams(n_components=2, n_neighbors=50))
     # Doesn't raise; shape is right.
     assert out.shape == (8, 2)
 
@@ -196,9 +194,7 @@ def test_full_pipeline_50_random_embeddings_yields_clusters():
     b = rng.randn(25, 768) + np.array([-5.0] + [0.0] * 767)
     v = np.vstack([a, b]).astype(np.float32)
     coords = project_to_low_dim(v)
-    labels, n_clusters = cluster_points(
-        coords, ClusterParams(min_cluster_size=5)
-    )
+    labels, n_clusters = cluster_points(coords, ClusterParams(min_cluster_size=5))
     assert coords.shape == (50, 3)
     assert n_clusters >= 1
 

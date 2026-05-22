@@ -51,7 +51,9 @@ _raw_url = os.getenv("DATABASE_URL") or ""
 if _raw_url:
     DATABASE_URL = _raw_url
     if DATABASE_URL.startswith("postgresql+psycopg2://"):
-        DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        DATABASE_URL = DATABASE_URL.replace(
+            "postgresql+psycopg2://", "postgresql+asyncpg://"
+        )
     elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 else:
@@ -61,9 +63,13 @@ else:
 if _raw_url:
     DATABASE_URL_SYNC = _raw_url
     if DATABASE_URL_SYNC.startswith("postgresql+asyncpg://"):
-        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace(
+            "postgresql+asyncpg://", "postgresql+psycopg2://"
+        )
     elif DATABASE_URL_SYNC.startswith("postgresql://") and "+" not in DATABASE_URL_SYNC:
-        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace("postgresql://", "postgresql+psycopg2://")
+        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace(
+            "postgresql://", "postgresql+psycopg2://"
+        )
 else:
     DATABASE_URL_SYNC = _default_database_url_sync()
 

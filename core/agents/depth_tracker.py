@@ -32,6 +32,7 @@ _AGG_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 # Strip table-qualified column names: "orders.amount" → "amount"
 def _bare(col: str) -> str:
     return col.strip().split(".")[-1].strip('"').strip("'").lower()
@@ -174,7 +175,16 @@ def depth_remaining_score(
 
     # Estimate possible combos from column metadata
     # Numeric columns → potential metrics; others → potential dimensions
-    numeric_types = {"int", "float", "numeric", "decimal", "double", "real", "bigint", "money"}
+    numeric_types = {
+        "int",
+        "float",
+        "numeric",
+        "decimal",
+        "double",
+        "real",
+        "bigint",
+        "money",
+    }
     dims: List[str] = []
     metrics: List[str] = []
     for col in columns:
@@ -189,7 +199,11 @@ def depth_remaining_score(
     if total_possible == 0:
         # All columns are the same type — treat all pairs as possible
         all_cols = [
-            (getattr(c, "name", None) or c).lower() if isinstance(c, str) else getattr(c, "name", "").lower()
+            (
+                (getattr(c, "name", None) or c).lower()
+                if isinstance(c, str)
+                else getattr(c, "name", "").lower()
+            )
             for c in columns
         ]
         total_possible = max(1, len(all_cols) * (len(all_cols) - 1))

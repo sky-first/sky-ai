@@ -133,7 +133,9 @@ async def process_event(
         return "deleted" if ok else "skipped_no_row"
 
     if not has_template(event.kind):
-        logger.warning("no render template for kind=%r — skipping %s", event.kind, event.source_id)
+        logger.warning(
+            "no render template for kind=%r — skipping %s", event.kind, event.source_id
+        )
         return "skipped_no_template"
 
     row = await fetch_row(event)
@@ -152,7 +154,11 @@ async def process_event(
     try:
         vector = await embed(f"{doc.title}\n{doc.body}")
     except Exception:
-        logger.exception("embedding failed for %s/%s — upserting without vector", event.source_table, event.source_id)
+        logger.exception(
+            "embedding failed for %s/%s — upserting without vector",
+            event.source_table,
+            event.source_id,
+        )
 
     spec = UpsertSpec(
         kind=event.kind,
@@ -255,5 +261,7 @@ async def postgres_soft_delete(
           AND deleted_at IS NULL
         """
     )
-    result = await db.execute(sql, {"source_table": source_table, "source_id": source_id})
+    result = await db.execute(
+        sql, {"source_table": source_table, "source_id": source_id}
+    )
     return bool(result.rowcount)

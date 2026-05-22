@@ -6,6 +6,7 @@ guarantees the asyncpg connection is born and dies inside the caller's
 loop, sidestepping the "Future attached to a different loop" bug we
 hit when LangGraph sync nodes wrap an asyncio.run().
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,8 +27,9 @@ def test_isolated_session_creates_fresh_engine_and_disposes_it():
     fake_factory.return_value.__aenter__ = AsyncMock(return_value="session-stub")
     fake_factory.return_value.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("db.isolated.create_async_engine", return_value=fake_engine) as eng_ctor, \
-         patch("db.isolated.async_sessionmaker", return_value=fake_factory):
+    with patch(
+        "db.isolated.create_async_engine", return_value=fake_engine
+    ) as eng_ctor, patch("db.isolated.async_sessionmaker", return_value=fake_factory):
         from db.isolated import isolated_session
 
         async def _use_it():
@@ -38,6 +40,7 @@ def test_isolated_session_creates_fresh_engine_and_disposes_it():
 
         # NullPool must be passed so each call is isolated
         from sqlalchemy.pool import NullPool
+
         eng_ctor.assert_called_once()
         kwargs = eng_ctor.call_args.kwargs
         assert kwargs.get("poolclass") is NullPool
@@ -55,8 +58,9 @@ def test_isolated_session_disposes_engine_even_when_body_raises():
     fake_factory.return_value.__aenter__ = AsyncMock(return_value="session-stub")
     fake_factory.return_value.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("db.isolated.create_async_engine", return_value=fake_engine), \
-         patch("db.isolated.async_sessionmaker", return_value=fake_factory):
+    with patch("db.isolated.create_async_engine", return_value=fake_engine), patch(
+        "db.isolated.async_sessionmaker", return_value=fake_factory
+    ):
         from db.isolated import isolated_session
 
         async def _use_it():
@@ -79,8 +83,9 @@ def test_isolated_session_independent_engines_across_calls():
     fake_factory.return_value.__aenter__ = AsyncMock(return_value="stub")
     fake_factory.return_value.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("db.isolated.create_async_engine", side_effect=engines) as eng_ctor, \
-         patch("db.isolated.async_sessionmaker", return_value=fake_factory):
+    with patch(
+        "db.isolated.create_async_engine", side_effect=engines
+    ) as eng_ctor, patch("db.isolated.async_sessionmaker", return_value=fake_factory):
         from db.isolated import isolated_session
 
         async def _once():

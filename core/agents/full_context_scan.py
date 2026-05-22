@@ -44,11 +44,11 @@ DEFAULT_K = 200
 
 @dataclass
 class FullContextResult:
-    narrative: list[str]              # 3–6 bullet lines
-    follow_ups: list[str]             # 3–6 suggested questions
-    cited_doc_ids: list[str]          # doc ids the LLM explicitly cited
-    retrieved_doc_ids: list[str]      # full retrieval trail (audit)
-    retrieved_kinds: list[str]        # unique kinds actually seen
+    narrative: list[str]  # 3–6 bullet lines
+    follow_ups: list[str]  # 3–6 suggested questions
+    cited_doc_ids: list[str]  # doc ids the LLM explicitly cited
+    retrieved_doc_ids: list[str]  # full retrieval trail (audit)
+    retrieved_kinds: list[str]  # unique kinds actually seen
     tokens_used: int = 0
     cost_usd: float = 0.0
     fallback_reason: Optional[str] = None
@@ -98,7 +98,7 @@ SYSTEM_PROMPT = (
     "not meta-questions ('what data do we have').\n"
     " - Cite conservatively — only the doc ids you actually used.\n"
     " - If the retrieved context is empty, return empty arrays and a "
-    "single narrative bullet: \"No context available for this scope yet.\""
+    'single narrative bullet: "No context available for this scope yet."'
 )
 
 

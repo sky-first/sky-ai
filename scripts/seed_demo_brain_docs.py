@@ -15,6 +15,7 @@ does NOT use cosine similarity (it fetches by space_id + kind), so the vector
 value does not affect retrieval. Run generate_embeddings.py afterwards if you
 want real semantic search on these docs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -171,6 +172,7 @@ def seed(space_id: str, clear: bool) -> None:
 
         # Quick verification
         from core.agents.full_context_agent import _fetch_brain_context_sync
+
         brain = _fetch_brain_context_sync(db, space_id, [])
         print(f"Brain context check: {len(brain)} chars fetched")
     finally:
@@ -178,8 +180,12 @@ def seed(space_id: str, clear: bool) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Seed demo brain docs (OKRs, KPIs, pillars)")
+    parser = argparse.ArgumentParser(
+        description="Seed demo brain docs (OKRs, KPIs, pillars)"
+    )
     parser.add_argument("--space-id", default=DEFAULT_SPACE_ID)
-    parser.add_argument("--clear", action="store_true", help="Clear existing docs first")
+    parser.add_argument(
+        "--clear", action="store_true", help="Clear existing docs first"
+    )
     args = parser.parse_args()
     seed(args.space_id, args.clear)

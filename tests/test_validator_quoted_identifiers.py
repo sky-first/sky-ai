@@ -28,7 +28,9 @@ def _validator() -> AdvancedSQLValidator:
 
 
 def test_unquoted_compound_identifier_is_allowed():
-    ok, err = _validator().validate('SELECT id FROM crm.opportunities LIMIT 5', dialect="postgres")
+    ok, err = _validator().validate(
+        "SELECT id FROM crm.opportunities LIMIT 5", dialect="postgres"
+    )
     assert ok, f"unexpected reject: {err}"
 
 

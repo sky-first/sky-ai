@@ -71,7 +71,9 @@ def _format_endpoints(endpoints: List[Dict[str, Any]]) -> str:
         fields = ep.get("fields", ep.get("parameters", []))
         line = f"- {method} {path}: {desc}"
         if fields:
-            field_names = [f.get("name", f.get("key", "")) for f in fields if isinstance(f, dict)]
+            field_names = [
+                f.get("name", f.get("key", "")) for f in fields if isinstance(f, dict)
+            ]
             if field_names:
                 line += f" (params: {', '.join(field_names)})"
         lines.append(line)
@@ -97,14 +99,19 @@ def run_api_specialist(
     base_url = api_config.get("base_url", "")
     endpoints = api_config.get("endpoints", [])
 
-    log_event("api_specialist_start", {
-        "question": question[:100],
-        "api_name": api_name,
-        "num_endpoints": len(endpoints),
-    })
+    log_event(
+        "api_specialist_start",
+        {
+            "question": question[:100],
+            "api_name": api_name,
+            "num_endpoints": len(endpoints),
+        },
+    )
 
     if not endpoints:
-        state["answer"] = f"The {api_name} connector has no documented endpoints yet. Configure the API metadata first."
+        state["answer"] = (
+            f"The {api_name} connector has no documented endpoints yet. Configure the API metadata first."
+        )
         state["data"] = []
         state["sql"] = None
         return state
@@ -117,10 +124,12 @@ def run_api_specialist(
     )
 
     try:
-        response = llm.invoke([
-            {"role": "system", "content": spec_prompt},
-            {"role": "user", "content": prepend_brain_context(question, state)},
-        ])
+        response = llm.invoke(
+            [
+                {"role": "system", "content": spec_prompt},
+                {"role": "user", "content": prepend_brain_context(question, state)},
+            ]
+        )
         spec_text = response.content if hasattr(response, "content") else str(response)
 
         # Parse the JSON spec from the LLM response
@@ -150,12 +159,15 @@ def run_api_specialist(
     method = spec.get("method", "GET").upper()
     params = spec.get("params", {})
 
-    log_event("api_specialist_executing", {
-        "api_name": api_name,
-        "method": method,
-        "endpoint": endpoint,
-        "params": str(params)[:200],
-    })
+    log_event(
+        "api_specialist_executing",
+        {
+            "api_name": api_name,
+            "method": method,
+            "endpoint": endpoint,
+            "params": str(params)[:200],
+        },
+    )
 
     try:
         if data_source and hasattr(data_source, "run_query"):
@@ -164,6 +176,7 @@ def run_api_specialist(
         else:
             # Direct HTTP call as fallback
             import httpx
+
             url = f"{base_url.rstrip('/')}{endpoint}"
             with httpx.Client(timeout=15) as client:
                 if method == "GET":
@@ -189,22 +202,33 @@ def run_api_specialist(
             endpoint=f"{method} {endpoint}",
             response_preview=response_preview,
         )
-        response = llm.invoke([
-            {"role": "system", "content": answer_prompt},
-            {"role": "user", "content": prepend_brain_context(question, state)},
-        ])
+        response = llm.invoke(
+            [
+                {"role": "system", "content": answer_prompt},
+                {"role": "user", "content": prepend_brain_context(question, state)},
+            ]
+        )
         answer = response.content if hasattr(response, "content") else str(response)
     except Exception as e:
-        answer = f"API returned data but I couldn't summarize it: {response_preview[:500]}"
+        answer = (
+            f"API returned data but I couldn't summarize it: {response_preview[:500]}"
+        )
 
-    log_event("api_specialist_done", {
-        "api_name": api_name,
-        "endpoint": endpoint,
-        "answer_preview": answer[:200] if answer else "",
-    })
+    log_event(
+        "api_specialist_done",
+        {
+            "api_name": api_name,
+            "endpoint": endpoint,
+            "answer_preview": answer[:200] if answer else "",
+        },
+    )
 
     state["answer"] = answer
-    state["data"] = api_result if isinstance(api_result, list) else [api_result] if api_result else []
+    state["data"] = (
+        api_result
+        if isinstance(api_result, list)
+        else [api_result] if api_result else []
+    )
     state["sql"] = f"API: {method} {base_url}{endpoint}"
     state["generated_title"] = f"{api_name}: {question[:50]}"
 

@@ -4,6 +4,7 @@ Query Constraint Generator
 Generates execution constraints based on dataset size.
 Provides rules for safe query generation on small/large datasets.
 """
+
 from __future__ import annotations
 from typing import Set, List, Dict
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from core.profiling.dataset_profiler import DatasetSize
 class QueryConstraints:
     """
     Constraints for query generation based on dataset size.
-    
+
     Attributes:
         size_category: Dataset size (tiny/small/medium/large/huge)
         allowed_operations: Set of allowed SQL operations
@@ -23,13 +24,14 @@ class QueryConstraints:
         requires_aggregation: Whether aggregation is mandatory
         max_filter_complexity: Maximum allowed filter complexity
     """
+
     size_category: DatasetSize
     allowed_operations: Set[str]
     discouraged_filters: Set[str]
     preferred_strategies: List[str]
     requires_aggregation: bool = False
     max_filter_complexity: int = 10
-    
+
     def to_dict(self) -> Dict:
         """Convert to dict for logging/serialization"""
         return {
@@ -45,21 +47,21 @@ class QueryConstraints:
 class ConstraintGenerator:
     """
     Generates query constraints based on dataset size.
-    
+
     Strategy:
     - TINY: Strict constraints, avoid filters, require aggregations
     - SMALL: Moderate constraints, prefer aggregations
     - MEDIUM: Relaxed constraints, most queries safe
     - LARGE/HUGE: Minimal constraints, optimize for performance
     """
-    
+
     def generate(self, size_category: DatasetSize) -> QueryConstraints:
         """
         Generate constraints for a given dataset size.
-        
+
         Args:
             size_category: Dataset size category
-            
+
         Returns:
             QueryConstraints instance with appropriate rules
         """
@@ -73,19 +75,26 @@ class ConstraintGenerator:
             return self._large_constraints()
         else:  # huge
             return self._huge_constraints()
-    
+
     def _tiny_constraints(self) -> QueryConstraints:
         """
         Constraints for TINY datasets (< 100 rows).
-        
+
         Strategy: Avoid complex filters, prefer aggregations and groupings.
         Allow simple categorical filters if explicitly requested or high value.
         """
         return QueryConstraints(
             size_category="tiny",
             allowed_operations={
-                "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT", "WHERE"
+                "COUNT",
+                "SUM",
+                "AVG",
+                "MIN",
+                "MAX",
+                "GROUP BY",
+                "ORDER BY",
+                "LIMIT",
+                "WHERE",
             },
             discouraged_filters={
                 "WHERE date >",
@@ -104,18 +113,24 @@ class ConstraintGenerator:
             requires_aggregation=True,
             max_filter_complexity=1,  # Allow simple categorical filters (e.g. status='paid')
         )
-    
+
     def _small_constraints(self) -> QueryConstraints:
         """
         Constraints for SMALL datasets (100-1000 rows).
-        
+
         Strategy: Prefer aggregations, allow simple filters cautiously
         """
         return QueryConstraints(
             size_category="small",
             allowed_operations={
-                "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT",
+                "COUNT",
+                "SUM",
+                "AVG",
+                "MIN",
+                "MAX",
+                "GROUP BY",
+                "ORDER BY",
+                "LIMIT",
                 "CASE WHEN",  # Conditional logic
             },
             discouraged_filters={
@@ -132,20 +147,29 @@ class ConstraintGenerator:
             requires_aggregation=False,  # Recommended but not required
             max_filter_complexity=2,  # Simple filters only
         )
-    
+
     def _medium_constraints(self) -> QueryConstraints:
         """
         Constraints for MEDIUM datasets (1k-100k rows).
-        
+
         Strategy: Most queries safe, minimal restrictions
         """
         return QueryConstraints(
             size_category="medium",
             allowed_operations={
-                "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT",
-                "WHERE", "HAVING", "CASE WHEN",
-                "DISTINCT", "JOIN",
+                "COUNT",
+                "SUM",
+                "AVG",
+                "MIN",
+                "MAX",
+                "GROUP BY",
+                "ORDER BY",
+                "LIMIT",
+                "WHERE",
+                "HAVING",
+                "CASE WHEN",
+                "DISTINCT",
+                "JOIN",
             },
             discouraged_filters=set(),  # No restrictions
             preferred_strategies=[
@@ -154,20 +178,30 @@ class ConstraintGenerator:
             requires_aggregation=False,
             max_filter_complexity=10,  # Complex filters OK
         )
-    
+
     def _large_constraints(self) -> QueryConstraints:
         """
         Constraints for LARGE datasets (100k-10M rows).
-        
+
         Strategy: All queries safe, focus on optimization
         """
         return QueryConstraints(
             size_category="large",
             allowed_operations={
-                "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT",
-                "WHERE", "HAVING", "CASE WHEN",
-                "DISTINCT", "JOIN", "WINDOW FUNCTIONS",
+                "COUNT",
+                "SUM",
+                "AVG",
+                "MIN",
+                "MAX",
+                "GROUP BY",
+                "ORDER BY",
+                "LIMIT",
+                "WHERE",
+                "HAVING",
+                "CASE WHEN",
+                "DISTINCT",
+                "JOIN",
+                "WINDOW FUNCTIONS",
             },
             discouraged_filters=set(),
             preferred_strategies=[
@@ -177,20 +211,30 @@ class ConstraintGenerator:
             requires_aggregation=False,
             max_filter_complexity=20,  # Very complex filters OK
         )
-    
+
     def _huge_constraints(self) -> QueryConstraints:
         """
         Constraints for HUGE datasets (>= 10M rows).
-        
+
         Strategy: All queries safe, emphasize performance
         """
         return QueryConstraints(
             size_category="huge",
             allowed_operations={
-                "COUNT", "SUM", "AVG", "MIN", "MAX",
-                "GROUP BY", "ORDER BY", "LIMIT",
-                "WHERE", "HAVING", "CASE WHEN",
-                "DISTINCT", "JOIN", "WINDOW FUNCTIONS",
+                "COUNT",
+                "SUM",
+                "AVG",
+                "MIN",
+                "MAX",
+                "GROUP BY",
+                "ORDER BY",
+                "LIMIT",
+                "WHERE",
+                "HAVING",
+                "CASE WHEN",
+                "DISTINCT",
+                "JOIN",
+                "WINDOW FUNCTIONS",
                 "PARTITION BY",
             },
             discouraged_filters=set(),
@@ -202,25 +246,27 @@ class ConstraintGenerator:
             requires_aggregation=False,
             max_filter_complexity=50,  # Any complexity OK
         )
-    
-    def generate_for_multiple(self, size_categories: List[DatasetSize]) -> QueryConstraints:
+
+    def generate_for_multiple(
+        self, size_categories: List[DatasetSize]
+    ) -> QueryConstraints:
         """
         Generate constraints for multiple tables.
-        
+
         Uses the SMALLEST dataset size to ensure safety across all tables.
-        
+
         Args:
             size_categories: List of size categories
-            
+
         Returns:
             Constraints based on smallest dataset
         """
         if not size_categories:
             return self._tiny_constraints()  # Conservative default
-        
+
         # Order of sizes (smallest to largest)
         size_order = ["tiny", "small", "medium", "large", "huge"]
-        
+
         # Find minimum
         min_size = "huge"
         for size in size_categories:
@@ -228,5 +274,5 @@ class ConstraintGenerator:
             min_idx = size_order.index(min_size)
             if current_idx < min_idx:
                 min_size = size
-        
+
         return self.generate(min_size)

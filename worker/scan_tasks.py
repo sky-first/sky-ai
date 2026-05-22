@@ -4,6 +4,7 @@ Two tasks:
   dispatch_scheduled_scans  — Beat task, runs every 15 min, finds due spaces
   run_scan_for_space        — Worker task, calls the AI /query endpoint for one space
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ def dispatch_scheduled_scans(self) -> Dict[str, Any]:
     Runs every 15 minutes. Actual scan frequency per space is controlled
     by scan_schedule.interval_hours (item 24).
     """
+
     async def _dispatch():
         from db.session import AsyncSessionLocal
         from core.agents.scan_schedule import get_spaces_due_for_scan
@@ -62,7 +64,8 @@ def dispatch_scheduled_scans(self) -> Dict[str, Any]:
             except Exception as exc:
                 logger.warning(
                     "dispatch_scheduled_scans: failed to enqueue space %s: %s",
-                    entry["space_id"], exc,
+                    entry["space_id"],
+                    exc,
                 )
 
         return {"dispatched": dispatched, "spaces": [e["space_id"] for e in due]}
@@ -87,6 +90,7 @@ def run_scan_for_space(self, space_id: str, connection_id: str) -> Dict[str, Any
     Uses the AI service's own endpoint so the full scorer + briefing + agent
     pipeline runs without duplicating logic. Marks last_scan_at on success.
     """
+
     async def _run():
         import httpx
         from config.settings import settings
@@ -116,11 +120,15 @@ def run_scan_for_space(self, space_id: str, connection_id: str) -> Dict[str, Any
         except httpx.HTTPStatusError as exc:
             logger.error(
                 "run_scan_for_space: HTTP %s for space %s: %s",
-                exc.response.status_code, space_id, exc.response.text[:300],
+                exc.response.status_code,
+                space_id,
+                exc.response.text[:300],
             )
             raise self.retry(exc=exc)
         except Exception as exc:
-            logger.error("run_scan_for_space: request failed for space %s: %s", space_id, exc)
+            logger.error(
+                "run_scan_for_space: request failed for space %s: %s", space_id, exc
+            )
             raise self.retry(exc=exc)
 
         # Mark the scan as done regardless of whether an insight was generated

@@ -247,13 +247,25 @@ def build_generic_sql_graph(
         # W7 — emit a user-readable step so the transparency panel doesn't
         # collapse to "Safety checks passed" for SQL questions.
         steps = list(new_state.get("reasoning_steps") or [])
-        chosen = new_state.get("chosen_table") or (new_state.get("chosen_tables") or [None])[0]
+        chosen = (
+            new_state.get("chosen_table")
+            or (new_state.get("chosen_tables") or [None])[0]
+        )
         if chosen:
-            steps.append({"kind": "router", "summary": f"Picked the `{chosen}` table to answer."})
+            steps.append(
+                {"kind": "router", "summary": f"Picked the `{chosen}` table to answer."}
+            )
         elif new_state.get("impossible_reason"):
-            steps.append({"kind": "router", "summary": "Decided I don't have data to answer this."})
+            steps.append(
+                {
+                    "kind": "router",
+                    "summary": "Decided I don't have data to answer this.",
+                }
+            )
         else:
-            steps.append({"kind": "router", "summary": "Decided how to handle the question."})
+            steps.append(
+                {"kind": "router", "summary": "Decided how to handle the question."}
+            )
         new_state["reasoning_steps"] = steps
         return new_state
 
@@ -299,11 +311,15 @@ def build_generic_sql_graph(
         steps = list(new_state.get("reasoning_steps") or [])
         if new_state.get("sql"):
             row_count = len(new_state.get("data") or [])
-            steps.append({"kind": "sql", "summary": "Wrote a SQL query against your data."})
-            steps.append({
-                "kind": "retrieval",
-                "summary": f"Got {row_count} row{'' if row_count == 1 else 's'} back.",
-            })
+            steps.append(
+                {"kind": "sql", "summary": "Wrote a SQL query against your data."}
+            )
+            steps.append(
+                {
+                    "kind": "retrieval",
+                    "summary": f"Got {row_count} row{'' if row_count == 1 else 's'} back.",
+                }
+            )
         new_state["reasoning_steps"] = steps
 
         return new_state
@@ -342,9 +358,12 @@ def build_generic_sql_graph(
             client = backend_client
             if client is None:
                 from core.clients.backend_client import get_backend_client
+
                 client = get_backend_client()
 
-            def _run_specialist(name: str, sub_question: str, context: dict = None) -> Dict[str, Any]:
+            def _run_specialist(
+                name: str, sub_question: str, context: dict = None
+            ) -> Dict[str, Any]:
                 sub_state = dict(state)
                 sub_state["question"] = sub_question
                 if context:
@@ -355,27 +374,46 @@ def build_generic_sql_graph(
                     )
                 try:
                     if name in ("knowledge", "strategy"):
-                        from core.llm.knowledge_specialist import run_knowledge_specialist
-                        result = run_knowledge_specialist(sub_state, dynamic_llm, client)
+                        from core.llm.knowledge_specialist import (
+                            run_knowledge_specialist,
+                        )
+
+                        result = run_knowledge_specialist(
+                            sub_state, dynamic_llm, client
+                        )
                     elif name == "events":
                         from core.llm.events_specialist import run_events_specialist
+
                         result = run_events_specialist(sub_state, dynamic_llm, client)
                     elif name == "relationships":
-                        from core.llm.relationships_specialist import run_relationships_specialist
-                        result = run_relationships_specialist(sub_state, dynamic_llm, client)
+                        from core.llm.relationships_specialist import (
+                            run_relationships_specialist,
+                        )
+
+                        result = run_relationships_specialist(
+                            sub_state, dynamic_llm, client
+                        )
                     elif name == "people":
                         from core.llm.people_specialist import run_people_specialist
+
                         result = run_people_specialist(sub_state, dynamic_llm, client)
                     elif name == "widgets":
                         from core.llm.widgets_specialist import run_widgets_specialist
+
                         result = run_widgets_specialist(sub_state, dynamic_llm, client)
                     elif name == "data":
                         from core.llm.orchestrator import run_orchestrator
                         from core.llm.specialist import run_specialist as _run_sql
                         from core.llm.formatter import run_formatter as _run_fmt
-                        from core.llm.factory import create_llm_orchestrator, create_llm_specialist
+                        from core.llm.factory import (
+                            create_llm_orchestrator,
+                            create_llm_specialist,
+                        )
+
                         orch_llm = (
-                            create_llm_orchestrator(creativity=creativity, length=length)
+                            create_llm_orchestrator(
+                                creativity=creativity, length=length
+                            )
                             if (creativity is not None or length is not None)
                             else llm_orchestrator
                         )
@@ -400,8 +438,12 @@ def build_generic_sql_graph(
                             # hit the primary data_source and silently drop all other
                             # connections' data.
                             tbl_names = orch_result.get("chosen_tables") or []
-                            if orch_result.get("is_multi_source") and len(tbl_names) > 1:
+                            if (
+                                orch_result.get("is_multi_source")
+                                and len(tbl_names) > 1
+                            ):
                                 from core.llm.merger import run_merger as _run_merger
+
                                 partial_results = []
                                 tbl_futures: Dict[Any, str] = {}
                                 with concurrent.futures.ThreadPoolExecutor(
@@ -409,55 +451,99 @@ def build_generic_sql_graph(
                                 ) as tbl_ex:
                                     for tbl_name in tbl_names:
                                         tbl_obj = next(
-                                            (t for t in agent_config.tables if t.logical_name == tbl_name),
+                                            (
+                                                t
+                                                for t in agent_config.tables
+                                                if t.logical_name == tbl_name
+                                            ),
                                             None,
                                         )
                                         if not tbl_obj:
                                             continue
-                                        conn_id = str(getattr(tbl_obj, "data_connection_id", ""))
-                                        src = (dispatch_map or {}).get(conn_id) or data_source
+                                        conn_id = str(
+                                            getattr(tbl_obj, "data_connection_id", "")
+                                        )
+                                        src = (dispatch_map or {}).get(
+                                            conn_id
+                                        ) or data_source
                                         thr = dict(orch_result)
                                         thr["chosen_table"] = tbl_name
-                                        thr["chosen_table_physical"] = getattr(tbl_obj, "physical_name", tbl_name)
+                                        thr["chosen_table_physical"] = getattr(
+                                            tbl_obj, "physical_name", tbl_name
+                                        )
                                         thr["chosen_tables"] = None
                                         thr["chosen_tables_physical"] = None
                                         tbl_futures[
-                                            tbl_ex.submit(_run_sql, thr, agent_config, src, spec_llm)
+                                            tbl_ex.submit(
+                                                _run_sql,
+                                                thr,
+                                                agent_config,
+                                                src,
+                                                spec_llm,
+                                            )
                                         ] = tbl_name
-                                    for fut in concurrent.futures.as_completed(tbl_futures):
+                                    for fut in concurrent.futures.as_completed(
+                                        tbl_futures
+                                    ):
                                         tbl_name = tbl_futures[fut]
                                         try:
                                             r = fut.result()
                                             if r.get("data"):
-                                                partial_results.append({
-                                                    "table": tbl_name,
-                                                    "data": r["data"],
-                                                    "sql": r.get("sql"),
-                                                    "metadata": {
-                                                        "source": "unknown",
-                                                        "title": r.get("generated_title"),
-                                                        "dialect": "unknown",
-                                                    },
-                                                })
+                                                partial_results.append(
+                                                    {
+                                                        "table": tbl_name,
+                                                        "data": r["data"],
+                                                        "sql": r.get("sql"),
+                                                        "metadata": {
+                                                            "source": "unknown",
+                                                            "title": r.get(
+                                                                "generated_title"
+                                                            ),
+                                                            "dialect": "unknown",
+                                                        },
+                                                    }
+                                                )
                                         except Exception as tbl_exc:
-                                            log_event("mixed_data_sub_table_error", {"table": tbl_name, "error": str(tbl_exc)})
+                                            log_event(
+                                                "mixed_data_sub_table_error",
+                                                {
+                                                    "table": tbl_name,
+                                                    "error": str(tbl_exc),
+                                                },
+                                            )
 
                                 if len(partial_results) >= 2:
                                     merged = _run_merger(
-                                        {**orch_result, "partial_results": partial_results},
+                                        {
+                                            **orch_result,
+                                            "partial_results": partial_results,
+                                        },
                                         agent_config,
                                         orch_llm,
                                     )
-                                    result = _run_fmt(state=merged, agent_config=agent_config, llm=dynamic_llm)
+                                    result = _run_fmt(
+                                        state=merged,
+                                        agent_config=agent_config,
+                                        llm=dynamic_llm,
+                                    )
                                 elif partial_results:
                                     r = partial_results[0]
                                     result = _run_fmt(
-                                        state={**orch_result, "data": r["data"], "sql": r.get("sql")},
+                                        state={
+                                            **orch_result,
+                                            "data": r["data"],
+                                            "sql": r.get("sql"),
+                                        },
                                         agent_config=agent_config,
                                         llm=dynamic_llm,
                                     )
                                 else:
-                                    result = {"answer": "No data found across the queried connections.", "data": [], "sql": None, "error": "no_data"}
+                                    result = {
+                                        "answer": "No data found across the queried connections.",
+                                        "data": [],
+                                        "sql": None,
+                                        "error": "no_data",
+                                    }
                             else:
                                 sql_result = _run_sql(
                                     state=orch_result,
@@ -473,7 +559,11 @@ def build_generic_sql_graph(
                         finally:
                             db.close()
                     else:
-                        return {"answer": f"Unknown specialist: {name}", "data": [], "error": "unknown_specialist"}
+                        return {
+                            "answer": f"Unknown specialist: {name}",
+                            "data": [],
+                            "error": "unknown_specialist",
+                        }
 
                     return {
                         "answer": result.get("answer", ""),
@@ -484,7 +574,10 @@ def build_generic_sql_graph(
                         "signals_data": result.get("signals_data"),
                     }
                 except Exception as exc:
-                    log_event("parallel_specialist_mixed_error", {"specialist": name, "error": str(exc)})
+                    log_event(
+                        "parallel_specialist_mixed_error",
+                        {"specialist": name, "error": str(exc)},
+                    )
                     return {"answer": "", "data": [], "error": str(exc)}
 
             # Build SimpleNamespace objects so resolve_execution_order can access .depends_on
@@ -511,28 +604,50 @@ def build_generic_sql_graph(
                 )
                 if len(wave) == 1:
                     sq = wave[0]
-                    ctx = {dep: specialist_results[dep].get("answer", "") for dep in sq.depends_on if dep in specialist_results}
+                    ctx = {
+                        dep: specialist_results[dep].get("answer", "")
+                        for dep in sq.depends_on
+                        if dep in specialist_results
+                    }
                     specialist_results[sq.specialist] = _run_specialist(
                         sq.specialist, sq.sub_question, ctx or None
                     )
                 else:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(wave), 4)) as executor:
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(len(wave), 4)
+                    ) as executor:
                         futures = {}
                         for sq in wave:
-                            ctx = {dep: specialist_results[dep].get("answer", "") for dep in sq.depends_on if dep in specialist_results}
+                            ctx = {
+                                dep: specialist_results[dep].get("answer", "")
+                                for dep in sq.depends_on
+                                if dep in specialist_results
+                            }
                             futures[
-                                executor.submit(_run_specialist, sq.specialist, sq.sub_question, ctx or None)
+                                executor.submit(
+                                    _run_specialist,
+                                    sq.specialist,
+                                    sq.sub_question,
+                                    ctx or None,
+                                )
                             ] = sq.specialist
                         for fut in concurrent.futures.as_completed(futures):
                             spec_name = futures[fut]
                             try:
                                 specialist_results[spec_name] = fut.result()
                             except Exception as exc:
-                                specialist_results[spec_name] = {"answer": "", "data": [], "error": str(exc)}
+                                specialist_results[spec_name] = {
+                                    "answer": "",
+                                    "data": [],
+                                    "error": str(exc),
+                                }
 
             log_event(
                 "parallel_specialist_mixed_done",
-                {"question": question[:100], "specialists_used": list(specialist_results.keys())},
+                {
+                    "question": question[:100],
+                    "specialists_used": list(specialist_results.keys()),
+                },
             )
             state["mixed_specialist_results"] = specialist_results
             return state
@@ -585,16 +700,18 @@ def build_generic_sql_graph(
                     try:
                         res_state = future.result()
                         if res_state.get("data"):
-                            results.append({
-                                "table": res_state.get("chosen_table"),
-                                "data": res_state.get("data"),
-                                "sql": res_state.get("sql"),
-                                "metadata": {
-                                    "source": "unknown",
-                                    "title": res_state.get("generated_title"),
-                                    "dialect": "unknown",
-                                },
-                            })
+                            results.append(
+                                {
+                                    "table": res_state.get("chosen_table"),
+                                    "data": res_state.get("data"),
+                                    "sql": res_state.get("sql"),
+                                    "metadata": {
+                                        "source": "unknown",
+                                        "title": res_state.get("generated_title"),
+                                        "dialect": "unknown",
+                                    },
+                                }
+                            )
                     except Exception as e:
                         log_event("parallel_specialist_error", {"error": str(e)})
 

@@ -77,15 +77,15 @@ class DynamoDBSource:
                 if tag == "SS":
                     return list(value)
                 if tag == "NS":
-                    return [
-                        int(v) if "." not in str(v) else float(v) for v in value
-                    ]
+                    return [int(v) if "." not in str(v) else float(v) for v in value]
                 if tag == "BS":
                     return [bytes(v) if not isinstance(v, bytes) else v for v in value]
                 if tag == "L":
                     return [DynamoDBSource._deserialize_item(v) for v in value]
                 if tag == "M":
-                    return {k: DynamoDBSource._deserialize_item(v) for k, v in value.items()}
+                    return {
+                        k: DynamoDBSource._deserialize_item(v) for k, v in value.items()
+                    }
             # Plain dict (already deserialised or mixed)
             return {k: DynamoDBSource._deserialize_item(v) for k, v in item.items()}
         if isinstance(item, list):

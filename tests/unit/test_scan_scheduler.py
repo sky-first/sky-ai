@@ -6,6 +6,7 @@ Coverage:
   - Silent run threshold check (item 26)
   - notify_scan_insight integration (item 25)
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ import pytest
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _meta(
     space_id: str,
@@ -51,6 +53,7 @@ def _fetchall_result(rows: list) -> MagicMock:
 
 # ─── scan_schedule.get_scan_schedule ──────────────────────────────────────────
 
+
 class TestGetScanSchedule:
     @pytest.mark.asyncio
     async def test_returns_none_when_not_configured(self):
@@ -80,6 +83,7 @@ class TestGetScanSchedule:
 
 # ─── scan_schedule.set_scan_schedule ──────────────────────────────────────────
 
+
 class TestSetScanSchedule:
     @pytest.mark.asyncio
     async def test_raises_on_invalid_interval(self):
@@ -108,7 +112,9 @@ class TestSetScanSchedule:
 
         # First execute call is get_scan_schedule (returns existing config with a timestamp)
         existing_ts = "2026-05-01T10:00:00+00:00"
-        existing_meta = _meta("space-1", interval_hours=24, enabled=True, last_scan_at=existing_ts)
+        existing_meta = _meta(
+            "space-1", interval_hours=24, enabled=True, last_scan_at=existing_ts
+        )
         existing_row = (existing_meta,)
 
         db = AsyncMock()
@@ -128,6 +134,7 @@ class TestSetScanSchedule:
 
 
 # ─── scan_schedule.update_last_scan_at ────────────────────────────────────────
+
 
 class TestUpdateLastScanAt:
     @pytest.mark.asyncio
@@ -160,6 +167,7 @@ class TestUpdateLastScanAt:
 
 # ─── scan_schedule.get_spaces_due_for_scan ────────────────────────────────────
 
+
 class TestGetSpacesDueForScan:
     """get_spaces_due_for_scan uses result.fetchall() returning plain tuples
     (space_id, interval_hours, last_scan_at_str, connection_id).
@@ -181,9 +189,7 @@ class TestGetSpacesDueForScan:
     async def test_returns_space_when_overdue(self):
         from core.agents.scan_schedule import get_spaces_due_for_scan
 
-        overdue_time = (
-            datetime.now(timezone.utc) - timedelta(hours=25)
-        ).isoformat()
+        overdue_time = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
         rows = [("space-2", 24, overdue_time, "conn-42")]
 
         db = AsyncMock()
@@ -212,9 +218,7 @@ class TestGetSpacesDueForScan:
     async def test_skips_space_not_yet_due(self):
         from core.agents.scan_schedule import get_spaces_due_for_scan
 
-        recent_time = (
-            datetime.now(timezone.utc) - timedelta(hours=1)
-        ).isoformat()
+        recent_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         rows = [("space-4", 24, recent_time, "conn-7")]
 
         db = AsyncMock()
@@ -244,6 +248,7 @@ class TestGetSpacesDueForScan:
 
 
 # ─── Item 26: Silent run threshold ────────────────────────────────────────────
+
 
 class TestSilentRunThreshold:
     """Tests the logic that skips save+notify for short scan answers."""
@@ -277,11 +282,14 @@ class TestSilentRunThreshold:
 
 # ─── Item 25: notify_scan_insight ─────────────────────────────────────────────
 
+
 class TestNotifyScanInsight:
     def test_returns_true_on_success(self):
         from core.clients.backend_client import BackendClient
 
-        with patch.object(BackendClient, "__init__", lambda self, base_url, timeout=30.0: None):
+        with patch.object(
+            BackendClient, "__init__", lambda self, base_url, timeout=30.0: None
+        ):
             client = BackendClient.__new__(BackendClient)
             mock_http = MagicMock()
             mock_response = MagicMock()
@@ -289,7 +297,9 @@ class TestNotifyScanInsight:
             mock_http.post.return_value = mock_response
             client._http = mock_http
 
-            result = client.notify_scan_insight("space-1", "Big finding", "Details here")
+            result = client.notify_scan_insight(
+                "space-1", "Big finding", "Details here"
+            )
 
         assert result is True
         mock_http.post.assert_called_once()
@@ -299,7 +309,9 @@ class TestNotifyScanInsight:
     def test_returns_false_on_http_error(self):
         from core.clients.backend_client import BackendClient
 
-        with patch.object(BackendClient, "__init__", lambda self, base_url, timeout=30.0: None):
+        with patch.object(
+            BackendClient, "__init__", lambda self, base_url, timeout=30.0: None
+        ):
             client = BackendClient.__new__(BackendClient)
             mock_http = MagicMock()
             mock_http.post.side_effect = Exception("connection refused")
@@ -312,7 +324,9 @@ class TestNotifyScanInsight:
     def test_summary_truncated_to_500_chars(self):
         from core.clients.backend_client import BackendClient
 
-        with patch.object(BackendClient, "__init__", lambda self, base_url, timeout=30.0: None):
+        with patch.object(
+            BackendClient, "__init__", lambda self, base_url, timeout=30.0: None
+        ):
             client = BackendClient.__new__(BackendClient)
             mock_http = MagicMock()
             mock_response = MagicMock()
@@ -329,7 +343,9 @@ class TestNotifyScanInsight:
     def test_payload_contains_space_id_and_title(self):
         from core.clients.backend_client import BackendClient
 
-        with patch.object(BackendClient, "__init__", lambda self, base_url, timeout=30.0: None):
+        with patch.object(
+            BackendClient, "__init__", lambda self, base_url, timeout=30.0: None
+        ):
             client = BackendClient.__new__(BackendClient)
             mock_http = MagicMock()
             mock_response = MagicMock()
@@ -345,6 +361,7 @@ class TestNotifyScanInsight:
 
 
 # ─── QueryResponse schema fields ──────────────────────────────────────────────
+
 
 class TestQueryResponseScanFields:
     def test_scan_fields_default_to_none(self):

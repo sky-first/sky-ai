@@ -6,6 +6,7 @@ Tests cover:
   - load_row_count_snapshots_for_scorer: reads last 2 per table, newest first
   - Integration: volatile tables rank higher than static ones
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -103,7 +104,7 @@ class TestVolatileTableRanksHigher:
             top_k=1,
             row_count_snapshots={
                 "events": [2000, 1000],  # 100% growth
-                "users": [500, 500],     # no change
+                "users": [500, 500],  # no change
             },
         )
         top = scorer.rank([events, users], insights=[])
@@ -117,7 +118,7 @@ class TestVolatileTableRanksHigher:
             top_k=1,
             row_count_snapshots={
                 "events": [1200, 1000],  # 20% growth
-                "users": [500, 500],     # no change
+                "users": [500, 500],  # no change
             },
         )
         top = scorer.rank([events, users], insights=[])
@@ -131,14 +132,14 @@ class TestVolatileTableRanksHigher:
 async def test_save_row_count_snapshots_creates_one_record_per_table():
     tables = [
         _Table("crm.orders", data_connection_id="conn-1"),
-        _Table("crm.users",  data_connection_id="conn-1"),
+        _Table("crm.users", data_connection_id="conn-1"),
     ]
     space_id = "aaaaaaaa-0000-0000-0000-000000000001"
 
     # connection_metadata returns two tables with positive row_counts
     catalog_json = [
         {"name": "orders", "schema": "crm", "row_count": 1500, "columns": []},
-        {"name": "users",  "schema": "crm", "row_count": 800,  "columns": []},
+        {"name": "users", "schema": "crm", "row_count": 800, "columns": []},
     ]
 
     mock_scalar = MagicMock()
@@ -151,6 +152,7 @@ async def test_save_row_count_snapshots_creates_one_record_per_table():
     mock_db.add = lambda r: added_records.append(r)
 
     from core.agents.dataset_priority_scorer import save_row_count_snapshots
+
     count = await save_row_count_snapshots(mock_db, space_id, tables)
 
     assert count == 2
@@ -176,6 +178,7 @@ async def test_save_row_count_snapshots_skips_negative_row_count():
     mock_db.add = lambda r: added_records.append(r)
 
     from core.agents.dataset_priority_scorer import save_row_count_snapshots
+
     count = await save_row_count_snapshots(mock_db, space_id, tables)
 
     assert count == 0
@@ -190,6 +193,7 @@ async def test_save_row_count_snapshots_skips_tables_without_connection_id():
     mock_db = AsyncMock()
 
     from core.agents.dataset_priority_scorer import save_row_count_snapshots
+
     count = await save_row_count_snapshots(mock_db, space_id, tables)
 
     assert count == 0
@@ -200,6 +204,7 @@ async def test_save_row_count_snapshots_skips_tables_without_connection_id():
 async def test_save_row_count_snapshots_returns_zero_on_empty_tables():
     mock_db = AsyncMock()
     from core.agents.dataset_priority_scorer import save_row_count_snapshots
+
     count = await save_row_count_snapshots(mock_db, "any-space-id", [])
     assert count == 0
 
@@ -212,13 +217,14 @@ async def test_load_row_count_snapshots_returns_newest_first():
     space_id = "aaaaaaaa-0000-0000-0000-000000000001"
 
     from datetime import datetime, timezone
+
     now = datetime.now(tz=timezone.utc)
 
     # DB returns rows ORDER BY created_at DESC (newest first)
     fake_rows = [
         ("crm.orders", 1500, now),
         ("crm.orders", 1000, now),  # older snapshot
-        ("crm.users",  800,  now),
+        ("crm.users", 800, now),
     ]
 
     mock_result = MagicMock()
@@ -227,6 +233,7 @@ async def test_load_row_count_snapshots_returns_newest_first():
     mock_db.execute = AsyncMock(return_value=mock_result)
 
     from core.agents.dataset_priority_scorer import load_row_count_snapshots_for_scorer
+
     snapshots = await load_row_count_snapshots_for_scorer(mock_db, space_id)
 
     assert snapshots["crm.orders"] == [1500, 1000]
@@ -238,6 +245,7 @@ async def test_load_row_count_snapshots_caps_at_2():
     space_id = "aaaaaaaa-0000-0000-0000-000000000001"
 
     from datetime import datetime, timezone
+
     now = datetime.now(tz=timezone.utc)
 
     # 3 snapshots for same table — should only keep first 2
@@ -253,6 +261,7 @@ async def test_load_row_count_snapshots_caps_at_2():
     mock_db.execute = AsyncMock(return_value=mock_result)
 
     from core.agents.dataset_priority_scorer import load_row_count_snapshots_for_scorer
+
     snapshots = await load_row_count_snapshots_for_scorer(mock_db, space_id)
 
     assert snapshots["events"] == [3000, 2000]  # 3rd dropped
@@ -264,6 +273,7 @@ async def test_load_row_count_snapshots_returns_empty_on_db_error():
     mock_db.execute = AsyncMock(side_effect=Exception("DB down"))
 
     from core.agents.dataset_priority_scorer import load_row_count_snapshots_for_scorer
+
     snapshots = await load_row_count_snapshots_for_scorer(mock_db, "any-space")
 
     assert snapshots == {}

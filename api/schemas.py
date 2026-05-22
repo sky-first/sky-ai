@@ -134,8 +134,12 @@ class Citation(BaseModel):
     file_id: str = Field(..., description="knowledge_files.id")
     file_name: str = Field(..., description="Original file name shown to the user.")
     chunk_index: int = Field(..., description="Zero-based chunk index within the file.")
-    page_number: Optional[int] = Field(None, description="PDF page number (1-based), if available.")
-    excerpt: str = Field(..., description="Short text excerpt from the chunk (≤ 300 chars).")
+    page_number: Optional[int] = Field(
+        None, description="PDF page number (1-based), if available."
+    )
+    excerpt: str = Field(
+        ..., description="Short text excerpt from the chunk (≤ 300 chars)."
+    )
     score: float = Field(..., description="Cosine similarity score [0, 1].")
 
 

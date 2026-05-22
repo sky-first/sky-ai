@@ -34,10 +34,7 @@ async def run_test_queries(connection_id: str, space_id: str):
             try:
                 response = await client.post(
                     f"{base_url}/connections/{connection_id}/query",
-                    json={
-                        "question": question,
-                        "space_id": space_id
-                    }
+                    json={"question": question, "space_id": space_id},
                 )
 
                 elapsed = time.time() - start_time
@@ -45,12 +42,16 @@ async def run_test_queries(connection_id: str, space_id: str):
                 if response.status_code == 200:
                     result = response.json()
 
-                    has_sql = bool(result.get('sql'))
-                    has_data = bool(result.get('data'))
-                    has_error = bool(result.get('error'))
-                    answer = result.get('answer', '')[:150]
+                    has_sql = bool(result.get("sql"))
+                    has_data = bool(result.get("data"))
+                    has_error = bool(result.get("error"))
+                    answer = result.get("answer", "")[:150]
 
-                    status = "✅ SUCCESS" if has_sql and not has_error else "⚠️  PARTIAL" if not has_error else "❌ ERROR"
+                    status = (
+                        "✅ SUCCESS"
+                        if has_sql and not has_error
+                        else "⚠️  PARTIAL" if not has_error else "❌ ERROR"
+                    )
 
                     print(f"Status: {status}")
                     print(f"Time: {elapsed:.1f}s")
@@ -59,34 +60,39 @@ async def run_test_queries(connection_id: str, space_id: str):
                     print(f"Error: {result.get('error', 'None')[:100]}")
                     print(f"Answer: {answer}...")
 
-                    results.append({
-                        "question": question,
-                        "status": status,
-                        "time": elapsed,
-                        "has_sql": has_sql,
-                        "has_error": has_error
-                    })
+                    results.append(
+                        {
+                            "question": question,
+                            "status": status,
+                            "time": elapsed,
+                            "has_sql": has_sql,
+                            "has_error": has_error,
+                        }
+                    )
                 else:
-                    print(
-                        f"❌ HTTP {response.status_code}: {response.text[:200]}")
-                    results.append({
-                        "question": question,
-                        "status": "❌ HTTP ERROR",
-                        "time": elapsed,
-                        "has_sql": False,
-                        "has_error": True
-                    })
+                    print(f"❌ HTTP {response.status_code}: {response.text[:200]}")
+                    results.append(
+                        {
+                            "question": question,
+                            "status": "❌ HTTP ERROR",
+                            "time": elapsed,
+                            "has_sql": False,
+                            "has_error": True,
+                        }
+                    )
 
             except Exception as e:
                 elapsed = time.time() - start_time
                 print(f"❌ Exception: {str(e)[:200]}")
-                results.append({
-                    "question": question,
-                    "status": "❌ EXCEPTION",
-                    "time": elapsed,
-                    "has_sql": False,
-                    "has_error": True
-                })
+                results.append(
+                    {
+                        "question": question,
+                        "status": "❌ EXCEPTION",
+                        "time": elapsed,
+                        "has_sql": False,
+                        "has_error": True,
+                    }
+                )
 
             # Delay between queries
             if i < len(QUESTIONS):
@@ -97,9 +103,9 @@ async def run_test_queries(connection_id: str, space_id: str):
     print(f"📊 SUMMARY")
     print(f"{'=' * 70}")
 
-    successes = sum(1 for r in results if r['status'] == '✅ SUCCESS')
-    errors = sum(1 for r in results if r['has_error'])
-    avg_time = sum(r['time'] for r in results) / len(results) if results else 0
+    successes = sum(1 for r in results if r["status"] == "✅ SUCCESS")
+    errors = sum(1 for r in results if r["has_error"])
+    avg_time = sum(r["time"] for r in results) / len(results) if results else 0
 
     print(f"Total Queries: {len(results)}")
     print(f"Successes: {successes}")

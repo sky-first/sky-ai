@@ -20,13 +20,13 @@ class SQLMetadataExtractor(Protocol):
     - Databricks (via driver compatível)
     - etc.
     """
+
     def extract_table_metadata(
         self,
         engine: Engine,
         schema: Optional[str] = None,
         include_tables: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        ...
+    ) -> List[Dict[str, Any]]: ...
 
 
 class InformationSchemaExtractor:

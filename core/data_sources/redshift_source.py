@@ -52,11 +52,14 @@ class RedshiftSource(SQLAlchemyDataSource):
                     "RedshiftSource requires host, user, and database (or an explicit dsn)"
                 )
             from urllib.parse import quote_plus
+
             dsn = (
                 f"redshift+redshift_connector://{quote_plus(str(user))}"
                 f":{quote_plus(str(password))}"
                 f"@{host}:{port}/{database}"
             )
         engine = create_engine(dsn, future=True)
-        log_event("build_redshift_datasource", {"label": label, "dsn_preview": dsn[:80]})
+        log_event(
+            "build_redshift_datasource", {"label": label, "dsn_preview": dsn[:80]}
+        )
         super().__init__(engine=engine, dialect=Dialect.REDSHIFT, label=label)

@@ -11,7 +11,10 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import detect_language
 from core.logging_utils import log_event
 from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
-from core.rag.context_retrieval import build_retrieval_context_for_question, build_retrieval_context_for_question_sync
+from core.rag.context_retrieval import (
+    build_retrieval_context_for_question,
+    build_retrieval_context_for_question_sync,
+)
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
@@ -32,7 +35,13 @@ ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "cfo": {
         "label": "CFO",
-        "focus": ["reconciliation", "net settlement", "cash flow", "burn rate", "auditing"],
+        "focus": [
+            "reconciliation",
+            "net settlement",
+            "cash flow",
+            "burn rate",
+            "auditing",
+        ],
         "style": "Apply strict financial audit logic (Platinum Auditor). Focus on accuracy and net impact.",
         "table_priority": ["payments", "refunds", "credit_memos", "invoices"],
         "detail_level": "analytical_deep",
@@ -83,18 +92,20 @@ ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _build_role_context(platform_role: str, crew_role: str, role_label: Optional[str] = None) -> str:
+def _build_role_context(
+    platform_role: str, crew_role: str, role_label: Optional[str] = None
+) -> str:
     """
     Build role-specific context for LLM prompt injection.
-    
+
     Crew role takes precedence over platform role for behavior,
     but platform admin/cfo always gets financial priority.
-    
+
     Args:
         platform_role: Platform-level role (admin/user/viewer/cfo)
         crew_role: Crew-level role (commander/navigator/explorer/guest)
         role_label: Specific override label (e.g. "CFO Logic")
-        
+
     Returns:
         Role context string to inject into system prompt
     """
@@ -133,12 +144,18 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
     parts = []
     for t in tables:
         col_desc = ", ".join(
-            f"{c.get('name')} ({c.get('type')})"
-            if isinstance(c, dict)
-            else f"{c.name} ({c.type})"
+            (
+                f"{c.get('name')} ({c.get('type')})"
+                if isinstance(c, dict)
+                else f"{c.name} ({c.type})"
+            )
             for c in (t.columns or [])[:8]
         )
-        desc_part = f" | description: {t.description}" if getattr(t, "description", None) else ""
+        desc_part = (
+            f" | description: {t.description}"
+            if getattr(t, "description", None)
+            else ""
+        )
         parts.append(
             f"- {t.logical_name} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
         )
@@ -452,7 +469,11 @@ def run_orchestrator(
     # field carries the agent's focus/task description, not a user natural-
     # language question, so schema-based validation produces false positives.
     _skip_validation = (state.get("agent_mode") or "") in (
-        "scan", "sql", "context", "datasource", "question"
+        "scan",
+        "sql",
+        "context",
+        "datasource",
+        "question",
     )
     if not _skip_validation:
         try:
@@ -489,10 +510,14 @@ def run_orchestrator(
                 r for r in validation_results if r.severity == ValidationSeverity.ERROR
             ]
             warnings = [
-                r for r in validation_results if r.severity == ValidationSeverity.WARNING
+                r
+                for r in validation_results
+                if r.severity == ValidationSeverity.WARNING
             ]
 
-            infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
+            infos = [
+                r for r in validation_results if r.severity == ValidationSeverity.INFO
+            ]
 
             log_event(
                 "orchestrator_validation_metrics",
@@ -518,7 +543,9 @@ def run_orchestrator(
                     if lang.startswith("pt"):
                         error_msg += f"\n\n💡 Sugestão: {critical_errors[0].suggestion}"
                     else:
-                        error_msg += f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
+                        error_msg += (
+                            f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
+                        )
 
                 state["answer"] = error_msg
                 state["error"] = critical_errors[0].code
@@ -535,7 +562,9 @@ def run_orchestrator(
 
             # Warnings podem ser logados mas não bloqueiam
             warnings = [
-                r for r in validation_results if r.severity == ValidationSeverity.WARNING
+                r
+                for r in validation_results
+                if r.severity == ValidationSeverity.WARNING
             ]
             if warnings:
                 log_event(
@@ -550,14 +579,18 @@ def run_orchestrator(
                 )
 
             # Infos são apenas informativos
-            infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
+            infos = [
+                r for r in validation_results if r.severity == ValidationSeverity.INFO
+            ]
             if infos:
                 log_event(
                     "orchestrator_validation_info",
                     {
                         "agent_id": agent_config.id,
                         "question": question[:200],
-                        "infos": [{"code": i.code, "message": i.message} for i in infos],
+                        "infos": [
+                            {"code": i.code, "message": i.message} for i in infos
+                        ],
                     },
                 )
         except Exception as e:
@@ -631,7 +664,7 @@ def run_orchestrator(
                 connection_id = None
                 if agent_config.tables:
                     connection_id = agent_config.tables[0].data_connection_id
-                
+
                 retrieval_context = build_retrieval_context_for_question_sync(
                     db=db,
                     embedding_provider=embedding_provider,
@@ -717,7 +750,9 @@ def run_orchestrator(
                     "agent_id": agent_config.id,
                     "original_count": len(authorized_map) // 2,
                     "selected_requested": selected_datasets,
-                    "selected_applied": state.get("preferred_tables", state.get("chosen_tables")),
+                    "selected_applied": state.get(
+                        "preferred_tables", state.get("chosen_tables")
+                    ),
                 },
             )
         else:
@@ -731,7 +766,7 @@ def run_orchestrator(
                 },
             )
 
-    # 🎯 Otimização Legada: Se há apenas 1 tabela disponível, no modo Agentic RAG 
+    # 🎯 Otimização Legada: Se há apenas 1 tabela disponível, no modo Agentic RAG
     # queremos que o agente PENSE antes, pois ele pode precisar de outros contextos.
     # Só fazemos o auto-select se o Agentic RAG não estiver disponível.
     chat_model = getattr(llm, "_chat", None)
@@ -752,8 +787,7 @@ def run_orchestrator(
                 "reason": "Legacy auto-select (Single Table)",
             },
         )
-        return state 
-
+        return state
 
     # 🎯 NEW: Build Context Bundle (if enabled)
     use_context_bundle = getattr(settings, "use_context_bundle", False)
@@ -802,8 +836,7 @@ def run_orchestrator(
     if retrieval_context:
         joined = "\n\n".join(retrieval_context[:5])
         context_block += (
-            "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n"
-            f"{joined}\n"
+            "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n" f"{joined}\n"
         )
 
     # Phase 4.3: weave the Context-Layer brain evidence into the same
@@ -830,7 +863,9 @@ def run_orchestrator(
     # Detectar relacionamentos entre tabelas
     # NEW: Pass explicit relationships from state (loaded from backend)
     explicit_rels = state.get("explicit_relationships") or []
-    relationships = detect_relationships(agent_config.tables, explicit_relationships=explicit_rels)
+    relationships = detect_relationships(
+        agent_config.tables, explicit_relationships=explicit_rels
+    )
 
     # Obter instruções personalizadas do estado
     instructions = state.get("instructions")
@@ -920,14 +955,24 @@ def run_orchestrator(
             from langgraph.prebuilt import create_react_agent
             from core.llm.tools import ToolFactory
             from langchain_core.messages import HumanMessage
-            
+
             # Instanciar as ferramentas
             tools = [
                 ToolFactory.create_metadata_tool(agent_config),
-                ToolFactory.create_strategy_tool(db, embedding_provider, state.get("space_id", ""), state.get("crew_ids", [])),
-                ToolFactory.create_signals_tool(db, embedding_provider, state.get("space_id", ""), state.get("crew_ids", []))
+                ToolFactory.create_strategy_tool(
+                    db,
+                    embedding_provider,
+                    state.get("space_id", ""),
+                    state.get("crew_ids", []),
+                ),
+                ToolFactory.create_signals_tool(
+                    db,
+                    embedding_provider,
+                    state.get("space_id", ""),
+                    state.get("crew_ids", []),
+                ),
             ]
-            
+
             # A "Regra de Ouro" rigorosa (System Prompt Agentic)
             agentic_system_msg = (
                 f"{role_context_block}"
@@ -958,7 +1003,7 @@ def run_orchestrator(
                 f"{relationships_info}"
                 f"{instructions_block}"
             )
-            
+
             # Always inject the schema upfront — the LLM sees the catalog
             # before deciding scope, eliminating false OUT_OF_SCOPE on
             # questions where the relevant table only becomes obvious from
@@ -974,7 +1019,7 @@ def run_orchestrator(
                 "Based on the schema above, identify which table(s) answer this question. "
                 "End your response with the logical table name(s)."
             )
-            
+
             # Loop Agentic (ReAct)
             # NOTE: langgraph's create_react_agent defaults to recursion_limit=25.
             # When the LLM fails to converge (e.g. metadata tool returns empty,
@@ -984,13 +1029,15 @@ def run_orchestrator(
             # Cap at 6: enough for the LLM to call 1–2 tools and emit a final
             # answer, but bounded so a runaway agent costs <25% of the prior
             # worst case.
-            react_agent = create_react_agent(chat_model, tools=tools, state_modifier=agentic_system_msg)
+            react_agent = create_react_agent(
+                chat_model, tools=tools, state_modifier=agentic_system_msg
+            )
             result = react_agent.invoke(
                 {"messages": [HumanMessage(content=user_prompt)]},
                 config={"recursion_limit": 10},
             )
             final_msg_content = result["messages"][-1].content
-            
+
             # Salvar o rationale (Chain of Thought) no state para streaming futuro
             state["plan"] = final_msg_content
 
@@ -1005,27 +1052,36 @@ def run_orchestrator(
             # Only check the final line for OUT_OF_SCOPE — scanning the full
             # message false-positives on chain-of-thought like "this is NOT
             # out_of_scope" which the agent emits while reasoning through scope.
-            _final_lines = [l.strip() for l in final_msg_content.splitlines() if l.strip()]
+            _final_lines = [
+                l.strip() for l in final_msg_content.splitlines() if l.strip()
+            ]
             _final_line = _final_lines[-1] if _final_lines else ""
-            if not _is_forced_data and re.search(r'\bOUT_OF_SCOPE\b', _final_line, re.IGNORECASE):
+            if not _is_forced_data and re.search(
+                r"\bOUT_OF_SCOPE\b", _final_line, re.IGNORECASE
+            ):
                 state["answer"] = (
                     "I'm designed to answer questions about your business data. "
                     "That question doesn't seem related to your data. "
                     "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
                 )
-                log_event("orchestrator_out_of_scope", {
-                    "question": question[:100],
-                    "tool_called": any(
-                        hasattr(m, "type") and getattr(m, "type", "") == "tool"
-                        for m in result.get("messages", [])
-                    ),
-                    "num_messages": len(result.get("messages", [])),
-                    "final_msg_preview": final_msg_content[:300],
-                })
+                log_event(
+                    "orchestrator_out_of_scope",
+                    {
+                        "question": question[:100],
+                        "tool_called": any(
+                            hasattr(m, "type") and getattr(m, "type", "") == "tool"
+                            for m in result.get("messages", [])
+                        ),
+                        "num_messages": len(result.get("messages", [])),
+                        "final_msg_preview": final_msg_content[:300],
+                    },
+                )
                 return state
 
             clarify_match = re.search(
-                r'CLARIFY:\s*(.+?)(?:\n\n|\Z)', final_msg_content, re.IGNORECASE | re.DOTALL
+                r"CLARIFY:\s*(.+?)(?:\n\n|\Z)",
+                final_msg_content,
+                re.IGNORECASE | re.DOTALL,
             )
             if clarify_match:
                 clarification = clarify_match.group(1).strip()
@@ -1043,13 +1099,22 @@ def run_orchestrator(
                 if counting_pattern.search(question):
                     log_event(
                         "orchestrator_clarify_overridden_counting",
-                        {"question": question[:100], "attempted_clarification": clarification[:200]},
+                        {
+                            "question": question[:100],
+                            "attempted_clarification": clarification[:200],
+                        },
                     )
                     # Fall through — let the legacy table extractor below
                     # do its thing. It usually picks a sensible default.
                 else:
                     state["answer"] = clarification
-                    log_event("orchestrator_clarify", {"question": question[:100], "clarification": clarification[:200]})
+                    log_event(
+                        "orchestrator_clarify",
+                        {
+                            "question": question[:100],
+                            "clarification": clarification[:200],
+                        },
+                    )
                     return state
             # ──────────────────────────────────────────────────────────────
 
@@ -1057,15 +1122,20 @@ def run_orchestrator(
             class RawResponseMimic:
                 def __init__(self, content):
                     self.content = content
+
             raw = RawResponseMimic(content=final_msg_content)
 
             log_event("orchestrator_agentic_rag_success", {"agent_id": agent_config.id})
 
-            
         except Exception as e:
-            state["answer"] = "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
+            state["answer"] = (
+                "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
+            )
             state["error"] = str(e)
-            log_event("orchestrator_agentic_llm_error", {"agent_id": agent_config.id, "error": str(e)[:500]})
+            log_event(
+                "orchestrator_agentic_llm_error",
+                {"agent_id": agent_config.id, "error": str(e)[:500]},
+            )
             return state
 
     else:
@@ -1119,11 +1189,18 @@ def run_orchestrator(
 
         try:
             raw = llm.invoke([system_msg, user_msg])
-            print(f"DEBUG ORCHESTRATOR LEGACY RAW: {raw.content if hasattr(raw, 'content') else raw}")
+            print(
+                f"DEBUG ORCHESTRATOR LEGACY RAW: {raw.content if hasattr(raw, 'content') else raw}"
+            )
         except Exception as e:
-            state["answer"] = "Error consulting the AI orchestrator. Please try again later."
+            state["answer"] = (
+                "Error consulting the AI orchestrator. Please try again later."
+            )
             state["error"] = str(e)
-            log_event("orchestrator_llm_error", {"agent_id": agent_config.id, "error": str(e)[:500]})
+            log_event(
+                "orchestrator_llm_error",
+                {"agent_id": agent_config.id, "error": str(e)[:500]},
+            )
             return state
 
     # Extrair escolha(s) de tabela(s)
@@ -1169,7 +1246,7 @@ def run_orchestrator(
                         for t in agent_config.tables
                         if t.logical_name == chosen_logicals[0]
                     ),
-                    chosen_logicals[0]
+                    chosen_logicals[0],
                 )
 
                 log_event(
@@ -1212,7 +1289,7 @@ def run_orchestrator(
                         for t in agent_config.tables
                         if t.logical_name == chosen_logicals[0]
                     ),
-                    chosen_logicals[0]
+                    chosen_logicals[0],
                 )
 
                 log_event(
@@ -1244,7 +1321,9 @@ def run_orchestrator(
             # specialist will scope down via its own reasoning.
             chosen_logicals = [t.logical_name for t in agent_config.tables]
             state["chosen_tables"] = chosen_logicals
-            state["chosen_tables_physical"] = [t.physical_name for t in agent_config.tables]
+            state["chosen_tables_physical"] = [
+                t.physical_name for t in agent_config.tables
+            ]
             state["chosen_table"] = agent_config.tables[0].logical_name
             state["chosen_table_physical"] = agent_config.tables[0].physical_name
             log_event(

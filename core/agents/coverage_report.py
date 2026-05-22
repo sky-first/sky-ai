@@ -111,11 +111,19 @@ async def build_coverage_report(
 
         latest_row_count: Dict[str, int] = {}
         for logical_name, row_count, _ in snapshot_rows:
-            if logical_name and row_count is not None and logical_name not in latest_row_count:
+            if (
+                logical_name
+                and row_count is not None
+                and logical_name not in latest_row_count
+            ):
                 latest_row_count[logical_name] = int(row_count)
 
         # ── 4. Combine ────────────────────────────────────────────────────────
-        all_tables = set(times_queried.keys()) | set(combos_per_table.keys()) | set(latest_row_count.keys())
+        all_tables = (
+            set(times_queried.keys())
+            | set(combos_per_table.keys())
+            | set(latest_row_count.keys())
+        )
 
         coverage = []
         for tbl in sorted(all_tables):
@@ -128,21 +136,34 @@ async def build_coverage_report(
             # If 0 combos explored → 100%; each combo explored reduces by estimated amount
             # We cap the estimate at 20 possible combos (typical table) for the pct calc.
             ASSUMED_POSSIBLE = 20
-            depth_pct = max(0, int(100 * (1.0 - min(combo_count, ASSUMED_POSSIBLE) / ASSUMED_POSSIBLE)))
+            depth_pct = max(
+                0,
+                int(
+                    100 * (1.0 - min(combo_count, ASSUMED_POSSIBLE) / ASSUMED_POSSIBLE)
+                ),
+            )
 
             lq = last_queried.get(tbl)
-            coverage.append({
-                "logical_name": tbl,
-                "last_queried_at": lq.isoformat() if lq else None,
-                "times_queried": times_queried.get(tbl, 0),
-                "combos_explored": combo_count,
-                "latest_row_count": latest_row_count.get(tbl),
-                "depth_remaining_pct": depth_pct,
-            })
+            coverage.append(
+                {
+                    "logical_name": tbl,
+                    "last_queried_at": lq.isoformat() if lq else None,
+                    "times_queried": times_queried.get(tbl, 0),
+                    "combos_explored": combo_count,
+                    "latest_row_count": latest_row_count.get(tbl),
+                    "depth_remaining_pct": depth_pct,
+                }
+            )
 
         # Sort: most recently queried first, then never-queried alphabetically
-        coverage.sort(key=lambda x: (x["last_queried_at"] is None, x["last_queried_at"] or "", x["logical_name"]),
-                       reverse=False)
+        coverage.sort(
+            key=lambda x: (
+                x["last_queried_at"] is None,
+                x["last_queried_at"] or "",
+                x["logical_name"],
+            ),
+            reverse=False,
+        )
         # Actually: queried tables first (sorted by recency desc), then unqueried
         queried = [c for c in coverage if c["last_queried_at"] is not None]
         unqueried = [c for c in coverage if c["last_queried_at"] is None]

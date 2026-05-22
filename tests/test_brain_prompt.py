@@ -33,7 +33,12 @@ def test_none_blocks_returns_question_unchanged():
 def test_populated_blocks_wrap_in_tag_and_prefix():
     out = prepend_brain_context(
         "What are my OKRs?",
-        {"brain_context": ["[okr] Grow ARR 20%\nOwner: CFO", "[goal] Increase ARR\nStatus: on_track"]},
+        {
+            "brain_context": [
+                "[okr] Grow ARR 20%\nOwner: CFO",
+                "[goal] Increase ARR\nStatus: on_track",
+            ]
+        },
     )
     assert "<contexto_recuperado>" in out
     assert "</contexto_recuperado>" in out
@@ -92,7 +97,8 @@ def test_summary_counts_docs_and_dedupes_kinds():
 # ─── iter_brain_blocks ───────────────────────────────────────────────────
 def test_iter_returns_kept_blocks_only():
     blocks = iter_brain_blocks(
-        {"brain_context": ["a", "", None, "b"]}, max_blocks=10,
+        {"brain_context": ["a", "", None, "b"]},
+        max_blocks=10,
     )
     assert list(blocks) == ["a", "b"]
 

@@ -12,11 +12,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables.
-    
+
     DEVOPS: Em produção, todas as configurações devem vir do .env do sky-poc-infra.
     Os defaults abaixo são APENAS para desenvolvimento local.
     """
-    
+
     # Database
     # DEVOPS: Preferimos DATABASE_URL do sky-poc-infra. Se não existir, construímos a partir de POSTGRES_*.
     database_url: str = Field(
@@ -24,21 +24,34 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DATABASE_URL", "database_url"),
         description="Database connection URL (DATABASE_URL). Em produção, vem do .env do sky-poc-infra.",
     )
-    postgres_user: str = Field(default="postgres", validation_alias=AliasChoices("POSTGRES_USER", "postgres_user"))
-    postgres_password: str = Field(default="", validation_alias=AliasChoices("POSTGRES_PASSWORD", "postgres_password"))
-    postgres_host: str = Field(default="localhost", validation_alias=AliasChoices("POSTGRES_HOST", "postgres_host"))
-    postgres_port: int = Field(default=5432, validation_alias=AliasChoices("POSTGRES_PORT", "postgres_port"))
-    postgres_db: str = Field(default="ai_saas_db", validation_alias=AliasChoices("POSTGRES_DB", "postgres_db"))
-    
-    
+    postgres_user: str = Field(
+        default="postgres",
+        validation_alias=AliasChoices("POSTGRES_USER", "postgres_user"),
+    )
+    postgres_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("POSTGRES_PASSWORD", "postgres_password"),
+    )
+    postgres_host: str = Field(
+        default="localhost",
+        validation_alias=AliasChoices("POSTGRES_HOST", "postgres_host"),
+    )
+    postgres_port: int = Field(
+        default=5432, validation_alias=AliasChoices("POSTGRES_PORT", "postgres_port")
+    )
+    postgres_db: str = Field(
+        default="ai_saas_db",
+        validation_alias=AliasChoices("POSTGRES_DB", "postgres_db"),
+    )
+
     # ===== OLLAMA CONFIGURATION (ACTIVE) =====
     # All AI models use local Ollama inference
     # Endpoint: https://ollama.skyfirstlabs.com
     use_local_models: bool = True  # ✅ OLLAMA ENABLED
-    ollama_base_url: str = Field( 
+    ollama_base_url: str = Field(
         validation_alias=AliasChoices("OLLAMA_BASE_URL", "ollama_base_url")
     )
-    
+
     # Ollama Models (RunPod — RTX A6000 48GB)
     # Swapped from phi3:medium to qwen2.5-coder:32b (2026-04-16):
     # phi3 topped out at 4K context and was weak on SQL join reasoning;
@@ -58,11 +71,10 @@ class Settings(BaseSettings):
     ollama_num_ctx_orchestrator: int = 8192
     ollama_num_ctx_specialist: int = 32768
     ollama_num_ctx_formatter: int = 8192
-    
+
     # LLM General Settings
     llm_temperature: float = 0.0
-    
-    
+
     # Celery
     # DEVOPS: Em produção, estas URLs são construídas automaticamente a partir de REDIS_PASSWORD
     # do .env do sky-poc-infra. Os defaults abaixo são APENAS para desenvolvimento local.
@@ -77,12 +89,14 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CELERY_RESULT_BACKEND", "celery_result_backend"),
         description="Celery result backend URL (CELERY_RESULT_BACKEND). Em produção, vem do .env do sky-poc-infra.",
     )
-    redis_password: str = Field(default="", validation_alias=AliasChoices("REDIS_PASSWORD", "redis_password"))
-    
+    redis_password: str = Field(
+        default="", validation_alias=AliasChoices("REDIS_PASSWORD", "redis_password")
+    )
+
     # GCP (optional)
     google_application_credentials: Optional[str] = None
     gcp_project_id: Optional[str] = None
-    
+
     # ===== AI PROVIDER SWITCH =====
     # "ollama"  — RunPod-hosted Qwen 2.5 Coder 32B (pay-per-hour, Azure path)
     # "openai"  — gpt-4o family (pay-per-token, fallback / premium tier)
@@ -91,8 +105,7 @@ class Settings(BaseSettings):
     # old Ollama endpoint in the .env was dead (404) and OpenAI was silently
     # burning through ~$10/day of credits in dev.
     ai_provider: str = Field(
-        default="ollama",
-        validation_alias=AliasChoices("AI_PROVIDER", "ai_provider")
+        default="ollama", validation_alias=AliasChoices("AI_PROVIDER", "ai_provider")
     )
     # Derived flag set by the validator from `ai_provider`. Kept separate
     # from `use_local_models` so existing call sites that branch on the
@@ -101,7 +114,9 @@ class Settings(BaseSettings):
 
     # ===== OPENAI CONFIGURATION (ACTIVE IF AI_PROVIDER="openai") =====
     # OpenAI API Key
-    openai_api_key: Optional[str] = Field(default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key"))
+    openai_api_key: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key")
+    )
 
     # OpenAI Models
     llm_model_orchestrator: str = "gpt-4o-mini"
@@ -136,15 +151,21 @@ class Settings(BaseSettings):
     # same model, or to bump to Sonnet 4.6 / Opus when those land in EU.
     llm_model_orchestrator_bedrock: str = Field(
         default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        validation_alias=AliasChoices("BEDROCK_MODEL_ORCHESTRATOR", "llm_model_orchestrator_bedrock"),
+        validation_alias=AliasChoices(
+            "BEDROCK_MODEL_ORCHESTRATOR", "llm_model_orchestrator_bedrock"
+        ),
     )
     llm_model_specialist_bedrock: str = Field(
         default="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        validation_alias=AliasChoices("BEDROCK_MODEL_SPECIALIST", "llm_model_specialist_bedrock"),
+        validation_alias=AliasChoices(
+            "BEDROCK_MODEL_SPECIALIST", "llm_model_specialist_bedrock"
+        ),
     )
     llm_model_formatter_bedrock: str = Field(
         default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        validation_alias=AliasChoices("BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"),
+        validation_alias=AliasChoices(
+            "BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"
+        ),
     )
 
     # ===== EMBEDDING CONFIGURATION =====
@@ -163,7 +184,9 @@ class Settings(BaseSettings):
     # (1024) via env if needed.
     embedding_model_bedrock: str = Field(
         default="amazon.titan-embed-text-v2:0",
-        validation_alias=AliasChoices("BEDROCK_EMBEDDING_MODEL", "embedding_model_bedrock"),
+        validation_alias=AliasChoices(
+            "BEDROCK_EMBEDDING_MODEL", "embedding_model_bedrock"
+        ),
     )
     # Pgvector column dimension. Must match the active embedding model:
     #   - Titan v2:    256 / 512 / 1024
@@ -180,7 +203,7 @@ class Settings(BaseSettings):
         default="text-embedding-3-large",
         validation_alias=AliasChoices("EMBEDDING_MODEL", "embedding_model"),
     )
-    
+
     # JWT Secret (shared with backend for service-to-service auth)
     jwt_secret_key: str = Field(
         default="",
@@ -220,7 +243,9 @@ class Settings(BaseSettings):
     # Minimum answer length (chars) for a scan insight to be considered non-silent (item 26).
     scan_min_insight_length: int = Field(
         default=120,
-        validation_alias=AliasChoices("SCAN_MIN_INSIGHT_LENGTH", "scan_min_insight_length"),
+        validation_alias=AliasChoices(
+            "SCAN_MIN_INSIGHT_LENGTH", "scan_min_insight_length"
+        ),
         description="Answer shorter than this is treated as a silent run — not saved, not notified.",
     )
 
@@ -241,33 +266,47 @@ class Settings(BaseSettings):
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    
+
     # App settings
     debug: bool = False
     log_level: str = "INFO"
-    
+
     # Limits
     max_query_results: int = 1000
     max_sql_length: int = 10000
     query_timeout_seconds: int = 300
-    
+
     # Langfuse — LLM observability
-    langfuse_enabled: bool = Field(default=False, validation_alias=AliasChoices("LANGFUSE_ENABLED", "langfuse_enabled"))
-    langfuse_public_key: str = Field(default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "langfuse_public_key"))
-    langfuse_secret_key: str = Field(default="", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "langfuse_secret_key"))
-    langfuse_host: str = Field(default="http://localhost:3001", validation_alias=AliasChoices("LANGFUSE_HOST", "langfuse_host"))
+    langfuse_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("LANGFUSE_ENABLED", "langfuse_enabled"),
+    )
+    langfuse_public_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "langfuse_public_key"),
+    )
+    langfuse_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "langfuse_secret_key"),
+    )
+    langfuse_host: str = Field(
+        default="http://localhost:3001",
+        validation_alias=AliasChoices("LANGFUSE_HOST", "langfuse_host"),
+    )
 
     # Bootstrap suggestions
-    bootstrap_variation_window_seconds: int = 300  # Frequência de variação das sugestões (5 minutos)
-    
+    bootstrap_variation_window_seconds: int = (
+        300  # Frequência de variação das sugestões (5 minutos)
+    )
+
     # Inference Cache (CPU optimization)
     enable_inference_cache: bool = True  # Enable LLM response caching
     inference_cache_max_size: int = 1000  # Maximum cached responses
     inference_cache_ttl_seconds: int = 1800  # 30 minutes TTL
-    
+
     # Context Bundle
     use_context_bundle: bool = True  # Enable new context architecture
-    
+
     class Config:
         # Allow running from both repo root and ia-do-projeto/ without duplicating secrets.
         # DEVOPS: também carrega o `.env` do sky-poc-infra quando rodando no monorepo.
@@ -289,18 +328,22 @@ class Settings(BaseSettings):
                 pw = quote_plus(self.postgres_password)
             else:
                 pw = ""
-            self.database_url = (
-                f"postgresql+psycopg2://{self.postgres_user}:{pw}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-            )
+            self.database_url = f"postgresql+psycopg2://{self.postgres_user}:{pw}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
         # Celery URLs: se vazio mas temos REDIS_PASSWORD, construir iguais ao infra (mesma família de URLs)
-        if (not self.celery_broker_url or not self.celery_result_backend) and self.redis_password:
+        if (
+            not self.celery_broker_url or not self.celery_result_backend
+        ) and self.redis_password:
             # NOTE: redis password pode ter chars especiais; encode mínimo
             rp = quote_plus(self.redis_password)
             # Usar redis host/port padrão do compose (redis:6379) quando rodando em containers
             # Em local, o usuário pode setar CELERY_* explicitamente.
-            self.celery_broker_url = self.celery_broker_url or f"redis://:{rp}@redis:6379/1"
-            self.celery_result_backend = self.celery_result_backend or f"redis://:{rp}@redis:6379/2"
+            self.celery_broker_url = (
+                self.celery_broker_url or f"redis://:{rp}@redis:6379/1"
+            )
+            self.celery_result_backend = (
+                self.celery_result_backend or f"redis://:{rp}@redis:6379/2"
+            )
 
         # AI Provider Logic
         # Sets the (use_local_models, use_bedrock) tuple from AI_PROVIDER
@@ -326,4 +369,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

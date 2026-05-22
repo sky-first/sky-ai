@@ -26,30 +26,40 @@ except Exception as e:
     pgvector_available = False
     print(f"⚠️  Extensão pgvector NÃO está disponível: {e}")
     print("   A tabela será criada sem o tipo vector (usando JSONB temporariamente)")
-    print("   Para usar busca vetorial, o DevOps precisa instalar pgvector no PostgreSQL")
+    print(
+        "   Para usar busca vetorial, o DevOps precisa instalar pgvector no PostgreSQL"
+    )
 
 with engine.begin() as conn:
     # Criar tabela embeddings
     try:
         conn.execute(text("DROP TABLE IF EXISTS embeddings CASCADE"))
-        
+
         if pgvector_available:
             # Com pgvector - tipo vector disponível
             # Verificar se table_metadata existe antes de criar FK
-            check_meta = conn.execute(text("""
+            check_meta = conn.execute(
+                text(
+                    """
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_schema = 'public' 
                     AND table_name = 'table_metadata'
                 )
-            """))
+            """
+                )
+            )
             has_table_metadata = check_meta.scalar()
-            
+
             fk_table_metadata = ""
             if has_table_metadata:
-                fk_table_metadata = ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
-            
-            conn.execute(text(f"""
+                fk_table_metadata = (
+                    ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
+                )
+
+            conn.execute(
+                text(
+                    f"""
                 CREATE TABLE embeddings (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     space_id UUID NOT NULL,
@@ -66,25 +76,35 @@ with engine.begin() as conn:
                     FOREIGN KEY(user_id) REFERENCES users(id)
                     {fk_table_metadata}
                 )
-            """))
+            """
+                )
+            )
             print("✅ Tabela embeddings criada com suporte a busca vetorial!")
         else:
             # Sem pgvector - usar JSONB temporariamente
             # Verificar se table_metadata existe antes de criar FK
-            check_meta = conn.execute(text("""
+            check_meta = conn.execute(
+                text(
+                    """
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_schema = 'public' 
                     AND table_name = 'table_metadata'
                 )
-            """))
+            """
+                )
+            )
             has_table_metadata = check_meta.scalar()
-            
+
             fk_table_metadata = ""
             if has_table_metadata:
-                fk_table_metadata = ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
-            
-            conn.execute(text(f"""
+                fk_table_metadata = (
+                    ", FOREIGN KEY(table_metadata_id) REFERENCES table_metadata(id)"
+                )
+
+            conn.execute(
+                text(
+                    f"""
                 CREATE TABLE embeddings (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     space_id UUID NOT NULL,
@@ -101,47 +121,68 @@ with engine.begin() as conn:
                     FOREIGN KEY(user_id) REFERENCES users(id)
                     {fk_table_metadata}
                 )
-            """))
-            print("✅ Tabela embeddings criada (sem busca vetorial - pgvector não disponível)")
-        
+            """
+                )
+            )
+            print(
+                "✅ Tabela embeddings criada (sem busca vetorial - pgvector não disponível)"
+            )
+
         # Criar índices básicos
         try:
-            conn.execute(text("""
+            conn.execute(
+                text(
+                    """
                 CREATE INDEX IF NOT EXISTS embeddings_space_id_idx 
                 ON embeddings(space_id)
-            """))
-            conn.execute(text("""
+            """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                 CREATE INDEX IF NOT EXISTS embeddings_crew_id_idx 
                 ON embeddings(crew_id) WHERE crew_id IS NOT NULL
-            """))
-            
+            """
+                )
+            )
+
             # Índice vetorial (só se pgvector estiver disponível)
             if pgvector_available:
                 try:
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE INDEX IF NOT EXISTS embeddings_vector_idx 
                         ON embeddings USING hnsw (embedding vector_l2_ops)
                         WITH (m = 16, ef_construction = 64)
-                    """))
+                    """
+                        )
+                    )
                     print("✅ Índice HNSW criado para busca vetorial!")
                 except Exception as e:
                     try:
-                        conn.execute(text("""
+                        conn.execute(
+                            text(
+                                """
                             CREATE INDEX IF NOT EXISTS embeddings_vector_idx 
                             ON embeddings USING ivfflat (embedding vector_l2_ops)
                             WITH (lists = 100)
-                        """))
+                        """
+                            )
+                        )
                         print("✅ Índice ivfflat criado para busca vetorial!")
                     except Exception as e2:
                         print(f"⚠️  Não foi possível criar índice vetorial: {e2}")
-            
+
             print("✅ Índices criados!")
         except Exception as e:
             print(f"⚠️  Erro ao criar índices: {e}")
-            
+
     except Exception as e:
         print(f"❌ Erro ao criar tabela embeddings: {e}")
         import traceback
+
         traceback.print_exc()
         raise
 

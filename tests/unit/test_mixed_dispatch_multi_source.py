@@ -13,6 +13,7 @@ then merge results with DuckDB if 2+ tabular results are available.
 These tests cover the routing logic at unit level by patching the
 heavy LLM/DB dependencies.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -21,11 +22,13 @@ from unittest.mock import MagicMock, patch, call
 
 # ─── Intent Classifier regression tests ─────────────────────────────────────
 
+
 class TestIntentClassifierMixedRouting:
     """Ensure the intent classifier correctly routes mixed questions."""
 
     def _classify(self, question: str, has_data: bool = True) -> str:
         from core.intent.question_intent import classify_question_intent
+
         return classify_question_intent(question, has_data_sources=has_data).value
 
     def test_pure_okr_question_is_knowledge(self):
@@ -61,6 +64,7 @@ class TestIntentClassifierMixedRouting:
 
 
 # ─── Multi-source dispatch path in _run_specialist ─────────────────────────
+
 
 class TestRunSpecialistDataMultiSource:
     """
@@ -99,15 +103,25 @@ class TestRunSpecialistDataMultiSource:
         primary_src = MagicMock()
         dispatch_map = {"conn-1": primary_src}
 
-        with patch("core.llm.orchestrator.run_orchestrator", return_value=orch_result), \
-             patch("core.llm.specialist.run_specialist", return_value=sql_result) as mock_sql, \
-             patch("core.llm.formatter.run_formatter", return_value=fmt_result):
+        with patch(
+            "core.llm.orchestrator.run_orchestrator", return_value=orch_result
+        ), patch(
+            "core.llm.specialist.run_specialist", return_value=sql_result
+        ) as mock_sql, patch(
+            "core.llm.formatter.run_formatter", return_value=fmt_result
+        ):
             from core.llm.specialist import run_specialist as _run_sql
             from core.llm.formatter import run_formatter as _run_fmt
+
             # Simulate the single-source branch
             # is_multi_source=False → goes to else branch → calls _run_sql once
             mock_sql.assert_not_called()  # Not called yet
-            result = _run_sql(state=orch_result, agent_config=agent_cfg, data_source=primary_src, llm=MagicMock())
+            result = _run_sql(
+                state=orch_result,
+                agent_config=agent_cfg,
+                data_source=primary_src,
+                llm=MagicMock(),
+            )
             assert result["data"] == [{"total": 1000}]
 
     def test_multi_source_routes_each_table_to_correct_data_source(self):
@@ -143,9 +157,11 @@ class TestRunSpecialistDataMultiSource:
             "sql": "SELECT ...",
         }
 
-        with patch("core.llm.specialist.run_specialist", side_effect=mock_run_sql), \
-             patch("core.llm.merger.run_merger", return_value=merger_result), \
-             patch("core.llm.formatter.run_formatter", return_value=merger_result):
+        with patch(
+            "core.llm.specialist.run_specialist", side_effect=mock_run_sql
+        ), patch("core.llm.merger.run_merger", return_value=merger_result), patch(
+            "core.llm.formatter.run_formatter", return_value=merger_result
+        ):
 
             import concurrent.futures
             from core.llm.merger import run_merger as _run_merger
@@ -159,13 +175,16 @@ class TestRunSpecialistDataMultiSource:
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as tbl_ex:
                 for tbl_name in tbl_names:
                     tbl_obj = next(
-                        (t for t in agent_cfg.tables if t.logical_name == tbl_name), None
+                        (t for t in agent_cfg.tables if t.logical_name == tbl_name),
+                        None,
                     )
                     conn_id = str(getattr(tbl_obj, "data_connection_id", ""))
                     src = dispatch_map.get(conn_id) or primary_src
                     thr = dict(orch_result)
                     thr["chosen_table"] = tbl_name
-                    thr["chosen_table_physical"] = getattr(tbl_obj, "physical_name", tbl_name)
+                    thr["chosen_table_physical"] = getattr(
+                        tbl_obj, "physical_name", tbl_name
+                    )
                     thr["chosen_tables"] = None
                     thr["chosen_tables_physical"] = None
                     tbl_futures[
@@ -175,7 +194,9 @@ class TestRunSpecialistDataMultiSource:
                 for fut in concurrent.futures.as_completed(tbl_futures):
                     r = fut.result()
                     if r.get("data"):
-                        partial_results.append({"table": tbl_futures[fut], "data": r["data"]})
+                        partial_results.append(
+                            {"table": tbl_futures[fut], "data": r["data"]}
+                        )
 
         # Verify each table was run against its correct source
         assert len(partial_results) == 2
@@ -197,8 +218,18 @@ class TestRunSpecialistDataMultiSource:
         dispatch_map = {"conn-1": src_1, "conn-2": src_2}
 
         partial_results = [
-            {"table": "orders", "data": [{"order_id": 1, "product_id": 10}], "sql": "SELECT 1", "metadata": {}},
-            {"table": "inventory", "data": [{"product_id": 10, "stock": 50}], "sql": "SELECT 2", "metadata": {}},
+            {
+                "table": "orders",
+                "data": [{"order_id": 1, "product_id": 10}],
+                "sql": "SELECT 1",
+                "metadata": {},
+            },
+            {
+                "table": "inventory",
+                "data": [{"product_id": 10, "stock": 50}],
+                "sql": "SELECT 2",
+                "metadata": {},
+            },
         ]
 
         merged_state = {
@@ -208,8 +239,11 @@ class TestRunSpecialistDataMultiSource:
         }
         fmt_result = {"answer": "merged answer", "data": merged_state["data"]}
 
-        with patch("core.llm.merger.run_merger", return_value=merged_state) as mock_merger, \
-             patch("core.llm.formatter.run_formatter", return_value=fmt_result):
+        with patch(
+            "core.llm.merger.run_merger", return_value=merged_state
+        ) as mock_merger, patch(
+            "core.llm.formatter.run_formatter", return_value=fmt_result
+        ):
             from core.llm.merger import run_merger as _run_merger
             from core.llm.formatter import run_formatter as _run_fmt
 
@@ -230,13 +264,19 @@ class TestRunSpecialistDataMultiSource:
     def test_multi_source_single_result_skips_merger(self):
         """When only 1 tabular result, skip DuckDB and pass through directly."""
         partial_results = [
-            {"table": "orders", "data": [{"total": 100}], "sql": "SELECT 1", "metadata": {}},
+            {
+                "table": "orders",
+                "data": [{"total": 100}],
+                "sql": "SELECT 1",
+                "metadata": {},
+            },
         ]
 
         fmt_result = {"answer": "100 orders", "data": [{"total": 100}]}
 
-        with patch("core.llm.merger.run_merger") as mock_merger, \
-             patch("core.llm.formatter.run_formatter", return_value=fmt_result):
+        with patch("core.llm.merger.run_merger") as mock_merger, patch(
+            "core.llm.formatter.run_formatter", return_value=fmt_result
+        ):
             from core.llm.formatter import run_formatter as _run_fmt
 
             base_state = {"question": "Q", "is_multi_source": True}
@@ -260,13 +300,19 @@ class TestRunSpecialistDataMultiSource:
         elif partial_results:
             result = {"answer": "single"}
         else:
-            result = {"answer": "No data found across the queried connections.", "data": [], "sql": None, "error": "no_data"}
+            result = {
+                "answer": "No data found across the queried connections.",
+                "data": [],
+                "sql": None,
+                "error": "no_data",
+            }
 
         assert result["error"] == "no_data"
         assert "No data found" in result["answer"]
 
 
 # ─── mixed_merger_node hybrid path ──────────────────────────────────────────
+
 
 class TestMixedMergerHybridPath:
     """
@@ -282,7 +328,11 @@ class TestMixedMergerHybridPath:
         """
         specialist_results = {
             "strategy": {"answer": "OKR: Grow revenue by 20%", "data": []},
-            "data": {"answer": "Revenue grew 15%", "data": [{"revenue": 150000}], "sql": "SELECT 1"},
+            "data": {
+                "answer": "Revenue grew 15%",
+                "data": [{"revenue": 150000}],
+                "sql": "SELECT 1",
+            },
         }
 
         state = {
@@ -304,7 +354,9 @@ class TestMixedMergerHybridPath:
             if v.get("answer")
         )
         if ctx_text:
-            state["retrieval_context"] = [ctx_text] + (state.get("retrieval_context") or [])
+            state["retrieval_context"] = [ctx_text] + (
+                state.get("retrieval_context") or []
+            )
 
         assert len(state["retrieval_context"]) == 1
         assert "OKR: Grow revenue by 20%" in state["retrieval_context"][0]
@@ -326,8 +378,16 @@ class TestMixedMergerHybridPath:
     def test_only_tabular_with_join_goes_to_duckdb(self):
         """Two tabular results with shared column → DuckDB merger."""
         specialist_results = {
-            "data_sales": {"data": [{"product_id": 1, "revenue": 100}], "sql": "S1", "answer": ""},
-            "data_inventory": {"data": [{"product_id": 1, "stock": 50}], "sql": "S2", "answer": ""},
+            "data_sales": {
+                "data": [{"product_id": 1, "revenue": 100}],
+                "sql": "S1",
+                "answer": "",
+            },
+            "data_inventory": {
+                "data": [{"product_id": 1, "stock": 50}],
+                "sql": "S2",
+                "answer": "",
+            },
         }
 
         tabular = {k: v for k, v in specialist_results.items() if v.get("data")}
@@ -337,6 +397,9 @@ class TestMixedMergerHybridPath:
         assert len(contextual) == 0
 
         # Shared column = "product_id"
-        cols = [set(r["data"][0].keys()) if r.get("data") else set() for r in tabular.values()]
+        cols = [
+            set(r["data"][0].keys()) if r.get("data") else set()
+            for r in tabular.values()
+        ]
         has_shared = len(cols) >= 2 and bool(cols[0] & cols[1])
         assert has_shared  # DuckDB merger should be called

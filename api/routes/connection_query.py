@@ -422,17 +422,21 @@ async def _build_merged_agent_config_for_scan(
         except Exception as _exc:
             logger.warning(
                 "_build_merged_agent_config_for_scan: skipping connection %s: %s",
-                conn_id, _exc,
+                conn_id,
+                _exc,
             )
 
     if not merged_tables:
         return base_config
 
-    log_event("scan_merged_agent_config_built", {
-        "space_ids": space_ids,
-        "num_connections": len(dispatch_map),
-        "num_tables": len(merged_tables),
-    })
+    log_event(
+        "scan_merged_agent_config_built",
+        {
+            "space_ids": space_ids,
+            "num_connections": len(dispatch_map),
+            "num_tables": len(merged_tables),
+        },
+    )
 
     return AgentConfig(
         id=base_config.id,
@@ -504,14 +508,19 @@ async def _build_dispatch_map_for_scan(
         except Exception as exc:
             logger.warning(
                 "_build_dispatch_map_for_scan: skipping connection %s (%s): %s",
-                conn_id, name, exc,
+                conn_id,
+                name,
+                exc,
             )
 
-    log_event("scan_dispatch_map_built", {
-        "space_ids": space_ids,
-        "num_connections": len(dispatch_map),
-        "connection_ids": list(dispatch_map.keys()),
-    })
+    log_event(
+        "scan_dispatch_map_built",
+        {
+            "space_ids": space_ids,
+            "num_connections": len(dispatch_map),
+            "connection_ids": list(dispatch_map.keys()),
+        },
+    )
     return dispatch_map
 
 
@@ -1579,6 +1588,7 @@ async def chat_bootstrap(
                 # decrypt with the shared ENCRYPTION_KEY before the factory
                 # tries to read host/port/user/password.
                 from core.security.config_decryption import decrypt_config
+
                 conn_config = decrypt_config(conn_config)
 
                 data_conn = TempDataConnection(
@@ -2239,9 +2249,7 @@ async def dashboards_plan(
                     # selection provided) disables the filter.
                     _sel_ctx = getattr(body, "selected_context", None) or {}
                     _allowed_doc_ids = [
-                        str(_id)
-                        for ids in _sel_ctx.values() if ids
-                        for _id in ids
+                        str(_id) for ids in _sel_ctx.values() if ids for _id in ids
                     ] or None
 
                     top_records = await search_embeddings_async(
@@ -2606,6 +2614,7 @@ async def load_agent_config_from_connection(
     # Backend writes config encrypted; decrypt before downstream uses
     # host/database/etc. (no-op when already plaintext).
     from core.security.config_decryption import decrypt_config
+
     config = decrypt_config(config)
 
     # Map type to Dialect
@@ -2662,7 +2671,9 @@ async def load_agent_config_from_connection(
             try:
                 # Em modo personal space_ids contém todos os spaces do utilizador;
                 # em modo collaborative usa apenas space_id (singular).
-                _eff_space_ids = space_ids if space_ids else ([space_id] if space_id else [])
+                _eff_space_ids = (
+                    space_ids if space_ids else ([space_id] if space_id else [])
+                )
                 if _eff_space_ids:
                     desc_result = await db.execute(
                         text(
@@ -2787,7 +2798,8 @@ async def load_agent_config_from_connection(
                 # Merge extra connection metadata when multiple connections are
                 # requested (e.g. all Space connections for cross-schema queries).
                 extra_conn_ids = [
-                    cid for cid in (connection_ids or [])
+                    cid
+                    for cid in (connection_ids or [])
                     if cid and cid != connection_id
                 ]
                 if extra_conn_ids:
@@ -2802,16 +2814,27 @@ async def load_agent_config_from_connection(
                             extra_tables_json = extra_meta.scalar_one_or_none()
                             if isinstance(extra_tables_json, list):
                                 extra_cfg = await db.execute(
-                                    text("SELECT connector_id, config FROM data_connections WHERE id = :id"),
+                                    text(
+                                        "SELECT connector_id, config FROM data_connections WHERE id = :id"
+                                    ),
                                     {"id": extra_cid},
                                 )
                                 extra_row = extra_cfg.first()
                                 extra_project_id = None
                                 if extra_row and extra_row[1]:
-                                    extra_config = extra_row[1] if isinstance(extra_row[1], dict) else json.loads(extra_row[1])
-                                    from core.security.config_decryption import decrypt_config
+                                    extra_config = (
+                                        extra_row[1]
+                                        if isinstance(extra_row[1], dict)
+                                        else json.loads(extra_row[1])
+                                    )
+                                    from core.security.config_decryption import (
+                                        decrypt_config,
+                                    )
+
                                     extra_config = decrypt_config(extra_config)
-                                    extra_project_id = extra_config.get("project_id") or extra_config.get("gcp_project_id")
+                                    extra_project_id = extra_config.get(
+                                        "project_id"
+                                    ) or extra_config.get("gcp_project_id")
                                 for t in extra_tables_json:
                                     if not isinstance(t, dict):
                                         continue
@@ -2825,25 +2848,40 @@ async def load_agent_config_from_connection(
                                         extra_physical = f"{extra_schema}.{extra_name}"
                                     else:
                                         extra_physical = extra_name
-                                    extra_logical = t.get("logical_name") or _normalize_logical_name(extra_name)
+                                    extra_logical = t.get(
+                                        "logical_name"
+                                    ) or _normalize_logical_name(extra_name)
                                     extra_cols = []
-                                    for c in (t.get("columns") or []):
+                                    for c in t.get("columns") or []:
                                         if not isinstance(c, dict) or not c.get("name"):
                                             continue
-                                        extra_cols.append({
-                                            "name": str(c["name"]),
-                                            "type": str(c.get("type") or c.get("data_type") or "STRING"),
-                                            "nullable": bool(c.get("nullable", True)),
-                                            "description": c.get("description"),
-                                        })
-                                    table_schemas.append(TableSchema(
-                                        logical_name=extra_logical,
-                                        physical_name=extra_physical,
-                                        description=t.get("description"),
-                                        columns=extra_cols,
-                                    ))
+                                        extra_cols.append(
+                                            {
+                                                "name": str(c["name"]),
+                                                "type": str(
+                                                    c.get("type")
+                                                    or c.get("data_type")
+                                                    or "STRING"
+                                                ),
+                                                "nullable": bool(
+                                                    c.get("nullable", True)
+                                                ),
+                                                "description": c.get("description"),
+                                            }
+                                        )
+                                    table_schemas.append(
+                                        TableSchema(
+                                            logical_name=extra_logical,
+                                            physical_name=extra_physical,
+                                            description=t.get("description"),
+                                            columns=extra_cols,
+                                        )
+                                    )
                         except Exception as merge_err:
-                            log_event("load_agent_config_merge_extra_conn_error", {"extra_cid": extra_cid, "error": str(merge_err)[:300]})
+                            log_event(
+                                "load_agent_config_merge_extra_conn_error",
+                                {"extra_cid": extra_cid, "error": str(merge_err)[:300]},
+                            )
 
                 agent = AgentConfig(
                     id=f"agent-conn-{connection_id}",
@@ -3764,6 +3802,7 @@ async def _query_connection_inner(
     # with the shared ENCRYPTION_KEY before the factory tries to read
     # host/port/user/password. No-op when already plaintext.
     from core.security.config_decryption import decrypt_config
+
     conn_config = decrypt_config(conn_config)
 
     data_conn = TempDataConnection(
@@ -3805,10 +3844,13 @@ async def _query_connection_inner(
                     crew_ids=crew_ids if crew_ids else None,
                     base_config=agent_config,
                 )
-                log_event("scan_merged_agent_config_applied", {
-                    "connection_id": connection_id,
-                    "num_tables": len(agent_config.tables),
-                })
+                log_event(
+                    "scan_merged_agent_config_applied",
+                    {
+                        "connection_id": connection_id,
+                        "num_tables": len(agent_config.tables),
+                    },
+                )
             except Exception as _exc:
                 logger.warning("Failed to build merged agent config for scan: %s", _exc)
 
@@ -3833,17 +3875,21 @@ async def _query_connection_inner(
 
             _raw_insights = await load_insights_for_scorer(db, body.space_id)
             _run_count = await count_scan_insights(db, body.space_id)
-            _is_cross_dataset_run = (
-                _run_count > 0 and (_run_count % CROSS_DATASET_EVERY_N == 0)
+            _is_cross_dataset_run = _run_count > 0 and (
+                _run_count % CROSS_DATASET_EVERY_N == 0
             )
 
             # Items 17-18: load embeddings for cosine relevance scoring
             _okr_vectors = await load_okr_embeddings_for_scorer(db, body.space_id)
-            _dataset_embeddings = await load_dataset_embeddings_for_scorer(db, body.space_id)
+            _dataset_embeddings = await load_dataset_embeddings_for_scorer(
+                db, body.space_id
+            )
             _using_cosine = bool(_okr_vectors and _dataset_embeddings)
 
             # Item 20: load row_count snapshots for volatility scoring
-            _row_count_snapshots = await load_row_count_snapshots_for_scorer(db, body.space_id)
+            _row_count_snapshots = await load_row_count_snapshots_for_scorer(
+                db, body.space_id
+            )
 
             # Item 34: load explored depth combos for real depth scoring
             _depth_combos = await load_depth_combos_for_scorer(db, body.space_id)
@@ -3857,7 +3903,9 @@ async def _query_connection_inner(
                 depth_combos=_depth_combos,
             )
             if _is_cross_dataset_run:
-                _top_tables = _scorer.cross_dataset_rank(agent_config.tables, _raw_insights)
+                _top_tables = _scorer.cross_dataset_rank(
+                    agent_config.tables, _raw_insights
+                )
             else:
                 _top_tables = _scorer.rank(agent_config.tables, _raw_insights)
 
@@ -3867,19 +3915,22 @@ async def _query_connection_inner(
                     "DatasetPriorityScorer breakdown:\n%s",
                     "\n".join(f"  {s}" for s in _breakdown),
                 )
-                log_event("scan_dataset_priority_applied", {
-                    "space_id": body.space_id,
-                    "total_tables": len(agent_config.tables),
-                    "top_k_tables": [t.logical_name for t in _top_tables],
-                    "num_insights": len(_raw_insights),
-                    "run_count": _run_count,
-                    "is_cross_dataset_run": _is_cross_dataset_run,
-                    "using_cosine_relevance": _using_cosine,
-                    "num_okr_vectors": len(_okr_vectors),
-                    "num_dataset_embeddings": len(_dataset_embeddings),
-                    "num_row_count_snapshots": len(_row_count_snapshots),
-                    "num_depth_tracked_tables": len(_depth_combos),
-                })
+                log_event(
+                    "scan_dataset_priority_applied",
+                    {
+                        "space_id": body.space_id,
+                        "total_tables": len(agent_config.tables),
+                        "top_k_tables": [t.logical_name for t in _top_tables],
+                        "num_insights": len(_raw_insights),
+                        "run_count": _run_count,
+                        "is_cross_dataset_run": _is_cross_dataset_run,
+                        "using_cosine_relevance": _using_cosine,
+                        "num_okr_vectors": len(_okr_vectors),
+                        "num_dataset_embeddings": len(_dataset_embeddings),
+                        "num_row_count_snapshots": len(_row_count_snapshots),
+                        "num_depth_tracked_tables": len(_depth_combos),
+                    },
+                )
 
                 # Item 20: persist row_count snapshot for all candidate tables
                 # (all tables, not just top-K, so volatility history is complete)
@@ -3900,6 +3951,7 @@ async def _query_connection_inner(
     if getattr(body, "agent_mode", None) == "scan":
         try:
             from core.agents.scan_briefing import prepare_scan_briefing
+
             scan_briefing = await prepare_scan_briefing(
                 db=db,
                 space_id=body.space_id,
@@ -3949,23 +4001,23 @@ async def _query_connection_inner(
         # consumes. Empty flatten = no filter.
         _sel_ctx = getattr(body, "selected_context", None) or {}
         _allowed_doc_ids = [
-            str(_id)
-            for ids in _sel_ctx.values() if ids
-            for _id in ids
+            str(_id) for ids in _sel_ctx.values() if ids for _id in ids
         ] or None
-        retrieval_context, knowledge_citations = await build_retrieval_context_for_question(
-            db=db,
-            embedding_provider=embedding_provider,
-            space_id=body.space_id,
-            crew_ids=crew_ids if crew_ids else None,
-            question=body.question,
-            top_k=10,
-            connection_id=connection_id,
-            is_personal=bool(getattr(body, "is_personal", False)),
-            user_id=getattr(body, "user_id", None),
-            allowed_document_ids=_allowed_doc_ids,
-            mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
-            caller_space_ids=getattr(body, "space_ids", None),
+        retrieval_context, knowledge_citations = (
+            await build_retrieval_context_for_question(
+                db=db,
+                embedding_provider=embedding_provider,
+                space_id=body.space_id,
+                crew_ids=crew_ids if crew_ids else None,
+                question=body.question,
+                top_k=10,
+                connection_id=connection_id,
+                is_personal=bool(getattr(body, "is_personal", False)),
+                user_id=getattr(body, "user_id", None),
+                allowed_document_ids=_allowed_doc_ids,
+                mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
+                caller_space_ids=getattr(body, "space_ids", None),
+            )
         )
     except Exception:
         # Se RAG falhar, continua sem contexto
@@ -4147,22 +4199,31 @@ async def _query_connection_inner(
     _scan_insight_title: Optional[str] = None
     if getattr(body, "agent_mode", None) == "scan" and final_state.get("answer"):
         from config.settings import settings as _settings
+
         _insight_text = final_state.get("answer", "")
         _is_silent = len(_insight_text.strip()) < _settings.scan_min_insight_length
         _scan_silent = _is_silent
         if not _is_silent:
             try:
-                from core.agents.scan_briefing import save_scan_insight, is_semantic_duplicate
+                from core.agents.scan_briefing import (
+                    save_scan_insight,
+                    is_semantic_duplicate,
+                )
+
                 _title = _insight_text[:80].split("\n")[0].strip("# ").strip()
                 _scan_insight_title = _title
 
                 # Item 33: embed the insight and suppress if semantically duplicate
                 _insight_embedding: Optional[list] = None
                 try:
-                    _embed_vecs = await embedding_provider.embed_async([_insight_text[:2000]])
+                    _embed_vecs = await embedding_provider.embed_async(
+                        [_insight_text[:2000]]
+                    )
                     _insight_embedding = _embed_vecs[0] if _embed_vecs else None
                 except Exception as _emb_exc:
-                    logger.debug("scan insight embed failed (non-critical): %s", _emb_exc)
+                    logger.debug(
+                        "scan insight embed failed (non-critical): %s", _emb_exc
+                    )
 
                 if _insight_embedding:
                     _is_dup = await is_semantic_duplicate(
@@ -4173,7 +4234,9 @@ async def _query_connection_inner(
                     )
                     if _is_dup:
                         _scan_silent = True
-                        logger.debug("scan insight suppressed: semantic duplicate detected")
+                        logger.debug(
+                            "scan insight suppressed: semantic duplicate detected"
+                        )
 
                 if not _scan_silent:
                     await save_scan_insight(
@@ -4188,13 +4251,16 @@ async def _query_connection_inner(
                     # Notify backend so connected users receive a push notification
                     try:
                         from core.clients.backend_client import get_backend_client
+
                         get_backend_client().notify_scan_insight(
                             space_id=body.space_id,
                             title=_title,
                             summary=_insight_text[:500],
                         )
                     except Exception as _notify_exc:
-                        logger.debug("notify_scan_insight failed (non-critical): %s", _notify_exc)
+                        logger.debug(
+                            "notify_scan_insight failed (non-critical): %s", _notify_exc
+                        )
             except Exception as _exc:
                 logger.warning("Failed to save scan insight: %s", _exc)
 
@@ -4204,7 +4270,11 @@ async def _query_connection_inner(
         # For scan mode (full_context_agent): uses final_state["executed_sqls"]
         # — a list of every SQL run by query_table during the ReAct loop.
         try:
-            from core.agents.depth_tracker import extract_explored_combos, record_depth_combos
+            from core.agents.depth_tracker import (
+                extract_explored_combos,
+                record_depth_combos,
+            )
+
             _scan_tables = final_state.get("tables_queried") or []
             _sqls_to_track: list = []
             _single_sql = final_state.get("sql") or ""
@@ -4636,7 +4706,9 @@ async def _query_connection_inner(
         meta=meta,
         evidence=final_state.get("evidence") or [],
         reasoning_steps=final_state.get("reasoning_steps") or [],
-        scan_silent=_scan_silent if getattr(body, "agent_mode", None) == "scan" else None,
+        scan_silent=(
+            _scan_silent if getattr(body, "agent_mode", None) == "scan" else None
+        ),
         scan_insight_title=_scan_insight_title,
     )
 
@@ -4820,6 +4892,7 @@ async def _stream_connection_query(
             conn_config = {}
 
         from core.security.config_decryption import decrypt_config
+
         conn_config = decrypt_config(conn_config)
 
         class TempDataConnection:
@@ -4940,12 +5013,17 @@ async def _stream_connection_query(
             ):
                 for node_name, node_state in chunk.items():
                     if node_name in [
-                        "orchestrator", "specialist",
-                        "parallel_specialist", "merger",
-                        "mixed_planner", "mixed_merger",
+                        "orchestrator",
+                        "specialist",
+                        "parallel_specialist",
+                        "merger",
+                        "mixed_planner",
+                        "mixed_merger",
                         "people_specialist",
-                        "knowledge_specialist", "events_specialist",
-                        "relationships_specialist", "widgets_specialist",
+                        "knowledge_specialist",
+                        "events_specialist",
+                        "relationships_specialist",
+                        "widgets_specialist",
                     ]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
@@ -5094,11 +5172,19 @@ async def _stream_connection_query(
                 # Persist conversation turn for future follow-ups
                 try:
                     await db.rollback()
-                    db.add(ChatHistory(thread_id=thread_id, role="user", content=body.question))
-                    db.add(ChatHistory(
-                        thread_id=thread_id, role="assistant", content=pre_answer,
-                        extra={"generated_title": pre_title},
-                    ))
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id, role="user", content=body.question
+                        )
+                    )
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id,
+                            role="assistant",
+                            content=pre_answer,
+                            extra={"generated_title": pre_title},
+                        )
+                    )
                     await db.commit()
                 except Exception as _e:
                     logger.error(f"Error saving stream chat history (pre_answer): {_e}")
@@ -5256,11 +5342,22 @@ async def _stream_connection_query(
             if accumulated_answer:
                 try:
                     await db.rollback()
-                    db.add(ChatHistory(thread_id=thread_id, role="user", content=body.question))
-                    db.add(ChatHistory(
-                        thread_id=thread_id, role="assistant", content=accumulated_answer,
-                        extra={"sql": sql, "generated_title": final_state.get("generated_title")},
-                    ))
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id, role="user", content=body.question
+                        )
+                    )
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id,
+                            role="assistant",
+                            content=accumulated_answer,
+                            extra={
+                                "sql": sql,
+                                "generated_title": final_state.get("generated_title"),
+                            },
+                        )
+                    )
                     await db.commit()
                 except Exception as _e:
                     logger.error(f"Error saving stream chat history: {_e}")

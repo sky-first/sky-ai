@@ -18,7 +18,9 @@ logger = logging.getLogger("dataassistant")
 _client: Optional["BackendClient"] = None
 
 
-def _generate_service_token(user_id: Optional[str] = None, email: Optional[str] = None) -> str:
+def _generate_service_token(
+    user_id: Optional[str] = None, email: Optional[str] = None
+) -> str:
     """Generate a JWT service token for internal AI→Backend calls.
 
     The user identity is read from env (`AI_SERVICE_USER_ID` /
@@ -31,12 +33,18 @@ def _generate_service_token(user_id: Optional[str] = None, email: Optional[str] 
     when we eventually thread the real chat user's id through.
     """
     import datetime, os
+
     try:
         import jwt
         from config.settings import settings
-        jwt_secret = getattr(settings, "jwt_secret_key", "") or os.environ.get("JWT_SECRET_KEY", "")
+
+        jwt_secret = getattr(settings, "jwt_secret_key", "") or os.environ.get(
+            "JWT_SECRET_KEY", ""
+        )
         if not jwt_secret:
-            logger.warning("No JWT_SECRET_KEY found — backend calls will be unauthenticated")
+            logger.warning(
+                "No JWT_SECRET_KEY found — backend calls will be unauthenticated"
+            )
             return ""
         sub = (
             user_id
@@ -59,7 +67,8 @@ def _generate_service_token(user_id: Optional[str] = None, email: Optional[str] 
         payload = {
             "sub": sub,
             "email": mail,
-            "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24),
+            "exp": datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(hours=24),
             "iat": datetime.datetime.now(datetime.timezone.utc),
             "type": "access",
         }
@@ -285,7 +294,9 @@ class BackendClient:
 
     # ── AI History ────────────────────────────────────────
 
-    def get_ai_history(self, space_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_ai_history(
+        self, space_id: Optional[str] = None, limit: int = 50
+    ) -> List[Dict[str, Any]]:
         """GET /ai/history — past questions and answers."""
         params: Dict[str, Any] = {"limit": limit}
         if space_id:
@@ -316,7 +327,9 @@ class BackendClient:
             r.raise_for_status()
             return True
         except Exception as exc:
-            logger.debug("BackendClient.notify_scan_insight failed (non-critical): %s", exc)
+            logger.debug(
+                "BackendClient.notify_scan_insight failed (non-critical): %s", exc
+            )
             return False
 
     def close(self):
@@ -328,6 +341,7 @@ def get_backend_client() -> BackendClient:
     global _client
     if _client is None:
         from config.settings import settings
+
         _client = BackendClient(base_url=settings.backend_url)
         logger.info(f"BackendClient initialized: {settings.backend_url}")
     return _client

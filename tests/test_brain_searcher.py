@@ -33,7 +33,9 @@ def test_tokenize_drops_short_tokens_and_lowercases():
 
 
 def test_overlap_score_zero_when_no_tokens_match():
-    score = _overlap_score(_tokenize("financial revenue"), "goals and okrs", "quarterly growth")
+    score = _overlap_score(
+        _tokenize("financial revenue"), "goals and okrs", "quarterly growth"
+    )
     assert score == 0.0
 
 
@@ -161,7 +163,10 @@ async def test_searcher_skips_legacy_when_kinds_exclude_legacy_kinds(monkeypatch
 
 # ──────────── hidden-column filter (sky-poc-backend#190) ─────────────────
 
-def _column_doc(conn_id: str, table: str, column: str, space_id: str = "s-1") -> CandidateDoc:
+
+def _column_doc(
+    conn_id: str, table: str, column: str, space_id: str = "s-1"
+) -> CandidateDoc:
     return CandidateDoc(
         id=f"col-{column}",
         kind="column",
@@ -214,10 +219,12 @@ async def test_hidden_column_filter_drops_matching_columns(monkeypatch):
     )
     results = await searcher("show me customer data", None, None, 10)
 
-    kept_columns = {d.metadata.get("column_name") for d in results if d.kind == "column"}
-    assert kept_columns == {"name"}, (
-        f"email+ssn should be filtered out of Space s-1; got {kept_columns}"
-    )
+    kept_columns = {
+        d.metadata.get("column_name") for d in results if d.kind == "column"
+    }
+    assert kept_columns == {
+        "name"
+    }, f"email+ssn should be filtered out of Space s-1; got {kept_columns}"
 
 
 @pytest.mark.asyncio

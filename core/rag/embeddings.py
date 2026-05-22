@@ -21,6 +21,7 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 # ========= PROVIDER GEN ÉRICO =========
 
+
 class EmbeddingProvider:
     """
     Interface simples: embed uma lista de textos -> lista de vetores.
@@ -87,17 +88,18 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     Provider baseado em Ollama local via langchain_ollama.
     Usa nomic-embed-text (274MB, 768 dimensions) por padrão.
     """
+
     def __init__(self, model: str = "nomic-embed-text", base_url: str = None):
         from config.settings import settings
         from langchain_ollama import OllamaEmbeddings
-        
+
         self.model = model
         self.base_url = base_url or settings.ollama_base_url
         self._client = OllamaEmbeddings(
             model=self.model,
             base_url=self.base_url,
         )
-    
+
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         """Chamada direta à API Ollama (sem cache). Use embed_with_cache() para cache."""
         if not texts:
@@ -112,6 +114,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     Provider baseado em OpenAI (Cloud).
     Usa text-embedding-3-large por padrão com dimensions=1024.
     """
+
     # Default OpenAI embedding model — NOT picked from settings.embedding_model
     # because that field defaults to a Bedrock model name (amazon.titan-embed-text-v2:0)
     # which causes 404s when called via the OpenAI endpoint.
@@ -138,7 +141,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             dimensions=settings.embedding_dim,
             base_url="https://api.openai.com/v1",
         )
-    
+
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         """Chamada direta à API OpenAI (sem cache). Use embed_with_cache() para cache."""
         if not texts:
@@ -184,6 +187,7 @@ class BedrockEmbeddingProvider(EmbeddingProvider):
 
 # ========= HELPERS PARA TEXTO DE METADADOS =========
 
+
 def build_metadata_text(tm: TableMetadata) -> str:
     """
     Constrói um texto rico que descreve a coluna para ser embedado.
@@ -191,25 +195,29 @@ def build_metadata_text(tm: TableMetadata) -> str:
     desc = tm.description or ""
     nullable = "nullable" if tm.is_nullable else "not nullable"
     extra = tm.extra or {}
-    
+
     parts = [
         f"Table: {tm.table_name}",
         f"Column: {tm.column_name}",
         f"Type: {tm.data_type}",
         f"Nullability: {nullable}",
     ]
-    
+
     # Adicionar info de Chaves de forma natural para o RAG
     if extra.get("is_primary_key"):
         parts.append("This is a Primary Key (unique identifier).")
     if extra.get("is_foreign_key"):
         parts.append("This is a Foreign Key (links this table to another table).")
-        
+
     if desc:
         parts.append(f"Description: {desc}")
-        
+
     # Outros extras
-    other_extras = {k: v for k, v in extra.items() if k not in ["is_primary_key", "is_foreign_key", "original_name"]}
+    other_extras = {
+        k: v
+        for k, v in extra.items()
+        if k not in ["is_primary_key", "is_foreign_key", "original_name"]
+    }
     if other_extras:
         extra_str = ", ".join(f"{k}={v}" for k, v in other_extras.items())
         parts.append(f"Additional Metadata: {extra_str}")
@@ -225,26 +233,26 @@ def build_strategy_text(request: any) -> str:
     name = request.name or ""
     description = request.description or ""
     details = request.entity_details or {}
-    
+
     # Mapeamento amigável para o RAG
-    display_type = entity_type.replace('_', ' ').title()
+    display_type = entity_type.replace("_", " ").title()
     if entity_type == "strategic_objective":
         display_type = "Strategic Goal / Objective"
     elif entity_type == "strategy_assumption":
         display_type = "Strategic Risk / Assumption"
-    
+
     parts = [
         f"Type: {display_type}",
         f"Name: {name}",
     ]
     if description:
         parts.append(f"Description: {description}")
-    
+
     # Adicionar detalhes genéricos
     for key, value in details.items():
         if value and key not in ["name", "description"]:
             parts.append(f"{key.replace('_', ' ').title()}: {value}")
-        
+
     return " | ".join(parts)
 
 
@@ -261,19 +269,19 @@ def build_signal_text(request: any) -> str:
         parts.append(f"Title: {request.name}")
     if request.description:
         parts.append(f"Description: {request.description}")
-        
+
     if request.sub_type:
         parts.append(f"Sub-type: {request.sub_type}")
     if request.start_date:
         parts.append(f"Date: {request.start_date}")
     if request.confidence:
         parts.append(f"Confidence: {request.confidence}")
-        
+
     return " | ".join(parts)
 
 
-
 # ========= GERA EMBEDDINGS DE METADADOS =========
+
 
 async def create_embeddings_for_table_metadata(
     db: AsyncSession,
@@ -290,7 +298,7 @@ async def create_embeddings_for_table_metadata(
     Cria embeddings para TableMetadata usando Ollama local.
     """
     query = select(TableMetadata)
-    
+
     if space_id:
         query = query.filter(TableMetadata.space_id == space_id)
     else:
@@ -312,7 +320,7 @@ async def create_embeddings_for_table_metadata(
 
     result = await db.execute(query)
     rows: List[TableMetadata] = list(result.scalars().all())
-    
+
     if not rows:
         log_event(
             "create_embeddings_no_metadata",
@@ -332,24 +340,26 @@ async def create_embeddings_for_table_metadata(
             "data_connection_id": str(tm.data_connection_id),
             "table_name": tm.table_name,
             "column_name": tm.column_name,
-            "text": build_metadata_text(tm)
+            "text": build_metadata_text(tm),
         }
         for tm in rows
     ]
-    
+
     # Processa em lotes
     for i in range(0, total_rows, batch_size):
-        batch = all_data[i:i + batch_size]
+        batch = all_data[i : i + batch_size]
         batch_num = (i // batch_size) + 1
         total_batches = (total_rows + batch_size - 1) // batch_size
-        
+
         print(f"Processando lote {batch_num}/{total_batches} ({len(batch)} itens)...")
-        
+
         # Prepara textos do lote
-        
+
         # Gera embeddings do lote (async)
         try:
-            vectors = await embedding_provider.embed_async([item["text"] for item in batch])
+            vectors = await embedding_provider.embed_async(
+                [item["text"] for item in batch]
+            )
         except Exception as e:
             log_event(
                 "create_embeddings_batch_error",
@@ -361,7 +371,7 @@ async def create_embeddings_for_table_metadata(
             )
             print(f"Erro no lote {batch_num}: {e}")
             continue
-        
+
         # Salva embeddings do lote
         batch_created = 0
         for item, vec in zip(batch, vectors):
@@ -382,12 +392,14 @@ async def create_embeddings_for_table_metadata(
             )
             db.add(rec)
             batch_created += 1
-        
+
         # Commit incremental após cada lote
         try:
             await db.commit()
             created += batch_created
-            print(f"✅ Lote {batch_num}/{total_batches} concluído: {batch_created} embeddings salvos (total: {created}/{total_rows})")
+            print(
+                f"✅ Lote {batch_num}/{total_batches} concluído: {batch_created} embeddings salvos (total: {created}/{total_rows})"
+            )
         except Exception as e:
             await db.rollback()
             log_event(
@@ -400,7 +412,7 @@ async def create_embeddings_for_table_metadata(
             )
             print(f"Erro ao salvar lote {batch_num}: {e}")
             continue
-        
+
         # Delay entre lotes (exceto no último)
         if i + batch_size < total_rows and delay_between_batches > 0:
             await asyncio.sleep(delay_between_batches)
@@ -416,7 +428,6 @@ async def create_embeddings_for_table_metadata(
             "batch_size": batch_size,
         },
     )
-
 
     return created
 

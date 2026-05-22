@@ -170,12 +170,18 @@ async def build_retrieval_context_for_question(
         )
     )
 
-    ranked, (knowledge_blocks, citations) = await _asyncio.gather(brain_task, knowledge_task)
+    ranked, (knowledge_blocks, citations) = await _asyncio.gather(
+        brain_task, knowledge_task
+    )
 
     if not ranked and not knowledge_blocks:
         log_event(
             "context_retrieval_empty",
-            {"space_id": space_id, "connection_id": connection_id, "question_len": len(question or "")},
+            {
+                "space_id": space_id,
+                "connection_id": connection_id,
+                "question_len": len(question or ""),
+            },
         )
         return [], []
 

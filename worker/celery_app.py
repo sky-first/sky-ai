@@ -1,4 +1,5 @@
 """Celery application configuration."""
+
 from celery import Celery
 from celery.schedules import crontab
 from config.settings import settings
@@ -6,7 +7,7 @@ from config.settings import settings
 celery_app = Celery(
     "ia_poc_worker",
     broker=settings.celery_broker_url,
-    backend=settings.celery_result_backend
+    backend=settings.celery_result_backend,
 )
 
 celery_app.conf.update(
@@ -31,4 +32,3 @@ celery_app.conf.beat_schedule = {
 
 # Register scan tasks so Beat can find them
 celery_app.autodiscover_tasks(["worker"])
-

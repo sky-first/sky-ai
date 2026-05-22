@@ -1,4 +1,3 @@
-
 import asyncio
 
 import httpx
@@ -43,8 +42,7 @@ async def fetch_answer(client, question):
         if response.status_code == 200:
             return response.json()
         else:
-            return {
-                "answer": f"ERROR ({response.status_code}): {response.text[:200]}"}
+            return {"answer": f"ERROR ({response.status_code}): {response.text[:200]}"}
     except Exception as e:
         return {"answer": f"EXCEPTION: {str(e)}"}
 
@@ -56,9 +54,10 @@ async def main():
             result = await fetch_answer(client, question)
             print(f"### Q{i + 1:02d}: {question}")
             print(f"**Answer:** {result.get('answer', 'No answer received.')}")
-            if result.get('sql'):
+            if result.get("sql"):
                 print(f"**SQL:**\n```sql\n{result.get('sql')}\n```")
             print("\n---\n")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

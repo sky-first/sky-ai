@@ -34,19 +34,23 @@ def upgrade() -> None:
     conn = op.get_bind()
 
     # 1. Add user_id to semantic_cache (personal-mode cache isolation)
-    op.execute("""
+    op.execute(
+        """
         ALTER TABLE semantic_cache
             ADD COLUMN IF NOT EXISTS user_id TEXT NULL
-    """)
-    op.execute("""
+    """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_semantic_cache_user_id
             ON semantic_cache(user_id)
-    """)
+    """
+    )
 
     # 2. Migrate vector columns from 768 → 1024
     _TABLES = [
-        ("embeddings",            "embedding", True),   # NOT NULL
-        ("semantic_cache",        "embedding", True),   # NOT NULL
+        ("embeddings", "embedding", True),  # NOT NULL
+        ("semantic_cache", "embedding", True),  # NOT NULL
         ("knowledge_file_chunks", "embedding", False),  # nullable
     ]
     for table, column, not_null in _TABLES:
@@ -58,9 +62,11 @@ def upgrade() -> None:
             continue
 
         row = conn.execute(
-            text("""SELECT format_type(atttypid, atttypmod)
+            text(
+                """SELECT format_type(atttypid, atttypmod)
                FROM pg_attribute
-               WHERE attrelid = to_regclass(:table) AND attname = :column"""),
+               WHERE attrelid = to_regclass(:table) AND attname = :column"""
+            ),
             {"table": table, "column": column},
         ).fetchone()
         current_dim = row[0] if row else None

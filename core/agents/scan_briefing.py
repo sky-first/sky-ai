@@ -37,8 +37,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TopicMap:
-    covered: List[str] = field(default_factory=list)   # topics user asked about
-    uncovered: List[str] = field(default_factory=list)  # topics present in data but not asked
+    covered: List[str] = field(default_factory=list)  # topics user asked about
+    uncovered: List[str] = field(
+        default_factory=list
+    )  # topics present in data but not asked
     has_history: bool = False
 
 
@@ -101,6 +103,7 @@ async def extract_chat_topics(
             chat_model = getattr(llm, "_chat", None) or llm
             if hasattr(chat_model, "invoke"):
                 from langchain_core.messages import HumanMessage
+
                 resp = chat_model.invoke([HumanMessage(content=prompt)])
                 raw = resp.content if hasattr(resp, "content") else str(resp)
             elif hasattr(chat_model, "predict"):
@@ -229,14 +232,20 @@ async def is_semantic_duplicate(
         if row is None:
             return False
         similarity = row[0]
-        if similarity is None or (isinstance(similarity, float) and similarity != similarity):
+        if similarity is None or (
+            isinstance(similarity, float) and similarity != similarity
+        ):
             return False
         is_dup = float(similarity) >= threshold
         if is_dup:
-            logger.debug("is_semantic_duplicate: suppressed (similarity=%.3f)", similarity)
+            logger.debug(
+                "is_semantic_duplicate: suppressed (similarity=%.3f)", similarity
+            )
         return is_dup
     except Exception as exc:
-        logger.debug("is_semantic_duplicate: pgvector check failed (non-critical): %s", exc)
+        logger.debug(
+            "is_semantic_duplicate: pgvector check failed (non-critical): %s", exc
+        )
         try:
             await db.rollback()
         except Exception:
@@ -413,7 +422,9 @@ def build_scan_briefing(
             + "\n"
         )
     else:
-        already_block = "\nWHAT HAS ALREADY BEEN SURFACED: Nothing yet — this is the first scan.\n"
+        already_block = (
+            "\nWHAT HAS ALREADY BEEN SURFACED: Nothing yet — this is the first scan.\n"
+        )
 
     # ── Cross-dataset override note ───────────────────────────────────────
     cross_dataset_block = ""

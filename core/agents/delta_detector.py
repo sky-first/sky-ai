@@ -66,9 +66,7 @@ class LLMCall(Protocol):
     LangChain-style ``llm.ainvoke([{role, content}, ...])`` shape but
     we depend only on a callable so tests can pass a fake."""
 
-    async def __call__(
-        self, messages: list[dict[str, str]]
-    ) -> "LLMResponse": ...
+    async def __call__(self, messages: list[dict[str, str]]) -> "LLMResponse": ...
 
 
 @dataclass
@@ -88,7 +86,9 @@ def compute_result_hash(payload: Any) -> str:
     single spaces so cosmetic whitespace doesn't churn the hash.
     """
     normalised = _normalise(payload)
-    blob = json.dumps(normalised, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    blob = json.dumps(
+        normalised, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -136,7 +136,7 @@ SYSTEM_PROMPT_DELTA = (
     "Then write ONE sentence (max 180 chars, plain text, no markdown) "
     "summarising the change. For 'none' and 'trivial' the sentence is "
     "informational; for 'material' it must name the metric and the direction.\n"
-    "Return STRICT JSON: {\"kind\": string, \"summary\": string}."
+    'Return STRICT JSON: {"kind": string, "summary": string}.'
 )
 
 
@@ -174,7 +174,7 @@ class LLMDeltaStrategy:
         curr_blob = _compact(current_payload, self.max_chars_per_side)
         user_msg = (
             f"PREV:\n{prev_blob}\n\nCURR:\n{curr_blob}\n\n"
-            "Return {\"kind\": \"none|trivial|material\", \"summary\": \"...\"}."
+            'Return {"kind": "none|trivial|material", "summary": "..."}.'
         )
 
         try:

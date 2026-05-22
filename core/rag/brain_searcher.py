@@ -127,7 +127,9 @@ def make_brain_searcher(
         # and only when space_id is known; everything else passes
         # through. If the column doc lacks the triple in metadata, we
         # keep it — safer to over-show than to silently drop.
-        filtered = await _apply_hidden_column_filter(db, list(merged.values()), space_id)
+        filtered = await _apply_hidden_column_filter(
+            db, list(merged.values()), space_id
+        )
         return filtered
 
     return _searcher

@@ -27,6 +27,7 @@ Tests:
     - aggregates combos across multiple rows per table
     - returns empty dict on DB error
 """
+
 from __future__ import annotations
 
 import json
@@ -39,24 +40,29 @@ SPACE_ID = "00000000-0000-0000-0000-000000000001"
 
 # ─── extract_explored_combos ──────────────────────────────────────────────────
 
+
 class TestExtractExploredCombos:
     def test_empty_sql_returns_empty(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         assert extract_explored_combos("") == set()
 
     def test_no_group_by_returns_empty(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = "SELECT SUM(amount) FROM orders"
         assert extract_explored_combos(sql) == set()
 
     def test_group_by_with_sum(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = "SELECT status, SUM(amount) FROM orders GROUP BY status"
         combos = extract_explored_combos(sql)
         assert ("status", "amount") in combos
 
     def test_multiple_dims_and_metrics(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = (
             "SELECT region, product, SUM(revenue), COUNT(order_id) "
             "FROM sales GROUP BY region, product"
@@ -69,6 +75,7 @@ class TestExtractExploredCombos:
 
     def test_no_self_pairs(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         # If GROUP BY col is also inside agg, it should not produce (col, col)
         sql = "SELECT status, COUNT(status) FROM orders GROUP BY status"
         combos = extract_explored_combos(sql)
@@ -76,21 +83,23 @@ class TestExtractExploredCombos:
 
     def test_table_qualified_columns_stripped(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = "SELECT o.region, SUM(o.amount) FROM orders o GROUP BY o.region"
         combos = extract_explored_combos(sql)
         assert ("region", "amount") in combos
 
     def test_distinct_inside_aggregate(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = "SELECT category, COUNT(DISTINCT user_id) FROM events GROUP BY category"
         combos = extract_explored_combos(sql)
         assert ("category", "user_id") in combos
 
     def test_order_by_does_not_bleed_into_group_by(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = (
-            "SELECT region, SUM(revenue) FROM sales "
-            "GROUP BY region ORDER BY region"
+            "SELECT region, SUM(revenue) FROM sales " "GROUP BY region ORDER BY region"
         )
         combos = extract_explored_combos(sql)
         assert ("region", "revenue") in combos
@@ -98,12 +107,14 @@ class TestExtractExploredCombos:
 
     def test_case_insensitive(self):
         from core.agents.depth_tracker import extract_explored_combos
+
         sql = "select status, sum(amount) from orders group by status"
         combos = extract_explored_combos(sql)
         assert ("status", "amount") in combos
 
 
 # ─── depth_remaining_score ────────────────────────────────────────────────────
+
 
 class _Col:
     def __init__(self, name, data_type="text"):
@@ -114,17 +125,20 @@ class _Col:
 class TestDepthRemainingScore:
     def test_no_columns_returns_fallback(self):
         from core.agents.depth_tracker import depth_remaining_score
+
         score = depth_remaining_score("t", [], set())
         assert score == 0.5
 
     def test_pristine_table_returns_1(self):
         from core.agents.depth_tracker import depth_remaining_score
+
         cols = [_Col("region"), _Col("amount", "numeric")]
         score = depth_remaining_score("t", cols, set())
         assert score == 1.0
 
     def test_fully_explored_returns_0(self):
         from core.agents.depth_tracker import depth_remaining_score
+
         cols = [_Col("region"), _Col("amount", "numeric")]
         # 1 dim × 1 metric = 1 possible combo
         score = depth_remaining_score("t", cols, {("region", "amount")})
@@ -132,9 +146,12 @@ class TestDepthRemainingScore:
 
     def test_partial_exploration(self):
         from core.agents.depth_tracker import depth_remaining_score
+
         cols = [
-            _Col("region"), _Col("product"),
-            _Col("revenue", "numeric"), _Col("cost", "numeric"),
+            _Col("region"),
+            _Col("product"),
+            _Col("revenue", "numeric"),
+            _Col("cost", "numeric"),
         ]
         # 2 dims × 2 metrics = 4 possible; 1 explored
         score = depth_remaining_score("t", cols, {("region", "revenue")})
@@ -142,13 +159,17 @@ class TestDepthRemainingScore:
 
     def test_score_decreases_as_more_explored(self):
         from core.agents.depth_tracker import depth_remaining_score
+
         cols = [_Col("region"), _Col("product"), _Col("revenue", "numeric")]
         s1 = depth_remaining_score("t", cols, {("region", "revenue")})
-        s2 = depth_remaining_score("t", cols, {("region", "revenue"), ("product", "revenue")})
+        s2 = depth_remaining_score(
+            "t", cols, {("region", "revenue"), ("product", "revenue")}
+        )
         assert s2 < s1
 
 
 # ─── record_depth_combos ──────────────────────────────────────────────────────
+
 
 class TestRecordDepthCombos:
     @pytest.mark.asyncio
@@ -191,6 +212,7 @@ class TestRecordDepthCombos:
 
 
 # ─── load_depth_combos_for_scorer ────────────────────────────────────────────
+
 
 class TestLoadDepthCombosForScorer:
     @pytest.mark.asyncio

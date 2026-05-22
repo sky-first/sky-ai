@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from core.logging_utils import log_event
 from core.contracts.analysis_context import AnalysisContext
-from core.services.dashboard_modes import MODE_CONFIG, validate_mode # NEW IMPORT
+from core.services.dashboard_modes import MODE_CONFIG, validate_mode  # NEW IMPORT
 
 
 @dataclass
@@ -20,7 +20,9 @@ class DavinciDashboardPlan:
     full_results: Optional[Dict[str, Any]] = None  # NEW: Raw structured analysis
 
 
-def _parse_schema_summary(schema_summary: str) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+def _parse_schema_summary(
+    schema_summary: str,
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """
     Parse the schema summary produced by `connection_query.dashboards_plan`.
 
@@ -65,13 +67,15 @@ def _count_tables_mentioned(question: str, logical_tables: list[str]) -> int:
     return len(mentioned)
 
 
-def _pick_join_pairs(table_keys: dict[str, list[str]], logical_tables: list[str]) -> list[tuple[str, str, str]]:
+def _pick_join_pairs(
+    table_keys: dict[str, list[str]], logical_tables: list[str]
+) -> list[tuple[str, str, str]]:
     """
     Pick join pairs based on overlapping keys, using Schema Intelligence scoring.
     Returns list of (A, B, key).
     """
     pairs: list[tuple[str, str, str]] = []
-    
+
     # Pre-compute keys per table
     keys_norm: dict[str, set[str]] = {
         t: {k.lower() for k in (table_keys.get(t) or []) if k} for t in logical_tables
@@ -81,10 +85,10 @@ def _pick_join_pairs(table_keys: dict[str, list[str]], logical_tables: list[str]
         for b in logical_tables[i + 1 :]:
             # Overlapping columns (potential join keys)
             overlap = keys_norm.get(a, set()) & keys_norm.get(b, set())
-            
+
             best_key = None
             best_score = -1.0
-            
+
             # 1. Check strict name overlaps
             for k in overlap:
                 # Score using JoinScorer logic for identical names
@@ -92,45 +96,57 @@ def _pick_join_pairs(table_keys: dict[str, list[str]], logical_tables: list[str]
                 if s > best_score:
                     best_score = s
                     best_key = k
-            
+
             # 2. Check FK patterns (user_id <-> id) which might NOT be in strict overlap
-            # We need to iterate all keys in A vs keys in B? 
+            # We need to iterate all keys in A vs keys in B?
             # Or just check if 'id' is in one and 'table_id' in other?
             # JoinScorer handles the check, but we need candidates.
             # Simplified: Use the existing table_keys dict to find pairs.
-            
+
             keys_a = list(keys_norm.get(a, set()))
             keys_b = list(keys_norm.get(b, set()))
-            
+
             for ka in keys_a:
                 for kb in keys_b:
-                    if ka == kb: continue # Already handled in overlap above
-                    
+                    if ka == kb:
+                        continue  # Already handled in overlap above
+
                     s = JoinScorer.score_join(a, ka, b, kb)
                     if s > best_score:
                         best_score = s
-                        best_key = (ka, kb) # Wait, legacy returns (A, B, Key). If keys differ, we can't return single key. 
+                        best_key = (
+                            ka,
+                            kb,
+                        )  # Wait, legacy returns (A, B, Key). If keys differ, we can't return single key.
                         # Davinci only supports single key equality joins currently.
                         # So we MUST pick single key matches from overlap.
-            
+
             if best_key and best_score > 0.5:
                 # If best_key is a tuple, it implies A.k1 = B.k2, but current signature expects single key string
-                # implies "USING (key)". 
+                # implies "USING (key)".
                 # If Davinci supports "ON A.k1 = B.k2", we need to change signature.
                 # Checking usages: users of this function probably expect `USING (key)`.
                 # Let's check: _pick_fact_dim_pairs calls this.
                 # And generated SQL usually uses inferred logic.
-                
+
                 # For now, strict adherence to `USING (key)`:
                 if isinstance(best_key, str):
-                   pairs.append((a, b, best_key))
-                
+                    pairs.append((a, b, best_key))
+
     # Deterministic ordering
     pairs = sorted(pairs, key=lambda p: (p[0].lower(), p[1].lower(), p[2]))
     return pairs
 
 
-from core.agents.schema_intelligence import SchemaScorer, TableFeatures, ColumnScorer, ColumnFeatures, AnalyticTableFilter, JoinScorer
+from core.agents.schema_intelligence import (
+    SchemaScorer,
+    TableFeatures,
+    ColumnScorer,
+    ColumnFeatures,
+    AnalyticTableFilter,
+    JoinScorer,
+)
+
 
 def _get_table_role(table_name: str, metadata: dict | None) -> str:
     """
@@ -139,21 +155,23 @@ def _get_table_role(table_name: str, metadata: dict | None) -> str:
     """
     if not metadata:
         return "unknown"
-    
+
     # Extract features
     # Note: row_count might be missing, default to 0 (which scores as small dim)
-    row_count = int(metadata.get("row_count") or metadata.get("stats", {}).get("row_count") or 0)
+    row_count = int(
+        metadata.get("row_count") or metadata.get("stats", {}).get("row_count") or 0
+    )
     cols = metadata.get("columns", [])
-    
+
     features = SchemaScorer.extract_features(table_name, cols, row_count)
     result = SchemaScorer.score_table(features)
     return result["role"]
 
 
 def _pick_fact_dim_pairs(
-    table_keys: dict[str, list[str]], 
+    table_keys: dict[str, list[str]],
     logical_tables: list[str],
-    table_metadata_map: dict[str, dict]
+    table_metadata_map: dict[str, dict],
 ) -> list[tuple[str, str, str]]:
     """
     Choose join pairs where one table is likely a fact and the other a dimension.
@@ -162,7 +180,7 @@ def _pick_fact_dim_pairs(
     """
     pairs = _pick_join_pairs(table_keys, logical_tables)
     out: list[tuple[str, str, str]] = []
-    
+
     # Pre-compute roles to avoid re-scoring inside loop
     roles = {}
     for t in logical_tables:
@@ -171,14 +189,14 @@ def _pick_fact_dim_pairs(
     for a, b, k in pairs:
         role_a = roles.get(a, "unknown")
         role_b = roles.get(b, "unknown")
-        
+
         # Logic: Looking for Fact <-> Dim/Ambiguous
         # (Ambiguous behaves like a dim often enough for joins)
         if role_a == "fact" and role_b in ("dimension", "ambiguous", "unknown"):
             out.append((a, b, k))
         elif role_b == "fact" and role_a in ("dimension", "ambiguous", "unknown"):
             out.append((b, a, k))
-            
+
     return out
 
 
@@ -198,6 +216,7 @@ def _find_col_by_role(role: str, cols: list[str], row_count: int = 1000) -> str 
         pass
     return None
 
+
 # Rethink: The callers (_enforce_join_mix, etc) passed `table_cols` (names only).
 # We need to upgrade them to pass metadata if possible.
 # In `_fallback_plan`, we DO parse schema summary into `table_cols`.
@@ -211,38 +230,45 @@ def _find_col_by_role(role: str, cols: list[str], row_count: int = 1000) -> str 
 # If we have basic type hints from schema summary ("amount (int)"), we use that.
 # If not, strictly avoid "guessing" by name unless it's universal (like "id").
 
+
 def _find_best_col(cols: list[str], role: str) -> str | None:
     # This is a temporary bridge. To be fully agnostic, we need TYPES.
     # The `_parse_schema_summary` doesn't strictly parse types yet, just names.
     # Let's assume we can't be perfect without types, but we can be BETTER than just English keywords.
     # Actually, we can just return the first column that 'looks' right? No.
-    
+
     # We will accept that without metadata, we might fail to find a "perfect" metric.
     # But we should rely on what we have.
-    return cols[0] if cols else None 
+    return cols[0] if cols else None
+
 
 # WAIT. `_fallback_plan` HAS `table_metadata` (full dict).
 # We should use THAT.
 
+
 def _get_col_type_from_meta(t_name: str, c_name: str, meta_map: dict) -> str:
-    t = meta_map.get(t_name) or meta_map.get(f"public.{t_name}") # loose schema match
-    if not t: return "unknown"
+    t = meta_map.get(t_name) or meta_map.get(f"public.{t_name}")  # loose schema match
+    if not t:
+        return "unknown"
     for c in t.get("columns", []):
-         if c.get("name") == c_name:
-             return str(c.get("type", "")).upper()
+        if c.get("name") == c_name:
+            return str(c.get("type", "")).upper()
     return "unknown"
 
-def _pick_col_agnostic(t_name: str, cols: list[str], role: str, meta_map: dict) -> str | None:
+
+def _pick_col_agnostic(
+    t_name: str, cols: list[str], role: str, meta_map: dict
+) -> str | None:
     """
     Picks a column based on TYPE from metadata, ignoring name.
     """
     for c in cols:
         ctype = _get_col_type_from_meta(t_name, c, meta_map)
-        
+
         if role == "metric":
             # Any numeric type
             if any(x in ctype for x in ["INT", "FLOAT", "NUMERIC", "DECIMAL"]):
-                if not c.endswith("id"): # Universal convention, not english specific
+                if not c.endswith("id"):  # Universal convention, not english specific
                     return c
         elif role == "time":
             if any(x in ctype for x in ["DATE", "TIME"]):
@@ -250,52 +276,59 @@ def _pick_col_agnostic(t_name: str, cols: list[str], role: str, meta_map: dict) 
         elif role == "attribute":
             if any(x in ctype for x in ["CHAR", "TEXT", "STRING"]):
                 return c
-                
+
     return None
 
 
-
-
-def _build_primary_widget_from_context(context: AnalysisContext, goal: str) -> Dict[str, Any]:
+def _build_primary_widget_from_context(
+    context: AnalysisContext, goal: str
+) -> Dict[str, Any]:
     """
     Builds the 'Anchor Widget' deterministically from the validated context.
     This widget is the 'Truth' of the system.
     """
     # Decide viz type based on context
     viz_type = "bar"
-    mapping = {"x": context.primary_dimension or "category", "y": context.primary_metric}
-    
+    mapping = {
+        "x": context.primary_dimension or "category",
+        "y": context.primary_metric,
+    }
+
     question = f"Show {context.primary_metric}"
     if context.primary_dimension:
         question += f" by {context.primary_dimension}"
-    
+
     if context.detected_analysis_type == "trend" and context.time_column:
         viz_type = "line"
         mapping = {"x": context.time_column, "y": context.primary_metric}
-        question = f"Trend of {context.primary_metric} over time ({context.time_column})"
+        question = (
+            f"Trend of {context.primary_metric} over time ({context.time_column})"
+        )
     elif context.detected_analysis_type == "distribution" and context.primary_dimension:
         viz_type = "pie"
-        question = f"Distribution of {context.primary_metric} by {context.primary_dimension}"
+        question = (
+            f"Distribution of {context.primary_metric} by {context.primary_dimension}"
+        )
     elif context.detected_analysis_type == "kpi":
         viz_type = "kpi"
-        mapping = {} # KPI has no mapping usually, or specific format
+        mapping = {}  # KPI has no mapping usually, or specific format
         question = f"Total {context.primary_metric}"
 
     return {
         "widget_key": "w1",
-        "title": (question[:60] if len(question) > 60 else question), # Use question as title for clarity
+        "title": (
+            question[:60] if len(question) > 60 else question
+        ),  # Use question as title for clarity
         "question": question,
         "type": "kpi" if viz_type == "kpi" else "chart",
-        "viz": {
-            "type": viz_type, 
-            "mapping": mapping
-        },
+        "viz": {"type": viz_type, "mapping": mapping},
         "data_requirements": {
             "x_axis_column": mapping.get("x"),
             "y_axis_column": mapping.get("y"),
-            "involved_tables": context.validated_tables
-        }
+            "involved_tables": context.validated_tables,
+        },
     }
+
 
 def _enforce_join_mix(
     widgets: list[dict[str, Any]],
@@ -330,10 +363,14 @@ def _enforce_join_mix(
         return widgets
 
     # Prefer rewriting chart widgets first.
-    rewrite_idxs = [i for i, w in enumerate(widgets) if str(w.get("type") or "") == "chart"]
+    rewrite_idxs = [
+        i for i, w in enumerate(widgets) if str(w.get("type") or "") == "chart"
+    ]
     # If still not enough, allow rewriting KPI widgets too.
     if len(rewrite_idxs) < (min_join - current_join):
-        rewrite_idxs += [i for i, w in enumerate(widgets) if str(w.get("type") or "") == "kpi"]
+        rewrite_idxs += [
+            i for i, w in enumerate(widgets) if str(w.get("type") or "") == "kpi"
+        ]
 
     needed = min_join - current_join
     rewrite_idxs = rewrite_idxs[:needed]
@@ -343,9 +380,15 @@ def _enforce_join_mix(
         a, b, key = join_pairs[n % len(join_pairs)]
         a_cols = table_cols.get(a, [])
         b_cols = table_cols.get(b, [])
-        metric = _pick_col_agnostic(a, a_cols, "metric", table_metadata_map) or _pick_col_agnostic(b, b_cols, "metric", table_metadata_map)
-        dim = _pick_col_agnostic(b, b_cols, "attribute", table_metadata_map) or _pick_col_agnostic(a, a_cols, "attribute", table_metadata_map)
-        dt = _pick_col_agnostic(a, a_cols, "time", table_metadata_map) or _pick_col_agnostic(b, b_cols, "time", table_metadata_map)
+        metric = _pick_col_agnostic(
+            a, a_cols, "metric", table_metadata_map
+        ) or _pick_col_agnostic(b, b_cols, "metric", table_metadata_map)
+        dim = _pick_col_agnostic(
+            b, b_cols, "attribute", table_metadata_map
+        ) or _pick_col_agnostic(a, a_cols, "attribute", table_metadata_map)
+        dt = _pick_col_agnostic(
+            a, a_cols, "time", table_metadata_map
+        ) or _pick_col_agnostic(b, b_cols, "time", table_metadata_map)
 
         # Pick a viz type to diversify.
         viz_type = ["bar", "line", "pie", "area", "scatter"][n % 5]
@@ -428,7 +471,7 @@ def _enforce_distribution_and_fact_dim(
 
     join_pairs = _pick_join_pairs(table_keys, logical_tables)
     # Note: This function (enforce_distribution) is not currently used in the main LLM path,
-    # but strictly used in fallback logic/old paths. 
+    # but strictly used in fallback logic/old paths.
     # Providing empty metadata map here as a placeholder or needs update if reactivated.
     fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables, {})
 
@@ -461,19 +504,32 @@ def _enforce_distribution_and_fact_dim(
     def _rewrite_as_kpi(i: int, pair: tuple[str, str, str] | None) -> None:
         if pair:
             fact, dim, key = pair
-            metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
+            metric = _pick_col_agnostic(
+                fact, table_cols.get(fact, []), "metric", meta_map
+            ) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
             if metric:
                 question = f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
                 title = f"Total {metric}"
             else:
                 question = f"Using `{fact}` JOIN `{dim}` on `{key}`, how many records are there? Return a single number."
                 title = "Total records"
-            widgets[i] = {**widgets[i], "type": "kpi", "title": widgets[i].get("title") or title, "question": question, "viz": {"type": "kpi"}}
+            widgets[i] = {
+                **widgets[i],
+                "type": "kpi",
+                "title": widgets[i].get("title") or title,
+                "question": question,
+                "viz": {"type": "kpi"},
+            }
         else:
             # ✅ FIX: Usar terminologia de negócio em vez de técnica
             t = logical_tables[0]
             # Mapear nomes técnicos para termos de negócio
-            business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+            business_name = (
+                t.replace("_", " ")
+                .replace("silver", "")
+                .replace("enriquecido", "")
+                .strip()
+            )
             if "credit" in t.lower() and "memo" in t.lower():
                 business_name = "credit notes"
             elif "invoice" in t.lower():
@@ -484,7 +540,7 @@ def _enforce_distribution_and_fact_dim(
                 business_name = "customers"
             elif "refund" in t.lower():
                 business_name = "refunds"
-            
+
             widgets[i] = {
                 **widgets[i],
                 "type": "kpi",
@@ -496,9 +552,15 @@ def _enforce_distribution_and_fact_dim(
     # Ensure at least one table widget.
     table_idxs = [i for i, w in enumerate(widgets) if wtype(w) == "table"]
     if len(table_idxs) < target_table:
-        candidates = [i for i, w in enumerate(widgets) if wtype(w) == "chart"] or list(range(len(widgets)))
+        candidates = [i for i, w in enumerate(widgets) if wtype(w) == "chart"] or list(
+            range(len(widgets))
+        )
         idx = candidates[-1]
-        pair = fact_dim_pairs[0] if fact_dim_pairs else (join_pairs[0] if join_pairs else None)
+        pair = (
+            fact_dim_pairs[0]
+            if fact_dim_pairs
+            else (join_pairs[0] if join_pairs else None)
+        )
         _rewrite_as_table(idx, pair)
 
     # Ensure KPI count.
@@ -511,18 +573,26 @@ def _enforce_distribution_and_fact_dim(
         candidates = [i for i, w in enumerate(widgets) if wtype(w) == "chart"]
         # If no charts, look for anything that is NOT a table and NOT already a KPI
         if not candidates:
-            candidates = [i for i, w in enumerate(widgets) if wtype(w) != "table" and wtype(w) != "kpi"]
-        
+            candidates = [
+                i
+                for i, w in enumerate(widgets)
+                if wtype(w) != "table" and wtype(w) != "kpi"
+            ]
+
         # If still no candidates (e.g. everything is table or we have exhausted non-tables), force pick any non-KPI
         if not candidates:
-             candidates = [i for i, w in enumerate(widgets) if wtype(w) != "kpi"]
-        
+            candidates = [i for i, w in enumerate(widgets) if wtype(w) != "kpi"]
+
         if not candidates:
-             # Last resort: just break to avoid infinite loop (we might have fewer KPIs than requested)
-             break
-             
+            # Last resort: just break to avoid infinite loop (we might have fewer KPIs than requested)
+            break
+
         idx = candidates[0]
-        pair = fact_dim_pairs[len(kpi_idxs) % len(fact_dim_pairs)] if fact_dim_pairs else (join_pairs[0] if join_pairs else None)
+        pair = (
+            fact_dim_pairs[len(kpi_idxs) % len(fact_dim_pairs)]
+            if fact_dim_pairs
+            else (join_pairs[0] if join_pairs else None)
+        )
         _rewrite_as_kpi(idx, pair)
         kpi_idxs = [i for i, w in enumerate(widgets) if wtype(w) == "kpi"]
 
@@ -543,7 +613,10 @@ def _enforce_distribution_and_fact_dim(
         for i, w in enumerate(widgets):
             if wtype(w) not in {"chart"} and len(chart_idxs) < target_chart:
                 # Keep at least one table.
-                if wtype(w) == "table" and sum(1 for ww in widgets if wtype(ww) == "table") <= 1:
+                if (
+                    wtype(w) == "table"
+                    and sum(1 for ww in widgets if wtype(ww) == "table") <= 1
+                ):
                     continue
                 widgets[i] = {**widgets[i], "type": "chart", "viz": {"type": "bar"}}
                 chart_idxs = [j for j, ww in enumerate(widgets) if wtype(ww) == "chart"]
@@ -557,8 +630,12 @@ def _enforce_distribution_and_fact_dim(
             if not idx_candidates:
                 break
             idx = idx_candidates[n % len(idx_candidates)]
-            metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
-            dt = _pick_col_agnostic(fact, table_cols.get(fact, []), "time", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "time", meta_map)
+            metric = _pick_col_agnostic(
+                fact, table_cols.get(fact, []), "metric", meta_map
+            ) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
+            dt = _pick_col_agnostic(
+                fact, table_cols.get(fact, []), "time", meta_map
+            ) or _pick_col_agnostic(dim, table_cols.get(dim, []), "time", meta_map)
             if dt:
                 question = (
                     f"Using `{fact}` JOIN `{dim}` on `{key}`, show a monthly trend of "
@@ -573,7 +650,13 @@ def _enforce_distribution_and_fact_dim(
                 )
                 viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}}
                 title = f"Top {dim} ({fact} ↔ {dim})"
-            widgets[idx] = {**widgets[idx], "type": "chart", "title": title, "question": question, "viz": viz}
+            widgets[idx] = {
+                **widgets[idx],
+                "type": "chart",
+                "title": title,
+                "question": question,
+                "viz": viz,
+            }
 
     return widgets
 
@@ -592,7 +675,7 @@ def _safe_json_loads(text: str) -> Optional[dict]:
     # If the text starts with {{ and ends with }}, strip the outer braces
     if text.startswith("{{") and text.endswith("}}"):
         text = text[1:-1]
-    
+
     # 3. Try standard load
     try:
         return json.loads(text)
@@ -622,33 +705,41 @@ def _is_instrumental_command(text: str) -> bool:
     t = text.lower().strip()
     # Common command patterns
     commands = [
-        "create", "generate", "make", "build", "show me a", "show a", "dashboard", "report", "analysis"
+        "create",
+        "generate",
+        "make",
+        "build",
+        "show me a",
+        "show a",
+        "dashboard",
+        "report",
+        "analysis",
     ]
     # If the text is very short and starts with a command, or is exactly a command sequence
     # E.g. "Create dashboard", "Generate report for sales"
     # We want to be careful not to trap "Sales per month"
-    
+
     # If it's just "dashboard", "sales dashboard", etc.
     if t in ["dashboard", "sales dashboard", "report", "sales report"]:
         return True
-    
+
     # If it starts with a command and is short (likely a meta-command)
     words = t.split()
     if len(words) <= 5:
         if words[0] in ["create", "generate", "make", "build"]:
             return True
-            
+
     return False
 
 
 def _fallback_plan(
-    goal: str, 
-    logical_tables: List[str], 
-    max_widgets: int, 
-    schema_summary: str = "", 
+    goal: str,
+    logical_tables: List[str],
+    max_widgets: int,
+    schema_summary: str = "",
     original_question: Optional[str] = None,
     table_metadata: Optional[List[Dict[str, Any]]] = None,
-    language: str = "en"
+    language: str = "en",
 ) -> DavinciDashboardPlan:
     """
     Smart fallback plan when LLM fails.
@@ -678,18 +769,26 @@ def _fallback_plan(
     # Try to build a strong fallback using join/key hints when available.
     # Try to build a strong fallback using join/key hints when available.
     table_cols, table_keys = _parse_schema_summary(schema_summary)
-    
+
     # Build metadata map for scoring
-    meta_map = {t['name']: t for t in (table_metadata or [])} if table_metadata else {}
+    meta_map = {t["name"]: t for t in (table_metadata or [])} if table_metadata else {}
     # Also support logical names matching
     if table_metadata:
         for t in table_metadata:
             # Try to handle schema.table vs table
-            full = f"{t.get('schema')}.{t.get('name')}" if t.get('schema') else t.get('name')
+            full = (
+                f"{t.get('schema')}.{t.get('name')}"
+                if t.get("schema")
+                else t.get("name")
+            )
             meta_map[full] = t
-            
+
     join_pairs = _pick_join_pairs(table_keys, logical_tables) if logical_tables else []
-    fact_dim_pairs = _pick_fact_dim_pairs(table_keys, logical_tables, meta_map) if logical_tables else []
+    fact_dim_pairs = (
+        _pick_fact_dim_pairs(table_keys, logical_tables, meta_map)
+        if logical_tables
+        else []
+    )
 
     # If we have no catalog metadata, return a text-only plan explaining the next step.
     if not picked:
@@ -715,7 +814,11 @@ def _fallback_plan(
             dashboard_name=goal.strip()[:80] or "Dashboard",
             description="Auto-generated dashboard plan (catalog not ready yet).",
             widgets=widgets[:max_widgets],
-            meta={"fallback": True, "reason": "NO_CATALOG_METADATA", "has_original_question": original_question is not None},
+            meta={
+                "fallback": True,
+                "reason": "NO_CATALOG_METADATA",
+                "has_original_question": original_question is not None,
+            },
         )
 
     # Strong fallback layout for N=8:
@@ -733,18 +836,30 @@ def _fallback_plan(
     pair0 = _pick_pair(0)
     if pair0:
         fact, dim, key = pair0
-        metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
+        metric = _pick_col_agnostic(
+            fact, table_cols.get(fact, []), "metric", meta_map
+        ) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
         title = f"Total {metric}" if metric else "Total records"
         question = (
             f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
             if metric
             else f"Using `{fact}` JOIN `{dim}` on `{key}`, how many records are there? Return a single number."
         )
-        widgets.append({"widget_key": "w1", "type": "kpi", "title": title, "question": question, "viz": {"type": "kpi"}})
+        widgets.append(
+            {
+                "widget_key": "w1",
+                "type": "kpi",
+                "title": title,
+                "question": question,
+                "viz": {"type": "kpi"},
+            }
+        )
     else:
         # ✅ FIX: Usar terminologia de negócio
         t = picked[0]
-        business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        business_name = (
+            t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        )
         if "credit" in t.lower() and "memo" in t.lower():
             business_name = "credit notes"
         elif "invoice" in t.lower():
@@ -755,7 +870,7 @@ def _fallback_plan(
             business_name = "customers"
         elif "refund" in t.lower():
             business_name = "refunds"
-        
+
         widgets.append(
             {
                 "widget_key": "w1",
@@ -770,18 +885,30 @@ def _fallback_plan(
     pair1 = _pick_pair(1)
     if pair1:
         fact, dim, key = pair1
-        metric = _pick_col_agnostic(fact, table_cols.get(fact, []), "metric", meta_map) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
+        metric = _pick_col_agnostic(
+            fact, table_cols.get(fact, []), "metric", meta_map
+        ) or _pick_col_agnostic(dim, table_cols.get(dim, []), "metric", meta_map)
         title = f"Total {metric}" if metric else "Total records"
         question = (
             f"Using `{fact}` JOIN `{dim}` on `{key}`, what is the total `{metric}`? Return a single number."
             if metric
             else f"Using `{fact}` JOIN `{dim}` on `{key}`, how many records are there? Return a single number."
         )
-        widgets.append({"widget_key": "w2", "type": "kpi", "title": title, "question": question, "viz": {"type": "kpi"}})
+        widgets.append(
+            {
+                "widget_key": "w2",
+                "type": "kpi",
+                "title": title,
+                "question": question,
+                "viz": {"type": "kpi"},
+            }
+        )
     else:
         # ✅ FIX: Usar terminologia de negócio
         t = picked[1] if len(picked) > 1 else picked[0]
-        business_name = t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        business_name = (
+            t.replace("_", " ").replace("silver", "").replace("enriquecido", "").strip()
+        )
         if "credit" in t.lower() and "memo" in t.lower():
             business_name = "credit notes"
         elif "invoice" in t.lower():
@@ -792,7 +919,7 @@ def _fallback_plan(
             business_name = "customers"
         elif "refund" in t.lower():
             business_name = "refunds"
-        
+
         widgets.append(
             {
                 "widget_key": "w2",
@@ -828,25 +955,29 @@ def _fallback_plan(
         t = picked[0]
         t_cols = table_cols.get(t, [])
         dt = _pick_col_agnostic(t, t_cols, "time", meta_map)
-        
+
         if dt:
             # Se temos coluna de data, usar ela para ordenar
-            widgets.append({
-                "widget_key": "w3",
-                "type": "table",
-                "title": f"Recent Records from {t}",
-                "question": f"Show the 15 most recent records from `{t}` ordered by `{dt}` descending.",
-                "viz": {"type": "table"},
-            })
+            widgets.append(
+                {
+                    "widget_key": "w3",
+                    "type": "table",
+                    "title": f"Recent Records from {t}",
+                    "question": f"Show the 15 most recent records from `{t}` ordered by `{dt}` descending.",
+                    "viz": {"type": "table"},
+                }
+            )
         else:
             # Sem coluna de data, pedir amostra representativa
-            widgets.append({
-                "widget_key": "w3",
-                "type": "table",
-                "title": f"Sample Records from {t}",
-                "question": f"Show a sample of 15 records from `{t}` with key information.",
-                "viz": {"type": "table"},
-            })
+            widgets.append(
+                {
+                    "widget_key": "w3",
+                    "type": "table",
+                    "title": f"Sample Records from {t}",
+                    "question": f"Show a sample of 15 records from `{t}` with key information.",
+                    "viz": {"type": "table"},
+                }
+            )
 
     # Charts: force required viz set for a "super dashboard"
     # Ajustar índice inicial se já temos pergunta original
@@ -855,16 +986,22 @@ def _fallback_plan(
     # Calcular quantos charts precisamos: total desejado - widgets já criados
     num_charts_needed = max_widgets - len(widgets)
     charts_to_generate = min(max(0, num_charts_needed), len(required_viz))
-    
+
     for i, viz_type in enumerate(required_viz[:charts_to_generate], start=start_idx):
         pair = _pick_pair(i)
         if pair:
             a, b, key = pair
             a_cols = table_cols.get(a, [])
             b_cols = table_cols.get(b, [])
-            metric = _pick_col_agnostic(a, a_cols, "metric", meta_map) or _pick_col_agnostic(b, b_cols, "metric", meta_map)
-            dim = _pick_col_agnostic(b, b_cols, "attribute", meta_map) or _pick_col_agnostic(a, a_cols, "attribute", meta_map)
-            dt = _pick_col_agnostic(a, a_cols, "time", meta_map) or _pick_col_agnostic(b, b_cols, "time", meta_map)
+            metric = _pick_col_agnostic(
+                a, a_cols, "metric", meta_map
+            ) or _pick_col_agnostic(b, b_cols, "metric", meta_map)
+            dim = _pick_col_agnostic(
+                b, b_cols, "attribute", meta_map
+            ) or _pick_col_agnostic(a, a_cols, "attribute", meta_map)
+            dt = _pick_col_agnostic(a, a_cols, "time", meta_map) or _pick_col_agnostic(
+                b, b_cols, "time", meta_map
+            )
 
             if viz_type in {"line", "area"} and dt:
                 question = (
@@ -898,7 +1035,15 @@ def _fallback_plan(
                 viz = {"type": "bar", "mapping": {"x": "category", "y": "value"}}
                 title = f"Top {dim or 'categories'}"
 
-            widgets.append({"widget_key": f"w{i}", "type": "chart", "title": title, "question": question, "viz": viz})
+            widgets.append(
+                {
+                    "widget_key": f"w{i}",
+                    "type": "chart",
+                    "title": title,
+                    "question": question,
+                    "viz": viz,
+                }
+            )
         else:
             # ✅ MELHORIA: Single-table fallback com perguntas específicas
             t = picked[(i - 1) % max(1, len(picked))]
@@ -906,7 +1051,7 @@ def _fallback_plan(
             metric = _choose_metric_col(t_cols)
             dim = _choose_dim_col(t_cols)
             dt = _choose_date_col(t_cols)
-            
+
             # Gerar pergunta específica baseada no tipo de viz e colunas disponíveis
             if viz_type in {"line", "area"} and dt and metric:
                 question = f"What is the trend of {metric} over time using `{dt}` from `{t}`? Show monthly aggregation."
@@ -930,14 +1075,16 @@ def _fallback_plan(
                 question = f"What is the distribution of records in `{t}` by main dimension? Show top 10."
                 viz = {"type": viz_type, "mapping": {"x": "category", "y": "value"}}
                 title = f"Distribution in {t}"
-            
-            widgets.append({
-                "widget_key": f"w{i}",
-                "type": "chart",
-                "title": title,
-                "question": question,
-                "viz": viz,
-            })
+
+            widgets.append(
+                {
+                    "widget_key": f"w{i}",
+                    "type": "chart",
+                    "title": title,
+                    "question": question,
+                    "viz": viz,
+                }
+            )
 
     # Trim to max_widgets
     widgets = widgets[:max_widgets]
@@ -946,97 +1093,208 @@ def _fallback_plan(
     domain = "general"
     goal_lower = goal.lower()
     all_tables_lower = " ".join(logical_tables).lower()
-    
-    if any(x in goal_lower or x in all_tables_lower for x in ["sale", "order", "revenue", "product", "deal"]):
+
+    if any(
+        x in goal_lower or x in all_tables_lower
+        for x in ["sale", "order", "revenue", "product", "deal"]
+    ):
         domain = "sales"
-    elif any(x in goal_lower or x in all_tables_lower for x in ["pay", "refund", "invoice", "transaction", "bank", "billing"]):
+    elif any(
+        x in goal_lower or x in all_tables_lower
+        for x in ["pay", "refund", "invoice", "transaction", "bank", "billing"]
+    ):
         domain = "payments"
-    elif any(x in goal_lower or x in all_tables_lower for x in ["user", "customer", "visitor", "churn", "client"]):
+    elif any(
+        x in goal_lower or x in all_tables_lower
+        for x in ["user", "customer", "visitor", "churn", "client"]
+    ):
         domain = "users"
 
     # Define thematic pattern clusters
     patterns = {
         "sales": [
-            ("kpi", "Total Revenue", "What is the total revenue summed across all records?"),
-            ("chart", "Revenue Trend", "Show the monthly revenue trend. Return period and value.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
-            ("chart", "Top Products", "What are the top 10 products by revenue?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
-            ("chart", "Sales Distribution", "Show sales distribution by category.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
-            ("table", "Recent Orders", "Show the 15 most recent orders with key details."),
-            ("chart", "Monthly Growth", "Show the percentage growth in sales month over month.", {"type": "area", "mapping": {"x": "period", "y": "value"}}),
+            (
+                "kpi",
+                "Total Revenue",
+                "What is the total revenue summed across all records?",
+            ),
+            (
+                "chart",
+                "Revenue Trend",
+                "Show the monthly revenue trend. Return period and value.",
+                {"type": "line", "mapping": {"x": "period", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Top Products",
+                "What are the top 10 products by revenue?",
+                {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Sales Distribution",
+                "Show sales distribution by category.",
+                {"type": "pie", "mapping": {"x": "category", "y": "value"}},
+            ),
+            (
+                "table",
+                "Recent Orders",
+                "Show the 15 most recent orders with key details.",
+            ),
+            (
+                "chart",
+                "Monthly Growth",
+                "Show the percentage growth in sales month over month.",
+                {"type": "area", "mapping": {"x": "period", "y": "value"}},
+            ),
         ],
         "payments": [
             ("kpi", "Total Collections", "What is the total amount collected?"),
-            ("chart", "Payment Status", "Show the distribution of payments by status.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
-            ("chart", "Refund Rate", "What is the trend of refunds over time?", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
-            ("chart", "Top Billing Regions", "Which regions have the highest billing volume?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
+            (
+                "chart",
+                "Payment Status",
+                "Show the distribution of payments by status.",
+                {"type": "pie", "mapping": {"x": "category", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Refund Rate",
+                "What is the trend of refunds over time?",
+                {"type": "line", "mapping": {"x": "period", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Top Billing Regions",
+                "Which regions have the highest billing volume?",
+                {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+            ),
             ("table", "Recent Transactions", "Show the last 15 payment transactions."),
-            ("chart", "Average Transaction Value", "Show average transaction value by month.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
+            (
+                "chart",
+                "Average Transaction Value",
+                "Show average transaction value by month.",
+                {"type": "line", "mapping": {"x": "period", "y": "value"}},
+            ),
         ],
         "users": [
             ("kpi", "Total Users", "How many unique users are in the system?"),
-            ("chart", "User Growth", "Show the monthly trend of new user registrations.", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
-            ("chart", "User Retention", "Show active users by segment/type.", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
-            ("chart", "Geographic Distribution", "Show the distribution of users by country or region.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            (
+                "chart",
+                "User Growth",
+                "Show the monthly trend of new user registrations.",
+                {"type": "line", "mapping": {"x": "period", "y": "value"}},
+            ),
+            (
+                "chart",
+                "User Retention",
+                "Show active users by segment/type.",
+                {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Geographic Distribution",
+                "Show the distribution of users by country or region.",
+                {"type": "pie", "mapping": {"x": "category", "y": "value"}},
+            ),
             ("table", "Latest Signups", "Show details of the 15 newest members."),
-            ("chart", "Activity Breakdown", "What is the distribution of user activity status?", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            (
+                "chart",
+                "Activity Breakdown",
+                "What is the distribution of user activity status?",
+                {"type": "pie", "mapping": {"x": "category", "y": "value"}},
+            ),
         ],
         "general": [
             ("kpi", "Total Activity", "What is the total count of records?"),
-            ("chart", "Volume Trend", "How does record volume trend over time?", {"type": "line", "mapping": {"x": "period", "y": "value"}}),
-            ("chart", "Top Segments", "What are the top 10 segments for this data?", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
-            ("chart", "Data Composition", "Show the distribution of records by its primary category.", {"type": "pie", "mapping": {"x": "category", "y": "value"}}),
+            (
+                "chart",
+                "Volume Trend",
+                "How does record volume trend over time?",
+                {"type": "line", "mapping": {"x": "period", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Top Segments",
+                "What are the top 10 segments for this data?",
+                {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+            ),
+            (
+                "chart",
+                "Data Composition",
+                "Show the distribution of records by its primary category.",
+                {"type": "pie", "mapping": {"x": "category", "y": "value"}},
+            ),
             ("table", "Recent Records", "Show the most recent 15 records."),
-            ("chart", "Density Analysis", "Show the distribution of data counts.", {"type": "bar", "mapping": {"x": "category", "y": "value"}}),
-        ]
+            (
+                "chart",
+                "Density Analysis",
+                "Show the distribution of data counts.",
+                {"type": "bar", "mapping": {"x": "category", "y": "value"}},
+            ),
+        ],
     }
 
     # Select domain patterns and shuffle to avoid fixed order
     domain_patterns = patterns.get(domain, patterns["general"])
     random.shuffle(domain_patterns)
-    
+
     # Fill remaining widgets from patterns
     pattern_idx = 0
     while len(widgets) < max_widgets and pattern_idx < len(domain_patterns):
         p_type, p_title, p_question, *p_viz = domain_patterns[pattern_idx]
-        
+
         # Determine table to use
-        t = picked[pattern_idx % max(1, len(picked))] # Use picked tables for context
-        question_with_table = p_question.replace("records", f"`{t}` records").replace("system", f"`{t}` table")
-        if "`" not in question_with_table and not question_with_table.startswith("From"):
-             question_with_table = f"From `{t}`: {p_question}"
-        
-        widgets.append({
-            "widget_key": f"w{len(widgets)+1}",
-            "type": p_type,
-            "title": f"[{domain.title()}] {p_title}",
-            "question": question_with_table,
-            "viz": p_viz[0] if p_viz else {"type": p_type}
-        })
+        t = picked[pattern_idx % max(1, len(picked))]  # Use picked tables for context
+        question_with_table = p_question.replace("records", f"`{t}` records").replace(
+            "system", f"`{t}` table"
+        )
+        if "`" not in question_with_table and not question_with_table.startswith(
+            "From"
+        ):
+            question_with_table = f"From `{t}`: {p_question}"
+
+        widgets.append(
+            {
+                "widget_key": f"w{len(widgets)+1}",
+                "type": p_type,
+                "title": f"[{domain.title()}] {p_title}",
+                "question": question_with_table,
+                "viz": p_viz[0] if p_viz else {"type": p_type},
+            }
+        )
         pattern_idx += 1
 
     # Final safety: if still not enough, add simple KPI for each table
     for i, t in enumerate(picked):
-        if len(widgets) >= max_widgets: break
-        widgets.append({
-            "widget_key": f"w{len(widgets)+1}",
-            "type": "kpi",
-            "title": f"Total {t.title()}",
-            "question": f"How many records are in `{t}` in total?",
-            "viz": {"type": "kpi"}
-        })
+        if len(widgets) >= max_widgets:
+            break
+        widgets.append(
+            {
+                "widget_key": f"w{len(widgets)+1}",
+                "type": "kpi",
+                "title": f"Total {t.title()}",
+                "question": f"How many records are in `{t}` in total?",
+                "viz": {"type": "kpi"},
+            }
+        )
 
     return DavinciDashboardPlan(
         dashboard_name=goal.strip()[:80] or "Dashboard",
         description=f"Auto-generated {domain} dashboard with intention-aware variety.",
         widgets=widgets[:max_widgets],
-        meta={"fallback": True, "reason": "SMART_FALLBACK", "domain": domain, "has_original_question": original_question is not None},
+        meta={
+            "fallback": True,
+            "reason": "SMART_FALLBACK",
+            "domain": domain,
+            "has_original_question": original_question is not None,
+        },
         full_results={
             "verdict": f"Automated analysis for: {goal}",
             "descriptive": {"charts": [], "kpis": []},
             "diagnostic": "Analysis limited due to generation constraints.",
             "predictive": "N/A",
-            "prescriptive": "N/A"
-        }
+            "prescriptive": "N/A",
+        },
     )
 
 
@@ -1048,13 +1306,13 @@ def validate_plan_structure(plan: dict) -> dict:
     for key in required_keys:
         if key not in plan:
             raise ValueError(f"Missing required key: {key}")
-            
+
     if not isinstance(plan["descriptive"], dict):
         raise ValueError("Field 'descriptive' must be an object")
 
     if "charts" not in plan["descriptive"]:
         raise ValueError("Missing 'charts' in descriptive section")
-        
+
     return plan
 
 
@@ -1063,31 +1321,35 @@ def enforce_mode_rules(plan: dict, mode: str) -> dict:
     Deterministic enforcement of mode constraints (charts count, text length, sections).
     """
     config = MODE_CONFIG[mode]
-    
+
     # 1. Enforce Chart Limits
     charts = plan["descriptive"].get("charts", [])
     if not isinstance(charts, list):
         charts = []
-        
+
     # Slice to max
-    charts = charts[:config["max_charts"]]
-    
+    charts = charts[: config["max_charts"]]
+
     # Check min (Critical fail-fast)
     if len(charts) < config["min_charts"]:
-        # Log this event but maybe don't crash hard if we can survive? 
+        # Log this event but maybe don't crash hard if we can survive?
         # User requested "Fail fast > inconsistent dashboard".
         # But for "visual" mode requiring 5 charts, if LLM gives 4, maybe we shouldn't crash?
         # Let's conform to the plan: Raise ValueError.
-        raise ValueError(f"Insufficient charts generated for mode '{mode}'. Expected min {config['min_charts']}, got {len(charts)}.")
-        
+        raise ValueError(
+            f"Insufficient charts generated for mode '{mode}'. Expected min {config['min_charts']}, got {len(charts)}."
+        )
+
     plan["descriptive"]["charts"] = charts
-    
+
     # 2. Enforce Sections
     allowed_sections = set(config["include_sections"])
-    keys_to_remove = [k for k in plan.keys() if k not in allowed_sections and k != "descriptive"]
+    keys_to_remove = [
+        k for k in plan.keys() if k not in allowed_sections and k != "descriptive"
+    ]
     for k in keys_to_remove:
         plan.pop(k, None)
-        
+
     # 3. Enforce Text Length
     for section, limit in config["max_text"].items():
         if section in plan and isinstance(plan[section], str):
@@ -1095,18 +1357,20 @@ def enforce_mode_rules(plan: dict, mode: str) -> dict:
                 # Smart trim? Or just hard trim?
                 # Hard trim for safety + ellipsis
                 plan[section] = plan[section][:limit] + "..."
-                
+
     return plan
 
 
-def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[AnalysisContext] = None) -> List[Dict[str, Any]]:
+def convert_to_widgets(
+    plan: dict, mode: str, analysis_context: Optional[AnalysisContext] = None
+) -> List[Dict[str, Any]]:
     """
     Converts the structured insight plan into the flat list of widgets expected by the frontend.
     Enforces Strict Cognitive Order: Verdict -> Charts -> Narrative.
     """
     widgets = []
     widget_counter = 1
-    
+
     def next_key():
         nonlocal widget_counter
         k = f"w{widget_counter}"
@@ -1117,130 +1381,130 @@ def convert_to_widgets(plan: dict, mode: str, analysis_context: Optional[Analysi
     if analysis_context:
         # We assume the caller handles the anchor widget logic or we build it here.
         # The original code built it separately. Let's build it here to be clean.
-        # But wait, `_build_primary_widget_from_context` needs `goal`. 
+        # But wait, `_build_primary_widget_from_context` needs `goal`.
         # For now, let's assume the LLM plan is the source of truth for NEW widgets.
         pass
 
     # 1. Title/Verdict (Headline / Text Widget)
     # The 'verdict' field now acts as the main title/headline for the dashboard
     if "verdict" in plan and plan["verdict"]:
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "text",
-            "title": "Analysis Title",
-            "question": "N/A",
-            "viz": {
+        widgets.append(
+            {
+                "widget_key": next_key(),
                 "type": "text",
-                "content": f"# {plan['verdict']}" # Markdown H1
+                "title": "Analysis Title",
+                "question": "N/A",
+                "viz": {
+                    "type": "text",
+                    "content": f"# {plan['verdict']}",  # Markdown H1
+                },
             }
-        })
+        )
 
     # 2. Charts (Descriptive)
     for chart in plan["descriptive"].get("charts", []):
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "chart",
-            "title": chart.get("title", "Chart"),
-            "question": chart.get("question", ""),
-            "viz": {
-                "type": chart.get("viz_type", "bar"),
-                "mapping": {
-                    "x": chart.get("x_axis", "category"),
-                    "y": chart.get("y_axis", "value")
-                }
-            },
-            "data_requirements": chart.get("data_requirements", {}),
-            "layout": chart.get("layout") # NEW: Pass Grid Layout
-        })
+        widgets.append(
+            {
+                "widget_key": next_key(),
+                "type": "chart",
+                "title": chart.get("title", "Chart"),
+                "question": chart.get("question", ""),
+                "viz": {
+                    "type": chart.get("viz_type", "bar"),
+                    "mapping": {
+                        "x": chart.get("x_axis", "category"),
+                        "y": chart.get("y_axis", "value"),
+                    },
+                },
+                "data_requirements": chart.get("data_requirements", {}),
+                "layout": chart.get("layout"),  # NEW: Pass Grid Layout
+            }
+        )
 
     # 3. KPIs (Descriptive)
     for kpi in plan["descriptive"].get("kpis", []):
-         widgets.append({
-            "widget_key": next_key(),
-            "type": "kpi",
-            "title": kpi.get("title", "KPI"),
-            "question": kpi.get("question", ""),
-            "viz": {"type": "kpi"},
-            "layout": kpi.get("layout") # NEW: Pass Grid Layout
-        })
+        widgets.append(
+            {
+                "widget_key": next_key(),
+                "type": "kpi",
+                "title": kpi.get("title", "KPI"),
+                "question": kpi.get("question", ""),
+                "viz": {"type": "kpi"},
+                "layout": kpi.get("layout"),  # NEW: Pass Grid Layout
+            }
+        )
 
     # 4. Diagnostic (Narrative)
     if "diagnostic" in plan and plan["diagnostic"]:
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "text",
-            "title": "Diagnostic Analysis",
-            "question": "N/A",
-            "viz": {
+        widgets.append(
+            {
+                "widget_key": next_key(),
                 "type": "text",
-                "content": plan["diagnostic"]
+                "title": "Diagnostic Analysis",
+                "question": "N/A",
+                "viz": {"type": "text", "content": plan["diagnostic"]},
             }
-        })
+        )
 
     # 5. Predictive (Narrative)
     if "predictive" in plan and plan["predictive"]:
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "text",
-            "title": "Predictive Outlook",
-            "question": "N/A",
-            "viz": {
+        widgets.append(
+            {
+                "widget_key": next_key(),
                 "type": "text",
-                "content": plan["predictive"]
+                "title": "Predictive Outlook",
+                "question": "N/A",
+                "viz": {"type": "text", "content": plan["predictive"]},
             }
-        })
+        )
 
     # 6. Prescriptive (Narrative)
     if "prescriptive" in plan and plan["prescriptive"]:
-        widgets.append({
-            "widget_key": next_key(),
-            "type": "text",
-            "title": "Recommendations",
-            "question": "N/A",
-            "viz": {
+        widgets.append(
+            {
+                "widget_key": next_key(),
                 "type": "text",
-                "content": plan["prescriptive"]
+                "title": "Recommendations",
+                "question": "N/A",
+                "viz": {"type": "text", "content": plan["prescriptive"]},
             }
-        })
+        )
 
     return widgets
 
 
 def generate_structured_insight(
-    llm: Any,
-    mode: str,
-    system_prompt: str,
-    user_prompt: str
+    llm: Any, mode: str, system_prompt: str, user_prompt: str
 ) -> dict:
     """
     Calls the LLM with mode-specific configurations to generate the structured plan.
     """
     config = MODE_CONFIG[mode]["llm"]
-    
+
     # Adjust prompt to enforce JSON structure
     # Adjust prompt to enforce JSON structure with Layout & Filters
     json_schema = (
         "{\n"
-        "  \"verdict\": \"A concise, engaging Title/Headline for this analysis (string)\",\n"
-        "  \"filters\": [{ \"label\": \"Filter Label\", \"field\": \"column_name\", \"type\": \"text|date_range|select\" }],\n"
-        "  \"descriptive\": {\n"
-        "      \"charts\": [{\n"
-        "          \"title\": \"...\",\n"
-        "          \"question\": \"...\",\n"
-        "          \"viz_type\": \"bar|line|pie|scatter|area|table\",\n"
-        "          \"x_axis\": \"...\",\n"
-        "          \"y_axis\": \"...\",\n"
-        "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (1-12), \"h\": int (min 4) }\n"
+        '  "verdict": "A concise, engaging Title/Headline for this analysis (string)",\n'
+        '  "filters": [{ "label": "Filter Label", "field": "column_name", "type": "text|date_range|select" }],\n'
+        '  "descriptive": {\n'
+        '      "charts": [{\n'
+        '          "title": "...",\n'
+        '          "question": "...",\n'
+        '          "viz_type": "bar|line|pie|scatter|area|table",\n'
+        '          "x_axis": "...",\n'
+        '          "y_axis": "...",\n'
+        '          "layout": { "x": int (0-11), "y": int (row index >= 0), "w": int (1-12), "h": int (min 4) }\n'
         "      }],\n"
-        "      \"kpis\": [{\n"
-        "          \"title\": \"...\",\n" 
-        "          \"question\": \"...\",\n"
-        "          \"layout\": { \"x\": int (0-11), \"y\": int (row index >= 0), \"w\": int (min 3), \"h\": int (min 2) }\n"
+        '      "kpis": [{\n'
+        '          "title": "...",\n'
+        '          "question": "...",\n'
+        '          "layout": { "x": int (0-11), "y": int (row index >= 0), "w": int (min 3), "h": int (min 2) }\n'
         "      }]\n"
         "  },\n"
-        "  \"diagnostic\": \"Why did this happen? (string)\",\n"
-        "  \"predictive\": \"What will happen? (string)\",\n"
-        "  \"prescriptive\": \"What should we do? (string)\"\n"
+        '  "diagnostic": "Why did this happen? (string)",\n'
+        '  "predictive": "What will happen? (string)",\n'
+        '  "prescriptive": "What should we do? (string)"\n'
         "}\n\n"
         "LAYOUT RULES (Important):\n"
         "- Use a standard 12-column grid system.\n"
@@ -1255,7 +1519,7 @@ def generate_structured_insight(
         "Example Diagnostic: 'The spike was driven by [[Metric: Summer Campaign | $2.5M | success]], while [[Metric: Churn | 12% | danger]] remained high.'\n"
         "Statuses: success (green/up), warning (orange/neutral), danger (red/down), info (blue/neutral)."
     )
-    
+
     instruction = (
         f"\n\nMODE: You are generating a {mode.upper()} dashboard.\n"
         f"OUTPUT FORMAT: You must return a SINGLE JSON object strictly following this schema:\n"
@@ -1275,7 +1539,7 @@ def generate_structured_insight(
         )
     else:
         instruction += "ORDER REQUIREMENT: Ensure the flow is Verdict (Headline) -> Charts/KPIs -> Diagnostic -> Predictive -> Prescriptive.\n"
-    
+
     # Merge instruction into system prompt
     full_system = system_prompt + instruction
 
@@ -1285,44 +1549,94 @@ def generate_structured_insight(
         # For now, we rely on the implementation plan's architecture.
         # If LLM object is already configured, we might not be able to override here easily without a `bind` or similar.
         # We will assume standard invoke for now.
-        resp = llm.invoke([{"role": "system", "content": full_system}, {"role": "user", "content": user_prompt}])
+        resp = llm.invoke(
+            [
+                {"role": "system", "content": full_system},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
         content = getattr(resp, "content", "") or ""
-        
+
         parsed = _safe_json_loads(content)
         if not parsed:
             raise ValueError("Failed to parse LLM JSON response")
-            
+
         return parsed
-        
+
     except Exception as e:
-        log_event("davinci_structured_generation_error", {"mode": mode, "error": str(e)})
+        log_event(
+            "davinci_structured_generation_error", {"mode": mode, "error": str(e)}
+        )
         raise e
-
-
 
 
 def _choose_metric_col(cols: List[str]) -> Optional[str]:
     for c in cols:
-        if any(x in c.lower() for x in ["amount", "value", "total", "price", "cost", "revenue", "sales", "count", "qty"]):
+        if any(
+            x in c.lower()
+            for x in [
+                "amount",
+                "value",
+                "total",
+                "price",
+                "cost",
+                "revenue",
+                "sales",
+                "count",
+                "qty",
+            ]
+        ):
             return c
     return cols[0] if cols else None
 
+
 def _choose_dim_col(cols: List[str]) -> Optional[str]:
     for c in cols:
-        if any(x in c.lower() for x in ["status", "type", "category", "region", "country", "name", "customer", "product"]):
+        if any(
+            x in c.lower()
+            for x in [
+                "status",
+                "type",
+                "category",
+                "region",
+                "country",
+                "name",
+                "customer",
+                "product",
+            ]
+        ):
             return c
     return cols[1] if len(cols) > 1 else (cols[0] if cols else None)
 
+
 def _choose_date_col(cols: List[str]) -> Optional[str]:
     for c in cols:
-        if any(x in c.lower() for x in ["date", "time", "created", "timestamp", "period", "day", "month", "year"]):
+        if any(
+            x in c.lower()
+            for x in [
+                "date",
+                "time",
+                "created",
+                "timestamp",
+                "period",
+                "day",
+                "month",
+                "year",
+            ]
+        ):
             return c
     return None
 
-def _pick_col_agnostic(t_name: str, cols: List[str], role: str, meta_map: Dict[str, Any]) -> Optional[str]:
-    if role == "metric": return _choose_metric_col(cols)
-    if role == "time": return _choose_date_col(cols)
-    if role == "attribute": return _choose_dim_col(cols)
+
+def _pick_col_agnostic(
+    t_name: str, cols: List[str], role: str, meta_map: Dict[str, Any]
+) -> Optional[str]:
+    if role == "metric":
+        return _choose_metric_col(cols)
+    if role == "time":
+        return _choose_date_col(cols)
+    if role == "attribute":
+        return _choose_dim_col(cols)
     return cols[0] if cols else None
 
 
@@ -1351,27 +1665,41 @@ def generate_dashboard_plan(
     # 0. Validate Mode
     mode = validate_mode(mode) if mode else "mix"
     config = MODE_CONFIG[mode]
-    
+
     # language = "en" <-- REMOVED (Implicit default in prompts)
-    
+
     if not logical_tables:
         try:
             with open("/tmp/davinci_debug.log", "a") as f:
-                f.write(f"{datetime.utcnow()} - FALLBACK: No logical tables found. Goal: {goal}\n")
-        except: pass
-        return _fallback_plan(goal=goal, logical_tables=[], max_widgets=max_widgets, schema_summary=schema_summary, original_question=original_question, table_metadata=table_metadata)
+                f.write(
+                    f"{datetime.utcnow()} - FALLBACK: No logical tables found. Goal: {goal}\n"
+                )
+        except:
+            pass
+        return _fallback_plan(
+            goal=goal,
+            logical_tables=[],
+            max_widgets=max_widgets,
+            schema_summary=schema_summary,
+            original_question=original_question,
+            table_metadata=table_metadata,
+        )
 
     table_cols, table_keys = _parse_schema_summary(schema_summary)
 
     # 🧠 SCHEMA INTELLIGENCE INJECTION (Kept Inline for robustness)
     enriched_schema_summary = schema_summary
     dataset_constraints_text = ""
-    
+
     if table_metadata:
         try:
             # Pre-compute roles
             meta_map = {
-                (f"{t.get('schema')}.{t.get('name')}" if t.get('schema') else t.get('name')): t 
+                (
+                    f"{t.get('schema')}.{t.get('name')}"
+                    if t.get("schema")
+                    else t.get("name")
+                ): t
                 for t in table_metadata
             }
             for t in table_metadata:
@@ -1380,11 +1708,19 @@ def generate_dashboard_plan(
             # 1. Filter non-analytic tables
             filtered_logical = []
             for t_name in logical_tables:
-                 t_meta = meta_map.get(t_name)
-                 row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0) if t_meta else 0
-                 if not AnalyticTableFilter.should_exclude(t_name, row_count):
-                     filtered_logical.append(t_name)
-            
+                t_meta = meta_map.get(t_name)
+                row_count = (
+                    int(
+                        t_meta.get("row_count")
+                        or t_meta.get("stats", {}).get("row_count")
+                        or 0
+                    )
+                    if t_meta
+                    else 0
+                )
+                if not AnalyticTableFilter.should_exclude(t_name, row_count):
+                    filtered_logical.append(t_name)
+
             if len(filtered_logical) > 0:
                 logical_tables = filtered_logical
 
@@ -1408,28 +1744,40 @@ def generate_dashboard_plan(
                 t_meta = meta_map.get(t_name)
                 role_info = ""
                 new_col_str = col_str
-                
+
                 if t_meta:
                     role = _get_table_role(t_name, t_meta).upper()
-                    row_count = int(t_meta.get("row_count") or t_meta.get("stats", {}).get("row_count") or 0)
+                    row_count = int(
+                        t_meta.get("row_count")
+                        or t_meta.get("stats", {}).get("row_count")
+                        or 0
+                    )
                     row_str = f", ~{row_count} rows" if row_count is not None else ""
                     role_info = f" [{role}{row_str}]"
-                    
+
                     summary_cols = [c.strip() for c in col_str.split(",")]
                     enriched_cols = []
-                    col_meta_lookup = {c.get("name").lower(): c for c in t_meta.get("columns", [])}
-                    
+                    col_meta_lookup = {
+                        c.get("name").lower(): c for c in t_meta.get("columns", [])
+                    }
+
                     for c_raw in summary_cols:
                         c_name = c_raw.lower()
                         c_meta = col_meta_lookup.get(c_name)
                         suffix = ""
                         if c_meta:
-                            col_role = "attribute" # Default
+                            col_role = "attribute"  # Default
                             # Simple heuristics for suffix
                             ctype = str(c_meta.get("type", "")).upper()
-                            if any(x in ctype for x in ["INT", "FLOAT", "NUMERIC", "DECIMAL"]): suffix = " [M]"
-                            elif any(x in ctype for x in ["DATE", "TIME"]): suffix = " [T]"
-                            elif "id" in c_name: suffix = " [K]"
+                            if any(
+                                x in ctype
+                                for x in ["INT", "FLOAT", "NUMERIC", "DECIMAL"]
+                            ):
+                                suffix = " [M]"
+                            elif any(x in ctype for x in ["DATE", "TIME"]):
+                                suffix = " [T]"
+                            elif "id" in c_name:
+                                suffix = " [K]"
                         enriched_cols.append(f"{c_raw}{suffix}")
                     new_col_str = ", ".join(enriched_cols)
 
@@ -1437,26 +1785,29 @@ def generate_dashboard_plan(
                     min_d = None
                     max_d = None
                     for c in t_meta.get("columns", []):
-                        if c.get("min_date") and (not min_d or c["min_date"] < min_d): min_d = c["min_date"]
-                        if c.get("max_date") and (not max_d or c["max_date"] > max_d): max_d = c["max_date"]
+                        if c.get("min_date") and (not min_d or c["min_date"] < min_d):
+                            min_d = c["min_date"]
+                        if c.get("max_date") and (not max_d or c["max_date"] > max_d):
+                            max_d = c["max_date"]
                     if min_d and max_d:
-                         role_info += f" [Range: {str(min_d).split()[0]} to {str(max_d).split()[0]}]"
+                        role_info += f" [Range: {str(min_d).split()[0]} to {str(max_d).split()[0]}]"
 
                 lines.append(f"- {t_name}{role_info} cols: {new_col_str}")
             enriched_schema_summary = "\n".join(lines)
-            
+
             # 3. Dataset Profiling (Simplified)
             from core.profiling import DatasetProfiler, ConstraintGenerator
+
             profiler = DatasetProfiler()
             constraint_gen = ConstraintGenerator()
             profiles = profiler.profile_tables(table_metadata or [])
             stats = profiler.get_size_statistics(profiles)
             smallest_size = stats["smallest_size"]
             constraints = constraint_gen.generate(smallest_size)
-            
+
             if smallest_size in ["tiny", "small"]:
-                 dataset_constraints_text = f"\n⚠️ DATASET SIZE: {smallest_size.upper()}. Use aggregations. Avoid specific filters unless requested."
-                 
+                dataset_constraints_text = f"\n⚠️ DATASET SIZE: {smallest_size.upper()}. Use aggregations. Avoid specific filters unless requested."
+
         except Exception as e:
             log_event("davinci_enrichment_error", {"error": str(e)})
 
@@ -1468,7 +1819,7 @@ def generate_dashboard_plan(
         "Think like a Senior Data Analyst: Start with the most important numbers, then explain 'Why' (Diagnostics), then look forward (Predictive).\n"
         "IMPORTANT: You must ALWAYS respond in English, regardless of the user's input language. If the user asks in Portuguese or Spanish, you must still answer in English.\n"
     )
-    
+
     # Context String
     context_str = ""
     if initial_ai_response:
@@ -1509,18 +1860,15 @@ def generate_dashboard_plan(
     try:
         # 1. Generate Structured Insight
         structured_plan = generate_structured_insight(
-            llm=llm,
-            mode=mode,
-            system_prompt=system_base,
-            user_prompt=user_base
+            llm=llm, mode=mode, system_prompt=system_base, user_prompt=user_base
         )
-        
+
         # 2. Validate Structure
         structured_plan = validate_plan_structure(structured_plan)
-        
+
         # 3. Enforce Mode Rules
         structured_plan = enforce_mode_rules(structured_plan, mode)
-        
+
         # 4. Convert to Widgets
         widgets = convert_to_widgets(structured_plan, mode, analysis_context)
 
@@ -1529,49 +1877,51 @@ def generate_dashboard_plan(
         if table_metadata:
             try:
                 from core.agents.davinci_validator import DavinciPlanValidator
+
                 validator = DavinciPlanValidator(table_metadata)
                 grounding_result = validator.validate_plan(
-                    structured_plan, 
-                    context_provided=bool(initial_ai_response)
+                    structured_plan, context_provided=bool(initial_ai_response)
                 )
             except Exception as e:
                 log_event("davinci_validation_error", {"error": str(e)})
-        
+
         # 5. Metadata & Response
         return DavinciDashboardPlan(
             dashboard_name=original_question or goal,
             description=structured_plan.get("verdict", ""),
             widgets=widgets,
-            filters=structured_plan.get("filters"), # NEW: Pass generated filters
+            filters=structured_plan.get("filters"),  # NEW: Pass generated filters
             meta={
                 "mode": mode,
                 "grounding": grounding_result,
                 "generated_at": datetime.utcnow().isoformat(),
                 "model": getattr(llm, "model_name", "unknown"),
-                "has_original_question": original_question is not None
+                "has_original_question": original_question is not None,
             },
-            full_results=structured_plan # PASS RAW PLAN
+            full_results=structured_plan,  # PASS RAW PLAN
         )
 
     except ValueError as e:
-        log_event("davinci_mode_validation_failed", {"error": str(e), "mode": mode, "goal": goal})
+        log_event(
+            "davinci_mode_validation_failed",
+            {"error": str(e), "mode": mode, "goal": goal},
+        )
         # If strict validation fails, we fallback to a safe default
         return _fallback_plan(
-            goal=goal, 
-            logical_tables=logical_tables, 
-            max_widgets=max_widgets, 
-            schema_summary=schema_summary, 
-            original_question=original_question, 
-            table_metadata=table_metadata
+            goal=goal,
+            logical_tables=logical_tables,
+            max_widgets=max_widgets,
+            schema_summary=schema_summary,
+            original_question=original_question,
+            table_metadata=table_metadata,
         )
     except Exception as e:
         log_event("davinci_generation_failed", {"error": str(e), "mode": mode})
         return _fallback_plan(
-            goal=goal, 
-            logical_tables=logical_tables, 
-            max_widgets=max_widgets, 
-            schema_summary=schema_summary, 
-            original_question=original_question, 
-            table_metadata=table_metadata
+            goal=goal,
+            logical_tables=logical_tables,
+            max_widgets=max_widgets,
+            schema_summary=schema_summary,
+            original_question=original_question,
+            table_metadata=table_metadata,
         )
-

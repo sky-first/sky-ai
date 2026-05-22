@@ -98,6 +98,8 @@ def get_agent_config(agent_id: str) -> AgentConfig:
     """
     yaml_path = EXAMPLES_DIR / f"{agent_id}.yaml"
     if not yaml_path.exists():
-        raise AgentNotFoundError(f"Agent YAML not found for id={agent_id} at {yaml_path}")
+        raise AgentNotFoundError(
+            f"Agent YAML not found for id={agent_id} at {yaml_path}"
+        )
 
     return load_agent_from_yaml(yaml_path)

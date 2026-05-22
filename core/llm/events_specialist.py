@@ -107,10 +107,13 @@ def run_events_specialist(
     question = state.get("question", "")
     space_id = state.get("space_id")
 
-    log_event("events_specialist_start", {
-        "question": question[:100],
-        "space_id": space_id,
-    })
+    log_event(
+        "events_specialist_start",
+        {
+            "question": question[:100],
+            "space_id": space_id,
+        },
+    )
 
     # Fetch events from backend
     events = backend_client.get_signal_events(space_id)
@@ -143,12 +146,15 @@ def run_events_specialist(
         logger.error(f"Events specialist LLM error: {e}")
         answer = f"I found event data but encountered an error analyzing it: {e}"
 
-    log_event("events_specialist_done", {
-        "question": question[:100],
-        "answer_preview": answer[:200] if answer else "",
-        "num_events": len(events),
-        "categories": list(set(e.get("category", "") for e in events)),
-    })
+    log_event(
+        "events_specialist_done",
+        {
+            "question": question[:100],
+            "answer_preview": answer[:200] if answer else "",
+            "num_events": len(events),
+            "categories": list(set(e.get("category", "") for e in events)),
+        },
+    )
 
     state["answer"] = answer
     state["signals_data"] = events

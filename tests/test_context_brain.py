@@ -89,8 +89,12 @@ async def test_rbac_space_scope_excludes_other_spaces():
 @pytest.mark.asyncio
 async def test_rbac_crew_scope_excludes_foreign_crews():
     pool = [
-        _doc("a", "widget", visibility="crew", space_id="s-1", crew_id="c-1", cosine=0.9),
-        _doc("b", "widget", visibility="crew", space_id="s-1", crew_id="c-2", cosine=0.99),
+        _doc(
+            "a", "widget", visibility="crew", space_id="s-1", crew_id="c-1", cosine=0.9
+        ),
+        _doc(
+            "b", "widget", visibility="crew", space_id="s-1", crew_id="c-2", cosine=0.99
+        ),
     ]
     result = await retrieve_context(
         "dashboard",
@@ -227,8 +231,22 @@ def test_format_evidence_prefixes_each_block_with_kind():
 @pytest.mark.asyncio
 async def test_personal_docs_only_visible_to_owner():
     pool = [
-        _doc("a", "pin", visibility="user", space_id=None, owner_user_id="u-1", cosine=0.9),
-        _doc("b", "pin", visibility="user", space_id=None, owner_user_id="u-2", cosine=0.9),
+        _doc(
+            "a",
+            "pin",
+            visibility="user",
+            space_id=None,
+            owner_user_id="u-1",
+            cosine=0.9,
+        ),
+        _doc(
+            "b",
+            "pin",
+            visibility="user",
+            space_id=None,
+            owner_user_id="u-2",
+            cosine=0.9,
+        ),
     ]
     result = await retrieve_context(
         "pins",

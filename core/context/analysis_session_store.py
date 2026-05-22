@@ -2,15 +2,16 @@ from typing import Dict, Tuple, Optional
 from core.contracts.analysis_context import AnalysisContext
 from core.logging_utils import log_event
 
+
 class AnalysisSessionStore:
     """
     In-memory store for AnalysisContexts, keyed by (user_id, connection_id).
     This acts as the short-term memory bridge between Chat interactions and Dashboard generation.
     """
-    
+
     # Storage structure: {(user_id, connection_id): AnalysisContext}
     _store: Dict[Tuple[str, str], AnalysisContext] = {}
-    
+
     @classmethod
     def save(cls, user_id: str, connection_id: str, context: AnalysisContext):
         """
@@ -18,7 +19,14 @@ class AnalysisSessionStore:
         """
         key = (user_id, connection_id)
         cls._store[key] = context
-        log_event("analysis_context_saved", {"user_id": user_id, "connection_id": connection_id, "context_version": context.version})
+        log_event(
+            "analysis_context_saved",
+            {
+                "user_id": user_id,
+                "connection_id": connection_id,
+                "context_version": context.version,
+            },
+        )
 
     @classmethod
     def get(cls, user_id: str, connection_id: str) -> Optional[AnalysisContext]:

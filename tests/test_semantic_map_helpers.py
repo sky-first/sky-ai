@@ -119,8 +119,18 @@ def test_infer_kind_prefers_entity_type_over_coarse_kind():
     # Seeder stores ``kind=knowledge`` as the coarse classifier with
     # the granular type in ``entity_type``. We need the granular form
     # so the FE can map each kind to its own concentric orbit.
-    for granular in ("glossary", "metric", "agent", "relationship", "connection",
-                     "widget", "dashboard", "space", "crew", "page"):
+    for granular in (
+        "glossary",
+        "metric",
+        "agent",
+        "relationship",
+        "connection",
+        "widget",
+        "dashboard",
+        "space",
+        "crew",
+        "page",
+    ):
         rec = _stub(extra_metadata={"kind": "knowledge", "entity_type": granular})
         assert _infer_kind(rec) == granular
 
@@ -145,7 +155,9 @@ def test_infer_kind_context_when_nothing_known():
 
 
 def test_label_for_prefers_metadata_label():
-    rec = _stub(extra_metadata={"label": "Net Revenue Retention"}, text="long text body")
+    rec = _stub(
+        extra_metadata={"label": "Net Revenue Retention"}, text="long text body"
+    )
     assert _label_for(rec) == "Net Revenue Retention"
 
 
@@ -200,7 +212,9 @@ def test_label_for_uses_table_name_for_schema_rows():
 # ─── _collapse_table_columns ────────────────────────────────────────
 
 
-def _col_stub(table_name: str, column_name: str, vec: list[float], space_id: str = "s1"):
+def _col_stub(
+    table_name: str, column_name: str, vec: list[float], space_id: str = "s1"
+):
     return _stub(
         space_id=space_id,
         extra_metadata={
@@ -230,7 +244,8 @@ def test_collapse_table_columns_folds_columns_per_table():
     np.testing.assert_allclose(vectors[metric_idx], other_vec)
     # The 'leads' aggregate is the mean of v1 and v2.
     leads_idx = next(
-        i for i, r in enumerate(records)
+        i
+        for i, r in enumerate(records)
         if r.extra_metadata.get("table_name") == "leads"
     )
     np.testing.assert_allclose(vectors[leads_idx], [0.5, 0.5, 0.0])

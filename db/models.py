@@ -40,6 +40,7 @@ def generate_uuid():
 
 # ========== ENTIDADES DE CONTEXTO ==========
 
+
 class Space(Base):
     __tablename__ = "spaces"
 
@@ -53,7 +54,9 @@ class Space(Base):
 
     crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
     crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
-    data_connections = relationship("DataConnection", secondary="space_connections", back_populates="space")
+    data_connections = relationship(
+        "DataConnection", secondary="space_connections", back_populates="space"
+    )
 
 
 class Crew(Base):
@@ -90,9 +93,9 @@ class UserPermission(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
     permission = Column(String, nullable=False)  # "read", "write", "admin"
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     user = relationship("User")
     crew = relationship("Crew")
 
@@ -106,21 +109,25 @@ class Planet(Base):
     description = Column(Text, nullable=True)
     required_scopes = Column(JSON, nullable=True)  # List[str] stored as JSON
     is_active = Column(Boolean, default=True)
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     space = relationship("Space")
 
 
 class SpaceConnection(Base):
     """Bridge table between Spaces and DataConnections"""
+
     __tablename__ = "space_connections"
-    
+
     space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), primary_key=True)
-    connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), primary_key=True)
+    connection_id = Column(
+        UUID(as_uuid=True), ForeignKey("data_connections.id"), primary_key=True
+    )
 
 
 # ========== DATA CONNECTIONS ==========
+
 
 class DataConnection(Base):
     __tablename__ = "data_connections"
@@ -130,7 +137,7 @@ class DataConnection(Base):
     # space_id removido (agora usa tabela de associação space_connections)
 
     name = Column(String, nullable=False)
-    connector_id = Column(String, nullable=True) # "bigquery", "postgres", etc.
+    connector_id = Column(String, nullable=True)  # "bigquery", "postgres", etc.
 
     config = Column(JSON, nullable=False, default=dict)
 
@@ -138,20 +145,27 @@ class DataConnection(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     # created_by_user_id removed
 
-    space = relationship("Space", secondary="space_connections", back_populates="data_connections")
+    space = relationship(
+        "Space", secondary="space_connections", back_populates="data_connections"
+    )
     # created_by_user removed
 
-    table_metadata = relationship("TableMetadata", back_populates="data_connection", cascade="all, delete-orphan")
+    table_metadata = relationship(
+        "TableMetadata", back_populates="data_connection", cascade="all, delete-orphan"
+    )
 
 
 # ========== METADADOS DE TABELAS ==========
+
 
 class TableMetadata(Base):
     __tablename__ = "table_metadata"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
 
-    data_connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=False)
+    data_connection_id = Column(
+        UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=False
+    )
     space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id"), nullable=True)
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
 
@@ -172,6 +186,7 @@ class TableMetadata(Base):
 
 # ========== EMBEDDINGS (pgvector) ==========
 
+
 class EmbeddingRecord(Base):
     __tablename__ = "embeddings"
 
@@ -181,7 +196,9 @@ class EmbeddingRecord(Base):
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
-    table_metadata_id = Column(UUID(as_uuid=True), ForeignKey("table_metadata.id"), nullable=True)
+    table_metadata_id = Column(
+        UUID(as_uuid=True), ForeignKey("table_metadata.id"), nullable=True
+    )
     document_id = Column(String, nullable=True)
 
     # Vetor de embedding — dimensão controlada por settings.embedding_dim
@@ -211,11 +228,11 @@ class ChatHistory(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
     thread_id = Column(String, nullable=False, index=True)
-    
+
     # role: user / assistant
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
-    
+
     # Metadata extra (ex: sql gerado, steps, tokens)
     extra = Column(JSON, nullable=True)
 
@@ -224,25 +241,30 @@ class ChatHistory(Base):
 
 # ========== PIPELINE JOBS ==========
 
+
 class PipelineJob(Base):
     """Stores the state of asynchronous pipeline executions."""
+
     __tablename__ = "pipeline_jobs"
 
     id = Column(String, primary_key=True)  # UUID string
-    status = Column(String, nullable=False, default="pending")  # pending, running, completed, failed
-    
+    status = Column(
+        String, nullable=False, default="pending"
+    )  # pending, running, completed, failed
+
     # Store the full result or error detail
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     logs = Column(JSON, nullable=True, default=list)
-    
+
     # Metadata for filtering/ownership
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    connection_id = Column(UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=True)
-    
+    connection_id = Column(
+        UUID(as_uuid=True), ForeignKey("data_connections.id"), nullable=True
+    )
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
 
 
 # ========== SEMANTIC CACHE ==========
@@ -258,6 +280,7 @@ class SemanticCacheRecord(Base):
                            user B's cached answer, even when both
                            are scoped to the same Space/connection.
     """
+
     __tablename__ = "semantic_cache"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
@@ -281,8 +304,10 @@ class SemanticCacheRecord(Base):
 
 # ========== KNOWLEDGE LIBRARY (shared schema with sky-poc-backend) ==========
 
+
 class KnowledgeFile(Base):
     """Mirror of sky-poc-backend's knowledge_files table. Read-only from the AI service."""
+
     __tablename__ = "knowledge_files"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
@@ -306,10 +331,15 @@ class KnowledgeFile(Base):
 
 class KnowledgeFileChunk(Base):
     """Chunks from knowledge files — embeddings written by the Celery worker."""
+
     __tablename__ = "knowledge_file_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
-    file_id = Column(UUID(as_uuid=True), ForeignKey("knowledge_files.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("knowledge_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     chunk_index = Column(Integer, nullable=False)
     page_number = Column(Integer, nullable=True)
     text = Column(Text, nullable=False)
@@ -319,4 +349,3 @@ class KnowledgeFileChunk(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     file = relationship("KnowledgeFile", back_populates="chunks")
-

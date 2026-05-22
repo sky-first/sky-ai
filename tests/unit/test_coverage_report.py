@@ -14,6 +14,7 @@ Tests:
     - depth_remaining_pct is 100 for pristine table (0 combos)
     - depth_remaining_pct decreases as combos increase
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 SPACE_ID = "00000000-0000-0000-0000-000000000001"
 
 _DT1 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-_DT2 = datetime(2024, 6, 2, 12, 0, 0, tzinfo=timezone.utc)   # newer
+_DT2 = datetime(2024, 6, 2, 12, 0, 0, tzinfo=timezone.utc)  # newer
 
 
 def _mock_db_with_side_effects(insight_rows, depth_rows, snapshot_rows):
@@ -44,10 +45,12 @@ def _mock_db_with_side_effects(insight_rows, depth_rows, snapshot_rows):
 
 # ─── build_coverage_report ────────────────────────────────────────────────────
 
+
 class TestBuildCoverageReport:
     @pytest.mark.asyncio
     async def test_empty_space_id_returns_empty(self):
         from core.agents.coverage_report import build_coverage_report
+
         db = AsyncMock()
         result = await build_coverage_report(db, "")
         assert result == []
@@ -56,6 +59,7 @@ class TestBuildCoverageReport:
     @pytest.mark.asyncio
     async def test_db_error_returns_empty(self):
         from core.agents.coverage_report import build_coverage_report
+
         db = AsyncMock()
         db.execute.side_effect = Exception("pgvector error")
         result = await build_coverage_report(db, SPACE_ID)

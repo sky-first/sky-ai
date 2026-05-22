@@ -135,11 +135,36 @@ async def test_okrs_vs_finance_question_blends_strategy_and_data():
         ),
     ]
     rows_by_id = {
-        "okr-arr": {"title": "Grow ARR 20%", "objective_title": "Increase ARR", "baseline": 70, "target": 100, "cycle_title": "Q4"},
-        "goal-growth": {"type": "corporate", "title": "Increase ARR 20%", "description": "company north star", "status": "on_track"},
-        "orders-table": {"name": "orders", "schema": "public", "connection_name": "finance_pg", "columns": ["id", "revenue", "customer_id"], "row_count": 125000},
-        "orders-revenue": {"name": "revenue", "table_name": "orders", "data_type": "numeric", "description": "order revenue"},
-        "okr-from-other-space": {"title": "Unreachable OKR", "objective_title": "Secret"},
+        "okr-arr": {
+            "title": "Grow ARR 20%",
+            "objective_title": "Increase ARR",
+            "baseline": 70,
+            "target": 100,
+            "cycle_title": "Q4",
+        },
+        "goal-growth": {
+            "type": "corporate",
+            "title": "Increase ARR 20%",
+            "description": "company north star",
+            "status": "on_track",
+        },
+        "orders-table": {
+            "name": "orders",
+            "schema": "public",
+            "connection_name": "finance_pg",
+            "columns": ["id", "revenue", "customer_id"],
+            "row_count": 125000,
+        },
+        "orders-revenue": {
+            "name": "revenue",
+            "table_name": "orders",
+            "data_type": "numeric",
+            "description": "order revenue",
+        },
+        "okr-from-other-space": {
+            "title": "Unreachable OKR",
+            "objective_title": "Secret",
+        },
     }
 
     async def fetch(evt: ContextEvent):
@@ -172,7 +197,9 @@ async def test_okrs_vs_finance_question_blends_strategy_and_data():
     ids = [r.doc.source_id for r in ranked]
 
     assert "okr" in kinds, "brain must retrieve at least one OKR"
-    assert any(k in kinds for k in ("table", "column")), "brain must retrieve data evidence"
+    assert any(
+        k in kinds for k in ("table", "column")
+    ), "brain must retrieve data evidence"
     assert "okr-from-other-space" not in ids, "RBAC must block other-space docs"
 
     evidence = format_evidence(ranked)

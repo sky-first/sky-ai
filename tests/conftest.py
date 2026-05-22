@@ -1,6 +1,7 @@
 import os
 import pytest
 
+
 @pytest.fixture(autouse=True)
 def inject_dummy_env():
     # Mocking OpenAI key in runtime to shield infrastructure from hardcoded secrets.

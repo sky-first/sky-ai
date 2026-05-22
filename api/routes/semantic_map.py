@@ -248,9 +248,7 @@ def _parse_vector(raw: Any) -> Optional[np.ndarray]:
             cleaned = raw.strip().strip("[]")
             if not cleaned:
                 return None
-            return np.array(
-                [float(v) for v in cleaned.split(",")], dtype=np.float32
-            )
+            return np.array([float(v) for v in cleaned.split(",")], dtype=np.float32)
         except (ValueError, TypeError):
             return None
     return None

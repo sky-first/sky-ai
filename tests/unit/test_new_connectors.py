@@ -6,6 +6,7 @@ Item 29: DynamoDBSource
 Item 30: ElasticsearchSource
 Item 31: Redshift + Databricks DSN auto-build in factory
 """
+
 from __future__ import annotations
 
 import json
@@ -14,6 +15,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_conn(ds_type: str, config: dict) -> MagicMock:
     conn = MagicMock()
@@ -26,9 +28,11 @@ def _make_conn(ds_type: str, config: dict) -> MagicMock:
 
 # ─── Item 28: MongoDBSource ────────────────────────────────────────────────
 
+
 class TestMongoDBSource:
     def _source(self):
         from core.data_sources.mongodb_source import MongoDBSource
+
         return MongoDBSource(
             uri="mongodb://localhost:27017",
             database="testdb",
@@ -38,6 +42,7 @@ class TestMongoDBSource:
 
     def test_dialect_is_mongodb(self):
         from core.dialects import Dialect
+
         assert self._source().dialect == Dialect.MONGODB
 
     def test_run_query_with_list_pipeline(self):
@@ -80,6 +85,7 @@ class TestMongoDBSource:
 
     def test_run_query_raises_on_invalid_json(self):
         import pytest
+
         src = self._source()
         with pytest.raises(ValueError, match="invalid JSON"):
             src.run_query("not-valid-json{{")
@@ -89,7 +95,9 @@ class TestMongoDBSource:
 
         class FakeObjectId:
             __class__ = type("ObjectId", (), {"__name__": "ObjectId"})()
-            def __str__(self): return "abc123"
+
+            def __str__(self):
+                return "abc123"
 
         doc = {"_id": FakeObjectId(), "name": "test"}
         normalized = MongoDBSource._normalize_doc(doc)
@@ -98,6 +106,7 @@ class TestMongoDBSource:
 
     def test_run_query_arrow_returns_pyarrow_table(self):
         import pyarrow as pa
+
         src = self._source()
         mock_collection = MagicMock()
         mock_collection.aggregate.return_value = [{"a": 1}, {"a": 2}]
@@ -110,6 +119,7 @@ class TestMongoDBSource:
 
     def test_run_query_arrow_empty_returns_empty_table(self):
         import pyarrow as pa
+
         src = self._source()
         mock_collection = MagicMock()
         mock_collection.aggregate.return_value = []
@@ -123,9 +133,11 @@ class TestMongoDBSource:
 
 # ─── Item 29: DynamoDBSource ──────────────────────────────────────────────
 
+
 class TestDynamoDBSource:
     def _source(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         return DynamoDBSource(
             region="us-east-1",
             table_name="Orders",
@@ -136,40 +148,51 @@ class TestDynamoDBSource:
 
     def test_dialect_is_dynamodb(self):
         from core.dialects import Dialect
+
         assert self._source().dialect == Dialect.DYNAMODB
 
     def test_deserialize_string(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert DynamoDBSource._deserialize_item({"S": "hello"}) == "hello"
 
     def test_deserialize_number_int(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert DynamoDBSource._deserialize_item({"N": "42"}) == 42
 
     def test_deserialize_number_float(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert DynamoDBSource._deserialize_item({"N": "3.14"}) == 3.14
 
     def test_deserialize_bool(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert DynamoDBSource._deserialize_item({"BOOL": True}) is True
 
     def test_deserialize_null(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert DynamoDBSource._deserialize_item({"NULL": True}) is None
 
     def test_deserialize_list(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         val = DynamoDBSource._deserialize_item({"L": [{"S": "a"}, {"N": "1"}]})
         assert val == ["a", 1]
 
     def test_deserialize_map(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
-        val = DynamoDBSource._deserialize_item({"M": {"name": {"S": "Alice"}, "age": {"N": "30"}}})
+
+        val = DynamoDBSource._deserialize_item(
+            {"M": {"name": {"S": "Alice"}, "age": {"N": "30"}}}
+        )
         assert val == {"name": "Alice", "age": 30}
 
     def test_deserialize_full_item(self):
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         raw = {
             "order_id": {"S": "O-001"},
             "amount": {"N": "250"},
@@ -214,6 +237,7 @@ class TestDynamoDBSource:
 
     def test_run_query_arrow_returns_table(self):
         import pyarrow as pa
+
         src = self._source()
         mock_client = MagicMock()
         mock_client.execute_statement.return_value = {
@@ -229,9 +253,11 @@ class TestDynamoDBSource:
 
 # ─── Item 30: ElasticsearchSource ─────────────────────────────────────────
 
+
 class TestElasticsearchSource:
     def _source(self):
         from core.data_sources.elasticsearch_source import ElasticsearchSource
+
         return ElasticsearchSource(
             hosts=["http://localhost:9200"],
             index="logs",
@@ -241,6 +267,7 @@ class TestElasticsearchSource:
 
     def test_dialect_is_elasticsearch(self):
         from core.dialects import Dialect
+
         assert self._source().dialect == Dialect.ELASTICSEARCH
 
     def test_run_query_with_dict(self):
@@ -249,8 +276,16 @@ class TestElasticsearchSource:
         mock_response = {
             "hits": {
                 "hits": [
-                    {"_id": "1", "_score": 1.0, "_source": {"level": "ERROR", "msg": "oops"}},
-                    {"_id": "2", "_score": 0.8, "_source": {"level": "WARN", "msg": "hmm"}},
+                    {
+                        "_id": "1",
+                        "_score": 1.0,
+                        "_source": {"level": "ERROR", "msg": "oops"},
+                    },
+                    {
+                        "_id": "2",
+                        "_score": 0.8,
+                        "_source": {"level": "WARN", "msg": "hmm"},
+                    },
                 ]
             }
         }
@@ -278,18 +313,21 @@ class TestElasticsearchSource:
 
     def test_run_query_raises_on_invalid_json(self):
         import pytest
+
         src = self._source()
         with pytest.raises(ValueError, match="invalid JSON"):
             src.run_query("not{json}")
 
     def test_run_query_raises_on_wrong_type(self):
         import pytest
+
         src = self._source()
         with pytest.raises(TypeError):
             src.run_query([1, 2, 3])  # list not accepted
 
     def test_run_query_arrow_returns_table(self):
         import pyarrow as pa
+
         src = self._source()
         mock_es = MagicMock()
         mock_es.search.return_value = {
@@ -305,29 +343,39 @@ class TestElasticsearchSource:
 
 # ─── Item 31: Factory DSN auto-build ──────────────────────────────────────
 
+
 class TestFactoryDSNAutoBuild:
     def test_redshift_with_explicit_dsn(self):
-        conn = _make_conn("redshift", {"dsn": "redshift+redshift_connector://u:p@host:5439/db"})
-        with patch("core.data_sources.factory.create_engine") as mock_engine, \
-             patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "redshift", {"dsn": "redshift+redshift_connector://u:p@host:5439/db"}
+        )
+        with patch("core.data_sources.factory.create_engine") as mock_engine, patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             mock_engine.return_value = MagicMock()
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         mock_engine.assert_called_once()
         assert "redshift+redshift_connector" in mock_engine.call_args[0][0]
 
     def test_redshift_auto_builds_dsn_from_parts(self):
-        conn = _make_conn("redshift", {
-            "host": "myredshift.us-east-1.redshift.amazonaws.com",
-            "username": "admin",
-            "password": "s3cr3t",
-            "database": "analytics",
-            "port": 5439,
-        })
-        with patch("core.data_sources.factory.create_engine") as mock_engine, \
-             patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "redshift",
+            {
+                "host": "myredshift.us-east-1.redshift.amazonaws.com",
+                "username": "admin",
+                "password": "s3cr3t",
+                "database": "analytics",
+                "port": 5439,
+            },
+        )
+        with patch("core.data_sources.factory.create_engine") as mock_engine, patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             mock_engine.return_value = MagicMock()
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         dsn = mock_engine.call_args[0][0]
         assert "redshift+redshift_connector" in dsn
@@ -337,23 +385,32 @@ class TestFactoryDSNAutoBuild:
 
     def test_redshift_raises_without_dsn_or_parts(self):
         import pytest
+
         conn = _make_conn("redshift", {})
-        with patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        with patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             from core.data_sources.factory import DataSourceFactory
+
             with pytest.raises(ValueError, match="needs"):
                 DataSourceFactory.build_from_dataconnection(conn)
 
     def test_databricks_auto_builds_dsn_from_parts(self):
-        conn = _make_conn("databricks", {
-            "server_hostname": "adb-123.azuredatabricks.net",
-            "http_path": "/sql/1.0/warehouses/abc",
-            "access_token": "dapiTOKEN",
-            "catalog": "main",
-        })
-        with patch("core.data_sources.factory.create_engine") as mock_engine, \
-             patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "databricks",
+            {
+                "server_hostname": "adb-123.azuredatabricks.net",
+                "http_path": "/sql/1.0/warehouses/abc",
+                "access_token": "dapiTOKEN",
+                "catalog": "main",
+            },
+        )
+        with patch("core.data_sources.factory.create_engine") as mock_engine, patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             mock_engine.return_value = MagicMock()
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         dsn = mock_engine.call_args[0][0]
         assert "databricks+connector" in dsn
@@ -361,52 +418,77 @@ class TestFactoryDSNAutoBuild:
         assert "443" in dsn
 
     def test_mongodb_factory_build(self):
-        conn = _make_conn("mongodb", {
-            "uri": "mongodb://localhost:27017",
-            "database": "testdb",
-            "collection": "events",
-        })
-        with patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "mongodb",
+            {
+                "uri": "mongodb://localhost:27017",
+                "database": "testdb",
+                "collection": "events",
+            },
+        )
+        with patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         from core.data_sources.mongodb_source import MongoDBSource
+
         assert isinstance(src, MongoDBSource)
         assert src._database == "testdb"
         assert src._collection == "events"
 
     def test_mongodb_raises_without_uri(self):
         import pytest
+
         conn = _make_conn("mongodb", {"database": "testdb"})
-        with patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        with patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             from core.data_sources.factory import DataSourceFactory
+
             with pytest.raises(ValueError, match="needs uri"):
                 DataSourceFactory.build_from_dataconnection(conn)
 
     def test_dynamodb_factory_build(self):
-        conn = _make_conn("dynamodb", {
-            "region": "eu-west-1",
-            "table_name": "Users",
-            "access_key_id": "KEY",
-            "secret_access_key": "SECRET",
-        })
-        with patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "dynamodb",
+            {
+                "region": "eu-west-1",
+                "table_name": "Users",
+                "access_key_id": "KEY",
+                "secret_access_key": "SECRET",
+            },
+        )
+        with patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         from core.data_sources.dynamodb_source import DynamoDBSource
+
         assert isinstance(src, DynamoDBSource)
         assert src._region == "eu-west-1"
         assert src._table_name == "Users"
 
     def test_elasticsearch_factory_build(self):
-        conn = _make_conn("elasticsearch", {
-            "hosts": ["https://myelastic:9200"],
-            "index": "metrics",
-            "api_key": "ESKEY",
-        })
-        with patch("core.security.config_decryption.decrypt_config", side_effect=lambda x: x):
+        conn = _make_conn(
+            "elasticsearch",
+            {
+                "hosts": ["https://myelastic:9200"],
+                "index": "metrics",
+                "api_key": "ESKEY",
+            },
+        )
+        with patch(
+            "core.security.config_decryption.decrypt_config", side_effect=lambda x: x
+        ):
             from core.data_sources.factory import DataSourceFactory
+
             src = DataSourceFactory.build_from_dataconnection(conn)
         from core.data_sources.elasticsearch_source import ElasticsearchSource
+
         assert isinstance(src, ElasticsearchSource)
         assert src._index == "metrics"
         assert src._api_key == "ESKEY"
