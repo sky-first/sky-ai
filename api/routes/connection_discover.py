@@ -10,6 +10,7 @@ because it shares the backend DB schema, not the original AI Engine schema.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging_utils import log_event
 from db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/connections", tags=["connection_discover"])
 
@@ -203,6 +206,26 @@ async def discover_tables(
                                     space_id=space_id,
                                     embedding_provider=embedding_provider,
                                 )
+                                # Item 32: strategic onboarding — suggest OKRs when brain is empty
+                                if space_id:
+                                    try:
+                                        from core.agents.strategic_onboarding import (
+                                            is_brain_empty,
+                                            suggest_okrs_from_datasets,
+                                            save_okr_suggestions,
+                                        )
+                                        if await is_brain_empty(bg_db, space_id):
+                                            _bg_tables = await _load_connection_metadata_tables(bg_db, connection_id)
+                                            _bg_names = [
+                                                t.get("name") or t.get("table_name", "")
+                                                for t in _bg_tables if isinstance(t, dict)
+                                            ]
+                                            from core.llm.factory import create_llm_orchestrator
+                                            _bg_llm = create_llm_orchestrator()
+                                            _bg_sugg = suggest_okrs_from_datasets(_bg_names, _bg_llm)
+                                            await save_okr_suggestions(bg_db, space_id, _bg_sugg)
+                                    except Exception as _bg_onb_exc:
+                                        logger.debug("bg strategic_onboarding failed: %s", _bg_onb_exc)
                             except Exception as e:
                                 # ✅ PATCH 2: CRITICAL - Rollback em background task também
                                 try:
@@ -280,7 +303,33 @@ async def discover_tables(
                 result["metadata_rows_inserted"] = inserted
                 result["temporal_enrichment_count"] = enriched_count
                 result["dataset_embeddings_created"] = dataset_emb_count
-                
+
+                # Item 32: strategic onboarding — suggest OKRs when brain is empty
+                if space_id:
+                    try:
+                        from core.agents.strategic_onboarding import (
+                            is_brain_empty,
+                            suggest_okrs_from_datasets,
+                            save_okr_suggestions,
+                        )
+                        if await is_brain_empty(db, space_id):
+                            _tables = await _load_connection_metadata_tables(db, connection_id)
+                            _table_names = [
+                                t.get("name") or t.get("table_name", "")
+                                for t in _tables if isinstance(t, dict)
+                            ]
+                            from core.llm.factory import create_llm_orchestrator
+                            _llm = create_llm_orchestrator()
+                            _suggestions = suggest_okrs_from_datasets(_table_names, _llm)
+                            await save_okr_suggestions(db, space_id, _suggestions)
+                            result["okr_suggestions"] = _suggestions
+                            log_event(
+                                "strategic_onboarding_suggestions",
+                                {"space_id": space_id, "count": len(_suggestions)},
+                            )
+                    except Exception as _onb_exc:
+                        logger.debug("strategic_onboarding failed (non-critical): %s", _onb_exc)
+
                 log_event(
                     "discover_auto_embed_success",
                     {
@@ -296,7 +345,7 @@ async def discover_tables(
                     await db.rollback()
                 except Exception:
                     pass
-                
+
                 log_event(
                     "discover_auto_embed_error",
                     {
@@ -308,7 +357,7 @@ async def discover_tables(
                 # Não falha o discover se embeddings falharem
                 result["embeddings_created"] = 0
                 result["embedding_error"] = str(e)[:200]
-        
+
         return result
     except Exception as e:
         # Log technical details internally

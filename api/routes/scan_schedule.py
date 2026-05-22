@@ -142,3 +142,30 @@ async def trigger_scan_now(
     except Exception as exc:
         logger.error("trigger_scan_now: failed to enqueue for space %s: %s", space_id, exc)
         raise HTTPException(status_code=500, detail=f"Failed to enqueue scan: {exc}")
+
+
+# ─── Item 32: OKR suggestions endpoint ───────────────────────────────────────
+
+
+@router.get("/{space_id}/okr-suggestions")
+async def get_okr_suggestions(
+    space_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return LLM-generated OKR suggestions for a space whose brain is empty.
+
+    Suggestions are generated and persisted during /discover when no brain
+    documents exist. This endpoint retrieves the stored suggestions.
+
+    Returns {"space_id": ..., "suggestions": [...], "brain_is_empty": bool}
+    """
+    from core.agents.strategic_onboarding import is_brain_empty, load_okr_suggestions
+
+    brain_empty = await is_brain_empty(db, space_id)
+    suggestions = await load_okr_suggestions(db, space_id)
+
+    return {
+        "space_id": space_id,
+        "brain_is_empty": brain_empty,
+        "suggestions": suggestions,
+    }
