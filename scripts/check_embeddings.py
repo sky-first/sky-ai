@@ -27,17 +27,13 @@ def check_embeddings(args):
     try:
         # Verificar se a tabela existe
         try:
-            result = db.execute(
-                text(
-                    """
+            result = db.execute(text("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_schema = 'public' 
                     AND table_name = 'embeddings'
                 )
-            """
-                )
-            )
+            """))
             table_exists = result.scalar()
 
             if not table_exists:
@@ -72,9 +68,7 @@ def check_embeddings(args):
 
         # Estatísticas por space_id
         print("\n📈 Estatísticas por Space:")
-        result = db.execute(
-            text(
-                """
+        result = db.execute(text("""
             SELECT 
                 space_id,
                 COUNT(*) as total,
@@ -83,9 +77,7 @@ def check_embeddings(args):
             FROM embeddings
             GROUP BY space_id
             ORDER BY total DESC
-        """
-            )
-        )
+        """))
 
         for row in result:
             space_id, total_count, num_crews, num_metadata = row
@@ -96,9 +88,7 @@ def check_embeddings(args):
 
         # Estatísticas por tipo (kind)
         print("\n📋 Estatísticas por tipo (kind):")
-        result = db.execute(
-            text(
-                """
+        result = db.execute(text("""
             SELECT 
                 metadata->>'kind' as kind,
                 COUNT(*) as total
@@ -106,9 +96,7 @@ def check_embeddings(args):
             WHERE metadata IS NOT NULL
             GROUP BY metadata->>'kind'
             ORDER BY total DESC
-        """
-            )
-        )
+        """))
 
         kinds = {}
         for row in result:

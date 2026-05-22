@@ -7,6 +7,7 @@ The factory builds Databricks connections via SQLAlchemyDataSource directly
 convenience re-export and thin wrapper for callers that import DatabricksSource
 explicitly.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import create_engine

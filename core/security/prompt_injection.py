@@ -3,6 +3,7 @@
 Detecção rápida de prompt injection.
 Executa antes de chamar IA (tempo: < 1ms)
 """
+
 import re
 from typing import Tuple, Optional
 

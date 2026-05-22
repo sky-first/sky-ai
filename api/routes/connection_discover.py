@@ -8,6 +8,7 @@ catalog and stores it in `connection_metadata.tables` (JSON).
 The AI service must NOT rely on the legacy `table_metadata` or `data_connections` tables
 because it shares the backend DB schema, not the original AI Engine schema.
 """
+
 from __future__ import annotations
 
 import logging

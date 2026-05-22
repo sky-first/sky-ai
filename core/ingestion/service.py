@@ -19,7 +19,6 @@ from core.rag.embeddings import (
 )
 from core.logging_utils import log_event
 
-
 # ---------------------------------------------------------------------------
 # Demo-connection helpers
 # ---------------------------------------------------------------------------

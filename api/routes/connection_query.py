@@ -16,6 +16,7 @@ Arquitetura dos Agentes:
 
 - Davinci: Gera planos de dashboards (ver davinci_dashboard_agent.py)
 """
+
 from __future__ import annotations
 
 from typing import Optional, List, Dict, Tuple, Any
@@ -465,8 +466,7 @@ async def _build_dispatch_map_for_scan(
 
     try:
         rows = await db.execute(
-            text(
-                """
+            text("""
                 SELECT dc.id, dc.name, dc.connector_id, dc.config
                 FROM data_connections dc
                 WHERE dc.id IN (
@@ -474,8 +474,7 @@ async def _build_dispatch_map_for_scan(
                     FROM space_connections sc
                     WHERE sc.space_id = ANY(CAST(:space_ids AS uuid[]))
                 )
-                """
-            ),
+                """),
             {"space_ids": space_ids},
         )
     except Exception as exc:
@@ -765,8 +764,7 @@ async def _filter_tables_by_permissions(
         # Construir query: crew_id IS NULL (público) OU crew_id IN crew_ids
         allowed_table_names = set()
         try:
-            query = text(
-                """
+            query = text("""
                 SELECT DISTINCT table_name
                 FROM table_metadata
                 WHERE data_connection_id = CAST(:conn_id AS uuid)
@@ -778,8 +776,7 @@ async def _filter_tables_by_permissions(
                     crew_id IS NULL
                     OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
                 )
-            """
-            )
+            """)
 
             result = await db.execute(
                 query,
@@ -2676,28 +2673,24 @@ async def load_agent_config_from_connection(
                 )
                 if _eff_space_ids:
                     desc_result = await db.execute(
-                        text(
-                            """
+                        text("""
                             SELECT table_name, column_name, description
                             FROM table_metadata
                             WHERE data_connection_id = :conn_id
                               AND (space_id = ANY(CAST(:space_ids AS uuid[])) OR space_id IS NULL)
                               AND description IS NOT NULL
-                            """
-                        ),
+                            """),
                         {"conn_id": connection_id, "space_ids": _eff_space_ids},
                     )
                 else:
                     desc_result = await db.execute(
-                        text(
-                            """
+                        text("""
                             SELECT table_name, column_name, description
                             FROM table_metadata
                             WHERE data_connection_id = :conn_id
                               AND space_id IS NULL
                               AND description IS NOT NULL
-                            """
-                        ),
+                            """),
                         {"conn_id": connection_id},
                     )
                 desc_rows = desc_result.fetchall()

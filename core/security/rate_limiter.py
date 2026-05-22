@@ -3,6 +3,7 @@
 Rate limiting simples em memória (sem backend do produto).
 Para produção, considerar Redis depois.
 """
+
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, Optional

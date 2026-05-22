@@ -24,7 +24,6 @@ from api.routes.semantic_map import (
     _source_id_for,
 )
 
-
 # ─── SemanticMapRequest defaults ────────────────────────────────────
 
 

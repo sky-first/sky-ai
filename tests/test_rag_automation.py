@@ -4,6 +4,7 @@ Test RAG Automation
 Simulate frontend calling /connections/{id}/discover
 Expect: Encached metadata ingestion + Automatic embedding generation
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -30,9 +31,7 @@ async def get_test_ids():
 
     engine = create_async_engine(db_url)
     async with engine.connect() as conn:
-        result = await conn.execute(
-            text(
-                """
+        result = await conn.execute(text("""
             SELECT DISTINCT dc.id, s.id
             FROM connection_metadata cm
             JOIN data_connections dc ON cm.connection_id = dc.id
@@ -40,9 +39,7 @@ async def get_test_ids():
             JOIN spaces s ON sc.space_id = s.id
             WHERE cm.tables IS NOT NULL
             LIMIT 1
-        """
-            )
-        )
+        """))
         row = result.fetchone()
         await engine.dispose()
         return row

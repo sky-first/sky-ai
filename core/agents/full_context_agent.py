@@ -153,9 +153,7 @@ OUTPUT FORMAT — use ONLY when you have something meaningful to surface:
 - Question 1
 - Question 2
 - Question 3
-""".format(
-    max_rows=MAX_SQL_ROWS
-)
+""".format(max_rows=MAX_SQL_ROWS)
 
 
 def _fetch_brain_context_sync(db: Session, space_id: str, crew_ids: list) -> str:

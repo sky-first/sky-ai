@@ -2,6 +2,7 @@
 """
 Test Ollama queries - Monitor responses and storage
 """
+
 import asyncio
 import time
 

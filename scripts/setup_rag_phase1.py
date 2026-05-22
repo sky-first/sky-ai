@@ -13,6 +13,7 @@ Usage:
     python scripts/setup_rag_phase1.py --space-id <space-uuid>
     python scripts/setup_rag_phase1.py --dry-run  # Test mode
 """
+
 import sys
 import os
 import asyncio
@@ -35,7 +36,6 @@ from core.rag.embeddings import (
 )
 from core.logging_utils import log_event
 from db.models import Base
-
 
 # ============================================================================
 # Step 1: Run Migrations
@@ -267,13 +267,11 @@ def populate_glossary(space_id: str):
                 for term, name, category, definition in common_terms:
                     try:
                         conn.execute(
-                            text(
-                                """
+                            text("""
                                 INSERT INTO business_glossary (term, business_name, category, definition, space_id)
                                 VALUES (:term, :name, :category, :definition, :space_id)
                                 ON CONFLICT (space_id, term) DO NOTHING
-                            """
-                            ),
+                            """),
                             {
                                 "term": term,
                                 "name": name,
@@ -375,13 +373,11 @@ def populate_metrics(space_id: str):
                 for name, desc, calc, category in common_metrics:
                     try:
                         conn.execute(
-                            text(
-                                """
+                            text("""
                                 INSERT INTO metrics_catalog (metric_name, description, calculation_sql, category, space_id)
                                 VALUES (:name, :desc, :calc, :category, :space_id)
                                 ON CONFLICT (space_id, metric_name) DO NOTHING
-                            """
-                            ),
+                            """),
                             {
                                 "name": name,
                                 "desc": desc,

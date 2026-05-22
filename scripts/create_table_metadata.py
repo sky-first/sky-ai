@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Cria a tabela table_metadata no banco"""
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import os
@@ -10,9 +11,7 @@ engine = create_engine(os.getenv("DATABASE_URL"), future=True)
 with engine.begin() as conn:
     # Criar tabela table_metadata com UUID para compatibilidade
     try:
-        conn.execute(
-            text(
-                """
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS table_metadata (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 data_connection_id UUID NOT NULL,
@@ -29,9 +28,7 @@ with engine.begin() as conn:
                 FOREIGN KEY(space_id) REFERENCES spaces(id),
                 FOREIGN KEY(crew_id) REFERENCES crews(id)
             )
-        """
-            )
-        )
+        """))
         print("✅ Tabela table_metadata criada!")
     except Exception as e:
         print(f"❌ Erro ao criar tabela: {e}")

@@ -218,8 +218,7 @@ async def postgres_upsert(db: AsyncSession, spec: UpsertSpec) -> None:
         "embedding": spec.embedding,
         "indexed_at": spec.indexed_at,
     }
-    sql = text(
-        """
+    sql = text("""
         INSERT INTO context_documents
             (id, kind, source_table, source_id, title, body, metadata_jsonb,
              space_id, crew_id, owner_user_id, visibility, pii_flags,
@@ -244,23 +243,20 @@ async def postgres_upsert(db: AsyncSession, spec: UpsertSpec) -> None:
             indexed_at = EXCLUDED.indexed_at,
             updated_at = NOW(),
             deleted_at = NULL
-        """
-    )
+        """)
     await db.execute(sql, params)
 
 
 async def postgres_soft_delete(
     db: AsyncSession, source_table: str, source_id: str
 ) -> bool:
-    sql = text(
-        """
+    sql = text("""
         UPDATE context_documents
         SET deleted_at = NOW(), updated_at = NOW()
         WHERE source_table = :source_table
           AND source_id = :source_id
           AND deleted_at IS NULL
-        """
-    )
+        """)
     result = await db.execute(
         sql, {"source_table": source_table, "source_id": source_id}
     )

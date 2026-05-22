@@ -71,8 +71,7 @@ async def retrieve_schema_rag(
             question_embedding = f"[{','.join(map(str, embedding_list))}]"
 
             # Hybrid query: Global nodes OR User Space nodes OR User Crew nodes
-            query = text(
-                """
+            query = text("""
                 SELECT 
                     text
                 FROM embeddings
@@ -88,8 +87,7 @@ async def retrieve_schema_rag(
                 )
                 ORDER BY embedding <=> CAST(:embedding AS vector)
                 LIMIT :top_k
-            """
-            )
+            """)
 
             # Normalize inputs
             space_list = (
@@ -208,8 +206,7 @@ async def retrieve_strategy_rag(
         empty_uuid = "00000000-0000-0000-0000-000000000000"
 
         # Query embeddings table with similarity search and multi-level filter
-        query = text(
-            """
+        query = text("""
             SELECT text
             FROM embeddings
             WHERE (
@@ -221,8 +218,7 @@ async def retrieve_strategy_rag(
             AND (metadata->>'entity_type' IN ('strategic_pillar', 'strategic_objective', 'strategy_okr', 'strategy_key_result', 'strategy_initiative', 'strategy_assumption', 'strategy_cycle'))
             ORDER BY embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
-        """
-        )
+        """)
 
         res = await db.execute(
             query,
@@ -273,8 +269,7 @@ async def retrieve_signals_rag(
         space_list = [s for s in space_list if s]
         empty_uuid = "00000000-0000-0000-0000-000000000000"
 
-        query = text(
-            """
+        query = text("""
             SELECT text
             FROM embeddings
             WHERE (
@@ -286,8 +281,7 @@ async def retrieve_signals_rag(
             AND (metadata->>'entity_type' = 'signal_event')
             ORDER BY embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
-        """
-        )
+        """)
 
         res = await db.execute(
             query,

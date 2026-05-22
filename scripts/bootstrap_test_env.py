@@ -18,7 +18,6 @@ from core.rag.embeddings import (
 )
 from core.logging_utils import log_event
 
-
 # 📝 PARAMETROS DE TESTE – PODE MUDAR AQUI
 SPACE_ID = "space-test"
 SPACE_NAME = "Space de Teste IA"

@@ -14,7 +14,6 @@ from db.models import TableMetadata, EmbeddingRecord
 from core.logging_utils import log_event
 from core.rag.embedding_cache import get_cached_embedding, set_cached_embedding
 
-
 # ThreadPool para operações de embedding
 _executor = ThreadPoolExecutor(max_workers=4)
 

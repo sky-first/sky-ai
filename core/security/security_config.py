@@ -11,12 +11,12 @@ configuráveis pelo backend, incluindo:
 O backend é responsável por calcular e enviar o security_config apropriado
 para cada usuário/space/crew. A IA apenas aplica as regras recebidas.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 import re
-
 
 # ============================================================================
 # MODELOS PYDANTIC

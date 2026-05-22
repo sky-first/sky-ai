@@ -3,9 +3,10 @@
 Classificador semântico usando LLM (agnóstico).
 
 Usa um LLMProvider para classificar intenções de forma semântica,
-sem depender de palavras-chave específicas de domínio e sem acoplamento 
+sem depender de palavras-chave específicas de domínio e sem acoplamento
 com a biblioteca da OpenAI.
 """
+
 import hashlib
 import json
 from typing import Tuple, Optional, Literal, Any

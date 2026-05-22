@@ -7,6 +7,7 @@ The factory builds Redshift connections via SQLAlchemyDataSource directly
 convenience re-export and thin wrapper for callers that import RedshiftSource
 explicitly.
 """
+
 from __future__ import annotations
 
 from typing import List, Dict, Any

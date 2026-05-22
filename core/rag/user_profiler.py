@@ -5,6 +5,7 @@ User Query Profiling Module.
 Analyzes user query history to identify frequently accessed tables
 and injects this as context for better table selection.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -43,8 +44,7 @@ def get_user_table_profile(
     try:
         # Build query to aggregate chosen_tables from audit log
         # Uses UNNEST to expand the array and count occurrences
-        query = text(
-            """
+        query = text("""
             SELECT 
                 unnest(chosen_tables) AS table_name, 
                 COUNT(*) AS usage_count
@@ -58,8 +58,7 @@ def get_user_table_profile(
             GROUP BY table_name
             ORDER BY usage_count DESC
             LIMIT :limit
-        """
-        )
+        """)
 
         result = db.execute(
             query,
@@ -155,8 +154,7 @@ def get_user_recent_queries(
         return []
 
     try:
-        query = text(
-            """
+        query = text("""
             SELECT 
                 question,
                 chosen_tables,
@@ -168,8 +166,7 @@ def get_user_recent_queries(
                 AND (:space_id IS NULL OR space_id = CAST(:space_id AS uuid))
             ORDER BY timestamp DESC
             LIMIT :limit
-        """
-        )
+        """)
 
         result = db.execute(
             query,

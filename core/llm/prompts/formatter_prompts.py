@@ -11,7 +11,6 @@ from typing import Dict, List, Tuple, Optional
 from core.llm.context.models import ContextBundle
 from core.llm.context.serializers import serialize_for_prompt
 
-
 # Maps the tone IDs emitted by the frontend Settings → AI Customization UI
 # (see sky-poc-frontend settings/ai-preferences.tsx `toneOptions`) to concrete
 # voice instructions for the formatter LLM.

@@ -11,7 +11,6 @@ import pytest
 
 from core.rag.render import RenderedDoc, has_template, render
 
-
 KINDS = [
     "pillar",
     "goal",

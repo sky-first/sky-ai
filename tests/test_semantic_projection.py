@@ -19,7 +19,6 @@ from core.rag.semantic_projection import (
     project_to_low_dim,
 )
 
-
 # ─── project_to_low_dim ──────────────────────────────────────────────
 
 

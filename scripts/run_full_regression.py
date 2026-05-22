@@ -19,14 +19,12 @@ def get_test_ids():
     try:
         with engine.connect() as conn:
             # Join to get a valid pair
-            query = text(
-                """
+            query = text("""
                 SELECT dc.id, sc.space_id 
                 FROM data_connections dc
                 JOIN space_connections sc ON dc.id = sc.connection_id
                 LIMIT 1
-            """
-            )
+            """)
             result = conn.execute(query)
             row = result.fetchone()
             if row:

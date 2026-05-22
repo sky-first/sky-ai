@@ -97,13 +97,11 @@ async def seed_data(conn):
         role = random.choice(["admin", "manager", "user", "user", "user"])
         created = datetime.now() - timedelta(days=random.randint(10, 500))
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_users (id, name, email, is_active, role, created_at)
             VALUES (:id, :name, :email, :active, :role, :created)
             ON CONFLICT (email) DO NOTHING
-        """
-            ),
+        """),
             {
                 "id": str(uuid.uuid4()),
                 "name": name,
@@ -128,13 +126,11 @@ async def seed_data(conn):
         )
         target = max(target, 10_000.0)
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_targets (id, year, month, target_revenue)
             VALUES (:id, :year, :month, :target)
             ON CONFLICT (year, month) DO UPDATE SET target_revenue = EXCLUDED.target_revenue
-        """
-            ),
+        """),
             {
                 "id": str(uuid.uuid4()),
                 "year": year,
@@ -151,12 +147,10 @@ async def register_metadata(conn):
     # Remove old entries for these two tables only
     for tname in ("sky_test_users", "sky_test_targets"):
         await conn.execute(
-            text(
-                """
+            text("""
             DELETE FROM table_metadata
             WHERE data_connection_id = :cid AND table_name = :tname
-        """
-            ),
+        """),
             {"cid": CONNECTION_ID, "tname": tname},
         )
 
@@ -234,8 +228,7 @@ async def register_metadata(conn):
                 f"COLUMN MEANING: {col_desc}"
             )
             await conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO table_metadata
                     (id, data_connection_id, space_id, crew_id,
                      table_name, column_name, data_type, is_nullable,
@@ -244,8 +237,7 @@ async def register_metadata(conn):
                     (gen_random_uuid(), :conn_id, :space_id, NULL,
                      :table_name, :col_name, :data_type, TRUE,
                      :description, :extra, NOW())
-            """
-                ),
+            """),
                 {
                     "conn_id": CONNECTION_ID,
                     "space_id": SPACE_ID,

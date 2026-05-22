@@ -3,6 +3,7 @@
 RAG Setup - Versão Simplificada
 Descobre space_id automaticamente e roda embeddings
 """
+
 import asyncio
 import sys
 from pathlib import Path

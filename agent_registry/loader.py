@@ -11,7 +11,6 @@ from core.data_sources.base import DataSourceConfig
 from core.data_sources.bigquery_source import BigQueryDataSource
 from core.logging_utils import log_event
 
-
 BASE_DIR = Path(__file__).resolve().parent
 EXAMPLES_DIR = BASE_DIR / "examples"
 

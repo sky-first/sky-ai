@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Literal, List, Dict, Optional
 from dataclasses import dataclass
 
-
 # Type alias for size categories
 DatasetSize = Literal["tiny", "small", "medium", "large", "huge"]
 

@@ -3,6 +3,7 @@
 Risk scorer: heurística leve que apenas pontua, nunca bloqueia diretamente.
 A decisão final é tomada pelo security_guard considerando todas as camadas.
 """
+
 import re
 from typing import List
 from dataclasses import dataclass

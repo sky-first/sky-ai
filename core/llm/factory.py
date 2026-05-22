@@ -3,6 +3,7 @@
 Factory para criar providers LLM e Embedding usando configurações centralizadas.
 Suporta alternância entre OpenAI (Cloud) e Ollama (Local).
 """
+
 from __future__ import annotations
 
 from typing import Optional

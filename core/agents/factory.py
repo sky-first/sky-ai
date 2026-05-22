@@ -16,7 +16,6 @@ from core.logging_utils import log_event
 
 from db.models import TableMetadata  # seu modelo de metadados de tabela
 
-
 # ==================== HELPERS ====================
 
 

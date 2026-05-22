@@ -8,6 +8,7 @@ Usage:
     python tests/test_100_cases.py
     python tests/test_100_cases.py --parallel   # run concurrently (faster)
 """
+
 import argparse
 import asyncio
 import json

@@ -2,6 +2,7 @@
 """
 Script para verificar status do pgvector no PostgreSQL
 """
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import os
@@ -24,15 +25,11 @@ print("=" * 60)
 print("\n1️⃣ Verificando extensão pgvector...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
+        result = conn.execute(text("""
             SELECT EXISTS(
                 SELECT 1 FROM pg_extension WHERE extname = 'vector'
             ) as extension_exists
-        """
-            )
-        )
+        """))
         exists = result.first()[0]
 
         if exists:
@@ -57,9 +54,7 @@ except Exception as e:
 print("\n3️⃣ Verificando tabela embeddings...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
+        result = conn.execute(text("""
             SELECT 
                 column_name, 
                 data_type,
@@ -67,9 +62,7 @@ try:
             FROM information_schema.columns 
             WHERE table_name = 'embeddings' 
             AND column_name = 'embedding'
-        """
-            )
-        )
+        """))
         row = result.first()
 
         if row:
@@ -95,18 +88,14 @@ except Exception as e:
 print("\n4️⃣ Verificando índices vetoriais...")
 try:
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
+        result = conn.execute(text("""
             SELECT 
                 indexname, 
                 indexdef
             FROM pg_indexes 
             WHERE tablename = 'embeddings'
             AND indexdef LIKE '%vector%'
-        """
-            )
-        )
+        """))
         indexes = list(result)
 
         if indexes:

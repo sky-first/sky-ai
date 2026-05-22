@@ -8,6 +8,7 @@ are persisted as EmbeddingRecord rows with kind='depth_tracker'.
 The DatasetPriorityScorer uses the accumulated combo set to calculate how much
 analytical depth remains unexplored for each dataset.
 """
+
 from __future__ import annotations
 
 import json

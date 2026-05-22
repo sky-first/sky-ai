@@ -35,15 +35,13 @@ async def resolve_user_permissions(
         # If a crew_id is provided, check membership in crew_members as a proxy for "read".
         if crew_id:
             result = await db.execute(
-                text(
-                    """
+                text("""
                     SELECT 1
                     FROM crew_members
                     WHERE user_id = :user_id
                       AND crew_id = :crew_id
                     LIMIT 1
-                    """
-                ),
+                    """),
                 {"user_id": str(user_id), "crew_id": str(crew_id)},
             )
             row = result.first()
@@ -52,8 +50,7 @@ async def resolve_user_permissions(
         # If a space_id is provided, check membership in any crew within that space.
         if space_id:
             result = await db.execute(
-                text(
-                    """
+                text("""
                     SELECT 1
                     FROM crew_members cm
                     JOIN crews c ON c.id = cm.crew_id
@@ -61,8 +58,7 @@ async def resolve_user_permissions(
                       AND c.space_id = :space_id
                       AND c.deleted_at IS NULL
                     LIMIT 1
-                    """
-                ),
+                    """),
                 {"user_id": str(user_id), "space_id": str(space_id)},
             )
             row = result.first()
@@ -133,16 +129,14 @@ async def get_user_crew_ids_in_space(
     """
     # Prefer membership-based access (crew_members) which exists in the current schema.
     result = await db.execute(
-        text(
-            """
+        text("""
             SELECT DISTINCT cm.crew_id
             FROM crew_members cm
             JOIN crews c ON c.id = cm.crew_id
             WHERE cm.user_id = :user_id
               AND c.space_id = :space_id
               AND c.deleted_at IS NULL
-            """
-        ),
+            """),
         {"user_id": str(user_id), "space_id": str(space_id)},
     )
     rows = result.fetchall()
@@ -162,15 +156,13 @@ async def get_user_all_crew_ids(db: AsyncSession, user_id: UUID) -> List[str]:
     """
     # Prefer membership-based access (crew_members) which exists in the current schema.
     result = await db.execute(
-        text(
-            """
+        text("""
             SELECT DISTINCT cm.crew_id
             FROM crew_members cm
             JOIN crews c ON c.id = cm.crew_id
             WHERE cm.user_id = :user_id
               AND c.deleted_at IS NULL
-            """
-        ),
+            """),
         {"user_id": str(user_id)},
     )
     rows = result.fetchall()

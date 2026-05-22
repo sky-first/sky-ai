@@ -74,13 +74,11 @@ async def test_semantic_cache_crew_isolation():
 
         # Inserir um registro simulado da "Crew A"
         await db.execute(
-            text(
-                """
+            text("""
             INSERT INTO semantic_cache (id, connection_id, space_id, crew_id, question, embedding, response_json)
             VALUES (gen_random_uuid(), :conn, :space, :crew_a, 'test question crew A',
                     CAST(:emb AS vector), '{"answer": "crew_a_answer"}'::json)
-        """
-            ),
+        """),
             {
                 "conn": fake_conn,
                 "space": fake_space,
@@ -93,14 +91,12 @@ async def test_semantic_cache_crew_isolation():
 
         # Buscar com crew_a → deve encontrar
         r = await db.execute(
-            text(
-                """
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id = :crew_id
-        """
-            ),
+        """),
             {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_a},
         )
         row = r.fetchone()
@@ -111,14 +107,12 @@ async def test_semantic_cache_crew_isolation():
 
         # Buscar com crew_b → NÃO deve encontrar
         r = await db.execute(
-            text(
-                """
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id = :crew_id
-        """
-            ),
+        """),
             {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_b},
         )
         row = r.fetchone()
@@ -129,14 +123,12 @@ async def test_semantic_cache_crew_isolation():
 
         # Buscar sem crew (modo personal) → NÃO deve encontrar registro de crew específica
         r = await db.execute(
-            text(
-                """
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id IS NULL
-        """
-            ),
+        """),
             {"conn": fake_conn, "space": fake_space},
         )
         row = r.fetchone()
@@ -256,15 +248,13 @@ async def test_resolve_crew_ids():
 
         # Buscar um space_id com crew para esse usuário
         r2 = await db.execute(
-            text(
-                """
+            text("""
             SELECT DISTINCT c.space_id 
             FROM crew_members cm 
             JOIN crews c ON c.id = cm.crew_id
             WHERE cm.user_id = :uid
             LIMIT 1
-        """
-            ),
+        """),
             {"uid": user_id},
         )
         space_row = r2.fetchone()

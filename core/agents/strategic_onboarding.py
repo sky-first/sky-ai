@@ -10,6 +10,7 @@ exist for the space, this module:
 The frontend can display these suggestions so the user can adopt or customise
 them when filling in the brain — removing the blank-page problem.
 """
+
 from __future__ import annotations
 
 import json

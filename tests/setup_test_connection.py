@@ -210,12 +210,10 @@ async def seed_data(conn):
         created = rand_date(730, 10)
         last_order = rand_date(10, 0) if random.random() > 0.2 else None
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_customers (id, name, email, country, segment, is_active, created_at, last_order_at)
             VALUES (:id, :name, :email, :country, :segment, :active, :created_at, :last_order_at)
-        """
-            ),
+        """),
             {
                 "id": cid,
                 "name": name,
@@ -236,12 +234,10 @@ async def seed_data(conn):
         price = rand_amount(10, 2000)
         cost = round(price * random.uniform(0.3, 0.7), 2)
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_products (id, name, category, price, cost, stock, is_active, rating, created_at)
             VALUES (:id, :name, :category, :price, :cost, :stock, :active, :rating, :created_at)
-        """
-            ),
+        """),
             {
                 "id": pid,
                 "name": name,
@@ -261,12 +257,10 @@ async def seed_data(conn):
         rid = str(uuid.uuid4())
         rep_ids.append(rid)
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_sales_reps (id, name, region, hire_date, is_active)
             VALUES (:id, :name, :region, :hire_date, true)
-        """
-            ),
+        """),
             {
                 "id": rid,
                 "name": name,
@@ -289,14 +283,12 @@ async def seed_data(conn):
         )
         created = rand_date(730, 0)
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO sky_test_orders (id, customer_id, sales_rep_id, status, channel,
                 total_amount, discount_amount, payment_method, region, created_at, updated_at)
             VALUES (:id, :cid, :rid, :status, :channel,
                 :total, :discount, :payment, :region, :created, :updated)
-        """
-            ),
+        """),
             {
                 "id": oid,
                 "cid": cid,
@@ -319,12 +311,10 @@ async def seed_data(conn):
             qty = random.randint(1, 5)
             unit_price = rand_amount(5, 500)
             await conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO sky_test_order_items (id, order_id, product_id, quantity, unit_price, subtotal, created_at)
                 VALUES (:id, :oid, :pid, :qty, :unit_price, :subtotal, :created)
-            """
-                ),
+            """),
                 {
                     "id": str(uuid.uuid4()),
                     "oid": oid,
@@ -468,14 +458,12 @@ async def register_connection(conn):
 
     # Upsert DataConnection (include all NOT NULL backend columns)
     await conn.execute(
-        text(
-            """
+        text("""
         INSERT INTO data_connections (id, name, connector_id, config, status, created_by, created_at, updated_at)
         VALUES (:id, :name, :connector_id, :config, 'active', :created_by, NOW(), NOW())
         ON CONFLICT (id) DO UPDATE
           SET name=EXCLUDED.name, config=EXCLUDED.config, status='active', updated_at=NOW()
-    """
-        ),
+    """),
         {
             "id": conn_id,
             "name": "Test PostgreSQL (sky_test_*)",
@@ -487,26 +475,20 @@ async def register_connection(conn):
     print(f"  ✅ DataConnection registered: {conn_id}")
 
     # Check if SpaceConnection table exists and link it
-    result = await conn.execute(
-        text(
-            """
+    result = await conn.execute(text("""
         SELECT column_name FROM information_schema.columns
         WHERE table_name='space_connections' ORDER BY ordinal_position LIMIT 5
-    """
-        )
-    )
+    """))
     sc_cols = [r[0] for r in result]
     print(f"  space_connections columns: {sc_cols}")
 
     if "connection_id" in sc_cols and "space_id" in sc_cols:
         await conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO space_connections (space_id, connection_id)
             VALUES (:space_id, :conn_id)
             ON CONFLICT DO NOTHING
-        """
-            ),
+        """),
             {"space_id": space_id, "conn_id": conn_id},
         )
         print(f"  ✅ SpaceConnection linked to space {space_id}")
@@ -524,8 +506,7 @@ async def register_connection(conn):
         for col_name, data_type in columns:
             col_desc = col_descs.get(col_name, "")
             await conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO table_metadata
                     (id, data_connection_id, space_id, crew_id,
                      table_name, column_name, data_type, is_nullable,
@@ -534,8 +515,7 @@ async def register_connection(conn):
                     (gen_random_uuid(), :conn_id, :space_id, NULL,
                      :table_name, :col_name, :data_type, TRUE,
                      :description, :extra, NOW())
-            """
-                ),
+            """),
                 {
                     "conn_id": conn_id,
                     "space_id": space_id,

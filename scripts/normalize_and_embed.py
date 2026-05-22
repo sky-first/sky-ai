@@ -3,6 +3,7 @@
 Normalize connection_metadata to table_metadata
 Then generate embeddings
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -94,13 +95,11 @@ def normalize_connection_metadata_to_table(connection_id: str, space_id: str):
                     )
 
                     conn.execute(
-                        text(
-                            """
+                        text("""
                             INSERT INTO table_metadata 
                             (id, data_connection_id, space_id, table_name, column_name, data_type, is_nullable)
                             VALUES (:id, :conn_id, :space_id, :table, :column, :type, :nullable)
-                        """
-                        ),
+                        """),
                         {
                             "id": str(uuid.uuid4()),
                             "conn_id": connection_id,
@@ -163,9 +162,7 @@ async def main():
     engine = create_engine(sync_url)
 
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
+        result = conn.execute(text("""
                 SELECT DISTINCT
                     dc.id as connection_id,
                     s.id as space_id,
@@ -176,9 +173,7 @@ async def main():
                 JOIN spaces s ON sc.space_id = s.id  
                 WHERE cm.tables IS NOT NULL
                 LIMIT 1
-            """
-            )
-        )
+            """))
 
         row = result.fetchone()
 

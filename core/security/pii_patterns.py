@@ -1,7 +1,7 @@
 # core/security/pii_patterns.py
 """
-Lista abrangente de termos, expressões regulares e padrões que caracterizam 
-informações sensíveis (PII - Personally Identifiable Information) a serem 
+Lista abrangente de termos, expressões regulares e padrões que caracterizam
+informações sensíveis (PII - Personally Identifiable Information) a serem
 bloqueadas ou sinalizadas.
 
 Suporta múltiplos países e idiomas:
@@ -22,6 +22,7 @@ Inclui:
 - Dados protegidos por GDPR
 - Dados estruturados (JSON, XML, CSV)
 """
+
 import re
 from typing import List, Tuple, Dict, Optional
 from enum import Enum

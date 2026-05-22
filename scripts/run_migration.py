@@ -5,6 +5,7 @@ Run SQL migration scripts
 Usage:
     python scripts/run_migration.py db/migrations/add_multi_layer_rag_tables.sql
 """
+
 import sys
 import os
 from pathlib import Path

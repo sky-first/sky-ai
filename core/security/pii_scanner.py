@@ -5,6 +5,7 @@ Scanner de dados sensíveis (PII) para detecção e bloqueio.
 Analisa textos e dados estruturados procurando por informações sensíveis
 usando os padrões definidos em pii_patterns.py.
 """
+
 import re
 from typing import List, Dict, Optional, Tuple, Any, Set
 

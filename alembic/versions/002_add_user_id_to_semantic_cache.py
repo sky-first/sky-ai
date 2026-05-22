@@ -25,18 +25,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE semantic_cache
             ADD COLUMN IF NOT EXISTS user_id TEXT NULL
-    """
-    )
-    op.execute(
-        """
+    """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_semantic_cache_user_id
             ON semantic_cache(user_id)
-    """
-    )
+    """)
 
 
 def downgrade() -> None:

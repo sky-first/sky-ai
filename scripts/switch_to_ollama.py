@@ -3,6 +3,7 @@
 Switch AI Service to Ollama
 Migrates from OpenAI to local Ollama models
 """
+
 import sys
 from pathlib import Path
 

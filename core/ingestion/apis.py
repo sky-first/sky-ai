@@ -22,7 +22,7 @@ def fetch_openapi_schema(api_url: str) -> Dict[str, Any]:
 
 
 def extract_endpoint_descriptions(
-    openapi_schema: Dict[str, Any]
+    openapi_schema: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """
     Extract endpoint descriptions from OpenAPI schema.

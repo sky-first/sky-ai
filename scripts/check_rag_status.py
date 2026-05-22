@@ -4,6 +4,7 @@ Verify RAG System Status
 1. Check row counts in tables
 2. Test vector search
 """
+
 import sys
 import asyncio
 from pathlib import Path

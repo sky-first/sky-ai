@@ -2,6 +2,7 @@
 """
 Endpoints para ingestão de dados, metadados e geração de embeddings.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks

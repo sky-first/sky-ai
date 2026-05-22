@@ -3,6 +3,7 @@
 Detecção de progressive escalation (tentativas incrementais de descobrir schema).
 Usa Redis para rastrear histórico de perguntas por sessão.
 """
+
 from __future__ import annotations
 
 from typing import Tuple, Optional, Dict, List

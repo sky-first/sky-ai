@@ -2,6 +2,7 @@
 """
 Populate metadata by running queries via API
 """
+
 import asyncio
 import httpx
 

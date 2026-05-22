@@ -10,9 +10,9 @@ Usa padrões linguísticos universais que funcionam para qualquer domínio:
 
 NÃO inclui palavras específicas de domínio para manter agnosticismo total.
 """
+
 import re
 from typing import Optional
-
 
 # Padrões linguísticos UNIVERSAIS (funcionam para qualquer domínio)
 # Baseados em estruturas gramaticais e intenções, não palavras específicas

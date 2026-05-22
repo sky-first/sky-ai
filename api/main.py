@@ -25,7 +25,6 @@ from api.routes import semantic_map, space_seed  # noqa: E402
 from api.routes import scan_schedule  # noqa: E402
 from core.logging_utils import log_event
 
-
 app = FastAPI(
     title="DataAssistant API",
     version="0.1.0",

@@ -3,6 +3,7 @@
 Sistema de auditoria assíncrono para queries.
 Não bloqueia requests - usa buffer em memória + flush periódico.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -167,9 +168,7 @@ async def _ensure_audit_table_async() -> None:
 
     async with SessionLocal() as db:
         try:
-            await db.execute(
-                text(
-                    """
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS query_audit_log (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -204,9 +203,7 @@ async def _ensure_audit_table_async() -> None:
                         pii_patterns_matched TEXT[],
                         pii_blocked BOOLEAN DEFAULT FALSE
                     );
-                    """
-                )
-            )
+                    """))
             await db.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON query_audit_log(timestamp);"
@@ -246,9 +243,7 @@ async def _ensure_audit_table_async() -> None:
             await db.commit()
 
             # --- Tabela security_alerts ---
-            await db.execute(
-                text(
-                    """
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS security_alerts (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -258,9 +253,7 @@ async def _ensure_audit_table_async() -> None:
                         severity VARCHAR(20),
                         details JSONB
                     );
-                    """
-                )
-            )
+                    """))
             await db.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_alerts_user ON security_alerts(user_id);"
@@ -278,9 +271,7 @@ async def _ensure_audit_table_async() -> None:
             )
 
             # --- Tabela prompt_security_audit ---
-            await db.execute(
-                text(
-                    """
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS prompt_security_audit (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -292,9 +283,7 @@ async def _ensure_audit_table_async() -> None:
                         risk_score FLOAT,
                         scan_details JSONB
                     );
-                    """
-                )
-            )
+                    """))
             await db.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_prompt_audit_timestamp ON prompt_security_audit(timestamp);"
@@ -364,8 +353,7 @@ async def _flush_audit_buffer_async():
 
                 # 1. Inserir AUDIT LOGS
                 if audit_batch:
-                    insert_sql = text(
-                        """
+                    insert_sql = text("""
                     INSERT INTO query_audit_log (
                         id, connection_id, user_id, space_id, crew_ids, thread_id,
                         platform_role, crew_role,
@@ -409,8 +397,7 @@ async def _flush_audit_buffer_async():
                         :pii_patterns_matched,
                         :pii_blocked
                     )
-                    """
-                    )
+                    """)
 
                 if audit_batch:
                     for entry in audit_batch:
@@ -467,8 +454,7 @@ async def _flush_audit_buffer_async():
 
                 # 2. Inserir SECURITY ALERTS
                 if alert_batch:
-                    insert_alert_sql = text(
-                        """
+                    insert_alert_sql = text("""
                         INSERT INTO security_alerts (
                             id, user_id, connection_id, 
                             alert_type, severity, details
@@ -480,8 +466,7 @@ async def _flush_audit_buffer_async():
                             :severity,
                             :details
                         )
-                        """
-                    )
+                        """)
 
                     import json
 
@@ -502,8 +487,7 @@ async def _flush_audit_buffer_async():
 
                 # 3. Inserir PROMPT AUDITS
                 if prompt_audit_batch:
-                    insert_prompt_sql = text(
-                        """
+                    insert_prompt_sql = text("""
                         INSERT INTO prompt_security_audit (
                             id, user_id, connection_id, 
                             prompt_text_redacted, security_status, blocked_by, 
@@ -518,8 +502,7 @@ async def _flush_audit_buffer_async():
                             :risk_score,
                             :scan_details
                         )
-                        """
-                    )
+                        """)
 
                     import json
 

@@ -2,6 +2,7 @@
 """
 Quick helper to get space_id from database for RAG setup
 """
+
 import sys
 from pathlib import Path
 

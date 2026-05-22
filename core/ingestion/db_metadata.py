@@ -22,7 +22,6 @@ from db.models import (
 )
 from core.logging_utils import log_event
 
-
 # ThreadPool para operações BigQuery (bloqueantes)
 _executor = ThreadPoolExecutor(max_workers=4)
 

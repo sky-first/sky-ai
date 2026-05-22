@@ -3,6 +3,7 @@
 Validador SQL avançado com AST e permissões.
 Otimizado para performance: regex primeiro, AST só se necessário.
 """
+
 import sqlparse
 from sqlparse.sql import Statement, IdentifierList, Identifier
 from sqlparse.tokens import Keyword, DML

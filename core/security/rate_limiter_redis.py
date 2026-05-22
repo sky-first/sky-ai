@@ -3,6 +3,7 @@
 Rate limiter distribuído usando Redis.
 Fallback para memória se Redis não disponível.
 """
+
 from __future__ import annotations
 
 import os

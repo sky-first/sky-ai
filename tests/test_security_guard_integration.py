@@ -2,6 +2,7 @@
 """
 Teste rápido de integração do Security Guard na API.
 """
+
 import asyncio
 import json
 

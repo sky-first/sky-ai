@@ -9,6 +9,7 @@ Aggregates per-dataset scan coverage stats from the embeddings table:
 
 Used by GET /spaces/{space_id}/dataset-coverage.
 """
+
 from __future__ import annotations
 
 import json

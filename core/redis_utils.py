@@ -12,6 +12,7 @@ This module provides ``make_redis_client()`` which strips the problematic
 query param from the URL and re-injects it as the correct Python enum so
 every caller gets a working SSL connection without duplicating the workaround.
 """
+
 from __future__ import annotations
 
 import ssl

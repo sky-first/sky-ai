@@ -8,6 +8,7 @@ Layer 3: Domain Context (allowlist de intenções)
 
 Decisão final baseada em todas as camadas.
 """
+
 from typing import Optional, Dict, List
 from dataclasses import dataclass
 from enum import Enum

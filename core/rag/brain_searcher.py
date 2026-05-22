@@ -201,8 +201,7 @@ async def _search_context_documents(
     # good-enough until the tsvector index is queried directly.
     if embedding is not None:
         params["q_vec"] = "[" + ",".join(str(x) for x in embedding) + "]"
-        sql = text(
-            f"""
+        sql = text(f"""
             SELECT id, kind, source_table, source_id, title, body,
                    metadata_jsonb, space_id, crew_id, owner_user_id,
                    visibility, pii_flags, updated_at,
@@ -212,11 +211,9 @@ async def _search_context_documents(
               AND embedding IS NOT NULL
             ORDER BY embedding <=> CAST(:q_vec AS vector)
             LIMIT :k
-            """
-        )
+            """)
     else:
-        sql = text(
-            f"""
+        sql = text(f"""
             SELECT id, kind, source_table, source_id, title, body,
                    metadata_jsonb, space_id, crew_id, owner_user_id,
                    visibility, pii_flags, updated_at,
@@ -225,8 +222,7 @@ async def _search_context_documents(
             WHERE {where}
             ORDER BY updated_at DESC
             LIMIT :k
-            """
-        )
+            """)
 
     try:
         result = await db.execute(sql, params)
@@ -406,13 +402,11 @@ async def _fetch_hidden_columns_map(
     is the safe default.
     """
     try:
-        sql = text(
-            """
+        sql = text("""
             SELECT connection_id, table_name, hidden_columns
             FROM space_tables
             WHERE space_id = :space_id
-            """
-        )
+            """)
         result = await db.execute(sql, {"space_id": space_id})
         rows = result.mappings().all()
     except Exception:

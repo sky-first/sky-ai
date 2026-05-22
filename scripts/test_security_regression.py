@@ -20,14 +20,12 @@ def get_first_connection_id():
         db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
         engine = create_engine(db_url)
         with engine.connect() as conn:
-            query = text(
-                """
+            query = text("""
                 SELECT dc.id, sc.space_id 
                 FROM data_connections dc
                 JOIN space_connections sc ON dc.id = sc.connection_id
                 LIMIT 1
-            """
-            )
+            """)
             result = conn.execute(query)
             row = result.fetchone()
             if row:

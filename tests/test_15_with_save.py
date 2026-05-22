@@ -2,6 +2,7 @@
 """
 Script to test 15 business questions and save detailed results for comparison.
 """
+
 import asyncio
 import json
 import sys

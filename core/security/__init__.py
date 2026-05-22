@@ -2,6 +2,7 @@
 """
 Módulo de segurança para proteção contra ataques maliciosos.
 """
+
 from core.security.prompt_injection import (
     detect_prompt_injection,
     sanitize_question,

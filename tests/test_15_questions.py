@@ -2,6 +2,7 @@
 """
 Script to test 15 business questions and measure response time.
 """
+
 import asyncio
 import time
 from typing import Any, Dict, List

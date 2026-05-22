@@ -10,6 +10,7 @@ Suporta dois modos:
 Relacionamentos explícitos têm SEMPRE prioridade sobre os inferidos.
 Relacionamentos são filtrados por permissão antes de chegarem ao prompt da IA.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple

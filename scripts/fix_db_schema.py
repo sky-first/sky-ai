@@ -28,16 +28,12 @@ async def fix_schema():
         # 2. Fix semantic_cache embedding type
         try:
             # Check current type
-            result = await conn.execute(
-                text(
-                    """
+            result = await conn.execute(text("""
                 SELECT format_type(atttypid, atttypmod) AS type
                 FROM pg_attribute
                 WHERE attrelid = 'semantic_cache'::regclass
                 AND attname = 'embedding';
-            """
-                )
-            )
+            """))
             row = result.fetchone()
             if row and "vector" not in row[0].lower():
                 logger.info(

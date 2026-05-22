@@ -229,8 +229,7 @@ async def update_metadata(conn):
                 f"COLUMN MEANING: {col_desc}"
             )
             await conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO table_metadata
                     (id, data_connection_id, space_id, crew_id,
                      table_name, column_name, data_type, is_nullable,
@@ -239,8 +238,7 @@ async def update_metadata(conn):
                     (gen_random_uuid(), :conn_id, :space_id, NULL,
                      :table_name, :col_name, :data_type, TRUE,
                      :description, :extra, NOW())
-            """
-                ),
+            """),
                 {
                     "conn_id": CONNECTION_ID,
                     "space_id": SPACE_ID,

@@ -22,7 +22,6 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 SPACE_ID = "00000000-0000-0000-0000-000000000001"
 
 _DT1 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)

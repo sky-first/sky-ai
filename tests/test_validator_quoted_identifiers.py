@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from core.sql.validator_advanced import AdvancedSQLValidator
 
-
 ALLOWED = ["crm.opportunities", "crm.accounts"]
 
 

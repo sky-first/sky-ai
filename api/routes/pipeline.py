@@ -2,6 +2,7 @@
 """
 Endpoints para execução de pipeline de IA de forma assíncrona.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks

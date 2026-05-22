@@ -21,24 +21,16 @@ from db.session import engine
 async def migrate():
     async with engine.begin() as conn:
         # 1. Add crew_id column (nullable — NULL means personal mode / no restriction)
-        await conn.execute(
-            text(
-                """
+        await conn.execute(text("""
                 ALTER TABLE semantic_cache
                 ADD COLUMN IF NOT EXISTS crew_id VARCHAR(36) DEFAULT NULL;
-            """
-            )
-        )
+            """))
 
         # 2. Create index for faster lookup filtering by crew_id
-        await conn.execute(
-            text(
-                """
+        await conn.execute(text("""
                 CREATE INDEX IF NOT EXISTS idx_semantic_cache_crew_id
                 ON semantic_cache (crew_id);
-            """
-            )
-        )
+            """))
 
         print("[OK] semantic_cache.crew_id column and index created successfully.")
 

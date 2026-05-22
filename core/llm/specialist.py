@@ -24,7 +24,6 @@ from core.security.security_config import (
 )
 from core.dialects import Dialect, get_dialect_specifics
 
-
 # ==================== HELPERS ====================
 
 

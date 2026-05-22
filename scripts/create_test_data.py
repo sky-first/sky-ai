@@ -13,13 +13,11 @@ CONNECTION_ID = "00000000-0000-0000-0000-000000000002"
 with engine.begin() as conn:
     # Criar usuário primeiro (password_hash é obrigatório)
     conn.execute(
-        text(
-            """
+        text("""
         INSERT INTO users (id, email, password_hash, name, created_at)
         VALUES (:id, :email, :password_hash, :name, NOW())
         ON CONFLICT (id) DO NOTHING
-    """
-        ),
+    """),
         {
             "id": USER_ID,
             "email": "test@test.com",
@@ -31,13 +29,11 @@ with engine.begin() as conn:
 
     # Criar Space
     conn.execute(
-        text(
-            """
+        text("""
         INSERT INTO spaces (id, name, created_by, created_at)
         VALUES (:id, :name, :created_by, NOW())
         ON CONFLICT (id) DO NOTHING
-    """
-        ),
+    """),
         {"id": SPACE_ID, "name": "Space de Teste IA", "created_by": USER_ID},
     )
     print(f"✅ Space criado: {SPACE_ID}")
@@ -56,13 +52,11 @@ with engine.begin() as conn:
 
     config_json_str = json.dumps(config_dict)
     conn.execute(
-        text(
-            """
+        text("""
         INSERT INTO data_connections (id, name, connector_id, config, status, created_by, created_at)
         VALUES (:id, :name, :connector_id, :config, 'active', :created_by, NOW())
         ON CONFLICT (id) DO NOTHING
-    """
-        ),
+    """),
         {
             "id": CONNECTION_ID,
             "name": "Conexao BigQuery de Teste",
@@ -74,13 +68,11 @@ with engine.begin() as conn:
     print(f"✅ DataConnection criada: {CONNECTION_ID}")
 
     conn.execute(
-        text(
-            """
+        text("""
         INSERT INTO space_connections (space_id, connection_id)
         VALUES (:space_id, :connection_id)
         ON CONFLICT DO NOTHING
-    """
-        ),
+    """),
         {"space_id": SPACE_ID, "connection_id": CONNECTION_ID},
     )
     print("✅ Relacionamento criado")

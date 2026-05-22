@@ -19,7 +19,6 @@ from api.routes.knowledge_graph import (
     _process_ingestion,
 )
 
-
 # ─── _is_okr_relevant ─────────────────────────────────────────────────────────
 
 

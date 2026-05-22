@@ -31,12 +31,10 @@ async def test_end_to_end_global_embeddings():
 
         try:
             await db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO data_connections (id, name, config, created_at)
                     VALUES (:id, :name, '{}', NOW())
-                """
-                ),
+                """),
                 {"id": conn_id, "name": conn_name},
             )
 
@@ -49,12 +47,10 @@ async def test_end_to_end_global_embeddings():
 
             # Mock Backend Metadata Cache (Source of Truth)
             await db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO connection_metadata (connection_id, tables, last_metadata_update)
                     VALUES (:cid, :tables, NOW())
-                """
-                ),
+                """),
                 {
                     "cid": conn_id,
                     "tables": '[{"name": "users", "schema": "public", "columns": [{"name": "id", "type": "int"}, {"name": "email", "type": "text"}]}]',

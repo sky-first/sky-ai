@@ -20,7 +20,6 @@ from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
 from config.settings import settings
 
-
 # ==================== ROLE-BASED REASONING ====================
 # Role profiles define how the AI behaves based on user role
 
