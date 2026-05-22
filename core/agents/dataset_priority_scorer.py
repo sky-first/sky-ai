@@ -368,6 +368,7 @@ class DatasetPriorityScorer:
         okr_vectors: Optional[List[List[float]]] = None,
         dataset_embeddings: Optional[Dict[str, List[float]]] = None,
         row_count_snapshots: Optional[Dict[str, List[int]]] = None,
+        depth_combos: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._brain_context = brain_context.lower()
         self._top_k = top_k
@@ -379,6 +380,8 @@ class DatasetPriorityScorer:
         self._dataset_embeddings: Dict[str, List[float]] = dataset_embeddings or {}
         # Row-count snapshots for volatility (items 20-22)
         self._row_count_snapshots: Dict[str, List[int]] = row_count_snapshots or {}
+        # Explored (dimension × metric) combos per table (item 34)
+        self._depth_combos: Dict[str, Any] = depth_combos or {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -588,11 +591,21 @@ class DatasetPriorityScorer:
         return max(0.1, min(0.95, score))
 
     def _depth_score(self, table: Any, max_cols: int) -> float:
-        """Proxy for analytical depth = num_columns / max_columns_across_all_tables.
+        """Analytical depth remaining for this table (item 34).
 
-        Tables with more columns offer more unexplored analytical combinations.
-        Will be replaced by real combination-coverage tracking in item 34.
+        When depth_combos have been loaded: returns the fraction of (dimension ×
+        metric) combinations not yet explored (1.0 = pristine, 0.0 = saturated).
+        Falls back to column-count proxy when no combo data is available.
         """
+        explored = self._depth_combos.get(table.logical_name)
+        if explored is not None:
+            from core.agents.depth_tracker import depth_remaining_score
+            return depth_remaining_score(
+                table_name=table.logical_name,
+                columns=table.columns or [],
+                explored_combos=explored,
+            )
+        # Fallback: more columns → more potential depth
         if max_cols == 0:
             return 0.5
         num_cols = len(table.columns or [])

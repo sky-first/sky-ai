@@ -3829,6 +3829,7 @@ async def _query_connection_inner(
                 save_row_count_snapshots,
             )
             from core.agents.scan_briefing import count_scan_insights
+            from core.agents.depth_tracker import load_depth_combos_for_scorer
 
             _raw_insights = await load_insights_for_scorer(db, body.space_id)
             _run_count = await count_scan_insights(db, body.space_id)
@@ -3844,12 +3845,16 @@ async def _query_connection_inner(
             # Item 20: load row_count snapshots for volatility scoring
             _row_count_snapshots = await load_row_count_snapshots_for_scorer(db, body.space_id)
 
+            # Item 34: load explored depth combos for real depth scoring
+            _depth_combos = await load_depth_combos_for_scorer(db, body.space_id)
+
             _scorer = DatasetPriorityScorer(
                 brain_context="",
                 top_k=5,
                 okr_vectors=_okr_vectors,
                 dataset_embeddings=_dataset_embeddings,
                 row_count_snapshots=_row_count_snapshots,
+                depth_combos=_depth_combos,
             )
             if _is_cross_dataset_run:
                 _top_tables = _scorer.cross_dataset_rank(agent_config.tables, _raw_insights)
@@ -3873,6 +3878,7 @@ async def _query_connection_inner(
                     "num_okr_vectors": len(_okr_vectors),
                     "num_dataset_embeddings": len(_dataset_embeddings),
                     "num_row_count_snapshots": len(_row_count_snapshots),
+                    "num_depth_tracked_tables": len(_depth_combos),
                 })
 
                 # Item 20: persist row_count snapshot for all candidate tables
@@ -4191,6 +4197,25 @@ async def _query_connection_inner(
                         logger.debug("notify_scan_insight failed (non-critical): %s", _notify_exc)
             except Exception as _exc:
                 logger.warning("Failed to save scan insight: %s", _exc)
+
+        # Item 34: record explored (dimension × metric) combos for depth tracking
+        # Runs regardless of whether the insight was saved or marked silent.
+        try:
+            from core.agents.depth_tracker import extract_explored_combos, record_depth_combos
+            _scan_sql = final_state.get("sql") or ""
+            _scan_tables = final_state.get("tables_queried") or []
+            if _scan_sql and _scan_tables:
+                _combos = extract_explored_combos(_scan_sql)
+                if _combos:
+                    for _tbl in _scan_tables:
+                        await record_depth_combos(
+                            db=db,
+                            space_id=body.space_id,
+                            table_name=_tbl,
+                            combos=_combos,
+                        )
+        except Exception as _depth_exc:
+            logger.debug("depth_tracker record failed (non-critical): %s", _depth_exc)
 
     answer = final_state.get("answer") or ""
     data = final_state.get("data") or []
