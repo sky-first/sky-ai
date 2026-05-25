@@ -1,4 +1,3 @@
-
 import sys
 import os
 import asyncio
@@ -11,13 +10,14 @@ load_dotenv()
 from config.settings import settings
 from core.llm.factory import create_llm_orchestrator
 
+
 async def test_orchestrator():
     print("=== TESTING ORCHESTRATOR ISOLATION ===\n")
     print(f"1. Configuration:")
     print(f"   - URL: {settings.ollama_base_url}")
     print(f"   - Model: {settings.llm_model_orchestrator_local}")
     print(f"   - Local Mode: {settings.use_local_models}")
-    
+
     print("\n2. Initializing LLM...")
     try:
         llm = create_llm_orchestrator()
@@ -36,14 +36,19 @@ async def test_orchestrator():
         print("\n👉 DIAGNOSIS: The AI Service is unreachable.")
         if "404" in str(e):
             print("   - Result: 404 Not Found")
-            print("   - Cause: The URL is reachable but the endpoint is wrong (or model missing).")
-            print("   - Fix: Check if RunPod is running Ollama and if `phi3:mini` is pulled.")
+            print(
+                "   - Cause: The URL is reachable but the endpoint is wrong (or model missing)."
+            )
+            print(
+                "   - Fix: Check if RunPod is running Ollama and if `phi3:mini` is pulled."
+            )
         elif "Connection refused" in str(e):
-             print("   - Cause: Service is down.")
+            print("   - Cause: Service is down.")
         return
 
     # If connection works, we would test actual orchestrator logic here
     # But for now, just proving connection is the goal.
+
 
 if __name__ == "__main__":
     asyncio.run(test_orchestrator())

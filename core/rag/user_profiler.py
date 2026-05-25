@@ -5,6 +5,7 @@ User Query Profiling Module.
 Analyzes user query history to identify frequently accessed tables
 and injects this as context for better table selection.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -25,21 +26,21 @@ def get_user_table_profile(
 ) -> Dict[str, int]:
     """
     Get a user's table usage profile from query audit logs.
-    
+
     Args:
         db: Database session
         user_id: User ID to profile
         space_id: Optional space ID to filter by
         days: Number of days to look back (default: 30)
         limit: Maximum number of tables to return (default: 10)
-    
+
     Returns:
         Dict mapping table names to usage counts, e.g.:
         {"invoices": 25, "payments": 10, "customers": 5}
     """
     if not user_id:
         return {}
-    
+
     try:
         # Build query to aggregate chosen_tables from audit log
         # Uses UNNEST to expand the array and count occurrences
@@ -58,7 +59,7 @@ def get_user_table_profile(
             ORDER BY usage_count DESC
             LIMIT :limit
         """)
-        
+
         result = db.execute(
             query,
             {
@@ -66,13 +67,13 @@ def get_user_table_profile(
                 "space_id": space_id,
                 "days": days,
                 "limit": limit,
-            }
+            },
         )
-        
+
         profile = {}
         for row in result:
             profile[row.table_name] = row.usage_count
-        
+
         log_event(
             "user_profiler_loaded",
             {
@@ -80,18 +81,18 @@ def get_user_table_profile(
                 "space_id": space_id,
                 "num_tables": len(profile),
                 "top_table": list(profile.keys())[0] if profile else None,
-            }
+            },
         )
-        
+
         return profile
-        
+
     except Exception as e:
         log_event(
             "user_profiler_error",
             {
                 "user_id": user_id,
                 "error": str(e)[:300],
-            }
+            },
         )
         return {}
 
@@ -102,14 +103,14 @@ def format_profile_for_prompt(
 ) -> str:
     """
     Format a user's table profile into a prompt-injectable string.
-    
+
     Args:
         profile: Dict of table names to usage counts
         max_tables: Maximum tables to include in the prompt
-    
+
     Returns:
         Formatted string for prompt injection, or empty string if no profile.
-    
+
     Example:
         "USER PREFERENCE PROFILE:
         This user frequently accesses: invoices (25x), payments (10x), customers (5x).
@@ -117,13 +118,13 @@ def format_profile_for_prompt(
     """
     if not profile:
         return ""
-    
+
     # Sort by usage count (should already be sorted, but ensure)
     sorted_tables = sorted(profile.items(), key=lambda x: x[1], reverse=True)
     top_tables = sorted_tables[:max_tables]
-    
+
     table_list = ", ".join([f"{name} ({count}x)" for name, count in top_tables])
-    
+
     return (
         f"\nUSER PREFERENCE PROFILE:\n"
         f"This user frequently accesses: {table_list}.\n"
@@ -139,19 +140,19 @@ def get_user_recent_queries(
 ) -> List[Dict[str, str]]:
     """
     Get a user's recent queries for context.
-    
+
     Args:
         db: Database session
         user_id: User ID
         space_id: Optional space ID filter
         limit: Number of recent queries to return
-    
+
     Returns:
         List of dicts with question and chosen_tables
     """
     if not user_id:
         return []
-    
+
     try:
         query = text("""
             SELECT 
@@ -166,16 +167,16 @@ def get_user_recent_queries(
             ORDER BY timestamp DESC
             LIMIT :limit
         """)
-        
+
         result = db.execute(
             query,
             {
                 "user_id": user_id,
                 "space_id": space_id,
                 "limit": limit,
-            }
+            },
         )
-        
+
         return [
             {
                 "question": row.question[:100] if row.question else "",
@@ -183,10 +184,10 @@ def get_user_recent_queries(
             }
             for row in result
         ]
-        
+
     except Exception as e:
         log_event(
             "user_profiler_recent_queries_error",
-            {"user_id": user_id, "error": str(e)[:200]}
+            {"user_id": user_id, "error": str(e)[:200]},
         )
         return []

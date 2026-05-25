@@ -3,9 +3,10 @@
 Classificador semântico usando LLM (agnóstico).
 
 Usa um LLMProvider para classificar intenções de forma semântica,
-sem depender de palavras-chave específicas de domínio e sem acoplamento 
+sem depender de palavras-chave específicas de domínio e sem acoplamento
 com a biblioteca da OpenAI.
 """
+
 import hashlib
 import json
 from typing import Tuple, Optional, Literal, Any
@@ -17,14 +18,13 @@ _INTENT_CACHE_MEMORY: dict[str, Tuple[str, float]] = {}
 _CACHE_MAX_SIZE = 1000  # Limitar tamanho do cache em memória
 
 try:
-    import redis
-    redis_cache_client = redis.from_url(
+    from core.redis_utils import make_redis_client
+
+    redis_cache_client = make_redis_client(
         settings.celery_broker_url,
-        decode_responses=True,
         socket_connect_timeout=1,
         socket_timeout=1,
     )
-    redis_cache_client.ping()  # Testar conexão
     REDIS_CACHE_AVAILABLE = True
 except Exception:
     REDIS_CACHE_AVAILABLE = False
@@ -36,11 +36,11 @@ _CACHE_TTL_SECONDS = 3600
 
 IntentCategory = Literal[
     "SAFE_BUSINESS",
-    "MALICIOUS_INJECTION", 
+    "MALICIOUS_INJECTION",
     "DATA_EXFILTRATION",
     "PRIVILEGE_ESCALATION",
     "SYSTEM_MANIPULATION",
-    "UNKNOWN"
+    "UNKNOWN",
 ]
 
 
@@ -60,11 +60,11 @@ def _get_from_cache(cache_key: str) -> Optional[Tuple[IntentCategory, float]]:
         except Exception:
             # Se Redis falhar, tentar memória
             pass
-    
+
     # Fallback para memória
     if cache_key in _INTENT_CACHE_MEMORY:
         return _INTENT_CACHE_MEMORY[cache_key]
-    
+
     return None
 
 
@@ -72,16 +72,13 @@ def _set_to_cache(cache_key: str, category: IntentCategory, confidence: float) -
     """Armazena resultado no cache (Redis ou memória)"""
     if REDIS_CACHE_AVAILABLE and redis_cache_client:
         try:
-            cache_data = json.dumps({
-                "category": category,
-                "confidence": confidence
-            })
+            cache_data = json.dumps({"category": category, "confidence": confidence})
             redis_cache_client.setex(cache_key, _CACHE_TTL_SECONDS, cache_data)
             return
         except Exception:
             # Se Redis falhar, usar memória
             pass
-    
+
     # Fallback para memória
     # Limpar cache se muito grande
     if len(_INTENT_CACHE_MEMORY) > _CACHE_MAX_SIZE:
@@ -90,34 +87,33 @@ def _set_to_cache(cache_key: str, category: IntentCategory, confidence: float) -
 
 
 async def classify_intent_with_llm(
-    question: str,
-    llm_provider: Optional[LLMProvider] = None
+    question: str, llm_provider: Optional[LLMProvider] = None
 ) -> Tuple[IntentCategory, float]:
     """
     Classifica a intenção usando LLM (agnóstico).
-    
+
     Usa padrões semânticos universais, não palavras específicas de domínio.
-    
+
     Args:
         question: Pergunta do usuário
         llm_provider: Provider LLM (opcional)
-        
+
     Returns:
         Tupla (categoria, confiança)
     """
     if not question:
         return "SAFE_BUSINESS", 0.5
-    
+
     # Verificar cache primeiro (Redis ou memória)
     cache_key = _get_cache_key(question)
     cached_result = _get_from_cache(cache_key)
     if cached_result:
         return cached_result
-    
+
     # Se não houver provider, não podemos classificar via LLM
     if llm_provider is None:
         return "UNKNOWN", 0.0
-    
+
     # Prompt agnóstico (sem exemplos específicos de domínio)
     system_prompt = """You are a security classifier for a business analytics system.
 
@@ -144,20 +140,20 @@ Rules:
         # Usar interface genérica do LLMProvider
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question}
+            {"role": "user", "content": question},
         ]
-        
+
         response = llm_provider.invoke(messages)
-        
+
         # Provedores retornam objeto com .content (str)
         content = getattr(response, "content", str(response)).strip().upper()
-        
+
         category_text = content
         confidence = 0.9
-        
+
         # Mapear resposta para categoria válida
         category: IntentCategory = "UNKNOWN"
-        
+
         if "SAFE_BUSINESS" in category_text or "SAFE" in category_text:
             category = "SAFE_BUSINESS"
         elif "MALICIOUS" in category_text or "INJECTION" in category_text:
@@ -171,14 +167,14 @@ Rules:
         else:
             category = "UNKNOWN"
             confidence = 0.5
-        
+
         result = (category, confidence)
-        
+
         # Cachear resultado (Redis ou memória)
         _set_to_cache(cache_key, category, confidence)
-        
+
         return result
-        
+
     except Exception as e:
         # Em caso de erro, retornar UNKNOWN (não bloquear por erro de API)
         return "UNKNOWN", 0.0

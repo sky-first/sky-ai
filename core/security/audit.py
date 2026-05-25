@@ -3,6 +3,7 @@
 Sistema de auditoria assíncrono para queries.
 Não bloqueia requests - usa buffer em memória + flush periódico.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -98,7 +99,7 @@ def log_query_audit(
         "pii_patterns_matched": pii_patterns_matched or [],
         "pii_blocked": pii_blocked,
     }
-    
+
     _audit_buffer.append(log_entry)
 
 
@@ -106,7 +107,7 @@ def log_security_alert(
     connection_id: str,
     user_id: Optional[str],
     alert_type: str,  # 'PII_PROMPT', 'PROMPT_INJECTION', etc
-    severity: str,    # 'BLOCK', 'CRITICAL', 'HIGH'
+    severity: str,  # 'BLOCK', 'CRITICAL', 'HIGH'
     details: Dict[str, Any],
 ):
     """
@@ -120,7 +121,7 @@ def log_security_alert(
         "user_id": user_id,
         "alert_type": alert_type,
         "severity": severity,
-        "details": details
+        "details": details,
     }
     _audit_buffer.append(log_entry)
 
@@ -147,10 +148,9 @@ def log_prompt_security_audit(
         "security_status": security_status,
         "blocked_by": blocked_by,
         "risk_score": risk_score,
-        "scan_details": scan_details
+        "scan_details": scan_details,
     }
     _audit_buffer.append(log_entry)
-
 
 
 async def _ensure_audit_table_async() -> None:
@@ -165,19 +165,16 @@ async def _ensure_audit_table_async() -> None:
     _last_ensure_attempt_ts = now
 
     from db.base import SessionLocal
-    
+
     async with SessionLocal() as db:
         try:
-            await db.execute(
-                text(
-                    """
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS query_audit_log (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                         connection_id UUID NOT NULL,
                         user_id VARCHAR(255),
                         space_id UUID,
-                        crew_ids TEXT[],
                         crew_ids TEXT[],
                         thread_id VARCHAR(255),
                         platform_role VARCHAR(50),
@@ -206,14 +203,32 @@ async def _ensure_audit_table_async() -> None:
                         pii_patterns_matched TEXT[],
                         pii_blocked BOOLEAN DEFAULT FALSE
                     );
-                    """
+                    """))
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON query_audit_log(timestamp);"
                 )
             )
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON query_audit_log(timestamp);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_user ON query_audit_log(user_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_connection ON query_audit_log(connection_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_space ON query_audit_log(space_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_thread ON query_audit_log(thread_id);"))
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_user ON query_audit_log(user_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_connection ON query_audit_log(connection_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_space ON query_audit_log(space_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_audit_thread ON query_audit_log(thread_id);"
+                )
+            )
             await db.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_audit_prompt_injection ON query_audit_log(prompt_injection_detected) WHERE prompt_injection_detected = TRUE;"
@@ -224,35 +239,11 @@ async def _ensure_audit_table_async() -> None:
                     "CREATE INDEX IF NOT EXISTS idx_audit_escalation ON query_audit_log(progressive_escalation_detected) WHERE progressive_escalation_detected = TRUE;"
                 )
             )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_blocked ON query_audit_log(pii_blocked) WHERE pii_blocked = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
-            await db.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_audit_pii_detected ON query_audit_log(pii_detected_in_prompt, pii_detected_in_response) WHERE pii_detected_in_prompt = TRUE OR pii_detected_in_response = TRUE;"
-                )
-            )
+            # PII indexes and role/PII columns are managed by Alembic migration 004.
+            await db.commit()
 
-            # --- Migrations para colunas novas (Best-effort) ---
-            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50);"))
-            await db.execute(text("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50);"))
-            
             # --- Tabela security_alerts ---
-            await db.execute(
-                text(
-                    """
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS security_alerts (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -262,17 +253,25 @@ async def _ensure_audit_table_async() -> None:
                         severity VARCHAR(20),
                         details JSONB
                     );
-                    """
-                )
-            )
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_user ON security_alerts(user_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_type ON security_alerts(alert_type);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON security_alerts(severity);"))
-            
-            # --- Tabela prompt_security_audit ---
+                    """))
             await db.execute(
                 text(
-                    """
+                    "CREATE INDEX IF NOT EXISTS idx_alerts_user ON security_alerts(user_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_alerts_type ON security_alerts(alert_type);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_alerts_severity ON security_alerts(severity);"
+                )
+            )
+
+            # --- Tabela prompt_security_audit ---
+            await db.execute(text("""
                     CREATE TABLE IF NOT EXISTS prompt_security_audit (
                         id UUID PRIMARY KEY,
                         timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -284,14 +283,28 @@ async def _ensure_audit_table_async() -> None:
                         risk_score FLOAT,
                         scan_details JSONB
                     );
-                    """
+                    """))
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_audit_timestamp ON prompt_security_audit(timestamp);"
                 )
             )
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_timestamp ON prompt_security_audit(timestamp);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_user ON prompt_security_audit(user_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_connection ON prompt_security_audit(connection_id);"))
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_prompt_audit_status ON prompt_security_audit(security_status);"))
-            
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_audit_user ON prompt_security_audit(user_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_audit_connection ON prompt_security_audit(connection_id);"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_audit_status ON prompt_security_audit(security_status);"
+                )
+            )
+
             await db.commit()
         except Exception:
             await db.rollback()
@@ -307,37 +320,40 @@ async def _flush_audit_buffer_async():
 
     if not _audit_buffer:
         return
-    
+
     # Pegar até batch_size logs
     batch = []
     for _ in range(min(_flush_batch_size, len(_audit_buffer))):
         if _audit_buffer:
             batch.append(_audit_buffer.popleft())
-    
+
     if not batch:
         return
-    
+
     # Inserir no banco
     try:
         from db.base import SessionLocal
-        
+
         async with SessionLocal() as db:
             try:
                 # Garantir tabela existe (best-effort). Se migration já foi aplicada, é NO-OP.
                 await _ensure_audit_table_async()
 
                 # Separa logs por tipo
-                audit_batch = [e for e in batch if e.get("_type") not in ("alert", "prompt_audit")]
+                audit_batch = [
+                    e for e in batch if e.get("_type") not in ("alert", "prompt_audit")
+                ]
                 alert_batch = [e for e in batch if e.get("_type") == "alert"]
-                prompt_audit_batch = [e for e in batch if e.get("_type") == "prompt_audit"]
-                
+                prompt_audit_batch = [
+                    e for e in batch if e.get("_type") == "prompt_audit"
+                ]
+
                 if not audit_batch and not alert_batch and not prompt_audit_batch:
-                    return # Nothing to flush
+                    return  # Nothing to flush
 
                 # 1. Inserir AUDIT LOGS
                 if audit_batch:
-                    insert_sql = text(
-                    """
+                    insert_sql = text("""
                     INSERT INTO query_audit_log (
                         id, connection_id, user_id, space_id, crew_ids, thread_id,
                         platform_role, crew_role,
@@ -381,10 +397,7 @@ async def _flush_audit_buffer_async():
                         :pii_patterns_matched,
                         :pii_blocked
                     )
-                    """
-                )
-
-
+                    """)
 
                 if audit_batch:
                     for entry in audit_batch:
@@ -406,28 +419,42 @@ async def _flush_audit_buffer_async():
                             "execution_time_ms": entry.get("execution_time_ms"),
                             "has_error": entry.get("has_error"),
                             "error_message": entry.get("error_message"),
-                            "was_rate_limited": bool(entry.get("was_rate_limited", False)),
-                            "prompt_injection_detected": bool(entry.get("prompt_injection_detected", False)),
-                            "prompt_injection_pattern": entry.get("prompt_injection_pattern"),
-                            "progressive_escalation_score": int(entry.get("progressive_escalation_score", 0) or 0),
-                            "progressive_escalation_detected": bool(entry.get("progressive_escalation_detected", False)),
+                            "was_rate_limited": bool(
+                                entry.get("was_rate_limited", False)
+                            ),
+                            "prompt_injection_detected": bool(
+                                entry.get("prompt_injection_detected", False)
+                            ),
+                            "prompt_injection_pattern": entry.get(
+                                "prompt_injection_pattern"
+                            ),
+                            "progressive_escalation_score": int(
+                                entry.get("progressive_escalation_score", 0) or 0
+                            ),
+                            "progressive_escalation_detected": bool(
+                                entry.get("progressive_escalation_detected", False)
+                            ),
                             "detected_language": entry.get("detected_language"),
                             "chosen_tables": entry.get("chosen_tables") or [],
                             "answer_preview": entry.get("answer_preview"),
                             # Campos PII
-                            "pii_detected_in_prompt": bool(entry.get("pii_detected_in_prompt", False)),
-                            "pii_detected_in_response": bool(entry.get("pii_detected_in_response", False)),
+                            "pii_detected_in_prompt": bool(
+                                entry.get("pii_detected_in_prompt", False)
+                            ),
+                            "pii_detected_in_response": bool(
+                                entry.get("pii_detected_in_response", False)
+                            ),
                             "pii_types": entry.get("pii_types") or [],
                             "pii_severity": entry.get("pii_severity"),
-                            "pii_patterns_matched": entry.get("pii_patterns_matched") or [],
+                            "pii_patterns_matched": entry.get("pii_patterns_matched")
+                            or [],
                             "pii_blocked": bool(entry.get("pii_blocked", False)),
                         }
                         await db.execute(insert_sql, params)
-                
+
                 # 2. Inserir SECURITY ALERTS
                 if alert_batch:
-                    insert_alert_sql = text(
-                        """
+                    insert_alert_sql = text("""
                         INSERT INTO security_alerts (
                             id, user_id, connection_id, 
                             alert_type, severity, details
@@ -439,10 +466,10 @@ async def _flush_audit_buffer_async():
                             :severity,
                             :details
                         )
-                        """
-                    )
-                    
+                        """)
+
                     import json
+
                     for entry in alert_batch:
                         params = {
                             "id": entry.get("id"),
@@ -450,14 +477,17 @@ async def _flush_audit_buffer_async():
                             "connection_id": entry.get("connection_id"),
                             "alert_type": entry.get("alert_type"),
                             "severity": entry.get("severity"),
-                            "details": json.dumps(entry.get("details")) if entry.get("details") else None
+                            "details": (
+                                json.dumps(entry.get("details"))
+                                if entry.get("details")
+                                else None
+                            ),
                         }
                         await db.execute(insert_alert_sql, params)
 
                 # 3. Inserir PROMPT AUDITS
                 if prompt_audit_batch:
-                    insert_prompt_sql = text(
-                        """
+                    insert_prompt_sql = text("""
                         INSERT INTO prompt_security_audit (
                             id, user_id, connection_id, 
                             prompt_text_redacted, security_status, blocked_by, 
@@ -472,10 +502,10 @@ async def _flush_audit_buffer_async():
                             :risk_score,
                             :scan_details
                         )
-                        """
-                    )
-                    
+                        """)
+
                     import json
+
                     for entry in prompt_audit_batch:
                         params = {
                             "id": entry.get("id"),
@@ -485,21 +515,27 @@ async def _flush_audit_buffer_async():
                             "security_status": entry.get("security_status"),
                             "blocked_by": entry.get("blocked_by"),
                             "risk_score": entry.get("risk_score"),
-                            "scan_details": json.dumps(entry.get("scan_details")) if entry.get("scan_details") else None
+                            "scan_details": (
+                                json.dumps(entry.get("scan_details"))
+                                if entry.get("scan_details")
+                                else None
+                            ),
                         }
                         await db.execute(insert_prompt_sql, params)
-                
+
                 await db.commit()
             except Exception as e:
                 await db.rollback()
                 # Log erro mas não quebrar aplicação
                 import logging
+
                 logger = logging.getLogger("dataassistant")
                 logger.error(f"Error flushing audit log: {e}")
                 # Evitar spam: backoff por 60s em caso de falha
                 _audit_disabled_until_ts = time.time() + 60.0
     except Exception as e:
         import logging
+
         logger = logging.getLogger("dataassistant")
         logger.error(f"Error in audit flush: {e}")
         _audit_disabled_until_ts = time.time() + 60.0
@@ -516,12 +552,12 @@ async def _flusher_loop_async():
 def start_audit_flusher():
     """Inicia loop de flush periódico (chamar no startup da aplicação)"""
     global _flusher_running, _flusher_task
-    
+
     if _flusher_running:
         return  # Já está rodando
-    
+
     _flusher_running = True
-    
+
     # Criar task async no event loop atual
     try:
         loop = asyncio.get_running_loop()
@@ -529,9 +565,12 @@ def start_audit_flusher():
     except RuntimeError:
         # Não há event loop rodando, usar threading como fallback
         import logging
+
         logger = logging.getLogger("dataassistant")
-        logger.warning("No running event loop for audit flusher, using threading fallback")
-        
+        logger.warning(
+            "No running event loop for audit flusher, using threading fallback"
+        )
+
         def _sync_flusher_loop():
             while _flusher_running:
                 time.sleep(_flush_interval)
@@ -541,20 +580,20 @@ def start_audit_flusher():
                         asyncio.run(_flush_audit_buffer_async())
                     except Exception as e:
                         logger.error(f"Error in sync audit flush: {e}")
-        
+
         thread = threading.Thread(target=_sync_flusher_loop, daemon=True)
         thread.start()
 
 
 def stop_audit_flusher():
     """Para o flush (chamar no shutdown)"""
-    global _flusher_running, _flusher_task
+    global _flusher_running
     _flusher_running = False
-    
+
     # Cancelar task se existir
     if _flusher_task and not _flusher_task.done():
         _flusher_task.cancel()
-    
+
     # Flush final (síncrono)
     try:
         asyncio.run(_flush_audit_buffer_async())

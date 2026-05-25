@@ -1,0 +1,80 @@
+name: Build & Push to ECR (AWS staging)
+
+# Runs in parallel with the Azure ACR workflow during the migration window.
+# Once AWS staging is validated, the Azure workflow will be removed.
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC to AWS
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REGISTRY: 741375879811.dkr.ecr.eu-west-1.amazonaws.com
+  IMAGE_NAME: sky-ai
+  ROLE_TO_ASSUME: arn:aws:iam::741375879811:role/sky-gha-sky-ai
+
+jobs:
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, no keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Replaces argocd-image-updater on the AWS path (broken on ECR
+      # auth in chart 0.12.3 / image-updater 0.16).
+      - name: Bump sky-ai-stg-aws values in sky-poc-infra
+        if: github.ref_name == 'staging'
+        env:
+          GITOPS_PUSH_TOKEN: ${{ secrets.GITOPS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          git clone --depth 1 --branch staging \
+            "https://x-access-token:${GITOPS_PUSH_TOKEN}@github.com/sky-first/sky-infra.git" \
+            /tmp/sky-infra
+          cd /tmp/sky-infra
+
+          NEW_TAG="sha-${{ github.sha }}"
+          VALUES_FILE="gitops/charts/common-app/values-sky-ai-stg-aws.yaml"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${VALUES_FILE}"
+
+          git config user.name  "sky-ai-deploy[bot]"
+          git config user.email "sky-ai-deploy@users.noreply.github.com"
+          git add "${VALUES_FILE}"
+          git diff --quiet --cached || \
+            git commit -m "build: automatic update of sky-ai-stg-aws to ${NEW_TAG}"
+          for i in 1 2 3; do
+            git push && break || git pull --rebase
+          done

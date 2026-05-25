@@ -11,6 +11,7 @@ from db.models import DataConnection, TableMetadata
 from core.logging_utils import log_event
 from core.ingestion.db_metadata import _create_bq_client, _executor
 
+
 async def enrich_table_date_ranges(
     db: AsyncSession,
     connection_id: str,
@@ -39,7 +40,7 @@ async def enrich_table_date_ranges(
         )
     )
     date_cols = result.scalars().all()
-    
+
     # Fallback to check TIMESTAMP as well
     result = await db.execute(
         select(TableMetadata).where(
@@ -52,17 +53,23 @@ async def enrich_table_date_ranges(
     if not date_cols:
         return 0
 
-    log_event("enrich_date_ranges_start", {"connection_id": connection_id, "num_cols": len(date_cols)})
+    log_event(
+        "enrich_date_ranges_start",
+        {"connection_id": connection_id, "num_cols": len(date_cols)},
+    )
 
     # 3. Create BQ Client
     try:
         client = _create_bq_client(dc.config or {})
     except Exception as e:
-        log_event("enrich_date_ranges_auth_error", {"connection_id": connection_id, "error": str(e)})
+        log_event(
+            "enrich_date_ranges_auth_error",
+            {"connection_id": connection_id, "error": str(e)},
+        )
         return 0
 
     enriched_count = 0
-    
+
     # Group by table to avoid redundant queries if multiple date cols exist (though we usually pick one)
     table_to_cols: Dict[str, List[TableMetadata]] = {}
     for col in date_cols:
@@ -79,11 +86,12 @@ async def enrich_table_date_ranges(
                 # Use original_name if available in extra
                 extra = col.extra or {}
                 physical_table = extra.get("original_name") or table_name
-                
+
                 # Check if it's already qualified
                 if "." not in physical_table:
                     # Try to infer dataset (similar to db_metadata)
                     from core.ingestion.db_metadata import _infer_dataset_from_config
+
                     dataset = _infer_dataset_from_config(dc.config or {})
                     project_id = client.project
                     full_table = f"`{project_id}.{dataset}.{physical_table}`"
@@ -91,7 +99,7 @@ async def enrich_table_date_ranges(
                     full_table = f"`{physical_table}`"
 
                 query = f"SELECT MIN({col.column_name}) as min_v, MAX({col.column_name}) as max_v FROM {full_table}"
-                
+
                 # Run query in executor
                 def _run_range_query(c, q):
                     res = list(c.query(q).result())
@@ -99,14 +107,16 @@ async def enrich_table_date_ranges(
                         return res[0].min_v, res[0].max_v
                     return None, None
 
-                min_v, max_v = await loop.run_in_executor(_executor, _run_range_query, client, query)
+                min_v, max_v = await loop.run_in_executor(
+                    _executor, _run_range_query, client, query
+                )
 
                 if min_v is not None or max_v is not None:
                     # Update metadata
                     current_extra = col.extra or {}
                     current_extra["min_date"] = str(min_v)
                     current_extra["max_date"] = str(max_v)
-                    
+
                     # Also update the TableMetadata row
                     await db.execute(
                         update(TableMetadata)
@@ -115,12 +125,18 @@ async def enrich_table_date_ranges(
                     )
                     enriched_count += 1
             except Exception as e:
-                log_event("enrich_date_range_col_error", {
-                    "table": table_name, 
-                    "col": col.column_name, 
-                    "error": str(e)[:200]
-                })
+                log_event(
+                    "enrich_date_range_col_error",
+                    {
+                        "table": table_name,
+                        "col": col.column_name,
+                        "error": str(e)[:200],
+                    },
+                )
 
     await db.commit()
-    log_event("enrich_date_ranges_done", {"connection_id": connection_id, "enriched_count": enriched_count})
+    log_event(
+        "enrich_date_ranges_done",
+        {"connection_id": connection_id, "enriched_count": enriched_count},
+    )
     return enriched_count

@@ -60,7 +60,7 @@ if [ ! -f ".deps_installed" ]; then
 fi
 
 # Configure environment variables
-export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@localhost:5432/ai_saas_db}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/ai_saas_db}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/0}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/0}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
@@ -75,6 +75,17 @@ if ! docker ps | grep -q sky_poc_postgres; then
     echo "⚠️  Infrastructure is not running."
     echo "   Run: cd ../../deploy && ./start.sh"
     echo "   Continuing..."
+fi
+
+# Run schema fixes and migrations
+echo "🛠️  Running database schema fixes..."
+export PYTHONPATH=$PYTHONPATH:.
+if [ -d "venv" ]; then
+    venv/bin/python3 scripts/fix_db_schema.py || echo "⚠️  Schema fix had warnings (continuing)..."
+elif [ -d ".venv" ]; then
+    .venv/bin/python3 scripts/fix_db_schema.py || echo "⚠️  Schema fix had warnings (continuing)..."
+else
+    python3 scripts/fix_db_schema.py || echo "⚠️  Schema fix had warnings (continuing)..."
 fi
 
 # Run uvicorn

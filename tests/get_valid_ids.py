@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import sys
@@ -43,6 +42,7 @@ async def main():
         await db.close()
     except Exception as e:
         print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

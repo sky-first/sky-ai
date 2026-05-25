@@ -2,6 +2,7 @@
 """
 Endpoints para ingestão de dados, metadados e geração de embeddings.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
@@ -34,18 +35,18 @@ async def ingest_metadata(
 ) -> dict:
     """
     Ingere metadados de tabelas de uma conexão.
-    
+
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter)
     - crew_id: ID do crew (opcional, no body)
     - run_in_background: Se True, executa em background (default: False)
-    
+
     Retorna:
     - metadata_rows_inserted: Número de linhas de metadados inseridas
     """
     crew_id = request.crew_id if request else None
-    
+
     try:
         if run_in_background and background_tasks:
             # Executar em background
@@ -63,7 +64,7 @@ async def ingest_metadata(
             }
         else:
             # Executar síncrono
-            inserted = run_metadata_ingestion(
+            inserted = await run_metadata_ingestion(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
@@ -81,8 +82,7 @@ async def ingest_metadata(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao ingerir metadados: {str(e)}"
+            status_code=500, detail=f"Erro ao ingerir metadados: {str(e)}"
         )
 
 
@@ -97,19 +97,19 @@ async def generate_embeddings(
 ) -> dict:
     """
     Gera embeddings para metadados de uma conexão.
-    
+
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter)
     - crew_id: ID do crew (opcional, no body)
     - run_in_background: Se True, executa em background (default: False)
-    
+
     Retorna:
     - embeddings_created: Número de embeddings criados
     """
     crew_id = request.crew_id if request else None
     embedding_provider = create_embedding_provider()
-    
+
     try:
         if run_in_background and background_tasks:
             # Executar em background
@@ -128,7 +128,7 @@ async def generate_embeddings(
             }
         else:
             # Executar síncrono
-            created = run_metadata_embeddings(
+            created = await run_metadata_embeddings(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
@@ -147,8 +147,7 @@ async def generate_embeddings(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao gerar embeddings: {str(e)}"
+            status_code=500, detail=f"Erro ao gerar embeddings: {str(e)}"
         )
 
 
@@ -163,20 +162,20 @@ async def full_refresh(
 ) -> dict:
     """
     Executa refresh completo: ingestão de metadados + geração de embeddings.
-    
+
     Parâmetros:
     - connection_id: ID da conexão
     - space_id: ID do space (query parameter)
     - crew_id: ID do crew (opcional, no body)
     - run_in_background: Se True, executa em background (default: False)
-    
+
     Retorna:
     - metadata_rows_inserted: Número de linhas de metadados inseridas
     - embeddings_created: Número de embeddings criados
     """
     crew_id = request.crew_id if request else None
     embedding_provider = create_embedding_provider()
-    
+
     try:
         if run_in_background and background_tasks:
             # Executar em background
@@ -195,7 +194,7 @@ async def full_refresh(
             }
         else:
             # Executar síncrono
-            summary = run_full_refresh_for_connection(
+            summary = await run_full_refresh_for_connection(
                 db=db,
                 space_id=space_id,
                 connection_id=connection_id,
@@ -214,6 +213,5 @@ async def full_refresh(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao executar refresh completo: {str(e)}"
+            status_code=500, detail=f"Erro ao executar refresh completo: {str(e)}"
         )

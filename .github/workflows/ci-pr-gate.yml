@@ -1,0 +1,115 @@
+name: CI PR Gate - AI Service
+
+on:
+  pull_request:
+    branches: [staging, main]
+    # Filtro inteligente FinOps: Executa para tudo, EXCETO para puras restrições literárias/documentação
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+
+concurrency:
+  group: ci-ai-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-format:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install black flake8
+
+      - name: Check Formatting (Black)
+        continue-on-error: true  # Mantido temporariamente para não quebrar CI puramente em estilos espaçados
+        run: black --check .
+
+      - name: Lint (Flake8)
+        # REMOVIDO continue-on-error. Falhas estáticas de compilação vão brecar pipeline.
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  security-scan:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Static Analysis (Bandit)
+        # REMOVIDO continue-on-error. Vulnerabilidades Python cruas agora gerarão falha de build!
+        run: |
+          pip install bandit
+          bandit -r src/ -ll
+
+      - name: Secret Scanning (TruffleHog)
+        uses: trufflesecurity/trufflehog@v3.84.0
+        with:
+          path: .
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.sha }}
+          extra_args: --debug --only-verified
+
+      - name: Container Scan (Trivy - FS)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    env:
+      TESTING: "True"
+      OLLAMA_BASE_URL: "http://localhost:11434"
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Tests
+        run: |
+          pytest tests/ --cov=src --cov-report=xml
+
+  build-verification:
+    name: Docker Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Verification
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: sky-poc-ai:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

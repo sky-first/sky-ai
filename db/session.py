@@ -6,8 +6,13 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from dotenv import load_dotenv
 
-# Load env from current dir and project root (dev-friendly)
-load_dotenv()
+# Load env from current dir and project root (dev-friendly).
+# override=True so a stale DATABASE_URL in the shell doesn't mask the
+# in-repo ``.env`` (this caused a Saturday "AI service unavailable"
+# incident: zsh exported port 5432 for psql, .env said 5433, the
+# default load_dotenv kept the shell value and asyncpg refused the
+# connection). See db/base.py for the same comment.
+load_dotenv(override=True)
 load_dotenv("../.env", override=False)
 
 
@@ -29,15 +34,29 @@ def _default_database_url() -> str:
 # Se DATABASE_URL tiver psycopg2, converter para asyncpg
 DATABASE_URL = os.getenv("DATABASE_URL") or _default_database_url()
 if DATABASE_URL.startswith("postgresql+psycopg2://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql+psycopg2://", "postgresql+asyncpg://"
+    )
 elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
     # Se for postgresql:// sem driver, adicionar asyncpg
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+
+import json
+from datetime import date, datetime
+
+
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
 
 engine = create_async_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     echo=False,
+    json_serializer=lambda obj: json.dumps(obj, default=json_serial),
 )
 
 AsyncSessionLocal = async_sessionmaker(

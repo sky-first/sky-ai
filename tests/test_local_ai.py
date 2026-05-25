@@ -22,13 +22,15 @@ def test_ollama_connection():
     try:
         provider = OllamaProvider(
             model="phi3-sky",
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         )
 
-        response = provider.invoke([
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Say 'OK' if you can read this."}
-        ])
+        response = provider.invoke(
+            [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Say 'OK' if you can read this."},
+            ]
+        )
 
         print(f"✅ Ollama respondeu: {response.content[:50]}")
         return True
@@ -48,15 +50,15 @@ def test_sqlcoder():
             {"name": "id", "type": "INTEGER"},
             {"name": "name", "type": "VARCHAR"},
             {"name": "email", "type": "VARCHAR"},
-            {"name": "created_at", "type": "TIMESTAMP"}
-        ]
+            {"name": "created_at", "type": "TIMESTAMP"},
+        ],
     )
 
     prompt = f"""### Task
 Generate a SQL query to answer: How many users were created in 2024?
 
 ### Database Schema
-Table: {schema['physical_name']}
+Table: {schema.physical_name}
 Columns:
   - id (INTEGER)
   - name (VARCHAR)
@@ -75,7 +77,7 @@ Columns:
         provider = OllamaProvider(
             model="sqlcoder-sky",
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            temperature=0.0
+            temperature=0.0,
         )
 
         response = provider.invoke([{"role": "user", "content": prompt}])
@@ -86,7 +88,7 @@ Columns:
         # Validações básicas
         assert "SELECT" in sql.upper(), "SQL deve conter SELECT"
         assert "LIMIT" in sql.upper(), "SQL deve conter LIMIT"
-        assert schema['physical_name'] in sql, "SQL deve usar tabela correta"
+        assert schema.physical_name in sql, "SQL deve usar tabela correta"
 
         print("✅ Validações passaram!")
         return True
@@ -118,7 +120,7 @@ Generate title and response.
         provider = OllamaProvider(
             model="phi3-sky",
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            temperature=0.3
+            temperature=0.3,
         )
 
         response = provider.invoke([{"role": "user", "content": prompt}])

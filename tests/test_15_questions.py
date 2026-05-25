@@ -2,6 +2,7 @@
 """
 Script to test 15 business questions and measure response time.
 """
+
 import asyncio
 import time
 from typing import Any, Dict, List
@@ -40,8 +41,9 @@ QUESTIONS = [
 ]
 
 
-async def test_question(client: httpx.AsyncClient,
-                        question: str, index: int) -> Dict[str, Any]:
+async def run_test_case(
+    client: httpx.AsyncClient, question: str, index: int
+) -> Dict[str, Any]:
     """Tests a question and returns the result."""
     start_time = time.time()
 
@@ -117,12 +119,13 @@ async def run_tests():
 
     async with httpx.AsyncClient() as client:
         for i, question in enumerate(QUESTIONS):
-            result = await test_question(client, question, i)
+            result = await run_test_case(client, question, i)
             results.append(result)
 
             status_icon = "✅" if result["status"] == "SUCCESS" else "❌"
             print(
-                f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}...")
+                f"{status_icon} [{result['index']:02d}] {result['time_seconds']:5.1f}s - {question[:50]}..."
+            )
 
     total_time = time.time() - total_start
 

@@ -6,8 +6,13 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
 
-# Load env from current dir and project root (dev-friendly)
-load_dotenv()
+# Load env from current dir first; the AI service's own ``.env`` is the
+# authoritative source for DATABASE_URL / OLLAMA_BASE_URL etc. We pass
+# ``override=True`` here because a stale ``DATABASE_URL`` in the shell
+# (zsh exports it for psql convenience pointing at port 5432) would
+# otherwise mask the in-repo .env which uses port 5433. The repo-root
+# fallback keeps override=False so per-service settings win.
+load_dotenv(override=True)
 load_dotenv("../.env", override=False)
 
 
@@ -46,7 +51,9 @@ _raw_url = os.getenv("DATABASE_URL") or ""
 if _raw_url:
     DATABASE_URL = _raw_url
     if DATABASE_URL.startswith("postgresql+psycopg2://"):
-        DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        DATABASE_URL = DATABASE_URL.replace(
+            "postgresql+psycopg2://", "postgresql+asyncpg://"
+        )
     elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 else:
@@ -56,9 +63,13 @@ else:
 if _raw_url:
     DATABASE_URL_SYNC = _raw_url
     if DATABASE_URL_SYNC.startswith("postgresql+asyncpg://"):
-        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace(
+            "postgresql+asyncpg://", "postgresql+psycopg2://"
+        )
     elif DATABASE_URL_SYNC.startswith("postgresql://") and "+" not in DATABASE_URL_SYNC:
-        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace("postgresql://", "postgresql+psycopg2://")
+        DATABASE_URL_SYNC = DATABASE_URL_SYNC.replace(
+            "postgresql://", "postgresql+psycopg2://"
+        )
 else:
     DATABASE_URL_SYNC = _default_database_url_sync()
 

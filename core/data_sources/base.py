@@ -21,6 +21,7 @@ class DataSourceConfig:
     - default_schema: nome do schema/base principal (ex: "project.dataset" ou "public")
     - extra: dict com configs específicas (project_id, credentials_path, host, etc.)
     """
+
     id: str
     type: str
     default_schema: str | None = None
@@ -39,10 +40,10 @@ class BaseDataSource(Protocol):
     O specialist NUNCA sabe se está falando com BigQuery ou Postgres.
     Ele só chama run_query(sql) e recebe uma lista de dicts.
     """
+
     dialect: Dialect  # Every data source must declare its dialect
 
-    def run_query(self, sql: str) -> List[Dict[str, Any]]:
-        ...
+    def run_query(self, sql: str) -> List[Dict[str, Any]]: ...
 
     def run_query_arrow(self, sql: str) -> Any:
         """
@@ -59,7 +60,10 @@ class SQLAlchemyDataSource:
     Implementação básica de BaseDataSource usando um Engine do SQLAlchemy.
     Serve para Postgres, MySQL, SQL Server, MariaDB, Redshift (via driver compatível).
     """
-    def __init__(self, engine: Engine, dialect: Dialect, label: str = "default_sqlalchemy") -> None:
+
+    def __init__(
+        self, engine: Engine, dialect: Dialect, label: str = "default_sqlalchemy"
+    ) -> None:
         self.engine = engine
         self.dialect = dialect
         self.label = label
@@ -105,26 +109,29 @@ class SQLAlchemyDataSource:
         Útil para padronização.
         """
         import pyarrow as pa
-        
+
         # 1. Obter dados como lista de dicts
         data = self.run_query(sql)
 
         # 1.5 Convert UUIDs to strings to avoid Arrow errors
         import uuid
+
         if data:
             for row in data:
                 for k, v in row.items():
                     if isinstance(v, uuid.UUID):
                         row[k] = str(v)
-        
+
         # 2. Converter para Arrow Table
         # Se data estiver vazio, precisamos cuidar do schema, mas pyarrow lida bem com lista vazia se inferir
         if not data:
-             return pa.Table.from_pylist([])
-             
+            return pa.Table.from_pylist([])
+
         return pa.Table.from_pylist(data)
 
-    def sample_table_rows(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:
+    def sample_table_rows(
+        self, table_name: str, limit: int = 3
+    ) -> List[Dict[str, Any]]:
         """
         Retorna amostra de dados para preview no prompt.
         """

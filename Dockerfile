@@ -40,7 +40,7 @@ COPY --chown=appuser:appuser . .
 USER appuser
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8001
 
 # Run application
 CMD ["python", "run_api.py"]

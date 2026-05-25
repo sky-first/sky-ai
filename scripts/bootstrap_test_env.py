@@ -12,9 +12,11 @@ from dotenv import load_dotenv
 from db.base import SessionLocal
 from db.models import Space, DataConnection, TableMetadata
 from core.data_sources.factory import DataSourceFactory
-from core.rag.embeddings import OpenAIEmbeddingProvider, create_embeddings_for_table_metadata
+from core.rag.embeddings import (
+    OpenAIEmbeddingProvider,
+    create_embeddings_for_table_metadata,
+)
 from core.logging_utils import log_event
-
 
 # 📝 PARAMETROS DE TESTE – PODE MUDAR AQUI
 SPACE_ID = "space-test"
@@ -123,9 +125,9 @@ def create_metadata_embeddings(db: Session, space: Space, conn: DataConnection) 
         db=db,
         embedding_provider=provider,
         space_id=space.id,
-        crew_id=None,                  # metadado geral do Space
-        data_connection_id=conn.id,    # só dessa conexão
-        limit=None,                    # ou um número se quiser limitar
+        crew_id=None,  # metadado geral do Space
+        data_connection_id=conn.id,  # só dessa conexão
+        limit=None,  # ou um número se quiser limitar
     )
 
     print(f"[EMBEDDINGS] Criados {num} embeddings para metadados.")

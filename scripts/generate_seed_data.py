@@ -12,15 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.settings import settings
 from core.llm.providers import LangChainChatOpenAIProvider
 
-async def generate_examples_from_schema(schema_text: str, n_examples: int = 10) -> List[Dict]:
+
+async def generate_examples_from_schema(
+    schema_text: str, n_examples: int = 10
+) -> List[Dict]:
     """
     Usa GPT-4o para gerar exemplos sintéticos de treino (Seed Data).
     """
-    llm = LangChainChatOpenAIProvider(
-        model="gpt-4o",
-        temperature=0.7,
-        max_tokens=4000
-    )
+    llm = LangChainChatOpenAIProvider(model="gpt-4o", temperature=0.7, max_tokens=4000)
 
     prompt = f"""
     You are a specialized Data Generator for Text-to-SQL training.
@@ -54,20 +53,23 @@ async def generate_examples_from_schema(schema_text: str, n_examples: int = 10) 
     try:
         response = llm.invoke([{"role": "user", "content": prompt}])
         content = response.content.strip()
-        
+
         # Limpeza básica de markdown code block se houver
         if content.startswith("```json"):
             content = content.replace("```json", "").replace("```", "")
-        
+
         examples = json.loads(content)
         return examples
     except Exception as e:
         print(f"❌ Erro ao gerar exemplos: {e}")
         return []
 
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python generate_seed_data.py <path_to_schema_yaml> [num_examples]")
+        print(
+            "Usage: python generate_seed_data.py <path_to_schema_yaml> [num_examples]"
+        )
         print("Example: python generate_seed_data.py core/agents/sales_agent.yaml 20")
         sys.exit(1)
 
@@ -76,38 +78,41 @@ def main():
     output_file = "dataset_seed_qlora.jsonl"
 
     print(f"📂 Lendo schema de: {yaml_path}")
-    
+
     try:
-        with open(yaml_path, 'r') as f:
+        with open(yaml_path, "r") as f:
             yaml_content = yaml.safe_load(f)
-        
+
         # Tenta extrair o bloco de descrição das tabelas/schema do YAML
         # Assumindo que o YAML tem uma estrutura onde o schema é legível ou está em 'tables'
-        schema_context = yaml.dump(yaml_content) 
-        
+        schema_context = yaml.dump(yaml_content)
+
         # Gerar
-        examples = asyncio.run(generate_examples_from_schema(schema_context, num_examples))
-        
+        examples = asyncio.run(
+            generate_examples_from_schema(schema_context, num_examples)
+        )
+
         if not examples:
             print("❌ Nenhum exemplo gerado.")
             return
 
         print(f"💾 Salvando {len(examples)} exemplos em {output_file}...")
-        
+
         with open(output_file, "a", encoding="utf-8") as f:
             for ex in examples:
                 # Formato Alpaca
                 record = {
                     "instruction": "You are a SQL expert. Generate a DuckDB SQL query for the given schema and question.",
                     "input": f"Schema Context:\n{schema_context[:500]}...\n\nQuestion: {ex['question']}",
-                    "output": ex['sql']
+                    "output": ex["sql"],
                 }
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        
+
         print("✅ Concluído!")
-        
+
     except Exception as e:
         print(f"❌ Erro fatal: {e}")
+
 
 if __name__ == "__main__":
     main()

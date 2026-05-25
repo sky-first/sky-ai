@@ -55,7 +55,7 @@ class BigQueryDataSource:
         self.dialect = Dialect.BIGQUERY
 
         self._client: Optional[bigquery.Client] = None
-        self._client_lock = threading.Lock() # Added by user
+        self._client_lock = threading.Lock()  # Added by user
 
     # ---------- Cliente interno ----------
 
@@ -207,13 +207,15 @@ class BigQueryDataSource:
         )
         return meta
 
-    def sample_table_rows(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:
+    def sample_table_rows(
+        self, table_name: str, limit: int = 3
+    ) -> List[Dict[str, Any]]:
         """
         Retorna até N linhas de uma tabela para exemplo de dados.
         Útil para enriquecer o prompt do especialista.
         """
         client = self._get_client()
-        
+
         # Se o table_name já tiver 2 pontos (proj.dataset.table) ou 1 ponto (dataset.table),
         # usamos ele direto sem prefixar com dataset_id.
         if table_name.count(".") >= 1:
@@ -331,14 +333,14 @@ class BigQueryDataSource:
             job = client.query(sql)
             # BigQuery API otimizada: to_arrow() baixa blocos binários Arrow
             arrow_table = job.result().to_arrow()
-            
+
             log_event(
                 "datasource_query_arrow_success",
                 {
                     "datasource": self.label,
                     "num_rows": arrow_table.num_rows,
                     "num_cols": arrow_table.num_columns,
-                    "size_bytes": arrow_table.nbytes
+                    "size_bytes": arrow_table.nbytes,
                 },
             )
             return arrow_table

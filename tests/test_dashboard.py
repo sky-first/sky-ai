@@ -1,4 +1,3 @@
-
 import asyncio
 
 import httpx
@@ -8,14 +7,14 @@ CONNECTION_ID = "74004e21-4d35-4151-82bd-f99ba2c32a75"
 SPACE_ID = "6a4cf3ad-ddff-4776-9b73-fe8cfce5d7e2"
 
 
-async def test_dashboard_plan():
+async def run_dashboard_plan_test():
     url = f"{API_BASE_URL}/connections/{CONNECTION_ID}/dashboards/plan"
     payload = {
         "user_id": "test-user",
         "space_id": SPACE_ID,
         "goal": "Comprehensive analysis of invoices, payments, and customers for 2023",
         "max_widgets": 8,
-        "language": "pt"  # Forcing PT to see if it leaks into titles
+        "language": "pt",  # Forcing PT to see if it leaks into titles
     }
 
     async with httpx.AsyncClient() as client:
@@ -31,5 +30,6 @@ async def test_dashboard_plan():
         else:
             print(f"Error {resp.status_code}: {resp.text}")
 
+
 if __name__ == "__main__":
-    asyncio.run(test_dashboard_plan())
+    asyncio.run(run_dashboard_plan_test())

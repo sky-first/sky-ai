@@ -11,12 +11,14 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import detect_language
 from core.logging_utils import log_event
 from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
-from core.rag.context_retrieval import build_retrieval_context_for_question
+from core.rag.context_retrieval import (
+    build_retrieval_context_for_question,
+    build_retrieval_context_for_question_sync,
+)
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
 from core.sql.relationships import detect_relationships, find_join_path
 from config.settings import settings
-
 
 # ==================== ROLE-BASED REASONING ====================
 # Role profiles define how the AI behaves based on user role
@@ -24,11 +26,24 @@ from config.settings import settings
 ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
     # Platform roles (global level)
     "admin": {
-        "label": "Executive/CFO",
+        "label": "Administrator",
         "focus": ["revenue", "profit", "cost", "roi", "trend", "summary", "kpi"],
         "style": "Provide executive summaries with key financial metrics and strategic insights",
         "table_priority": ["invoices", "revenue", "sales", "payments", "customers"],
         "detail_level": "high_level",
+    },
+    "cfo": {
+        "label": "CFO",
+        "focus": [
+            "reconciliation",
+            "net settlement",
+            "cash flow",
+            "burn rate",
+            "auditing",
+        ],
+        "style": "Apply strict financial audit logic (Platinum Auditor). Focus on accuracy and net impact.",
+        "table_priority": ["payments", "refunds", "credit_memos", "invoices"],
+        "detail_level": "analytical_deep",
     },
     "user": {
         "label": "Standard User",
@@ -76,19 +91,19 @@ ROLE_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _build_role_context(platform_role: str, crew_role: str) -> str:
+def _build_role_context(
+    platform_role: str, crew_role: str, role_label: Optional[str] = None
+) -> str:
     """
     Build role-specific context for LLM prompt injection.
 
-
     Crew role takes precedence over platform role for behavior,
-    but platform admin always gets financial priority.
-
+    but platform admin/cfo always gets financial priority.
 
     Args:
-        platform_role: Platform-level role (admin/user/viewer)
+        platform_role: Platform-level role (admin/user/viewer/cfo)
         crew_role: Crew-level role (commander/navigator/explorer/guest)
-
+        role_label: Specific override label (e.g. "CFO Logic")
 
     Returns:
         Role context string to inject into system prompt
@@ -97,32 +112,26 @@ def _build_role_context(platform_role: str, crew_role: str) -> str:
     crew_profile = ROLE_PROFILES.get(crew_role, {})
     platform_profile = ROLE_PROFILES.get(platform_role, {})
 
-
     # Merge: crew_role behavior, but admin always gets table priority
     label = crew_profile.get("label") or platform_profile.get("label", "User")
     style = crew_profile.get("style") or platform_profile.get("style", "")
 
-
     # Admin always gets financial table priority
     priority = []
-    if platform_role == "admin":
+    if platform_role in ["admin", "cfo"]:
         priority = platform_profile.get("table_priority", [])
-
 
     # Build context block
     context_parts = [f"USER ROLE: {label}"]
 
-
     if style:
         context_parts.append(f"RESPONSE STYLE: {style}")
-
 
     if priority:
         context_parts.append(
             f"TABLE PRIORITY: When multiple tables could answer the question, "
             f"prefer tables related to: {', '.join(priority)}"
         )
-
 
     return "\n".join(context_parts)
 
@@ -135,19 +144,19 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
     for t in tables:
         col_desc = ", ".join(
             (
-                f"{c.get('name', c.get('name', ''))} ({c.get('type', c.get('type', ''))})"
-                if isinstance(c, dict)
-                else f"{c.name} ({c.type})"
-            )
-            (
-                f"{c.get('name', c.get('name', ''))} ({c.get('type', c.get('type', ''))})"
+                f"{c.get('name')} ({c.get('type')})"
                 if isinstance(c, dict)
                 else f"{c.name} ({c.type})"
             )
             for c in (t.columns or [])[:8]
         )
+        desc_part = (
+            f" | description: {t.description}"
+            if getattr(t, "description", None)
+            else ""
+        )
         parts.append(
-            f"- {t.logical_name} -> physical: {t.physical_name} | columns: {col_desc}"
+            f"- {t.logical_name} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
         )
     return "\n".join(parts)
 
@@ -176,7 +185,6 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
         if text and (text in lname or lname in text):
             return name
 
-
     # Check for IMPOSSIBLE
     if "impossible" in text:
         return "IMPOSSIBLE"
@@ -185,9 +193,6 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
     return ""
 
 
-def _extract_multiple_table_choices(
-    raw_llm_response, tables: List[TableSchema]
-) -> List[str]:
 def _extract_multiple_table_choices(
     raw_llm_response, tables: List[TableSchema]
 ) -> List[str]:
@@ -210,13 +215,10 @@ def _extract_multiple_table_choices(
     # Tentar separar por vírgula, "and", ou nova linha
     parts = re.split(r"[,;\n]|\sand\s", text)
 
-    parts = re.split(r"[,;\n]|\sand\s", text)
-
     for part in parts:
         part = part.strip()
         if not part:
             continue
-
 
         # Match exato
         for name in logical_names:
@@ -224,20 +226,13 @@ def _extract_multiple_table_choices(
                 table_name = next(
                     t.logical_name for t in tables if t.logical_name.lower() == name
                 )
-                table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
-                )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
 
-
         # Match parcial
         for name in logical_names:
             if name in part and name not in [t.lower() for t in found_tables]:
-                table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
-                )
                 table_name = next(
                     t.logical_name for t in tables if t.logical_name.lower() == name
                 )
@@ -303,9 +298,6 @@ def _normalize_name(s: str) -> str:
 def _extract_table_name_from_question(
     question: str, tables: List[TableSchema]
 ) -> Optional[str]:
-def _extract_table_name_from_question(
-    question: str, tables: List[TableSchema]
-) -> Optional[str]:
     """
     Tenta extrair o nome da tabela da pergunta, de forma robusta:
     - conteúdo entre aspas/backticks
@@ -355,16 +347,10 @@ def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
     return (
         "I can't help with that request. Please rephrase your question about your data."
     )
-    return (
-        "I can't help with that request. Please rephrase your question about your data."
-    )
 
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
     # SECURITY: do not enumerate columns from the orchestrator.
-    return (
-        "I can't help with that request. Please rephrase your question about your data."
-    )
     return (
         "I can't help with that request. Please rephrase your question about your data."
     )
@@ -398,63 +384,60 @@ def run_orchestrator(
         return state
     # 🧠 CONTEXT RECALL: Handle short follow-up confirmations
     # Handles: "yes", "sure", "show me" -> uses first suggestion
+    # Handles: "1", "2", "3" -> uses the corresponding numbered suggestion
     last_suggestions = state.get("last_suggestions")
     if last_suggestions and len(question.split()) <= 4:
-        q_lower = question.lower()
-        # ONLY English affirmations
-        affirmations = [
-            "yes",
-            "sure",
-            "ok",
-            "okay",
-            "please",
-            "confirm",
-            "show me",
-            "do it",
-            "i want to see",
-            "go ahead",
-        ]
+        q_lower = question.strip().lower()
 
-        affirmations = [
-            "yes",
-            "sure",
-            "ok",
-            "okay",
-            "please",
-            "confirm",
-            "show me",
-            "do it",
-            "i want to see",
-            "go ahead",
-        ]
+        # Check for numeric selection (1, 2, 3)
+        numeric_map = {"1": 0, "2": 1, "3": 2}
+        if q_lower in numeric_map:
+            idx = numeric_map[q_lower]
+            if idx < len(last_suggestions):
+                original_q = question
+                question = last_suggestions[idx]
+                state["question"] = question
+                log_event(
+                    "orchestrator_context_recall",
+                    {
+                        "original": original_q,
+                        "replaced_with": question,
+                        "reason": "numeric_selection",
+                        "index": idx,
+                    },
+                )
+        else:
+            # ONLY English affirmations -> uses first suggestion
+            affirmations = [
+                "yes",
+                "sure",
+                "ok",
+                "okay",
+                "please",
+                "confirm",
+                "show me",
+                "do it",
+                "i want to see",
+                "go ahead",
+            ]
 
-        # Check for affirmations (fuzzy match)
-        is_affirmation = any(w == q_lower for w in affirmations) or (
-            q_lower in affirmations
-        )
-
-        is_affirmation = any(w == q_lower for w in affirmations) or (
-            q_lower in affirmations
-        )
-
-        if is_affirmation:
-            # Replace question with the first suggestion
-            original_q = question
-            question = last_suggestions[0]
-            state["question"] = question  # Update state
-            state["question"] = question  # Update state
-            log_event(
-                "orchestrator_context_recall",
-                "orchestrator_context_recall",
-                {
-                    "original": original_q,
-                    "original": original_q,
-                    "replaced_with": question,
-                    "reason": "affirmation_match",
-                },
-                    "reason": "affirmation_match",
-                },
+            is_affirmation = any(w == q_lower for w in affirmations) or (
+                q_lower in affirmations
             )
+
+            if is_affirmation:
+                original_q = question
+                question = last_suggestions[0]
+                state["question"] = question
+                log_event(
+                    "orchestrator_context_recall",
+                    {
+                        "original": original_q,
+                        "replaced_with": question,
+                        "reason": "affirmation_match",
+                    },
+                )
+
     # 🔤 Detecção de idioma
     try:
         lang = detect_language(question)
@@ -465,14 +448,11 @@ def run_orchestrator(
     # 🔒 GATEKEEPER: English Only
     if not lang.startswith("en"):
         state["answer"] = (
-            "I apologize, but currently I only support commands and questions in English."
-        )
-        state["answer"] = (
-            "I apologize, but currently I only support commands and questions in English."
+            "I'm sorry, but I currently only understand English. "
+            "Please rephrase your question in English so I can analyze your data accurately."
         )
         log_event(
             "orchestrator_booted_language",
-            {"detected": lang, "question": question[:50]},
             {"detected": lang, "question": question[:50]},
         )
         return state
@@ -484,152 +464,144 @@ def run_orchestrator(
         return state
 
     # ✅ NOVA: Validação prévia da pergunta usando QuestionValidator
-    try:
-        from core.validation.question_validator import (
-            QuestionValidator,
-            ValidationSeverity,
-        )
+    # Agent modes (scan/sql/context/datasource) skip this: the "question"
+    # field carries the agent's focus/task description, not a user natural-
+    # language question, so schema-based validation produces false positives.
+    _skip_validation = (state.get("agent_mode") or "") in (
+        "scan",
+        "sql",
+        "context",
+        "datasource",
+        "question",
+    )
+    if not _skip_validation:
+        try:
+            from core.validation.question_validator import (
+                QuestionValidator,
+                ValidationSeverity,
+            )
 
-        from core.validation.question_validator import (
-            QuestionValidator,
-            ValidationSeverity,
-        )
-
-        # Preparar metadados para o validador
-        available_tables_meta = [
-            {
-                "name": t.logical_name,
-                "logical_name": t.logical_name,
-                "columns": [
+            # Preparar metadados para o validador
+            available_tables_meta = [
+                {
+                    "name": t.logical_name,
+                    "logical_name": t.logical_name,
+                    "columns": [
+                        c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
+                        for c in (t.columns or [])
+                    ],
+                }
+                for t in agent_config.tables
+            ]
+            available_columns = {
+                t.logical_name: [
                     c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
                     for c in (t.columns or [])
-                ],
-                "columns": [
-                    c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
-                    for c in (t.columns or [])
-                ],
+                ]
+                for t in agent_config.tables
             }
-            for t in agent_config.tables
-        ]
-        available_columns = {
-            t.logical_name: [
-                c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
-                for c in (t.columns or [])
+
+            validator = QuestionValidator(available_tables_meta, available_columns)
+            validation_results = validator.validate_question(question)
+
+            # Logar métricas de validação
+            errors = [
+                r for r in validation_results if r.severity == ValidationSeverity.ERROR
             ]
-            t.logical_name: [
-                c.get("name") if isinstance(c, dict) else getattr(c, "name", "")
-                for c in (t.columns or [])
+            warnings = [
+                r
+                for r in validation_results
+                if r.severity == ValidationSeverity.WARNING
             ]
-            for t in agent_config.tables
-        }
 
+            infos = [
+                r for r in validation_results if r.severity == ValidationSeverity.INFO
+            ]
 
-        validator = QuestionValidator(available_tables_meta, available_columns)
-        validation_results = validator.validate_question(question)
-
-
-        # Logar métricas de validação
-        errors = [
-            r for r in validation_results if r.severity == ValidationSeverity.ERROR
-        ]
-        warnings = [
-            r for r in validation_results if r.severity == ValidationSeverity.WARNING
-        ]
-        errors = [
-            r for r in validation_results if r.severity == ValidationSeverity.ERROR
-        ]
-        warnings = [
-            r for r in validation_results if r.severity == ValidationSeverity.WARNING
-        ]
-        infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
-
-
-        log_event(
-            "orchestrator_validation_metrics",
-            {
-                "agent_id": agent_config.id,
-                "question_length": len(question),
-                "question_words": len(question.split()),
-                "num_errors": len(errors),
-                "num_warnings": len(warnings),
-                "num_infos": len(infos),
-                "error_codes": [e.code for e in errors],
-                "warning_codes": [w.code for w in warnings],
-                "info_codes": [i.code for i in infos],
-                "was_blocked": len(errors) > 0,
-            },
-        )
-
-
-        # Se houver erros críticos, retornar erro amigável
-        critical_errors = errors
-        if critical_errors:
-            error_msg = critical_errors[0].message
-            if critical_errors[0].suggestion:
-                if lang.startswith("pt"):
-                    error_msg += f"\n\n💡 Sugestão: {critical_errors[0].suggestion}"
-                else:
-                    error_msg += f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
-
-
-            state["answer"] = error_msg
-            state["error"] = critical_errors[0].code
             log_event(
-                "orchestrator_validation_error",
+                "orchestrator_validation_metrics",
                 {
                     "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "error_code": critical_errors[0].code,
-                    "error_message": critical_errors[0].message,
-                },
-            )
-            return state
-
-
-        # Warnings podem ser logados mas não bloqueiam
-        warnings = [
-            r for r in validation_results if r.severity == ValidationSeverity.WARNING
-        ]
-        warnings = [
-            r for r in validation_results if r.severity == ValidationSeverity.WARNING
-        ]
-        if warnings:
-            log_event(
-                "orchestrator_validation_warnings",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "warnings": [
-                        {"code": w.code, "message": w.message} for w in warnings
-                    ],
-                    "warnings": [
-                        {"code": w.code, "message": w.message} for w in warnings
-                    ],
+                    "question_length": len(question),
+                    "question_words": len(question.split()),
+                    "num_errors": len(errors),
+                    "num_warnings": len(warnings),
+                    "num_infos": len(infos),
+                    "error_codes": [e.code for e in errors],
+                    "warning_codes": [w.code for w in warnings],
+                    "info_codes": [i.code for i in infos],
+                    "was_blocked": len(errors) > 0,
                 },
             )
 
+            # Se houver erros críticos, retornar erro amigável
+            critical_errors = errors
+            if critical_errors:
+                error_msg = critical_errors[0].message
+                if critical_errors[0].suggestion:
+                    if lang.startswith("pt"):
+                        error_msg += f"\n\n💡 Sugestão: {critical_errors[0].suggestion}"
+                    else:
+                        error_msg += (
+                            f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
+                        )
 
-        # Infos são apenas informativos
-        infos = [r for r in validation_results if r.severity == ValidationSeverity.INFO]
-        if infos:
+                state["answer"] = error_msg
+                state["error"] = critical_errors[0].code
+                log_event(
+                    "orchestrator_validation_error",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "error_code": critical_errors[0].code,
+                        "error_message": critical_errors[0].message,
+                    },
+                )
+                return state
+
+            # Warnings podem ser logados mas não bloqueiam
+            warnings = [
+                r
+                for r in validation_results
+                if r.severity == ValidationSeverity.WARNING
+            ]
+            if warnings:
+                log_event(
+                    "orchestrator_validation_warnings",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "warnings": [
+                            {"code": w.code, "message": w.message} for w in warnings
+                        ],
+                    },
+                )
+
+            # Infos são apenas informativos
+            infos = [
+                r for r in validation_results if r.severity == ValidationSeverity.INFO
+            ]
+            if infos:
+                log_event(
+                    "orchestrator_validation_info",
+                    {
+                        "agent_id": agent_config.id,
+                        "question": question[:200],
+                        "infos": [
+                            {"code": i.code, "message": i.message} for i in infos
+                        ],
+                    },
+                )
+        except Exception as e:
+            # Se a validação falhar, não quebra o fluxo - apenas loga
             log_event(
-                "orchestrator_validation_info",
+                "orchestrator_validation_exception",
                 {
                     "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "infos": [{"code": i.code, "message": i.message} for i in infos],
+                    "error": str(e)[:500],
                 },
             )
-    except Exception as e:
-        # Se a validação falhar, não quebra o fluxo - apenas loga
-        log_event(
-            "orchestrator_validation_exception",
-            {
-                "agent_id": agent_config.id,
-                "error": str(e)[:500],
-            },
-        )
-        # Continua normalmente sem validação
+            # Continua normalmente sem validação
 
     # ==================== CATALOG EARLY RETURN ====================
     # Para perguntas genéricas de dados ("quais dados eu posso ver?", "quais colunas tem na tabela X?",
@@ -654,14 +626,8 @@ def run_orchestrator(
                 table_obj = next(
                     (t for t in agent_config.tables if t.logical_name == tname), None
                 )
-                table_obj = next(
-                    (t for t in agent_config.tables if t.logical_name == tname), None
-                )
                 if not table_obj:
                     # fallback: listar tabelas
-                    state["answer"] = _format_catalog_list_access(
-                        agent_config.tables, lang
-                    )
                     state["answer"] = _format_catalog_list_access(
                         agent_config.tables, lang
                     )
@@ -694,13 +660,18 @@ def run_orchestrator(
             crew_ids = state.get("crew_ids") or []
 
             if space_id:
-                retrieval_context = build_retrieval_context_for_question(
+                connection_id = None
+                if agent_config.tables:
+                    connection_id = agent_config.tables[0].data_connection_id
+
+                retrieval_context = build_retrieval_context_for_question_sync(
                     db=db,
                     embedding_provider=embedding_provider,
                     space_id=space_id,
                     crew_ids=crew_ids,
                     question=question,
                     top_k=15,
+                    connection_id=connection_id,
                 )
                 state["retrieval_context"] = retrieval_context
                 log_event(
@@ -732,19 +703,16 @@ def run_orchestrator(
     # This allows users to narrow scope (intent) without accessing unauthorized data.
     selected_datasets = state.get("selected_datasets")
 
-
     if selected_datasets:
         # Create lookups for authorized tables (support both logical and physical names)
         # We use a case-insensitive match for robustness if needed, but strict for now
         authorized_map = {t.physical_name: t for t in agent_config.tables}
         authorized_map.update({t.logical_name: t for t in agent_config.tables})
 
-
         valid_selection = []
         # Filter agent_config.tables to only include what the user selected
         # BUT only if it is in the authorized list.
         unique_selected_names = set()
-
 
         for name in selected_datasets:
             if name in authorized_map:
@@ -753,27 +721,37 @@ def run_orchestrator(
                     valid_selection.append(table_obj)
                     unique_selected_names.add(table_obj.logical_name)
 
-
         if valid_selection:
-            # ✅ REFACTOR (Non-destructive): Instead of deleting other tables,
-            # we store the preferred ones and pass them as context to the LLM.
-            # This prevents session/dashboard context from blocking necessary tables.
-            state["preferred_tables"] = [t.logical_name for t in valid_selection]
-            # ✅ REFACTOR (Non-destructive): Instead of deleting other tables,
-            # we store the preferred ones and pass them as context to the LLM.
-            # This prevents session/dashboard context from blocking necessary tables.
-            state["preferred_tables"] = [t.logical_name for t in valid_selection]
+            agent_mode = state.get("agent_mode") or ""
+            if agent_mode == "datasource":
+                # Hard restriction: user explicitly picked these tables.
+                # Pre-select them and skip LLM table selection entirely.
+                logical_names = [t.logical_name for t in valid_selection]
+                physical_names = [t.physical_name for t in valid_selection]
+                state["chosen_table"] = logical_names[0]
+                state["chosen_table_physical"] = physical_names[0]
+                state["chosen_tables"] = logical_names
+                state["chosen_tables_physical"] = physical_names
+                log_event(
+                    "orchestrator_datasource_hard_selection",
+                    {
+                        "agent_id": agent_config.id,
+                        "selected_tables": logical_names,
+                    },
+                )
+                return state
+            else:
+                # Soft hint for other modes: LLM can still use other tables if needed.
+                state["preferred_tables"] = [t.logical_name for t in valid_selection]
             log_event(
-                "orchestrator_frontend_selection_noted",
                 "orchestrator_frontend_selection_noted",
                 {
                     "agent_id": agent_config.id,
                     "original_count": len(authorized_map) // 2,
-                    "original_count": len(authorized_map) // 2,
                     "selected_requested": selected_datasets,
-                    "selected_applied": state["preferred_tables"],
-                },
-                    "selected_applied": state["preferred_tables"],
+                    "selected_applied": state.get(
+                        "preferred_tables", state.get("chosen_tables")
+                    ),
                 },
             )
         else:
@@ -785,48 +763,42 @@ def run_orchestrator(
                     "selected_requested": selected_datasets,
                     "authorized_tables": [t.logical_name for t in agent_config.tables],
                 },
-                    "authorized_tables": [t.logical_name for t in agent_config.tables],
-                },
             )
 
+    # 🎯 Otimização Legada: Se há apenas 1 tabela disponível, no modo Agentic RAG
+    # queremos que o agente PENSE antes, pois ele pode precisar de outros contextos.
+    # Só fazemos o auto-select se o Agentic RAG não estiver disponível.
+    chat_model = getattr(llm, "_chat", None)
+    can_use_agentic = chat_model is not None and hasattr(chat_model, "bind_tools")
 
-    # 🎯 Otimização: Se há apenas 1 tabela disponível (já filtrada por permissões no backend),
-    #                 escolher automaticamente sem consultar o LLM
-    if len(agent_config.tables) == 1:
+    if not can_use_agentic and len(agent_config.tables) == 1:
         table = agent_config.tables[0]
         state["chosen_table"] = table.logical_name
         state["chosen_table_physical"] = table.physical_name
         state["chosen_tables"] = [table.logical_name]
         state["chosen_tables_physical"] = [table.physical_name]
 
-
         log_event(
             "orchestrator_auto_selected_single_table",
             {
                 "agent_id": agent_config.id,
-                "question": question[:200],
                 "chosen_logical": table.logical_name,
-                "chosen_physical": table.physical_name,
-                "reason": "Only one table available (backend-authorized)",
+                "reason": "Legacy auto-select (Single Table)",
             },
         )
-        return state  # ✅ Retorna imediatamente
+        return state
 
     # 🎯 NEW: Build Context Bundle (if enabled)
     use_context_bundle = getattr(settings, "use_context_bundle", False)
-
 
     if use_context_bundle:
         try:
             from core.llm.context.builder import build_context_bundle
 
-
             context_bundle = build_context_bundle(
-                state=state, agent_config=agent_config, db=db
                 state=state, agent_config=agent_config, db=db
             )
             state["_context_bundle"] = context_bundle  # Store for reuse by specialist
-
 
             log_event(
                 "orchestrator_context_bundle_built",
@@ -834,12 +806,10 @@ def run_orchestrator(
                     "agent_id": agent_config.id,
                     "bundle_summary": context_bundle.summary(),
                 },
-                },
             )
         except Exception as e:
             log_event(
                 "orchestrator_context_bundle_error",
-                {"agent_id": agent_config.id, "error": str(e)[:300]},
                 {"agent_id": agent_config.id, "error": str(e)[:300]},
             )
             use_context_bundle = False  # Fallback to legacy
@@ -849,15 +819,11 @@ def run_orchestrator(
     # 🔗 Monta bloco de contexto (limitando pra não explodir o prompt)
     context_block = ""
 
-
     # NEW: Chat History Context
     chat_history = state.get("chat_history") or []
     if chat_history:
         # Limit to last 6 messages to save tokens
         recent_history = chat_history[-6:]
-        history_str = "\n".join(
-            [f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history]
-        )
         history_str = "\n".join(
             [f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history]
         )
@@ -870,12 +836,35 @@ def run_orchestrator(
         joined = "\n\n".join(retrieval_context[:5])
         context_block += (
             "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n" f"{joined}\n"
-            "\n\nADDITIONAL CONTEXT (from metadata/docs/query history):\n" f"{joined}\n"
         )
 
-    # Detectar relacionamentos entre tabelas
-    relationships = detect_relationships(agent_config.tables)
+    # Phase 4.3: weave the Context-Layer brain evidence into the same
+    # context_block the LLM already parses. Retrieval ranking was
+    # already brain-aware (Phase 2.6b); this step makes the *table-
+    # selection* LLM actually see pillars / goals / OKRs / relationship
+    # docs so it can prefer tables that serve the business question,
+    # not just the schema that matches string-wise.
+    brain_blocks = state.get("brain_context") or []
+    if brain_blocks:
+        # Cap at 8 blocks — orchestrator's prompt is already dense with
+        # tables + roles + history. More signal past 8 mostly hurts.
+        brain_joined = "\n\n".join(
+            [b for b in brain_blocks[:8] if isinstance(b, str) and b.strip()]
+        )
+        if brain_joined:
+            context_block += (
+                "\n\nBUSINESS CONTEXT (strategy / goals / relationships / events):\n"
+                f"{brain_joined}\n"
+                "Use this when picking tables: prefer tables that support "
+                "the pillars / goals / OKRs above.\n"
+            )
 
+    # Detectar relacionamentos entre tabelas
+    # NEW: Pass explicit relationships from state (loaded from backend)
+    explicit_rels = state.get("explicit_relationships") or []
+    relationships = detect_relationships(
+        agent_config.tables, explicit_relationships=explicit_rels
+    )
 
     # Obter instruções personalizadas do estado
     instructions = state.get("instructions")
@@ -883,15 +872,14 @@ def run_orchestrator(
     if instructions:
         instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
 
-
     # 🎭 ROLE-BASED REASONING: Build context based on user role
     platform_role = state.get("platform_role", "user")
     crew_role = state.get("crew_role", "guest")
-    role_context = _build_role_context(platform_role, crew_role)
+    role_label = state.get("role_label")
+    role_context = _build_role_context(platform_role, crew_role, role_label)
     role_context_block = ""
     if role_context:
         role_context_block = f"\n\n{role_context}\n"
-
 
     log_event(
         "orchestrator_role_context",
@@ -902,7 +890,6 @@ def run_orchestrator(
             "has_role_context": bool(role_context),
         },
     )
-
 
     # 📊 USER PREFERENCE PROFILE: Load user's table usage history
     user_profile_block = ""
@@ -924,12 +911,10 @@ def run_orchestrator(
                         "user_id": state.get("user_id"),
                         "profile": user_profile,
                     },
-                    },
                 )
         except Exception as e:
             log_event(
                 "orchestrator_user_profile_error",
-                {"agent_id": agent_config.id, "error": str(e)[:200]},
                 {"agent_id": agent_config.id, "error": str(e)[:200]},
             )
 
@@ -938,9 +923,6 @@ def run_orchestrator(
     if relationships and len(agent_config.tables) > 1:
         rel_summary = []
         for rel in relationships[:10]:  # Limitar para não explodir o prompt
-            rel_summary.append(
-                f"- {rel.from_table}.{rel.from_column} -> {rel.to_table}.{rel.to_column}"
-            )
             rel_summary.append(
                 f"- {rel.from_table}.{rel.from_column} -> {rel.to_table}.{rel.to_column}"
             )
@@ -961,120 +943,264 @@ def run_orchestrator(
             "- Favor these tables if they can answer the question, but feel free to include "
             "OTHER tables from the catalog below if they are necessary for a complete or better answer.\n"
         )
-            )
-
-    # ✅ REFACTOR: Build preferred tables hint if available
-    preferred_tables_hint = ""
-    preferred_tables = state.get("preferred_tables")
-    if preferred_tables:
-        preferred_tables_hint = (
-            "\n\nUSER FOCUS TIPS:\n"
-            f"- The user is currently focusing on these tables: {', '.join(preferred_tables)}\n"
-            "- Favor these tables if they can answer the question, but feel free to include "
-            "OTHER tables from the catalog below if they are necessary for a complete or better answer.\n"
-        )
 
     # SEMPRE permitir múltiplas tabelas - deixar o LLM decidir baseado no contexto
     # Isso melhora a capacidade de responder perguntas complexas que precisam de JOINs
-    if len(agent_config.tables) > 1:
-        # Modo inteligente: sempre permite múltiplas tabelas
-        system_msg = {
-            "role": "system",
-            "content": (
+    chat_model = getattr(llm, "_chat", None)
+    use_agentic_rag = chat_model is not None and hasattr(chat_model, "bind_tools")
+
+    if use_agentic_rag:
+        try:
+            from langgraph.prebuilt import create_react_agent
+            from core.llm.tools import ToolFactory
+            from langchain_core.messages import HumanMessage
+
+            # Instanciar as ferramentas
+            tools = [
+                ToolFactory.create_metadata_tool(agent_config),
+                ToolFactory.create_strategy_tool(
+                    db,
+                    embedding_provider,
+                    state.get("space_id", ""),
+                    state.get("crew_ids", []),
+                ),
+                ToolFactory.create_signals_tool(
+                    db,
+                    embedding_provider,
+                    state.get("space_id", ""),
+                    state.get("crew_ids", []),
+                ),
+            ]
+
+            # A "Regra de Ouro" rigorosa (System Prompt Agentic)
+            agentic_system_msg = (
                 f"{role_context_block}"
                 f"{user_profile_block}"
-                "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
-                "from the list to answer the user's question.\n\n"
-                f"Rules:\n"
-                f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
-                f"- If the question requires data from multiple tables (e.g., comparing data, "
-                f"  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
-                f"- If the question can be answered with a single table, choose ONE table.\n"
-                f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
-                f"- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
-                f"- Use the additional semantic context and available relationships to make the best choice.\n"
+                "You are a Senior Data Analyst Orchestrator. Your primary job is to choose ONE OR MORE logical tables from the database to answer the user's question.\n\n"
+                "🛡️ THE GOLDEN RULES:\n"
+                "1. Your ONLY source of truth for the database structure is the 'search_database_metadata' tool.\n"
+                "2. It is STRICTLY FORBIDDEN to assume column names or table existence without consulting the metadata tool first, even if you think you know the name (e.g., do not assume 'sales', verify if it's 'fct_sales').\n"
+                "3. Use the 'search_corporate_strategy' tool ONLY if the user asks about business goals, targets, OKRs, or long-term strategy.\n"
+                "4. Use the 'search_market_signals' tool ONLY if the user asks about anomalies, market events, news, or sudden drops/spikes.\n"
+                "5. THINK OUT LOUD (Chain of Thought): Explain your reasoning step-by-step before outputting the final tables.\n"
+                "6. MANDATORY: Call search_database_metadata FIRST before making any scope or table decision. Do NOT classify the question as OUT_OF_SCOPE before inspecting the schema — many questions use business terms (like 'health score', 'MRR', 'churn') that only map to the right table once you see the column names and descriptions.\n"
+                "7. QUESTION SCOPE — AFTER calling the metadata tool, classify the question:\n"
+                "   a) ONLY return OUT_OF_SCOPE if the question is CLEARLY about something with NO possible connection to business data (weather forecasts, jokes, math homework, IT help-desk tickets, etc.). Anything involving customers, revenue, subscriptions, health scores, marketing, web traffic, product usage, pipelines, leads, invoices, or any other business concept is IN SCOPE — even if you are not 100% sure which table answers it.\n"
+                "   b) CLARIFY is an ABSOLUTE LAST RESORT. Use it ONLY when the question asks for a very specific thing that could mean multiple incompatible tables (e.g. 'payments' could be payables OR receivables and both exist). NEVER clarify counting, aggregation, listing, or overview questions — those always have a reasonable default answer. BEFORE emitting CLARIFY, ask yourself: 'could I just pick the most-obvious matching table and answer?' — if yes, do that instead.\n"
+                "   c) Counting / aggregation shortcuts — these ALWAYS go to path (d) even if the noun is generic:\n"
+                "       'how many X', 'how much X', 'count of X', 'total X', 'sum of X', 'number of X'\n"
+                "      → If ANY table name contains X or is obviously the X table (e.g. 'invoices' → fct_invoices, silver_invoices), pick it and produce SELECT COUNT(*) or SUM(...). Do NOT ask the user whether they want refunds vs paid vs draft — pick the most inclusive table and answer.\n"
+                "   d) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n"
+                "   e) If you are uncertain which table is the best match but the question is about business data → pick the closest table and proceed. Do NOT return OUT_OF_SCOPE just because you are unsure.\n\n"
+                "FINAL OUTPUT FORMAT:\n"
+                "After thinking and using the tools, finish your response with ONLY ONE of:\n"
+                "  - The logical table name(s) separated by commas (e.g. 'table1, table2')\n"
+                "  - OUT_OF_SCOPE\n"
+                "  - CLARIFY: <your question>\n\n"
                 f"{preferred_tables_hint}\n"
-                f"Conversation Handling:\n"
-                f'- If the user question is a fragment or follow-up (e.g., "And in RJ?", "How about last month?"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n'
-                f"- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
-                f"Rules:\n"
-                f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
-                f"- If the question requires data from multiple tables (e.g., comparing data, "
-                f"  relating entities, aggregating across tables), choose MULTIPLE tables.\n"
-                f"- If the question can be answered with a single table, choose ONE table.\n"
-                f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
-                f"- Example responses: 'table1' or 'table1, table2' or 'orders, products, categories'\n"
-                f"- Use the additional semantic context and available relationships to make the best choice.\n"
-                f"{preferred_tables_hint}\n"
-                f"Conversation Handling:\n"
-                f'- If the user question is a fragment or follow-up (e.g., "And in RJ?", "How about last month?"), you MUST infer the missing main entity or metric from the PREVIOUS CONVERSATION HISTORY.\n'
-                f"- Maintain the primary business subject of the previous successful query unless the user explicitly introduces a completely new topic.\n"
+                f"Conversation Handling: Infer missing contexts from PREVIOUS CONVERSATION.\n"
                 f"{relationships_info}"
                 f"{instructions_block}"
-            ),
-        }
+            )
 
-        user_msg = {
-            "role": "user",
-            "content": (
+            # Always inject the schema upfront — the LLM sees the catalog
+            # before deciding scope, eliminating false OUT_OF_SCOPE on
+            # questions where the relevant table only becomes obvious from
+            # column names (e.g. "health score" → account_health.score).
+            # The metadata tool remains available for follow-up exploration.
+            _metadata_tool = ToolFactory.create_metadata_tool(agent_config)
+            _schema_context = _metadata_tool.invoke({})
+
+            user_prompt = (
+                f"DATABASE SCHEMA:\n{_schema_context}\n\n"
                 f"User question:\n{question}\n\n"
-                f"Available tables:\n{tables_summary}"
-                f"{context_block}"
-                f"{relationships_info}"
-                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
-                "\nIMPORTANT: If this is a follow-up question (e.g. 'and in X?'), INCLUDE the tables used in the previous conversation to maintain the metric (e.g. revenue, sales)."
-                "\nRespond with the logical table name(s) needed, separated by commas if multiple "
-                "(for example: 'table1' or 'table1, table2' or 'orders, products')."
-            ),
-        }
+                f"{context_block}\n"
+                "Based on the schema above, identify which table(s) answer this question. "
+                "End your response with the logical table name(s)."
+            )
+
+            # Loop Agentic (ReAct)
+            # NOTE: langgraph's create_react_agent defaults to recursion_limit=25.
+            # When the LLM fails to converge (e.g. metadata tool returns empty,
+            # vector-search blows up), the agent loops up to 25 times — each
+            # iteration is one full gpt-4o call. With multiple connections per
+            # query and an hourly Pulse, this drained €15+ in 5h.
+            # Cap at 6: enough for the LLM to call 1–2 tools and emit a final
+            # answer, but bounded so a runaway agent costs <25% of the prior
+            # worst case.
+            react_agent = create_react_agent(
+                chat_model, tools=tools, state_modifier=agentic_system_msg
+            )
+            result = react_agent.invoke(
+                {"messages": [HumanMessage(content=user_prompt)]},
+                config={"recursion_limit": 10},
+            )
+            final_msg_content = result["messages"][-1].content
+
+            # Salvar o rationale (Chain of Thought) no state para streaming futuro
+            state["plan"] = final_msg_content
+
+            # ── Scope & Clarify detection ──────────────────────────────────
+            # Skip out-of-scope guard when the backend forced a data-path
+            # execution (scan/sql/context/datasource). These modes are
+            # autonomous agents that must always produce a SQL answer even
+            # for broad, open-ended questions — blocking them here would
+            # cause every scheduled agent run to return an error.
+            _agent_mode = state.get("agent_mode") or ""
+            _is_forced_data = _agent_mode in ("scan", "sql", "context", "datasource")
+            # Only check the final line for OUT_OF_SCOPE — scanning the full
+            # message false-positives on chain-of-thought like "this is NOT
+            # out_of_scope" which the agent emits while reasoning through scope.
+            _final_lines = [
+                l.strip() for l in final_msg_content.splitlines() if l.strip()
+            ]
+            _final_line = _final_lines[-1] if _final_lines else ""
+            if not _is_forced_data and re.search(
+                r"\bOUT_OF_SCOPE\b", _final_line, re.IGNORECASE
+            ):
+                state["answer"] = (
+                    "I'm designed to answer questions about your business data. "
+                    "That question doesn't seem related to your data. "
+                    "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
+                )
+                log_event(
+                    "orchestrator_out_of_scope",
+                    {
+                        "question": question[:100],
+                        "tool_called": any(
+                            hasattr(m, "type") and getattr(m, "type", "") == "tool"
+                            for m in result.get("messages", [])
+                        ),
+                        "num_messages": len(result.get("messages", [])),
+                        "final_msg_preview": final_msg_content[:300],
+                    },
+                )
+                return state
+
+            clarify_match = re.search(
+                r"CLARIFY:\s*(.+?)(?:\n\n|\Z)",
+                final_msg_content,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if clarify_match:
+                clarification = clarify_match.group(1).strip()
+                # Safety net — even with the hardened prompt, the model
+                # occasionally CLARIFIES on obvious counting questions.
+                # Detect "how many X / how much X / count of X / total X"
+                # patterns and demote the CLARIFY to a warning so the loop
+                # falls through to table selection. Without this, users
+                # like "how much invoices we have?" get a clarification
+                # prompt instead of an answer.
+                counting_pattern = re.compile(
+                    r"\b(how\s+(many|much)|count\s+of|total\s+(of\s+)?|number\s+of|sum\s+of)\b",
+                    re.IGNORECASE,
+                )
+                if counting_pattern.search(question):
+                    log_event(
+                        "orchestrator_clarify_overridden_counting",
+                        {
+                            "question": question[:100],
+                            "attempted_clarification": clarification[:200],
+                        },
+                    )
+                    # Fall through — let the legacy table extractor below
+                    # do its thing. It usually picks a sensible default.
+                else:
+                    state["answer"] = clarification
+                    log_event(
+                        "orchestrator_clarify",
+                        {
+                            "question": question[:100],
+                            "clarification": clarification[:200],
+                        },
+                    )
+                    return state
+            # ──────────────────────────────────────────────────────────────
+
+            # Criar um mock para manter compatibilidade com o parser legado _extract_table_choice
+            class RawResponseMimic:
+                def __init__(self, content):
+                    self.content = content
+
+            raw = RawResponseMimic(content=final_msg_content)
+
+            log_event("orchestrator_agentic_rag_success", {"agent_id": agent_config.id})
+
+        except Exception as e:
+            state["answer"] = (
+                "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
+            )
+            state["error"] = str(e)
+            log_event(
+                "orchestrator_agentic_llm_error",
+                {"agent_id": agent_config.id, "error": str(e)[:500]},
+            )
+            return state
+
     else:
-        # Modo tabela única (quando há apenas uma tabela disponível)
-        system_msg = {
-            "role": "system",
-            "content": (
-                f"{role_context_block}"
-                f"{user_profile_block}"
-                "You are a routing assistant. Your job is to choose the logical table "
-                "from the list to answer the user's question.\n\n"
-                "Rules:\n"
-                "- Choose the logical table name from the list.\n"
-                "- Answer with ONLY the logical table name, nothing else.\n"
-                "- Use the additional semantic context when it clearly points to the table.\n"
-                f"{instructions_block}"
-            ),
-        }
+        # Fallback Legacy (RAG Estático / Ollama local sem tools suporte)
+        if len(agent_config.tables) > 1:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    f"{role_context_block}"
+                    f"{user_profile_block}"
+                    "You are a routing assistant. Your job is to choose ONE OR MORE logical tables "
+                    "from the list to answer the user's question.\n\n"
+                    f"Rules:\n"
+                    f"- You can choose ONE or MULTIPLE logical table names from the list.\n"
+                    f"- Answer with ONLY the logical table name(s), separated by commas if multiple.\n"
+                    f"{preferred_tables_hint}\n"
+                    f"{relationships_info}"
+                    f"{instructions_block}"
+                ),
+            }
 
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Available tables:\n{tables_summary}"
-                f"{context_block}\n\n"
-                "Respond with ONLY the logical table name."
-            ),
-        }
+            user_msg = {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Available tables:\n{tables_summary}"
+                    f"{context_block}"
+                    f"{relationships_info}"
+                    "\nRespond with the logical table name(s) needed, separated by commas if multiple."
+                ),
+            }
+        else:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    f"{role_context_block}"
+                    "You are a routing assistant. Your job is to choose the logical table.\n\n"
+                    "Rules:\n- Answer with ONLY the logical table name, nothing else.\n"
+                ),
+            }
 
-    try:
-        raw = llm.invoke([system_msg, user_msg])
-        print(
-            f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}"
-        )
-        print(
-            f"DEBUG ORCHESTRATOR RAW: {raw.content if hasattr(raw, 'content') else raw}"
-        )
-    except Exception as e:
-        state["answer"] = (
-            "Error consulting the AI orchestrator. Please try again later."
-        )
-        state["answer"] = (
-            "Error consulting the AI orchestrator. Please try again later."
-        )
-        state["error"] = str(e)
-        log_event(
-            "orchestrator_llm_error",
-            {"agent_id": agent_config.id, "error": str(e)[:500]},
-        )
-        return state
+            user_msg = {
+                "role": "user",
+                "content": (
+                    f"User question:\n{question}\n\n"
+                    f"Available tables:\n{tables_summary}"
+                    f"{context_block}\n\n"
+                    "Respond with ONLY the logical table name."
+                ),
+            }
+
+        try:
+            raw = llm.invoke([system_msg, user_msg])
+            print(
+                f"DEBUG ORCHESTRATOR LEGACY RAW: {raw.content if hasattr(raw, 'content') else raw}"
+            )
+        except Exception as e:
+            state["answer"] = (
+                "Error consulting the AI orchestrator. Please try again later."
+            )
+            state["error"] = str(e)
+            log_event(
+                "orchestrator_llm_error",
+                {"agent_id": agent_config.id, "error": str(e)[:500]},
+            )
+            return state
 
     # Extrair escolha(s) de tabela(s)
     # Sempre tentar extrair múltiplas tabelas quando há mais de uma disponível
@@ -1082,25 +1208,15 @@ def run_orchestrator(
         # Tentar extrair múltiplas tabelas primeiro
         chosen_logicals = _extract_multiple_table_choices(raw, agent_config.tables)
 
-
         # Se encontrou múltiplas tabelas, tentar usar modo JOIN
         if len(chosen_logicals) > 1:
             # Encontrar caminho de JOIN
             join_path = find_join_path(chosen_logicals, relationships)
 
-
             if join_path:
                 # Caminho de JOIN encontrado - usar múltiplas tabelas com JOINs
                 state["chosen_tables"] = chosen_logicals
                 state["chosen_tables_physical"] = [
-                    next(
-                        (
-                            t.physical_name
-                            for t in agent_config.tables
-                            if t.logical_name == name
-                        ),
-                        name,
-                    )
                     next(
                         (
                             t.physical_name
@@ -1121,7 +1237,6 @@ def run_orchestrator(
                     for rel in join_path
                 ]
 
-
                 # Manter compatibilidade com código antigo
                 state["chosen_table"] = chosen_logicals[0]
                 state["chosen_table_physical"] = next(
@@ -1131,14 +1246,7 @@ def run_orchestrator(
                         if t.logical_name == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
-                    (
-                        t.physical_name
-                        for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
-                    ),
-                    chosen_logicals[0],
                 )
-
 
                 log_event(
                     "orchestrator_choice_multiple_with_joins",
@@ -1167,19 +1275,10 @@ def run_orchestrator(
                         ),
                         name,
                     )
-                    next(
-                        (
-                            t.physical_name
-                            for t in agent_config.tables
-                            if t.logical_name == name
-                        ),
-                        name,
-                    )
                     for name in chosen_logicals
                 ]
                 # Não definir join_relationships - deixar o specialist tentar inferir
                 state["join_relationships"] = None
-
 
                 # Manter compatibilidade
                 state["chosen_table"] = chosen_logicals[0]
@@ -1190,14 +1289,7 @@ def run_orchestrator(
                         if t.logical_name == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
-                    (
-                        t.physical_name
-                        for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
-                    ),
-                    chosen_logicals[0],
                 )
-
 
                 log_event(
                     "orchestrator_choice_multiple_no_explicit_path",
@@ -1211,47 +1303,37 @@ def run_orchestrator(
                     },
                 )
         elif len(chosen_logicals) == 1:
-            # ✅ FIX: Handle single table choice when multiple are available
             chosen_logical = chosen_logicals[0]
             chosen_table_obj = next(
                 (t for t in agent_config.tables if t.logical_name == chosen_logical),
                 agent_config.tables[0],
             )
-
+            state["chosen_tables"] = [chosen_table_obj.logical_name]
+            state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
             state["chosen_table"] = chosen_table_obj.logical_name
             state["chosen_table_physical"] = chosen_table_obj.physical_name
 
-
-            # For compatibility with specialist multi-table path
-            state["chosen_tables"] = [chosen_table_obj.logical_name]
-            state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
-
-            log_event(
-                "orchestrator_choice_single_in_multi_mode",
-                {
-                    "agent_id": agent_config.id,
-                    "question": question[:200],
-                    "chosen_logical": chosen_table_obj.logical_name,
-                    "detected_language": lang,
-                },
-            )
         else:
-            # No tables found by extraction
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
+            # LLM returned no recognisable table names — fall back to all available
+            # tables so that context/scan/datasource agents never stall on an empty
+            # table list. For question-mode queries this is a last resort; the
+            # specialist will scope down via its own reasoning.
+            chosen_logicals = [t.logical_name for t in agent_config.tables]
+            state["chosen_tables"] = chosen_logicals
+            state["chosen_tables_physical"] = [
+                t.physical_name for t in agent_config.tables
+            ]
+            state["chosen_table"] = agent_config.tables[0].logical_name
+            state["chosen_table_physical"] = agent_config.tables[0].physical_name
             log_event(
-                "orchestrator_no_tables_found",
+                "orchestrator_fallback_all_tables",
                 {
                     "agent_id": agent_config.id,
                     "question": question[:200],
-                    "llm_response": str(raw)[:500],
+                    "num_tables": len(agent_config.tables),
+                    "note": "LLM returned no table names; using all tables as fallback",
                 },
             )
-            return state
 
         # Multi-connection check on chosen logicals
         # Even if no JOIN path is found, we might be in a multi-source scenario (e.g. Car vs House)
@@ -1261,12 +1343,8 @@ def run_orchestrator(
             t = next(
                 (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
             )
-            t = next(
-                (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
-            )
             if t:
                 chosen_schemas_chk.append(t)
-
 
         # Check distinct connections
         connection_ids = set()
@@ -1274,15 +1352,11 @@ def run_orchestrator(
             conn_id = getattr(t, "data_connection_id", "default")
             connection_ids.add(conn_id)
 
-
         is_multi_source = len(connection_ids) > 1
 
         # Populate new fields
         state["is_multi_source"] = is_multi_source
         if is_multi_source:
-            state["plan"] = (
-                f"Query {len(chosen_schemas_chk)} tables across {len(connection_ids)} connections: {chosen_logicals}"
-            )
             state["plan"] = (
                 f"Query {len(chosen_schemas_chk)} tables across {len(connection_ids)} connections: {chosen_logicals}"
             )
@@ -1295,20 +1369,13 @@ def run_orchestrator(
                 "is_multi_source": is_multi_source,
                 "num_connections": len(connection_ids),
             },
-                "is_multi_source": is_multi_source,
-                "num_connections": len(connection_ids),
-            },
         )
 
     else:
         # Modo tabela única (quando há apenas uma tabela disponível)
         chosen_logical = _extract_table_choice(raw, agent_config.tables)
 
-
         if not chosen_logical:
-            state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
-            )
             state["impossible_reason"] = (
                 "I couldn't find any relevant tables to answer your question."
             )
@@ -1323,19 +1390,13 @@ def run_orchestrator(
             state["impossible_reason"] = (
                 reason or "I don't have enough data to answer this question."
             )
-            reason = re.sub(
-                r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE
-            ).strip()
-            state["impossible_reason"] = (
-                reason or "I don't have enough data to answer this question."
-            )
+
             return state
 
         chosen_table_obj = next(
-            (t for t in agent_config.tables if t.logical_name == chosen_logical), None
-            (t for t in agent_config.tables if t.logical_name == chosen_logical), None
+            (t for t in agent_config.tables if t.logical_name == chosen_logical),
+            None,
         )
-
 
         if not chosen_table_obj:
             state["impossible_reason"] = "The selected table is not available."

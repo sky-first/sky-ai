@@ -4,6 +4,7 @@ Test RAG Automation
 Simulate frontend calling /connections/{id}/discover
 Expect: Encached metadata ingestion + Automatic embedding generation
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -12,8 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from config.settings import settings
-from core.ingestion.service import (run_metadata_embeddings,
-                                    run_metadata_ingestion)
+from core.ingestion.service import run_metadata_embeddings, run_metadata_ingestion
 from core.llm.factory import create_embedding_provider
 
 project_root = Path(__file__).parent.parent
@@ -26,8 +26,8 @@ sys.path.insert(0, str(project_root))
 
 async def get_test_ids():
     db_url = settings.database_url
-    if not db_url.startswith('postgresql+asyncpg://'):
-        db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
+    if not db_url.startswith("postgresql+asyncpg://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
     engine = create_async_engine(db_url)
     async with engine.connect() as conn:
@@ -62,8 +62,8 @@ async def main():
     # Simulate what the API endpoint does
     print("\n1. Simulating Metadata Ingestion (Cache -> TableMetadata)...")
     db_url = settings.database_url
-    if not db_url.startswith('postgresql+asyncpg://'):
-        db_url = db_url.replace('postgresql://', 'postgresql+asyncpg://')
+    if not db_url.startswith("postgresql+asyncpg://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
     engine = create_async_engine(db_url)
     try:
@@ -73,15 +73,15 @@ async def main():
             # Actually, let's use the real sessionmaker to be safe.
             from sqlalchemy.ext.asyncio import AsyncSession
             from sqlalchemy.orm import sessionmaker
+
             SessionLocal = sessionmaker(
-                engine, class_=AsyncSession, expire_on_commit=False)
+                engine, class_=AsyncSession, expire_on_commit=False
+            )
 
             async with SessionLocal() as db:
                 # 1. Ingest
                 inserted = await run_metadata_ingestion(
-                    db=db,
-                    space_id=space_id,
-                    connection_id=connection_id
+                    db=db, space_id=space_id, connection_id=connection_id
                 )
                 print(f"   ✅ Ingested {inserted} rows from cache")
 
@@ -94,18 +94,20 @@ async def main():
                     db=db,
                     space_id=space_id,
                     connection_id=connection_id,
-                    embedding_provider=provider
+                    embedding_provider=provider,
                 )
                 print(f"   ✅ Created {created} embeddings")
 
     except Exception as e:
         print(f"\n❌ Automation failed: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         await engine.dispose()
 
     print("\n" + "=" * 60)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

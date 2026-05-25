@@ -9,6 +9,9 @@ langchain-core>=0.3.15,<0.4.0
 langchain-openai==0.2.5
 langchain-community>=0.0.20
 langchain-ollama>=0.2.0
+# AWS Bedrock provider — enabled when AI_PROVIDER=bedrock. Pulls boto3
+# transitively; on EKS it picks up credentials via IRSA.
+langchain-aws>=0.2.4,<0.3.0
 
 # --- YAML ---
 pyyaml==6.0.1
@@ -33,6 +36,7 @@ pgvector==0.3.4
 psycopg2-binary==2.9.10
 asyncpg>=0.29.0
 greenlet>=3.0.0
+alembic>=1.13.0,<2.0.0
 
 # --- SQL Parsing (Advanced Validator) ---
 sqlparse>=0.4.4
@@ -51,3 +55,17 @@ pandas>=2.2.0
 duckdb>=0.10.0
 pyarrow>=15.0.0
 prometheus-fastapi-instrumentator>=6.0.0
+PyJWT==2.8.0
+
+# --- Connection config decryption (Fernet, shared with backend) ---
+cryptography>=42.0.0
+
+# --- Semantic projection (Universe Intelligence v2 canvas) ---
+# UMAP reduces 768-dim Nomic embeddings to 2D/3D for the constellation
+# canvas; HDBSCAN clusters the projected coords so the FE can render
+# centroids at zoom-out vs. individuals at zoom-in. scikit-learn is a
+# transitive of both but pinned here to lock the version that umap-learn
+# resolves against.
+umap-learn>=0.5.5
+scikit-learn>=1.4.0
+hdbscan>=0.8.33

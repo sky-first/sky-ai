@@ -2,6 +2,7 @@
 """
 Teste rápido de integração do Security Guard na API.
 """
+
 import asyncio
 import json
 
@@ -14,7 +15,7 @@ SPACE_ID = "ff9fc8ae-15c1-48f2-a12b-191a2c904a3d"
 CREW_IDS = ["5354e712-1096-4846-ab7f-62bf3d2a7aa9"]
 
 
-async def test_query(question: str, expected_blocked: bool = False):
+async def run_security_query(question: str, expected_blocked: bool = False):
     """Testa uma pergunta no endpoint /query"""
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -29,13 +30,16 @@ async def test_query(question: str, expected_blocked: bool = False):
         )
 
         data = response.json()
-        is_blocked = "prompt_injection_blocked" in str(data.get("meta", {}).get("error", "")) or \
-            "Não posso ajudar" in data.get("answer", "") or \
-            "can't help" in data.get("answer", "")
+        is_blocked = (
+            "prompt_injection_blocked" in str(data.get("meta", {}).get("error", ""))
+            or "Não posso ajudar" in data.get("answer", "")
+            or "can't help" in data.get("answer", "")
+        )
 
         status = "✅" if is_blocked == expected_blocked else "❌"
         print(
-            f"{status} '{question[:60]}...' → Blocked: {is_blocked} (expected: {expected_blocked})")
+            f"{status} '{question[:60]}...' → Blocked: {is_blocked} (expected: {expected_blocked})"
+        )
 
         if is_blocked != expected_blocked:
             print(f"   Response: {json.dumps(data, indent=2)[:500]}")
@@ -57,7 +61,7 @@ async def main():
     ]
 
     for q in legitimate_questions:
-        await test_query(q, expected_blocked=False)
+        await run_security_query(q, expected_blocked=False)
 
     print("\n🚫 Perguntas maliciosas (devem ser bloqueadas):")
     malicious_questions = [
@@ -68,7 +72,7 @@ async def main():
     ]
 
     for q in malicious_questions:
-        await test_query(q, expected_blocked=True)
+        await run_security_query(q, expected_blocked=True)
 
     print("\n✅ Testes concluídos!")
 

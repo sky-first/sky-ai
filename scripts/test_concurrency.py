@@ -12,10 +12,12 @@ sys.path.insert(0, str(project_root))
 
 from config.settings import settings
 
+
 def get_first_connection_id():
     # Helper to get a valid connection ID
     try:
         from sqlalchemy import create_engine, text
+
         db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
         engine = create_engine(db_url)
         with engine.connect() as conn:
@@ -33,6 +35,7 @@ def get_first_connection_id():
         print(f"Error getting connection: {e}")
     return None, None
 
+
 async def trigger_pipeline(client, url, payload, request_id):
     print(f"[{request_id}] 🚀 Sending request...")
     try:
@@ -41,14 +44,19 @@ async def trigger_pipeline(client, url, payload, request_id):
         elapsed = time.time() - start
         if response.status_code == 200:
             data = response.json()
-            print(f"[{request_id}] ✅ Success in {elapsed:.2f}s. Job ID: {data.get('pipeline_id')}")
-            return data.get('pipeline_id')
+            print(
+                f"[{request_id}] ✅ Success in {elapsed:.2f}s. Job ID: {data.get('pipeline_id')}"
+            )
+            return data.get("pipeline_id")
         else:
-            print(f"[{request_id}] ❌ Failed in {elapsed:.2f}s. Status: {response.status_code}")
+            print(
+                f"[{request_id}] ❌ Failed in {elapsed:.2f}s. Status: {response.status_code}"
+            )
             return None
     except Exception as e:
         print(f"[{request_id}] ❌ Exception: {e}")
         return None
+
 
 async def run_concurrency_test():
     conn_id, space_id = get_first_connection_id()
@@ -58,15 +66,15 @@ async def run_concurrency_test():
 
     base_url = "http://localhost:8001"
     url = f"{base_url}/pipeline/execute"
-    
+
     # Generate 3 concurrent requests
     # Use questions that are slightly different to avoid exact cache if any
     questions = [
         "What is the total revenue?",
         "Qual a receita total?",
-        "Show me total revenue"
+        "Show me total revenue",
     ]
-    
+
     tasks = []
     async with httpx.AsyncClient() as client:
         for i, q in enumerate(questions):
@@ -74,21 +82,22 @@ async def run_concurrency_test():
                 "connection_id": conn_id,
                 "question": q,
                 "space_id": space_id,
-                "user_id": str(uuid.uuid4())
+                "user_id": str(uuid.uuid4()),
             }
             tasks.append(trigger_pipeline(client, url, payload, f"Req-{i+1}"))
-        
+
         print(f"\n🚀 Launching {len(tasks)} parallel requests...")
         results = await asyncio.gather(*tasks)
-        
+
     successful_jobs = [r for r in results if r]
     print(f"\n🏁 Finished. Successful Jobs: {len(successful_jobs)}/{len(questions)}")
-    
+
     if len(successful_jobs) == len(questions):
         print("✅ CONCURRENCY TEST PASSED")
     else:
         print("❌ CONCURRENCY TEST FAILED")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(run_concurrency_test())

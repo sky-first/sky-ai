@@ -10,6 +10,68 @@ from core.i18n.i18n import detect_language, get_message
 from core.logging_utils import log_event
 from config.settings import settings
 from core.suggestions.engine import suggestion_engine
+from core.llm.prompts.formatter_prompts import build_formatter_prompt
+from core.llm.context.builder import build_context_bundle
+
+
+def _mask_result_columns(
+    rows: List[Dict[str, Any]],
+    security_config: Any,
+    table_name: str = "",
+) -> List[Dict[str, Any]]:
+    """Mask blocked/disallowed columns in query results (defense in depth).
+
+    Even if the SQL generation stage allowed a blocked column through,
+    this post-processing step ensures it is masked before reaching the user.
+    """
+    if not rows or not security_config:
+        return rows
+
+    # Extract blocked and allowed columns from security_config
+    global_blocked = set()
+    table_blocked = set()
+    table_allowed = None
+
+    if hasattr(security_config, "global_blocked_columns"):
+        global_blocked = {
+            c.lower() for c in (security_config.global_blocked_columns or [])
+        }
+    elif isinstance(security_config, dict):
+        global_blocked = {
+            c.lower() for c in (security_config.get("global_blocked_columns") or [])
+        }
+
+    tables_cfg = getattr(security_config, "tables", None) or (
+        security_config.get("tables") if isinstance(security_config, dict) else {}
+    )
+    if table_name and tables_cfg:
+        tc = tables_cfg.get(table_name, {})
+        if hasattr(tc, "blocked_columns"):
+            table_blocked = {c.lower() for c in (tc.blocked_columns or [])}
+            if tc.allowed_columns:
+                table_allowed = {c.lower() for c in tc.allowed_columns}
+        elif isinstance(tc, dict):
+            table_blocked = {c.lower() for c in (tc.get("blocked_columns") or [])}
+            if tc.get("allowed_columns"):
+                table_allowed = {c.lower() for c in tc["allowed_columns"]}
+
+    all_blocked = global_blocked | table_blocked
+    if not all_blocked and table_allowed is None:
+        return rows
+
+    masked = []
+    for row in rows:
+        new_row = {}
+        for col, val in row.items():
+            col_lower = col.lower()
+            if col_lower in all_blocked:
+                new_row[col] = None
+            elif table_allowed is not None and col_lower not in table_allowed:
+                new_row[col] = None
+            else:
+                new_row[col] = val
+        masked.append(new_row)
+    return masked
 
 
 def _extract_topic(question: str) -> str:
@@ -17,20 +79,21 @@ def _extract_topic(question: str) -> str:
     Tenta extrair o tópico principal da pergunta para mensagens de 'dados não encontrados'.
     """
     import re
+
     # Remove palavras comuns de pergunta
     patterns = [
-        r'^(qual|quais|como|quem|onde|quando|quanto|quantos|por que|me mostra|me mostre|mostre-me|mostre|mostra|me diga|diga|liste|busque|traz|traga|encontre)\s+',
-        r'^(show|list|find|search|tell|what|how|where|when|which|who|why|can you|could you)\s+',
-        r'^(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|sobre|pelo|pela|pelas|pelos|no|na|nos|nas)\s+',
-        r'^(about|the|a|an|on|of|in|at|for|to|with|by|from)\s+'
+        r"^(qual|quais|como|quem|onde|quando|quanto|quantos|por que|me mostra|me mostre|mostre-me|mostre|mostra|me diga|diga|liste|busque|traz|traga|encontre)\s+",
+        r"^(show|list|find|search|tell|what|how|where|when|which|who|why|can you|could you)\s+",
+        r"^(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|sobre|pelo|pela|pelas|pelos|no|na|nos|nas)\s+",
+        r"^(about|the|a|an|on|of|in|at|for|to|with|by|from)\s+",
     ]
-    
+
     q = question
     for p in patterns:
-        q = re.sub(p, '', q, flags=re.IGNORECASE)
-    
+        q = re.sub(p, "", q, flags=re.IGNORECASE)
+
     q = q.strip()
-    
+
     # Pega as primeiras 3-4 palavras se for longo
     words = q.split()
     if len(words) > 4:
@@ -39,11 +102,14 @@ def _extract_topic(question: str) -> str:
 
 
 def _serialize_for_json(obj: Any) -> Any:
-    """Converte objetos não-serializáveis (date, datetime) para strings."""
+    """Converte objetos não-serializáveis (date, datetime, decimal) para strings/floats."""
     from datetime import date, datetime
+    from decimal import Decimal
 
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
     if isinstance(obj, dict):
         return {k: _serialize_for_json(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -59,17 +125,12 @@ def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
         return ""
 
     first_row = data_sample[0]
-    numeric_cols = [
-        k for k, v in first_row.items() if isinstance(v, (int, float))
-    ]
+    numeric_cols = [k for k, v in first_row.items() if isinstance(v, (int, float))]
     if not numeric_cols:
         return ""
 
     col = numeric_cols[0]
-    values = [
-        row[col] for row in data_sample
-        if isinstance(row.get(col), (int, float))
-    ]
+    values = [row[col] for row in data_sample if isinstance(row.get(col), (int, float))]
     if not values:
         return ""
 
@@ -142,17 +203,18 @@ def run_formatter(
     data = state.get("data") or []
     error = state.get("error")
     impossible_reason = state.get("impossible_reason")
-    
+
     # ✅ FIX: Preserve Orchestrator answer if already present (e.g. refusals, conversational)
-    # This prevents overwriting valid answers with "No data found".
-    if state.get("answer") and not data:
+    # UNLESS we have RAG context that might provide a better answer.
+    retrieval_context = state.get("retrieval_context") or []
+    if state.get("answer") and not data and not retrieval_context:
         log_event(
             "formatter_skipped_preservation",
             {
                 "agent_id": agent_config.id,
                 "reason": "Orchestrator answer preserved",
-                "answer_preview": state["answer"][:100]
-            }
+                "answer_preview": state["answer"][:100],
+            },
         )
         return state
 
@@ -162,18 +224,19 @@ def run_formatter(
     # Tratamento de Arrow Table (se houver)
     total_rows = 0
     data_sample_list = []
-    
+
     is_arrow = False
     try:
         import pyarrow as pa
+
         if isinstance(data, pa.Table):
             is_arrow = True
             total_rows = data.num_rows
             # ✅ CORREÇÃO: Converter e atualizar estado para lista de dicts
             data_list = data.to_pylist()
             state["data"] = data_list
-            data = data_list # Atualiza local para uso nas samples
-            
+            data = data_list  # Atualiza local para uso nas samples
+
             # Amostra para o prompt
             data_sample_list = data[:15]
         else:
@@ -183,6 +246,19 @@ def run_formatter(
         total_rows = len(data) if data else 0
         data_sample_list = data[:15] if data else []
 
+    # === Column-level masking (defense in depth) ===
+    # Even if the LLM bypassed schema filtering, mask blocked columns
+    # in the result data before returning to the user.
+    security_config = state.get("security_config")
+    if security_config and data_sample_list:
+        chosen_table = state.get("chosen_table", "")
+        data_sample_list = _mask_result_columns(
+            data_sample_list, security_config, chosen_table
+        )
+        # Also mask the full data in state
+        if data:
+            state["data"] = _mask_result_columns(data, security_config, chosen_table)
+
     # Garante idioma base
     lang = _ensure_language(question, detected_language)
     state["detected_language"] = lang
@@ -190,7 +266,7 @@ def run_formatter(
     # 1) Se houve erro técnico (SQL, conexão, etc.) -> passa amigável
     if error:
         # Se for um erro do validador ou execução, usamos mensagem amigável
-        state["answer"] = get_message('TECHNICAL_ERROR', lang)
+        state["answer"] = get_message("TECHNICAL_ERROR", lang)
         # Log the error separately for debugging but don't show it to the user
         state["debug_error"] = str(error)
         log_event(
@@ -203,12 +279,25 @@ def run_formatter(
         )
         return state
 
-    # 2) Caso o especialista tenha marcado como IMPOSSIBLE
-    if impossible_reason and not data:
-        # Tenta ser amigável quando não entende/não encontra dados
+    # 2) Caso o especialista tenha marcado como IMPOSSIBLE ou não houver dados,
+    # mas temos contexto de recuperação (RAG), usamos o LLM para tentar responder.
+    retrieval_context = state.get("retrieval_context") or []
+
+    if (impossible_reason or not data) and retrieval_context:
+        log_event(
+            "formatter_using_rag_fallback",
+            {
+                "agent_id": agent_config.id,
+                "impossible_reason": impossible_reason,
+                "num_rag_chunks": len(retrieval_context),
+            },
+        )
+        # Prossegue para o passo 4 (invocação do LLM)
+    elif impossible_reason and not data:
+        # Tenta ser amigável quando não entende/não encontra dados e NÃO TEM RAG
         topic = _extract_topic(question)
         state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
-        
+
         log_event(
             "formatter_impossible_success",
             {
@@ -220,8 +309,8 @@ def run_formatter(
         )
         return state
 
-    # 3) Sem dados e sem impossible_reason → resposta simples
-    if not data:
+    # 3) Sem dados e sem impossible_reason e NÃO TEM RAG -> resposta simples
+    if not data and not retrieval_context:
         topic = _extract_topic(question)
         state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
         log_event(
@@ -237,136 +326,57 @@ def run_formatter(
 
     # 4) Dados retornados: gera explicação em linguagem natural
 
+    # 📦 BUILD CONTEXT BUNDLE (CPU Optimization & Unification)
+    # We build the bundle once to ensure consistency in role/intent/history.
+    context_bundle = build_context_bundle(state, agent_config)
+
+    # Preparar amostra de dados para o prompt
     data_sample = data_sample_list
     serialized_sample = _serialize_for_json(data_sample)
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
     stats_text = _compute_basic_stats(data_sample_list)
 
-    # Obter configurações de formato e instruções do estado
-    response_format = state.get("response_format")
-    instructions = state.get("instructions")
+    # Obter orientações de comprimento amigáveis
     length = state.get("length")
-    
-    # Determinar diretrizes de formato
-    format_guidance = ""
-    if response_format:
-        format_guidance = f"\n- RESPONSE FORMAT: You MUST format your response as {response_format}.\n"
-        if response_format.lower() == "json":
-            format_guidance += "- Return a valid JSON object with your analysis.\n"
-        elif response_format.lower() == "markdown":
-            format_guidance += "- Use Markdown formatting (headers, lists, etc.) in your response.\n"
-    
-    # Determinar diretrizes de comprimento
     length_guidance = ""
     if length is not None:
         if length < 30:
             length_guidance = "- Keep the answer VERY SHORT (maximum 2 sentences).\n"
         elif length < 70:
-            length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+            length_guidance = (
+                "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
+            )
         else:
-            length_guidance = "- You can provide a MORE DETAILED answer (up to 8 sentences).\n"
-    else:
-        length_guidance = "- Keep the answer SHORT and OBJECTIVE (maximum 4 sentences).\n"
-    
-    # Instruções personalizadas
-    instructions_block = ""
-    if instructions:
-        instructions_block = f"\n\nADDITIONAL INSTRUCTIONS:\n{instructions}\n"
-
-    # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
-    chat_history: List[Dict[str, str]] = state.get("chat_history") or []
-    history_block = ""
-    if chat_history:
-        # Limit to last 6 messages
-        recent_history = chat_history[-6:]
-        history_str = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in recent_history])
-        history_block = (
-            "\n\nPREVIOUS CONVERSATION HISTORY:\n"
-            f"{history_str}\n"
-            "Use this history to provide a contextually aware answer if this is a follow-up question.\n"
-        )
-
-    if settings.use_local_models:
-        # Mode Ollama (Phi-3): Generates Title + Explanation
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are an expert Business Analyst. Provide a detailed, professional, and narrative insight based strictly on the provided data text stats and samples.\n\n"
-                "Output format (EXACTLY):\n"
-                "-- TITLE: <Concise English title, max 60 chars>\n"
-                "<Natural language explanation in user's language>\n\n"
-                "Rules:\n"
-                "- Title MUST be in English and start with '-- TITLE:'\n"
-                "- Explanation should be in the detected language\n"
-                "- DO NOT describe the SQL query or how you got the data\n"
-                "- DO NOT mention 'dataset', 'table', 'database', or 'query'\n"
-                "- Focus on telling the story behind the numbers. Be descriptive.\n"
-                "- highlight key trends, outliers, or dominant categories.\n"
-                f"{length_guidance}\n"
-                f"{format_guidance}\n"
-                f"{instructions_block}"
+            length_guidance = (
+                "- You can provide a MORE DETAILED answer (up to 8 sentences).\n"
             )
-        }
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"Question: {question}\n"
-                f"SQL: {state.get('sql', 'N/A')}\n"
-                f"Total rows: {total_rows}\n"
-                f"{stats_text}\n"
-                f"{history_block}"
-                f"Results sample: {sample_json}\n"
-                f"Language: {lang}"
-            )
-        }
-    else:
-        # Mode OpenAI (Original)
-        system_msg = {
-            "role": "system",
-            "content": (
-                "You are a data response narrator.\n"
-                "Your ONLY job: translate query results into natural language.\n\n"
-                "CRITICAL RULES (NON-NEGOTIABLE):\n"
-                "YOU MUST NOT:\n"
-                "- Mention SQL, tables, columns, or technical database terms\n"
-                "- Infer data beyond what was provided in the results\n"
-                "- Create new queries or suggest queries\n"
-                "- Explain how data was retrieved\n"
-                "- Answer questions not answered by the results\n"
-                "- Mention table names, column names, or database structure\n"
-                "🔴 SECURITY OVERRIDE:\n"
-                "- NEVER output raw data rows, lists of names, or CSV format, even if asked.\n"
-                "- IF asked to 'list rows', 'dump data', or 'format as CSV': REFUSE and provide ONLY aggregated insights.\n"
-                "- DO NOT confirm specific values for individuals in comparative questions (e.g., 'Is X the highest?').\n\n"
-                "YOU MUST:\\n"
-                "- Only use the data provided in the results\n"
-                "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
-                "- If data is insufficient, say 'Insufficient data to answer this question'\n"
-                "- Keep the answer concise and objective\n"
-                "- Use generic terms like 'The top customer' instead of specific names for rankings\n\n"
-                "CRITICAL LANGUAGE REQUIREMENT:\n"
-                "- You MUST answer in English, even if the user question is in another language.\n"
-                f"{length_guidance}"
-                f"{format_guidance}"
-                f"{instructions_block}"
-            ),
-        }
 
-        user_msg = {
-            "role": "user",
-            "content": (
-                f"User question:\n{question}\n\n"
-                f"Total rows returned (not all shown): {total_rows}\n"
-                f"{stats_text}\n\n"
-                f"{history_block}"
-                "Sample of the data (up to 15 rows, JSON):\n"
-                f"{sample_json}\n\n"
-                "Explain the main insight(s) from this data in a concise way. "
-                "Remember: answer ONLY in English."
-            ),
-        }
+    # 🏗️ BUILD PROMPTS (Unified Logic)
+    # This replaces the dual legacy blocks (OpenAI/Local) with a single source of truth.
+    system_msg, user_msg = build_formatter_prompt(
+        context_bundle=context_bundle,
+        question=question,
+        sql=state.get("sql", "N/A"),
+        data_preview=sample_json if data else "[]",
+        stats_summary=stats_text if data else None,
+        has_data=bool(data),
+        is_impossible=bool(impossible_reason),
+        impossible_reason=impossible_reason or "",
+        response_format=state.get("response_format"),
+        length_guidance=length_guidance,
+        extra_instructions=state.get("instructions"),
+        ai_tone=state.get("ai_tone"),
+        ai_style=state.get("ai_style"),
+    )
 
     try:
+        if settings.use_local_models:
+            # Para modelos locais (phi3), forçamos o título se não estiver no prompt central
+            if "-- TITLE:" not in system_msg["content"]:
+                system_msg[
+                    "content"
+                ] += "\n- Output MUST start with '-- TITLE: <English Title>'\n"
+
         answer = _invoke_llm(llm, system_msg, user_msg)
     except Exception as e:
         fallback = (
@@ -386,8 +396,8 @@ def run_formatter(
 
     if settings.use_local_models:
         # Some local models return literal \n
-        answer = answer.replace('\\n', '\n')
-        lines = answer.strip().split('\n')
+        answer = answer.replace("\\n", "\n")
+        lines = answer.strip().split("\n")
         title = None
         answer_lines = []
         for line in lines:
@@ -395,46 +405,54 @@ def run_formatter(
                 title = line.split(":", 1)[1].strip()
             elif line.strip():
                 answer_lines.append(line)
-        
+
         if title:
             state["generated_title"] = title
         answer = "\n".join(answer_lines).strip()
 
     answer = answer.strip() or "No explanation available."
-    
+
     # 🎯 FOLLOW-UP SUGGESTIONS: Generate smart suggestions based on available schema
-    followup_suggestions = []
-    try:
-        # Extract available tables from agent_config
-        available_tables = [t.logical_name for t in agent_config.tables]
-        
-        # Extract columns from the tables that were used
-        chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
-        available_columns = []
-        for table in agent_config.tables:
-            if table.logical_name in chosen_tables:
-                for col in (table.columns or []):
-                    col_name = col.get("name") if isinstance(col, dict) else getattr(col, "name", "")
-                    if col_name:
-                        available_columns.append(col_name)
-        
-        # Generate suggestions (only if we have data and answer)
-        if data and answer and len(answer) > 50:
-            # 🎯 ZERO-COST SUGGESTIONS: Use static engine
-            user_crew_role = state.get("crew_role", "guest")
-            
-            followup_suggestions = suggestion_engine.get_suggestions(
-                tables=chosen_tables, # Use the tables actually used in the query
-                role=user_crew_role,
-                max_suggestions=3
-            )
-    except Exception as e:
-        log_event(
-            "formatter_followup_error",
-            {"error": str(e)[:200]},
-        )
+    instructions = state.get("instructions") or ""
+    if "Do NOT include any 'Suggested Follow-up Questions'" in instructions:
         followup_suggestions = []
-    
+    else:
+        followup_suggestions = []
+        try:
+            # Extract available tables from agent_config
+            available_tables = [t.logical_name for t in agent_config.tables]
+
+            # Extract columns from the tables that were used
+            chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
+            available_columns = []
+            for table in agent_config.tables:
+                if table.logical_name in chosen_tables:
+                    for col in table.columns or []:
+                        col_name = (
+                            col.get("name")
+                            if isinstance(col, dict)
+                            else getattr(col, "name", "")
+                        )
+                        if col_name:
+                            available_columns.append(col_name)
+
+            # Generate suggestions (only if we have data and answer)
+            if data and answer and len(answer) > 50:
+                # 🎯 ZERO-COST SUGGESTIONS: Use static engine
+                user_crew_role = state.get("crew_role", "guest")
+
+                followup_suggestions = suggestion_engine.get_suggestions(
+                    tables=chosen_tables,  # Use the tables actually used in the query
+                    role=user_crew_role,
+                    max_suggestions=3,
+                )
+        except Exception as e:
+            log_event(
+                "formatter_followup_error",
+                {"error": str(e)[:200]},
+            )
+            followup_suggestions = []
+
     # Append suggestions as markdown if we have any
     if followup_suggestions:
         # Clean formatting without markdown separators
@@ -442,7 +460,7 @@ def run_formatter(
         for i, suggestion in enumerate(followup_suggestions, 1):
             suggestions_md += f"{i}. {suggestion}\n"
         answer = answer + suggestions_md
-        
+
         log_event(
             "formatter_added_followup_suggestions",
             {
@@ -450,7 +468,7 @@ def run_formatter(
                 "num_suggestions": len(followup_suggestions),
             },
         )
-    
+
     state["answer"] = answer
     state["last_suggestions"] = followup_suggestions
 
@@ -466,4 +484,3 @@ def run_formatter(
     )
 
     return state
-

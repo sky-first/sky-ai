@@ -15,56 +15,132 @@ class QueryRequest(BaseModel):
     crew_ids: Optional[List[str]] = Field(
         default=None, description="List of crews the user belongs to."
     )
+    # Personal mode aggregates from "all spaces the caller belongs to"
+    # (see project_personal_vs_space_model). The vector_store needs the
+    # actual list of caller_space_ids to safely surface space-scoped
+    # context (glossary, metrics, custom embeddings) without leaking
+    # other spaces of the same tenant. When omitted in Personal mode
+    # the read path falls back to truly-shared (space_id IS NULL)
+    # rows only — safe but loses per-space context.
+    space_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Spaces the caller is a member of. Used by Personal mode to scope NULL-user_id space-scoped rows to caller-accessible spaces.",
+    )
     thread_id: Optional[str] = Field(
         default=None,
         description="Conversation thread ID, if multiple question context is desired.",
     )
     is_personal: Optional[bool] = Field(
         default=False,
-        description="Indicates if query is in personal mode, granting access to all user's crews and spaces."
+        description="Indicates if query is in personal mode, granting access to all user's crews and spaces.",
     )
     # AI Behavior Configuration
     instructions: Optional[str] = Field(
-        default=None,
-        description="General instructions on how the AI should behave."
+        default=None, description="General instructions on how the AI should behave."
     )
     creativity: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
-        description="Creativity level (0-100). Controls LLM temperature."
+        description="Creativity level (0-100). Controls LLM temperature.",
     )
     length: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
-        description="Response length level (0-100). Controls LLM max_tokens."
+        description="Response length level (0-100). Controls LLM max_tokens.",
     )
     response_format: Optional[str] = Field(
         default=None,
-        description="Formato desejado da resposta (ex: 'text', 'json', 'markdown')."
+        description="Formato desejado da resposta (ex: 'text', 'json', 'markdown').",
+    )
+    ai_tone: Optional[str] = Field(
+        default=None,
+        description="User-selected response tone (casual, professional, technical, friendly). Shapes *form* of the answer; platform_role/crew_role still shape substance.",
+    )
+    ai_style: Optional[str] = Field(
+        default=None,
+        description="User-selected output structure (concise, detailed, step-by-step).",
     )
     sql_instructions: Optional[str] = Field(
-        default=None,
-        description="Specific instructions for SQL generation."
+        default=None, description="Specific instructions for SQL generation."
     )
     selected_datasets: Optional[List[str]] = Field(
         default=None,
-        description="List of datasets/tables manually selected by the user. If provided, the orchestrator will use only these tables instead of choosing automatically."
+        description="List of datasets/tables manually selected by the user. If provided, the orchestrator will use only these tables instead of choosing automatically.",
     )
-    
+
+    # Explicit context selection across every Universe Intelligence kind
+    # (pillar / objective / okr / initiative / assumption / key_result /
+    # glossary_term / signal_event / intelligence_signal /
+    # enterprise_relationship / widget / insight / page). When present
+    # and non-empty, the RAG restricts retrieval to embeddings whose
+    # document_id is in the union of all listed ids for ANY kind.
+    # Empty dict / missing kinds = "no filter for that kind".
+    selected_context: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Per-kind allowlist of entity IDs the retrieval must stick to.",
+    )
+
+    # ✅ NEW: Strictly authorized tables by the backend
+    authorized_tables: Optional[List[str]] = Field(
+        default=None,
+        description="List of strictly authorized tables computed by the backend. If provided, the AI Engine will completely ignore any table not in this list.",
+    )
+
     # ✅ NEW: Dynamic security configuration (sent by backend)
     security_config: Optional[SecurityConfig] = Field(
         default=None,
         description="Security configuration sent by backend. Includes row_filters (RLS), "
-                    "allowed/blocked columns, and other table-level security rules."
+        "allowed/blocked columns, and other table-level security rules.",
     )
 
     # ✅ NEW: Chat history for conversational memory
     chat_history: Optional[List[Dict[str, str]]] = Field(
         default=None,
-        description="List of previous messages in the conversation to support follow-up questions."
+        description="List of previous messages in the conversation to support follow-up questions.",
     )
+
+    # Knowledge Library @mentions — file IDs explicitly cited by the user
+    # (e.g. @filename.pdf). These files receive a 10× similarity boost
+    # during vector retrieval so their chunks surface first.
+    mentioned_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
+    )
+
+    # Agent mode hint — set by the backend when the query originates from an
+    # agent run (scan, sql, context, question). When "scan", "sql", or
+    # "context", the intent classifier forces "data" routing so the graph
+    # always goes through orchestrator → specialist instead of mixed_dispatch
+    # or other non-SQL paths.
+    agent_mode: Optional[str] = Field(
+        default=None,
+        description="Agent execution mode (scan, sql, context, question). Forces data-path routing for non-question modes.",
+    )
+
+    # Multi-connection support: when provided the orchestrator aggregates
+    # metadata from ALL listed connections so it can build cross-schema SQL.
+    # The primary connection_id (path param) is still used for SQL execution.
+    connection_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Additional connection IDs whose table metadata should be merged into the agent context. Enables cross-schema queries when connections share the same database host.",
+    )
+
+
+class Citation(BaseModel):
+    """A source chunk that grounded the AI's answer."""
+
+    file_id: str = Field(..., description="knowledge_files.id")
+    file_name: str = Field(..., description="Original file name shown to the user.")
+    chunk_index: int = Field(..., description="Zero-based chunk index within the file.")
+    page_number: Optional[int] = Field(
+        None, description="PDF page number (1-based), if available."
+    )
+    excerpt: str = Field(
+        ..., description="Short text excerpt from the chunk (≤ 300 chars)."
+    )
+    score: float = Field(..., description="Cosine similarity score [0, 1].")
 
 
 class QueryResultMeta(BaseModel):
@@ -75,7 +151,18 @@ class QueryResultMeta(BaseModel):
     title: Optional[str] = None  # New: dynamically generated title
     num_rows: int = 0
     error: Optional[str] = None
-    rag_context: Optional[List[str]] = None # Debug info
+    rag_context: Optional[List[str]] = None  # Debug info
+    plan: Optional[str] = None  # AI reasoning/rationale (Chain of Thought)
+    # ✅ NEW: Dashboard plan for direct generation (Phase 1)
+    dashboard_plan: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Dashboard plan when direct generation is triggered via intent detection",
+    )
+    # Knowledge Library citations — populated when knowledge chunks were used
+    citations: Optional[List[Citation]] = Field(
+        default=None,
+        description="Knowledge file chunks that grounded the answer.",
+    )
 
 
 class QueryResponse(BaseModel):
@@ -85,14 +172,47 @@ class QueryResponse(BaseModel):
         description="Sample of returned data (max 15 rows).",
     )
     meta: QueryResultMeta
+    recommended_widget_type: Optional[str] = Field(
+        default=None,
+        description="Suggested widget type (kpi/chart/table/text). Populated when response_format is present.",
+    )
+    # Transparency surfaces — feed the W7 panel on the frontend.
+    # Both default to empty so existing call sites stay backward-compatible.
+    # We deliberately do NOT include model name, tokens, or any infra
+    # detail here — the user surface should describe what the system did
+    # (Decided this is a Knowledge question, Loaded N items, …) without
+    # exposing how it did it.
+    evidence: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Catalog rows the answer leaned on (Sources tab).",
+    )
+    reasoning_steps: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="User-readable steps the system took (Reasoning tab).",
+    )
+    # Scan-mode fields — only populated when agent_mode=scan
+    scan_silent: Optional[bool] = Field(
+        default=None,
+        description="True when the scan produced no insight worth saving (answer too short).",
+    )
+    scan_insight_title: Optional[str] = Field(
+        default=None,
+        description="First line of the insight saved by the scan agent.",
+    )
 
 
 class ChatBootstrapSuggestion(BaseModel):
     title: str = Field(..., description="Short title for the suggestion card.")
     kind: str = Field(default="question", description="question|action")
-    question: Optional[str] = Field(default=None, description="Suggested question to send to chat.")
-    action_id: Optional[str] = Field(default=None, description="Action identifier when kind='action'.")
-    payload: Optional[Dict[str, Any]] = Field(default=None, description="Optional action payload.")
+    question: Optional[str] = Field(
+        default=None, description="Suggested question to send to chat."
+    )
+    action_id: Optional[str] = Field(
+        default=None, description="Action identifier when kind='action'."
+    )
+    payload: Optional[Dict[str, Any]] = Field(
+        default=None, description="Optional action payload."
+    )
 
 
 class ChatBootstrapRequest(BaseModel):
@@ -127,10 +247,14 @@ class ChatBootstrapResponse(BaseModel):
 class DashboardPlanWidget(BaseModel):
     """A single widget specification for a generated dashboard."""
 
-    widget_key: str = Field(..., description="Stable key within the plan (e.g., w1, w2).")
+    widget_key: str = Field(
+        ..., description="Stable key within the plan (e.g., w1, w2)."
+    )
     type: str = Field(..., description="Widget type (chart|kpi|table|text).")
     title: str = Field(..., description="Widget title.")
-    question: str = Field(..., description="Question that will be executed to generate query_id.")
+    question: str = Field(
+        ..., description="Question that will be executed to generate query_id."
+    )
     viz: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Visualization spec (frontend maps this to Tremor charts).",
@@ -142,39 +266,49 @@ class DashboardPlanRequest(BaseModel):
 
     user_id: str = Field(..., description="User ID (required).")
     space_id: str = Field(..., description="Space ID (required).")
-    crew_ids: Optional[List[str]] = Field(default=None, description="Crew IDs (optional).")
+    crew_ids: Optional[List[str]] = Field(
+        default=None, description="Crew IDs (optional)."
+    )
     is_personal: Optional[bool] = Field(
         default=False,
         description="If True, planner can use all crews/spaces the user belongs to (personal mode).",
     )
-    language: Optional[str] = Field(default="en", description="Language hint (e.g., en).")
+    language: Optional[str] = Field(
+        default="en", description="Language hint (e.g., en)."
+    )
     goal: str = Field(..., description="Dashboard goal (e.g., Billing overview).")
     # Temporarily keep dashboard creation fully automatic with a fixed cap.
     max_widgets: int = Field(default=8, ge=1, le=8)
-    
+
     # ✅ NEW: Original user question (70-80% weight on suggestions)
     # AI will only be called when this endpoint is invoked (on clicking 'Create Dashboard')
     original_question: Optional[str] = Field(
         default=None,
-        description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question."
+        description="Original user question to be included as first widget. Remaining widgets will be strongly related (70-80% weight) to this question. Only used when creating dashboard from starred question.",
     )
-    
+
+    # ✅ NEW: Generation Mode
+    mode: Optional[str] = Field(
+        default="mix",
+        description="Dashboard generation mode: 'textual' (more text, fewer charts), 'visual' (max charts, min text), or 'mix' (balanced).",
+    )
+
     # ✅ NEW: Rich context for better suggestions
     initial_ai_response: Optional[str] = Field(
         default=None,
-        description="The text content of the last AI answer the user saw. Use this to suggest specific titles."
+        description="The text content of the last AI answer the user saw. Use this to suggest specific titles.",
     )
     context_spaces: Optional[List[str]] = Field(
         default=None,
-        description="List of available spaces names to give situational awareness."
+        description="List of available spaces names to give situational awareness.",
     )
     context_crews: Optional[List[str]] = Field(
         default=None,
-        description="List of available crews names to give situational awareness."
+        description="List of available crews names to give situational awareness.",
     )
     context_tables: Optional[List[str]] = Field(
         default=None,
-        description="List of all table names accessible to user to give situational awareness."
+        description="List of all table names accessible to user to give situational awareness.",
     )
 
     # Backend-override fields (allows the product backend to pass catalog directly)
@@ -202,10 +336,16 @@ class DashboardPlanResponse(BaseModel):
     """Response containing a dashboard plan."""
 
     dashboard_name: str
-    title: str = Field(..., description="Same as dashboard_name, but explicit for frontend usage.")
+    title: str = Field(
+        ..., description="Same as dashboard_name, but explicit for frontend usage."
+    )
     description: Optional[str] = None
     widgets: List[DashboardPlanWidget]
     meta: Optional[Dict[str, Any]] = None
+    full_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw structured findings from Davinci (verdict, diagnostic, etc.)",
+    )
 
 
 # Schemas for DataConnections (used in other modules)
@@ -336,42 +476,71 @@ class ConnectionResponse(BaseModel):
 
 class ValidateSQLRequest(BaseModel):
     """Request para validar SQL."""
+
     user_id: str = Field(..., description="User ID.")
     space_id: str = Field(..., description="Space atual.")
-    sql: str = Field(..., min_length=1, description="SQL to validate (cannot be empty).")
+    sql: str = Field(
+        ..., min_length=1, description="SQL to validate (cannot be empty)."
+    )
     crew_ids: Optional[List[str]] = Field(
         default=None, description="List of crews the user belongs to."
     )
     is_personal: Optional[bool] = Field(
-        default=False,
-        description="Indicates if in personal mode."
+        default=False, description="Indicates if in personal mode."
     )
     # ✅ NEW: Dynamic security configuration (sent by backend)
     security_config: Optional[SecurityConfig] = Field(
         default=None,
-        description="Security configuration to validate SQL against RLS rules and columns."
+        description="Security configuration to validate SQL against RLS rules and columns.",
     )
     # ✅ NEW: Ask for AI explanation
     question: Optional[str] = Field(
-        default=None,
-        description="User's original question (context for explanation)."
+        default=None, description="User's original question (context for explanation)."
     )
     include_explanation: Optional[bool] = Field(
         default=False,
-        description="If True, generates a textual explanation of results using AI."
+        description="If True, generates a textual explanation of results using AI.",
     )
 
 
 class ValidateSQLResponse(BaseModel):
     """SQL validation response."""
+
     is_valid: bool = Field(..., description="Whether SQL is valid and returns data.")
     error: Optional[str] = Field(None, description="Error message if invalid.")
     preview_data: Optional[List[Dict[str, Any]]] = Field(
         None, description="Data preview (max 5 rows) if valid."
     )
     num_rows: Optional[int] = Field(None, description="Number of returned rows.")
-    execution_time_ms: Optional[float] = Field(None, description="Execution time in ms.")
+    execution_time_ms: Optional[float] = Field(
+        None, description="Execution time in ms."
+    )
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
     explanation: Optional[str] = Field(
         None, description="Textual explanation generated by AI (if requested)."
     )
+
+
+# =========================
+# Knowledge Graph Ingestion
+# =========================
+
+
+class KnowledgeIngestRequest(BaseModel):
+    id: str
+    entity_type: (
+        str  # strategic_pillar, strategic_objective, strategy_okr, signal_event, etc.
+    )
+    name: Optional[str] = None
+    description: Optional[str] = None
+    space_id: Optional[str] = None
+    crew_id: Optional[str] = None
+    entity_details: Optional[Dict[str, Any]] = None
+
+    # Optional fields for Signal Events
+    category: Optional[str] = None
+    sub_type: Optional[str] = None
+    nature: Optional[str] = None
+    start_date: Optional[str] = None
+    impact_date: Optional[str] = None
+    confidence: Optional[str] = None

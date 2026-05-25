@@ -1,4 +1,3 @@
-
 import sys
 import subprocess
 import os
@@ -11,8 +10,11 @@ sys.path.insert(0, str(project_root))
 
 from config.settings import settings
 
+
 def get_test_ids():
-    db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql+psycopg2://", "postgresql://")
+    db_url = settings.database_url.replace(
+        "postgresql+asyncpg://", "postgresql://"
+    ).replace("postgresql+psycopg2://", "postgresql://")
     engine = create_engine(db_url)
     try:
         with engine.connect() as conn:
@@ -31,6 +33,7 @@ def get_test_ids():
         print(f"Error fetching IDs: {e}")
     return None, None
 
+
 def run_script(script_name, args=[]):
     print(f"\nExample: Running {script_name}...")
     cmd = ["venv/bin/python", f"scripts/{script_name}"] + args
@@ -42,9 +45,10 @@ def run_script(script_name, args=[]):
         print(f"❌ {script_name} FAILED (Exit Code {e.returncode})")
         return False
 
+
 def main():
     print("🔬 STARTING FULL REGRESSION SUITE 🔬")
-    
+
     # 1. Fetch IDs
     conn_id, space_id = get_test_ids()
     if not conn_id:
@@ -69,13 +73,14 @@ def main():
     else:
         print("⏭️  Skipping Pipeline test due to missing IDs")
 
-    print("\n" + "="*40)
+    print("\n" + "=" * 40)
     if failures:
         print(f"🚨 SUITE FAILED. Failures: {', '.join(failures)}")
         sys.exit(1)
     else:
         print("✨ ALL TESTS PASSED SUCCESSFULLY! ✨")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
