@@ -57,9 +57,7 @@ def project_to_low_dim(
     if params is None:
         params = ProjectionParams()
     if vectors.ndim != 2:
-        raise ValueError(
-            f"vectors must be 2D (N, D); got shape {vectors.shape}"
-        )
+        raise ValueError(f"vectors must be 2D (N, D); got shape {vectors.shape}")
     n, d = vectors.shape
     if n == 0:
         return np.zeros((0, params.n_components), dtype=np.float32)

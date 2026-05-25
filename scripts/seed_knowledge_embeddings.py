@@ -111,9 +111,11 @@ def _agent_text(row: Dict[str, Any]) -> str:
     if row.get("depth"):
         # Map depth → tier label so the embedding text reads
         # naturally instead of "depth: quick".
-        tier_label = {"quick": "L1 delta", "standard": "L2 triage", "deep": "L3 deep"}.get(
-            row["depth"], row["depth"]
-        )
+        tier_label = {
+            "quick": "L1 delta",
+            "standard": "L2 triage",
+            "deep": "L3 deep",
+        }.get(row["depth"], row["depth"])
         parts.append(f"tier: {tier_label}")
     if row.get("focus"):
         parts.append(f"focus: {row['focus']}")
@@ -133,13 +135,11 @@ async def _list_metrics(
         where += " AND scope_id = :sid"
         params["sid"] = space_id
     rows = await db.execute(
-        sql_text(
-            f"""
+        sql_text(f"""
             SELECT id, name, slug, description, formula_description, unit, tags, scope_id
             FROM metrics
             {where}
-            """
-        ),
+            """),
         params,
     )
     out: List[Tuple[Dict[str, Any], Optional[UUID]]] = []
@@ -158,14 +158,12 @@ async def _list_glossary(
         where += " AND COALESCE(scope_id, space_id) = :sid"
         params["sid"] = space_id
     rows = await db.execute(
-        sql_text(
-            f"""
+        sql_text(f"""
             SELECT id, term, definition, notes, aliases,
                    COALESCE(scope_id, space_id) AS effective_space_id
             FROM glossary_terms
             {where}
-            """
-        ),
+            """),
         params,
     )
     out: List[Tuple[Dict[str, Any], Optional[UUID]]] = []
@@ -184,13 +182,11 @@ async def _list_relationships(
         where += " AND scope_id = :sid"
         params["sid"] = space_id
     rows = await db.execute(
-        sql_text(
-            f"""
+        sql_text(f"""
             SELECT id, name, description, scope_id
             FROM user_enterprise_relationships
             {where}
-            """
-        ),
+            """),
         params,
     )
     out: List[Tuple[Dict[str, Any], Optional[UUID]]] = []
@@ -213,13 +209,11 @@ async def _list_agents(
         where += " AND scope_id = :sid"
         params["sid"] = str(space_id)
     rows = await db.execute(
-        sql_text(
-            f"""
+        sql_text(f"""
             SELECT id, name, archetype, depth, focus, scope_id
             FROM agents
             {where}
-            """
-        ),
+            """),
         params,
     )
     out: List[Tuple[Dict[str, Any], Optional[UUID]]] = []

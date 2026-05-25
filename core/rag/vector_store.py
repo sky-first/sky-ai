@@ -244,7 +244,13 @@ async def search_embeddings_async(
         )
 
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         query = query.limit(top_k)
 
@@ -271,7 +277,13 @@ async def search_embeddings_async(
 
     try:
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         query = query.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
         query = query.limit(top_k)
@@ -290,7 +302,13 @@ async def search_embeddings_async(
         )
 
         query = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         query = query.limit(top_k)
 
@@ -359,11 +377,17 @@ def search_embeddings(
         )
 
         q = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         q = q.limit(top_k)
         results: List[EmbeddingRecord] = list(db.execute(q).scalars().all())
-        
+
         log_event(
             "search_embeddings_fallback",
             {
@@ -374,7 +398,7 @@ def search_embeddings(
                 "num_results": len(results),
             },
         )
-        
+
         return results
 
     # Busca vetorial com pgvector
@@ -382,7 +406,13 @@ def search_embeddings(
 
     try:
         query_obj = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         query_obj = query_obj.order_by(EmbeddingRecord.embedding.l2_distance(query_vec))
         query_obj = query_obj.limit(top_k)
@@ -398,7 +428,13 @@ def search_embeddings(
         )
 
         query_obj = _build_embedding_base_query(
-            space_id, crew_ids, connection_id, is_personal=is_personal, user_id=user_id, allowed_document_ids=allowed_document_ids, caller_space_ids=caller_space_ids
+            space_id,
+            crew_ids,
+            connection_id,
+            is_personal=is_personal,
+            user_id=user_id,
+            allowed_document_ids=allowed_document_ids,
+            caller_space_ids=caller_space_ids,
         )
         query_obj = query_obj.limit(top_k)
         results = list(db.execute(query_obj).scalars().all())

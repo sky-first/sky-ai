@@ -50,10 +50,14 @@ def _format_relationships(rels: List[Dict[str, Any]]) -> str:
 def _format_spaces(spaces: List[Dict[str, Any]]) -> str:
     if not spaces:
         return "(No spaces available)"
-    return "\n".join(f"- **{s.get('name', '?')}**: {s.get('description', '')}" for s in spaces)
+    return "\n".join(
+        f"- **{s.get('name', '?')}**: {s.get('description', '')}" for s in spaces
+    )
 
 
-def run_relationships_specialist(state: Dict[str, Any], llm: Any, backend_client: Any) -> Dict[str, Any]:
+def run_relationships_specialist(
+    state: Dict[str, Any], llm: Any, backend_client: Any
+) -> Dict[str, Any]:
     question = state.get("question", "")
     log_event("relationships_specialist_start", {"question": question[:100]})
 
@@ -61,7 +65,9 @@ def run_relationships_specialist(state: Dict[str, Any], llm: Any, backend_client
     spaces = backend_client.get_spaces()
 
     if not rels and not spaces:
-        state["answer"] = "No enterprise relationships or spaces have been configured yet."
+        state["answer"] = (
+            "No enterprise relationships or spaces have been configured yet."
+        )
         return state
 
     prompt = SYSTEM_PROMPT.format(
@@ -70,11 +76,15 @@ def run_relationships_specialist(state: Dict[str, Any], llm: Any, backend_client
     )
 
     try:
-        response = llm.invoke([
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": prepend_brain_context(question, state)},
-        ])
-        state["answer"] = response.content if hasattr(response, "content") else str(response)
+        response = llm.invoke(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": prepend_brain_context(question, state)},
+            ]
+        )
+        state["answer"] = (
+            response.content if hasattr(response, "content") else str(response)
+        )
     except Exception as e:
         logger.error(f"Relationships specialist error: {e}")
         state["answer"] = f"I found relationship data but encountered an error: {e}"
@@ -82,5 +92,8 @@ def run_relationships_specialist(state: Dict[str, Any], llm: Any, backend_client
     state["data"] = []
     state["sql"] = None
     state["generated_title"] = f"Relationships: {question[:50]}"
-    log_event("relationships_specialist_done", {"num_rels": len(rels), "num_spaces": len(spaces)})
+    log_event(
+        "relationships_specialist_done",
+        {"num_rels": len(rels), "num_spaces": len(spaces)},
+    )
     return state

@@ -1,4 +1,3 @@
-
 from typing import List
 from dataclasses import dataclass
 import sys
@@ -8,13 +7,17 @@ import re
 from typing import List
 from dataclasses import dataclass
 
+
 @dataclass
 class TableSchema:
     logical_name: str
     physical_name: str = ""
 
+
 # COPY OF THE FUNCTION TO TEST LOGIC ISOLATION
-def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema]) -> List[str]:
+def _extract_multiple_table_choices(
+    raw_llm_response, tables: List[TableSchema]
+) -> List[str]:
     """
     Extrai múltiplos logical_names retornados pelo LLM.
     Suporta formatos como: "table1, table2" ou "table1 and table2" ou lista separada por vírgulas.
@@ -32,30 +35,35 @@ def _extract_multiple_table_choices(raw_llm_response, tables: List[TableSchema])
     found_tables = []
 
     # Tentar separar por vírgula, "and", ou nova linha
-    parts = re.split(r'[,;\n]|\sand\s', text)
-    
+    parts = re.split(r"[,;\n]|\sand\s", text)
+
     for part in parts:
         part = part.strip()
         if not part:
             continue
-        
+
         # Match exato
         for name in logical_names:
             if part == name:
-                table_name = next(t.logical_name for t in tables if t.logical_name.lower() == name)
+                table_name = next(
+                    t.logical_name for t in tables if t.logical_name.lower() == name
+                )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
-        
+
         # Match parcial
         for name in logical_names:
             if name in part and name not in [t.lower() for t in found_tables]:
-                table_name = next(t.logical_name for t in tables if t.logical_name.lower() == name)
+                table_name = next(
+                    t.logical_name for t in tables if t.logical_name.lower() == name
+                )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
 
     return found_tables
+
 
 def test_extraction():
     tables = [
@@ -71,7 +79,7 @@ def test_extraction():
     print(f"Input: '{response1}' -> Extracted: {extracted1}")
     assert "Invoices" in extracted1
     assert "Payments" in extracted1
-    
+
     # Test case 2: 'and' separator
     response2 = "I need data from Customers and Items"
     extracted2 = _extract_multiple_table_choices(response2, tables)
@@ -87,6 +95,7 @@ def test_extraction():
     assert "Payments" in extracted3
 
     print("\nALL TESTS PASSED")
+
 
 if __name__ == "__main__":
     test_extraction()

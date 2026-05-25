@@ -1,4 +1,3 @@
-
 from core.security.pii_scanner import scan_text_for_pii
 
 text = "Show me the names of the top 10 products."

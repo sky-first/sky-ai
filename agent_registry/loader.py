@@ -11,7 +11,6 @@ from core.data_sources.base import DataSourceConfig
 from core.data_sources.bigquery_source import BigQueryDataSource
 from core.logging_utils import log_event
 
-
 BASE_DIR = Path(__file__).resolve().parent
 EXAMPLES_DIR = BASE_DIR / "examples"
 
@@ -98,6 +97,8 @@ def get_agent_config(agent_id: str) -> AgentConfig:
     """
     yaml_path = EXAMPLES_DIR / f"{agent_id}.yaml"
     if not yaml_path.exists():
-        raise AgentNotFoundError(f"Agent YAML not found for id={agent_id} at {yaml_path}")
+        raise AgentNotFoundError(
+            f"Agent YAML not found for id={agent_id} at {yaml_path}"
+        )
 
     return load_agent_from_yaml(yaml_path)

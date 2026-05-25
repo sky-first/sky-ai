@@ -31,7 +31,9 @@ if config.config_file_name is not None:
 
 # ── Models ───────────────────────────────────────────────────────────────
 # Import Base and all models so Alembic's autogenerate can diff them.
-from db.models import Base  # noqa: E402  — also registers all mappers via import side-effect
+from db.models import (
+    Base,
+)  # noqa: E402  — also registers all mappers via import side-effect
 
 target_metadata = Base.metadata
 
@@ -60,9 +62,8 @@ def _build_sync_url() -> str:
 
     raw = os.getenv("DATABASE_URL", "")
     if raw:
-        return (
-            raw.replace("postgresql+asyncpg://", "postgresql://")
-               .replace("postgresql+psycopg2://", "postgresql://")
+        return raw.replace("postgresql+asyncpg://", "postgresql://").replace(
+            "postgresql+psycopg2://", "postgresql://"
         )
 
     return "postgresql://postgres:postgres@localhost:5432/ai_saas_db"

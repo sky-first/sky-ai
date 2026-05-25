@@ -71,11 +71,21 @@ def test_mask_rows_drops_empty_or_none_column_names():
 # ─── collect_pii_columns ─────────────────────────────────────────────────
 def _doc(pii_flags: list[str]) -> CandidateDoc:
     return CandidateDoc(
-        id="1", kind="column", source_table="column_metadata", source_id="1",
-        title="x", body="y", metadata={},
-        space_id=None, crew_id=None, owner_user_id=None, visibility="space",
-        pii_flags=pii_flags, updated_at=datetime.now(timezone.utc),
-        cosine=0, bm25=0,
+        id="1",
+        kind="column",
+        source_table="column_metadata",
+        source_id="1",
+        title="x",
+        body="y",
+        metadata={},
+        space_id=None,
+        crew_id=None,
+        owner_user_id=None,
+        visibility="space",
+        pii_flags=pii_flags,
+        updated_at=datetime.now(timezone.utc),
+        cosine=0,
+        bm25=0,
     )
 
 
@@ -101,6 +111,7 @@ def test_collect_filters_non_string_entries():
     # pii_flags coming back weird shouldn't crash the sanitiser.
     class Weird:
         pii_flags = ["email", None, 42, ""]
+
     assert collect_pii_columns([Weird()]) == {"email"}
 
 

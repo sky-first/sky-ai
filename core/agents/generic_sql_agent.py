@@ -104,6 +104,13 @@ class AgentState(TypedDict, total=False):
     # Agent mode from backend (scan, sql, context, question)
     agent_mode: Optional[str]
 
+    # Scan mode: logical table names actually queried in this run
+    tables_queried: Optional[List[str]]
+
+    # Scan mode: raw SQL strings executed by query_table inside full_context_agent.
+    # Used by depth_tracker in connection_query.py to record (dim × metric) combos.
+    executed_sqls: Optional[List[str]]
+
     # Multi-agent intent classification
     intent: Optional[str]  # "data" | "strategy" | "signals" | "context" | "mixed"
     strategy_data: Optional[Dict[str, Any]]  # Raw strategy tree from backend
@@ -190,6 +197,8 @@ def build_generic_sql_graph(
     llm_formatter: LLMProvider,
     checkpointer: Optional[Any] = None,
     backend_client: Optional[Any] = None,
+    dispatch_map: Optional[dict] = None,
+    briefing: str = "",
 ):
     """
     Sistema de Query - Executor de Perguntas
@@ -238,13 +247,25 @@ def build_generic_sql_graph(
         # W7 — emit a user-readable step so the transparency panel doesn't
         # collapse to "Safety checks passed" for SQL questions.
         steps = list(new_state.get("reasoning_steps") or [])
-        chosen = new_state.get("chosen_table") or (new_state.get("chosen_tables") or [None])[0]
+        chosen = (
+            new_state.get("chosen_table")
+            or (new_state.get("chosen_tables") or [None])[0]
+        )
         if chosen:
-            steps.append({"kind": "router", "summary": f"Picked the `{chosen}` table to answer."})
+            steps.append(
+                {"kind": "router", "summary": f"Picked the `{chosen}` table to answer."}
+            )
         elif new_state.get("impossible_reason"):
-            steps.append({"kind": "router", "summary": "Decided I don't have data to answer this."})
+            steps.append(
+                {
+                    "kind": "router",
+                    "summary": "Decided I don't have data to answer this.",
+                }
+            )
         else:
-            steps.append({"kind": "router", "summary": "Decided how to handle the question."})
+            steps.append(
+                {"kind": "router", "summary": "Decided how to handle the question."}
+            )
         new_state["reasoning_steps"] = steps
         return new_state
 
@@ -290,11 +311,15 @@ def build_generic_sql_graph(
         steps = list(new_state.get("reasoning_steps") or [])
         if new_state.get("sql"):
             row_count = len(new_state.get("data") or [])
-            steps.append({"kind": "sql", "summary": "Wrote a SQL query against your data."})
-            steps.append({
-                "kind": "retrieval",
-                "summary": f"Got {row_count} row{'' if row_count == 1 else 's'} back.",
-            })
+            steps.append(
+                {"kind": "sql", "summary": "Wrote a SQL query against your data."}
+            )
+            steps.append(
+                {
+                    "kind": "retrieval",
+                    "summary": f"Got {row_count} row{'' if row_count == 1 else 's'} back.",
+                }
+            )
         new_state["reasoning_steps"] = steps
 
         return new_state
@@ -333,9 +358,12 @@ def build_generic_sql_graph(
             client = backend_client
             if client is None:
                 from core.clients.backend_client import get_backend_client
+
                 client = get_backend_client()
 
-            def _run_specialist(name: str, sub_question: str, context: dict = None) -> Dict[str, Any]:
+            def _run_specialist(
+                name: str, sub_question: str, context: dict = None
+            ) -> Dict[str, Any]:
                 sub_state = dict(state)
                 sub_state["question"] = sub_question
                 if context:
@@ -346,27 +374,46 @@ def build_generic_sql_graph(
                     )
                 try:
                     if name in ("knowledge", "strategy"):
-                        from core.llm.knowledge_specialist import run_knowledge_specialist
-                        result = run_knowledge_specialist(sub_state, dynamic_llm, client)
+                        from core.llm.knowledge_specialist import (
+                            run_knowledge_specialist,
+                        )
+
+                        result = run_knowledge_specialist(
+                            sub_state, dynamic_llm, client
+                        )
                     elif name == "events":
                         from core.llm.events_specialist import run_events_specialist
+
                         result = run_events_specialist(sub_state, dynamic_llm, client)
                     elif name == "relationships":
-                        from core.llm.relationships_specialist import run_relationships_specialist
-                        result = run_relationships_specialist(sub_state, dynamic_llm, client)
+                        from core.llm.relationships_specialist import (
+                            run_relationships_specialist,
+                        )
+
+                        result = run_relationships_specialist(
+                            sub_state, dynamic_llm, client
+                        )
                     elif name == "people":
                         from core.llm.people_specialist import run_people_specialist
+
                         result = run_people_specialist(sub_state, dynamic_llm, client)
                     elif name == "widgets":
                         from core.llm.widgets_specialist import run_widgets_specialist
+
                         result = run_widgets_specialist(sub_state, dynamic_llm, client)
                     elif name == "data":
                         from core.llm.orchestrator import run_orchestrator
                         from core.llm.specialist import run_specialist as _run_sql
                         from core.llm.formatter import run_formatter as _run_fmt
-                        from core.llm.factory import create_llm_orchestrator, create_llm_specialist
+                        from core.llm.factory import (
+                            create_llm_orchestrator,
+                            create_llm_specialist,
+                        )
+
                         orch_llm = (
-                            create_llm_orchestrator(creativity=creativity, length=length)
+                            create_llm_orchestrator(
+                                creativity=creativity, length=length
+                            )
                             if (creativity is not None or length is not None)
                             else llm_orchestrator
                         )
@@ -384,21 +431,139 @@ def build_generic_sql_graph(
                                 db=db,
                                 embedding_provider=embedding_provider,
                             )
-                            sql_result = _run_sql(
-                                state=orch_result,
-                                agent_config=agent_config,
-                                data_source=data_source,
-                                llm=spec_llm,
-                            )
-                            result = _run_fmt(
-                                state=sql_result,
-                                agent_config=agent_config,
-                                llm=dynamic_llm,
-                            )
+                            # Multi-source: run each chosen table against its own
+                            # data source (via dispatch_map), then merge with DuckDB
+                            # when 2+ tabular results are available. Without this,
+                            # a mixed question spanning multiple databases would only
+                            # hit the primary data_source and silently drop all other
+                            # connections' data.
+                            tbl_names = orch_result.get("chosen_tables") or []
+                            if (
+                                orch_result.get("is_multi_source")
+                                and len(tbl_names) > 1
+                            ):
+                                from core.llm.merger import run_merger as _run_merger
+
+                                partial_results = []
+                                tbl_futures: Dict[Any, str] = {}
+                                with concurrent.futures.ThreadPoolExecutor(
+                                    max_workers=min(len(tbl_names), 4)
+                                ) as tbl_ex:
+                                    for tbl_name in tbl_names:
+                                        tbl_obj = next(
+                                            (
+                                                t
+                                                for t in agent_config.tables
+                                                if t.logical_name == tbl_name
+                                            ),
+                                            None,
+                                        )
+                                        if not tbl_obj:
+                                            continue
+                                        conn_id = str(
+                                            getattr(tbl_obj, "data_connection_id", "")
+                                        )
+                                        src = (dispatch_map or {}).get(
+                                            conn_id
+                                        ) or data_source
+                                        thr = dict(orch_result)
+                                        thr["chosen_table"] = tbl_name
+                                        thr["chosen_table_physical"] = getattr(
+                                            tbl_obj, "physical_name", tbl_name
+                                        )
+                                        thr["chosen_tables"] = None
+                                        thr["chosen_tables_physical"] = None
+                                        tbl_futures[
+                                            tbl_ex.submit(
+                                                _run_sql,
+                                                thr,
+                                                agent_config,
+                                                src,
+                                                spec_llm,
+                                            )
+                                        ] = tbl_name
+                                    for fut in concurrent.futures.as_completed(
+                                        tbl_futures
+                                    ):
+                                        tbl_name = tbl_futures[fut]
+                                        try:
+                                            r = fut.result()
+                                            if r.get("data"):
+                                                partial_results.append(
+                                                    {
+                                                        "table": tbl_name,
+                                                        "data": r["data"],
+                                                        "sql": r.get("sql"),
+                                                        "metadata": {
+                                                            "source": "unknown",
+                                                            "title": r.get(
+                                                                "generated_title"
+                                                            ),
+                                                            "dialect": "unknown",
+                                                        },
+                                                    }
+                                                )
+                                        except Exception as tbl_exc:
+                                            log_event(
+                                                "mixed_data_sub_table_error",
+                                                {
+                                                    "table": tbl_name,
+                                                    "error": str(tbl_exc),
+                                                },
+                                            )
+
+                                if len(partial_results) >= 2:
+                                    merged = _run_merger(
+                                        {
+                                            **orch_result,
+                                            "partial_results": partial_results,
+                                        },
+                                        agent_config,
+                                        orch_llm,
+                                    )
+                                    result = _run_fmt(
+                                        state=merged,
+                                        agent_config=agent_config,
+                                        llm=dynamic_llm,
+                                    )
+                                elif partial_results:
+                                    r = partial_results[0]
+                                    result = _run_fmt(
+                                        state={
+                                            **orch_result,
+                                            "data": r["data"],
+                                            "sql": r.get("sql"),
+                                        },
+                                        agent_config=agent_config,
+                                        llm=dynamic_llm,
+                                    )
+                                else:
+                                    result = {
+                                        "answer": "No data found across the queried connections.",
+                                        "data": [],
+                                        "sql": None,
+                                        "error": "no_data",
+                                    }
+                            else:
+                                sql_result = _run_sql(
+                                    state=orch_result,
+                                    agent_config=agent_config,
+                                    data_source=data_source,
+                                    llm=spec_llm,
+                                )
+                                result = _run_fmt(
+                                    state=sql_result,
+                                    agent_config=agent_config,
+                                    llm=dynamic_llm,
+                                )
                         finally:
                             db.close()
                     else:
-                        return {"answer": f"Unknown specialist: {name}", "data": [], "error": "unknown_specialist"}
+                        return {
+                            "answer": f"Unknown specialist: {name}",
+                            "data": [],
+                            "error": "unknown_specialist",
+                        }
 
                     return {
                         "answer": result.get("answer", ""),
@@ -409,7 +574,10 @@ def build_generic_sql_graph(
                         "signals_data": result.get("signals_data"),
                     }
                 except Exception as exc:
-                    log_event("parallel_specialist_mixed_error", {"specialist": name, "error": str(exc)})
+                    log_event(
+                        "parallel_specialist_mixed_error",
+                        {"specialist": name, "error": str(exc)},
+                    )
                     return {"answer": "", "data": [], "error": str(exc)}
 
             # Build SimpleNamespace objects so resolve_execution_order can access .depends_on
@@ -436,28 +604,50 @@ def build_generic_sql_graph(
                 )
                 if len(wave) == 1:
                     sq = wave[0]
-                    ctx = {dep: specialist_results[dep].get("answer", "") for dep in sq.depends_on if dep in specialist_results}
+                    ctx = {
+                        dep: specialist_results[dep].get("answer", "")
+                        for dep in sq.depends_on
+                        if dep in specialist_results
+                    }
                     specialist_results[sq.specialist] = _run_specialist(
                         sq.specialist, sq.sub_question, ctx or None
                     )
                 else:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(wave), 4)) as executor:
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(len(wave), 4)
+                    ) as executor:
                         futures = {}
                         for sq in wave:
-                            ctx = {dep: specialist_results[dep].get("answer", "") for dep in sq.depends_on if dep in specialist_results}
+                            ctx = {
+                                dep: specialist_results[dep].get("answer", "")
+                                for dep in sq.depends_on
+                                if dep in specialist_results
+                            }
                             futures[
-                                executor.submit(_run_specialist, sq.specialist, sq.sub_question, ctx or None)
+                                executor.submit(
+                                    _run_specialist,
+                                    sq.specialist,
+                                    sq.sub_question,
+                                    ctx or None,
+                                )
                             ] = sq.specialist
                         for fut in concurrent.futures.as_completed(futures):
                             spec_name = futures[fut]
                             try:
                                 specialist_results[spec_name] = fut.result()
                             except Exception as exc:
-                                specialist_results[spec_name] = {"answer": "", "data": [], "error": str(exc)}
+                                specialist_results[spec_name] = {
+                                    "answer": "",
+                                    "data": [],
+                                    "error": str(exc),
+                                }
 
             log_event(
                 "parallel_specialist_mixed_done",
-                {"question": question[:100], "specialists_used": list(specialist_results.keys())},
+                {
+                    "question": question[:100],
+                    "specialists_used": list(specialist_results.keys()),
+                },
             )
             state["mixed_specialist_results"] = specialist_results
             return state
@@ -510,16 +700,18 @@ def build_generic_sql_graph(
                     try:
                         res_state = future.result()
                         if res_state.get("data"):
-                            results.append({
-                                "table": res_state.get("chosen_table"),
-                                "data": res_state.get("data"),
-                                "sql": res_state.get("sql"),
-                                "metadata": {
-                                    "source": "unknown",
-                                    "title": res_state.get("generated_title"),
-                                    "dialect": "unknown",
-                                },
-                            })
+                            results.append(
+                                {
+                                    "table": res_state.get("chosen_table"),
+                                    "data": res_state.get("data"),
+                                    "sql": res_state.get("sql"),
+                                    "metadata": {
+                                        "source": "unknown",
+                                        "title": res_state.get("generated_title"),
+                                        "dialect": "unknown",
+                                    },
+                                }
+                            )
                     except Exception as e:
                         log_event("parallel_specialist_error", {"error": str(e)})
 
@@ -663,11 +855,24 @@ def build_generic_sql_graph(
         """
         from core.intent.question_intent import classify_question_intent
 
-        # When the backend signals a SQL-bound execution mode (scan, sql,
-        # context), skip probabilistic intent classification and force the
-        # data path so the graph always runs orchestrator → specialist.
+        # When the backend signals a SQL-bound execution mode, force the
+        # data path. Exception: "scan" routes to the full_context_agent
+        # (autonomous proactive intelligence) — it bypasses the SQL pipeline.
         agent_mode = state.get("agent_mode") or ""
-        if agent_mode in ("scan", "sql", "context", "datasource"):
+        if agent_mode == "scan":
+            print(f"[INTENT_CLASSIFIER] agent_mode='scan' → routing to full_context")
+            log_event(
+                "intent_classified",
+                {
+                    "question": state.get("question", "")[:100],
+                    "intent": "full_context",
+                    "agent_mode": agent_mode,
+                    "forced": True,
+                },
+            )
+            state["intent"] = "full_context"
+            return state
+        if agent_mode in ("sql", "context", "datasource"):
             print(
                 f"[INTENT_CLASSIFIER] agent_mode='{agent_mode}' → forcing intent=data"
             )
@@ -701,6 +906,35 @@ def build_generic_sql_graph(
         )
         state["intent"] = intent.value
         return state
+
+    # ── Full Context Node — Autonomous Proactive Intelligence ─────────────
+    def full_context_node(state: AgentState) -> AgentState:
+        """Runs the autonomous full-context ReAct agent.
+
+        Triggered when agent_mode='scan'. Bypasses the SQL pipeline
+        entirely — the agent investigates, cross-references, and either
+        surfaces one insight or stays silent (state['answer'] = None).
+
+        The `briefing` variable is captured from the outer scope of
+        build_generic_sql_graph so the scan directional context is
+        injected into the agent's system prompt.
+        """
+        from core.agents.full_context_agent import run_full_context_agent
+
+        db = db_session_factory()
+        try:
+            return run_full_context_agent(
+                state=state,
+                agent_config=agent_config,
+                llm=llm_orchestrator,
+                db=db,
+                embedding_provider=embedding_provider,
+                data_source=data_source,
+                dispatch_map=dispatch_map,
+                briefing=briefing,
+            )
+        finally:
+            db.close()
 
     # ── Context Layer: Brain Retrieval Node (Phase 2.6b) ───
     def brain_retrieval_node(state: AgentState) -> AgentState:
@@ -975,6 +1209,7 @@ def build_generic_sql_graph(
 
     # Register all nodes
     graph.add_node("intent_classifier", intent_classifier_node)
+    graph.add_node("full_context", full_context_node)
     graph.add_node("brain_retrieval", brain_retrieval_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("specialist", specialist_node)
@@ -993,6 +1228,7 @@ def build_generic_sql_graph(
     def route_by_intent(state: AgentState):
         intent = state.get("intent", "data")
         routing = {
+            "full_context": "full_context",
             # Knowledge layer (Metrics + Glossary + Relationships)
             # replaced the old Strategy entities — both intents
             # land on the same specialist now.
@@ -1027,6 +1263,7 @@ def build_generic_sql_graph(
         "brain_retrieval",
         route_by_intent,
         {
+            "full_context": "full_context",
             "knowledge_specialist": "knowledge_specialist",
             "events_specialist": "events_specialist",
             "relationships_specialist": "relationships_specialist",
@@ -1036,6 +1273,9 @@ def build_generic_sql_graph(
             "orchestrator": "orchestrator",
         },
     )
+
+    # full_context → END (answer already set by the autonomous agent)
+    graph.add_edge("full_context", END)
 
     # Non-data specialists -> END (skip formatter — answer is already set by each specialist)
     graph.add_edge("knowledge_specialist", END)
@@ -1126,6 +1366,8 @@ def run_agent_once(
     chat_history: Optional[List[Dict[str, str]]] = None,
     explicit_relationships: Optional[List[Dict[str, str]]] = None,
     agent_mode: Optional[str] = None,
+    dispatch_map: Optional[dict] = None,
+    briefing: str = "",
 ) -> AgentState:
     """
     Função de alto nível:
@@ -1209,6 +1451,8 @@ def run_agent_once(
             llm_formatter=llm_formatter,
             checkpointer=checkpointer,
             backend_client=_backend_client,
+            dispatch_map=dispatch_map,
+            briefing=briefing,
         )
 
         final_state: AgentState = app.invoke(

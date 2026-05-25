@@ -25,15 +25,29 @@ depends_on = None
 
 def upgrade() -> None:
     # Role columns
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50)")
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50)")
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50)"
+    )
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50)"
+    )
     # PII detection columns
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_detected_in_prompt BOOLEAN DEFAULT FALSE")
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_detected_in_response BOOLEAN DEFAULT FALSE")
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_detected_in_prompt BOOLEAN DEFAULT FALSE"
+    )
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_detected_in_response BOOLEAN DEFAULT FALSE"
+    )
     op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_types TEXT[]")
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_severity VARCHAR(10)")
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_patterns_matched TEXT[]")
-    op.execute("ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_blocked BOOLEAN DEFAULT FALSE")
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_severity VARCHAR(10)"
+    )
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_patterns_matched TEXT[]"
+    )
+    op.execute(
+        "ALTER TABLE query_audit_log ADD COLUMN IF NOT EXISTS pii_blocked BOOLEAN DEFAULT FALSE"
+    )
     # Indexes (safe to create now — columns exist)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_audit_pii_blocked "
@@ -53,7 +67,11 @@ def downgrade() -> None:
     op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_patterns_matched")
     op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_severity")
     op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_types")
-    op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_detected_in_response")
-    op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_detected_in_prompt")
+    op.execute(
+        "ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_detected_in_response"
+    )
+    op.execute(
+        "ALTER TABLE query_audit_log DROP COLUMN IF EXISTS pii_detected_in_prompt"
+    )
     op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS crew_role")
     op.execute("ALTER TABLE query_audit_log DROP COLUMN IF EXISTS platform_role")

@@ -45,8 +45,8 @@ def upgrade() -> None:
 
     # 2. Migrate vector columns from 768 → 1024
     _TABLES = [
-        ("embeddings",            "embedding", True),   # NOT NULL
-        ("semantic_cache",        "embedding", True),   # NOT NULL
+        ("embeddings", "embedding", True),  # NOT NULL
+        ("semantic_cache", "embedding", True),  # NOT NULL
         ("knowledge_file_chunks", "embedding", False),  # nullable
     ]
     for table, column, not_null in _TABLES:

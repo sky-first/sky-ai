@@ -8,6 +8,7 @@ Run:
 """
 
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import uuid
@@ -17,8 +18,8 @@ import pytest
 
 from api.schemas import Citation
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _chunk(file_id, chunk_index=0, page_number=1, text="some content"):
     c = MagicMock()
@@ -30,7 +31,9 @@ def _chunk(file_id, chunk_index=0, page_number=1, text="some content"):
     return c
 
 
-def _file(file_id=None, scope="crew", scope_id=None, original_name="doc.pdf", status="ready"):
+def _file(
+    file_id=None, scope="crew", scope_id=None, original_name="doc.pdf", status="ready"
+):
     f = MagicMock()
     f.id = file_id or uuid.uuid4()
     f.scope = scope
@@ -45,34 +48,50 @@ def _file(file_id=None, scope="crew", scope_id=None, original_name="doc.pdf", st
 # 1. _build_scope_filter logic
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestBuildScopeFilter:
 
     def test_returns_none_when_no_scope(self):
         from core.rag.knowledge_retrieval import _build_scope_filter
+
         result = _build_scope_filter(
-            user_id=None, space_id=None, crew_ids=[],
-            mentioned_file_ids=[], is_personal=False,
+            user_id=None,
+            space_id=None,
+            crew_ids=[],
+            mentioned_file_ids=[],
+            is_personal=False,
         )
         assert result is None
 
     def test_crew_ids_produces_clause(self):
         from core.rag.knowledge_retrieval import _build_scope_filter
+
         result = _build_scope_filter(
-            user_id=None, space_id=None, crew_ids=[str(uuid.uuid4())],
-            mentioned_file_ids=[], is_personal=False,
+            user_id=None,
+            space_id=None,
+            crew_ids=[str(uuid.uuid4())],
+            mentioned_file_ids=[],
+            is_personal=False,
         )
         assert result is not None
 
     def test_personal_only_when_is_personal_true(self):
         from core.rag.knowledge_retrieval import _build_scope_filter
+
         uid = str(uuid.uuid4())
         no_personal = _build_scope_filter(
-            user_id=uid, space_id=None, crew_ids=[],
-            mentioned_file_ids=[], is_personal=False,
+            user_id=uid,
+            space_id=None,
+            crew_ids=[],
+            mentioned_file_ids=[],
+            is_personal=False,
         )
         with_personal = _build_scope_filter(
-            user_id=uid, space_id=None, crew_ids=[],
-            mentioned_file_ids=[], is_personal=True,
+            user_id=uid,
+            space_id=None,
+            crew_ids=[],
+            mentioned_file_ids=[],
+            is_personal=True,
         )
         assert no_personal is None
         assert with_personal is not None
@@ -81,6 +100,7 @@ class TestBuildScopeFilter:
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. _make_citations
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestMakeCitations:
 
@@ -143,6 +163,7 @@ class TestMakeCitations:
 # 3. _format_blocks — mentioned files get [REFERENCED BY USER] prefix
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestFormatBlocks:
 
     def test_mentioned_file_gets_referenced_prefix(self):
@@ -175,6 +196,7 @@ class TestFormatBlocks:
 # ══════════════════════════════════════════════════════════════════════════════
 # 4. retrieve_knowledge_context — empty question returns empty result
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestRetrieveKnowledgeContext:
 

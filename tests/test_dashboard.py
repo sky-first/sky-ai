@@ -1,4 +1,3 @@
-
 import asyncio
 
 import httpx
@@ -15,7 +14,7 @@ async def run_dashboard_plan_test():
         "space_id": SPACE_ID,
         "goal": "Comprehensive analysis of invoices, payments, and customers for 2023",
         "max_widgets": 8,
-        "language": "pt"  # Forcing PT to see if it leaks into titles
+        "language": "pt",  # Forcing PT to see if it leaks into titles
     }
 
     async with httpx.AsyncClient() as client:
@@ -30,6 +29,7 @@ async def run_dashboard_plan_test():
                 print(f"  Viz: {w.get('viz')}")
         else:
             print(f"Error {resp.status_code}: {resp.text}")
+
 
 if __name__ == "__main__":
     asyncio.run(run_dashboard_plan_test())

@@ -1,4 +1,5 @@
 """Planets routes."""
+
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,7 +19,7 @@ async def list_planets_endpoint(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    user_context: UserContext = Depends(get_current_user)
+    user_context: UserContext = Depends(get_current_user),
 ):
     """List planets, optionally filtered by space."""
     planets = await list_planets(db, space_id=space_id, skip=skip, limit=limit)
@@ -29,7 +30,7 @@ async def list_planets_endpoint(
 async def get_planet_endpoint(
     planet_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user_context: UserContext = Depends(get_current_user)
+    user_context: UserContext = Depends(get_current_user),
 ):
     """Get a planet by ID."""
     planet = await get_planet(db, planet_id)
@@ -42,19 +43,19 @@ async def get_planet_endpoint(
 async def create_planet_endpoint(
     planet_data: PlanetCreate,
     db: AsyncSession = Depends(get_db),
-    user_context: UserContext = Depends(get_current_user)
+    user_context: UserContext = Depends(get_current_user),
 ):
     """Create a new planet."""
     # Check write permission
     if not user_context.has_any_permission(["write", "admin"]):
         raise HTTPException(status_code=403, detail="Write permission required")
-    
+
     planet = await create_planet(
         db,
         space_id=planet_data.space_id,
         name=planet_data.name,
         description=planet_data.description,
-        required_scopes=planet_data.required_scopes
+        required_scopes=planet_data.required_scopes,
     )
     return planet
 
@@ -64,20 +65,20 @@ async def update_planet_endpoint(
     planet_id: UUID,
     planet_data: PlanetUpdate,
     db: AsyncSession = Depends(get_db),
-    user_context: UserContext = Depends(get_current_user)
+    user_context: UserContext = Depends(get_current_user),
 ):
     """Update a planet."""
     # Check write permission
     if not user_context.has_any_permission(["write", "admin"]):
         raise HTTPException(status_code=403, detail="Write permission required")
-    
+
     planet = await update_planet(
         db,
         planet_id,
         name=planet_data.name,
         description=planet_data.description,
         required_scopes=planet_data.required_scopes,
-        is_active=planet_data.is_active
+        is_active=planet_data.is_active,
     )
     if not planet:
         raise HTTPException(status_code=404, detail="Planet not found")

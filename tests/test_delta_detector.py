@@ -53,7 +53,8 @@ async def test_hash_none_on_match():
 @pytest.mark.asyncio
 async def test_hash_material_on_mismatch():
     r = await HashDeltaStrategy().classify(
-        current_payload={"rows": [{"a": 2}]}, previous_hash="deadbeef",
+        current_payload={"rows": [{"a": 2}]},
+        previous_hash="deadbeef",
     )
     assert r.kind == "material"
 
@@ -83,7 +84,8 @@ async def test_llm_classifies_material_with_summary():
         '{"kind": "material", "summary": "Revenue dropped 12% vs. last run."}'
     )
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"revenue": 88}, previous_hash="x",
+        current_payload={"revenue": 88},
+        previous_hash="x",
         previous_payload={"revenue": 100},
     )
     assert r.kind == "material"
@@ -96,7 +98,8 @@ async def test_llm_classifies_material_with_summary():
 async def test_llm_classifies_trivial():
     llm = _FakeLLM('{"kind": "trivial", "summary": "Row count +1."}')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"n": 101}, previous_hash="x",
+        current_payload={"n": 101},
+        previous_hash="x",
     )
     assert r.kind == "trivial"
 
@@ -107,7 +110,8 @@ async def test_llm_skipped_on_unchanged_hash():
     h = compute_result_hash(payload)
     llm = _FakeLLM('{"kind":"material","summary":"should not be called"}')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload=payload, previous_hash=h,
+        current_payload=payload,
+        previous_hash=h,
     )
     assert r.kind == "none"
     assert llm.calls == [], "LLM must not be called when hash matches"
@@ -117,7 +121,8 @@ async def test_llm_skipped_on_unchanged_hash():
 async def test_llm_first_run_short_circuits():
     llm = _FakeLLM('{"kind":"material","summary":"x"}')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"rows": []}, previous_hash=None,
+        current_payload={"rows": []},
+        previous_hash=None,
     )
     assert r.kind == "first_run"
     assert llm.calls == []
@@ -127,12 +132,14 @@ async def test_llm_first_run_short_circuits():
 @pytest.mark.asyncio
 async def test_llm_exception_degrades_to_material_not_none():
     """Suppressing a change is worse than paging too eagerly."""
+
     class Boom:
         async def __call__(self, messages):
             raise RuntimeError("provider down")
 
     r = await LLMDeltaStrategy(Boom()).classify(
-        current_payload={"a": 2}, previous_hash="x",
+        current_payload={"a": 2},
+        previous_hash="x",
     )
     assert r.kind == "material"
     assert r.fallback_reason and "llm_error" in r.fallback_reason
@@ -143,7 +150,8 @@ async def test_llm_exception_degrades_to_material_not_none():
 async def test_llm_unparseable_response_degrades_to_material():
     llm = _FakeLLM("here is my take: something changed a bit")
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"a": 2}, previous_hash="x",
+        current_payload={"a": 2},
+        previous_hash="x",
     )
     assert r.kind == "material"
     assert r.fallback_reason == "unparseable_json"
@@ -151,11 +159,10 @@ async def test_llm_unparseable_response_degrades_to_material():
 
 @pytest.mark.asyncio
 async def test_llm_tolerates_markdown_code_fences():
-    llm = _FakeLLM(
-        '```json\n{"kind": "material", "summary": "X dropped"}\n```'
-    )
+    llm = _FakeLLM('```json\n{"kind": "material", "summary": "X dropped"}\n```')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"a": 2}, previous_hash="x",
+        current_payload={"a": 2},
+        previous_hash="x",
     )
     assert r.kind == "material"
     assert r.summary == "X dropped"
@@ -163,11 +170,10 @@ async def test_llm_tolerates_markdown_code_fences():
 
 @pytest.mark.asyncio
 async def test_llm_clamps_overlong_summary():
-    llm = _FakeLLM(
-        '{"kind":"material","summary":"' + ("long " * 60) + '"}'
-    )
+    llm = _FakeLLM('{"kind":"material","summary":"' + ("long " * 60) + '"}')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"a": 2}, previous_hash="x",
+        current_payload={"a": 2},
+        previous_hash="x",
     )
     assert len(r.summary) <= 200
 
@@ -176,7 +182,8 @@ async def test_llm_clamps_overlong_summary():
 async def test_llm_rejects_unknown_kind_values():
     llm = _FakeLLM('{"kind": "catastrophic", "summary": "boom"}')
     r = await LLMDeltaStrategy(llm).classify(
-        current_payload={"a": 2}, previous_hash="x",
+        current_payload={"a": 2},
+        previous_hash="x",
     )
     # Not in the canonical set → treated as unparseable.
     assert r.kind == "material"
@@ -190,7 +197,9 @@ async def test_llm_truncates_large_payloads():
     # Big payload on both sides.
     big = {"rows": [{"i": i, "v": "x" * 50} for i in range(1000)]}
     await LLMDeltaStrategy(llm, max_chars_per_side=2000).classify(
-        current_payload=big, previous_hash="x", previous_payload=big,
+        current_payload=big,
+        previous_hash="x",
+        previous_payload=big,
     )
     # User message should never exceed roughly 2× budget + prompt overhead.
     user_msg = llm.calls[0][1]["content"]

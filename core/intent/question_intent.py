@@ -20,16 +20,18 @@ logger = logging.getLogger("dataassistant")
 
 
 class QuestionIntent(str, Enum):
-    DATA = "data"                   # SQL query against customer databases
-    KNOWLEDGE = "knowledge"         # Metrics + Glossary + Relationships catalog (post-refactor)
-    STRATEGY = "knowledge"          # Legacy alias — Strategy was folded into Knowledge
-    SIGNALS = "signals"             # Market signals, events, anomalies, trends
-    RELATIONSHIPS = "relationships" # Cross-space/dept connections, cause-and-effect
-    PEOPLE = "people"               # Teams, users, crew membership, activity
-    WIDGETS = "widgets"             # Existing dashboards, past insights, AI history
-    MIXED = "mixed"                 # Needs multiple sources
-    CATALOG = "catalog"             # "What tables do I have?"
-    DASHBOARD = "dashboard"         # Dashboard generation
+    DATA = "data"  # SQL query against customer databases
+    KNOWLEDGE = (
+        "knowledge"  # Metrics + Glossary + Relationships catalog (post-refactor)
+    )
+    STRATEGY = "knowledge"  # Legacy alias — Strategy was folded into Knowledge
+    SIGNALS = "signals"  # Market signals, events, anomalies, trends
+    RELATIONSHIPS = "relationships"  # Cross-space/dept connections, cause-and-effect
+    PEOPLE = "people"  # Teams, users, crew membership, activity
+    WIDGETS = "widgets"  # Existing dashboards, past insights, AI history
+    MIXED = "mixed"  # Needs multiple sources
+    CATALOG = "catalog"  # "What tables do I have?"
+    DASHBOARD = "dashboard"  # Dashboard generation
 
 
 # ── Fast regex patterns (zero cost) ────────────────────────────
@@ -65,8 +67,7 @@ _KNOWLEDGE_PATTERNS = re.compile(
 _STRATEGY_PATTERNS = _KNOWLEDGE_PATTERNS
 
 _SIGNALS_PATTERNS = re.compile(
-    r"\b("
-    r"signal|signals|"
+    r"\b(" r"signal|signals|"
     # "events" alone is too broad — web_analytics.events is a data table.
     # Only match when preceded by qualifiers that imply intelligence signals.
     r"intelligence.?event|market.?event|business.?event|"
@@ -82,8 +83,7 @@ _SIGNALS_PATTERNS = re.compile(
 )
 
 _RELATIONSHIPS_PATTERNS = re.compile(
-    r"\b("
-    r"relationship|relationships|"
+    r"\b(" r"relationship|relationships|"
     # "drives" alone is too broad (e.g. "which utm_source drives sessions").
     # Only match when followed by cross-entity language.
     r"depends.?on|correlates?|"
@@ -182,17 +182,33 @@ def classify_question_intent(
     if catalog_score > 0 and data_score == 0:
         return QuestionIntent.CATALOG
 
-    # DATA_OVERRIDE: strong data signal with at most one weak non-data signal → DATA
+    # DATA_OVERRIDE: strong data signal with NO competing non-data signals → DATA
+    # Using non_data_max == 0 (not <= 1) because even a single non-data signal
+    # alongside data terms indicates a genuinely mixed question (e.g. "revenue vs OKR
+    # targets" has both data=revenue and strategy=OKR).
     non_data_max = max(
-        [strategy_score, signals_score, relationships_score, people_score, widgets_score],
+        [
+            strategy_score,
+            signals_score,
+            relationships_score,
+            people_score,
+            widgets_score,
+        ],
         default=0,
     )
-    if data_score >= 2 and non_data_max <= 1:
+    if data_score >= 2 and non_data_max == 0:
         return QuestionIntent.DATA
 
     # Check for mixed intent (multiple non-data intents scored, or strategy+data combo)
     non_data_scores = [
-        s for s in [strategy_score, signals_score, relationships_score, people_score, widgets_score]
+        s
+        for s in [
+            strategy_score,
+            signals_score,
+            relationships_score,
+            people_score,
+            widgets_score,
+        ]
         if s > 0
     ]
     # Mixed if: 2+ non-data layers, OR strategy+data (need targets AND actuals), OR relationships+data
@@ -222,7 +238,11 @@ def classify_question_intent(
         return QuestionIntent.DATA if has_data_sources else QuestionIntent.RELATIONSHIPS
 
     # If a non-data intent won but data also scored, it might be mixed
-    if best_intent != QuestionIntent.DATA and data_score > 0 and best_score <= data_score:
+    if (
+        best_intent != QuestionIntent.DATA
+        and data_score > 0
+        and best_score <= data_score
+    ):
         return QuestionIntent.MIXED
 
     return best_intent

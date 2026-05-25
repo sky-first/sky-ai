@@ -119,13 +119,12 @@ def test_personal_mode_with_caller_space_ids_surfaces_member_space_content():
         )
     )
     # All three branches must be present:
-    assert f"embeddings.user_id = '{me}'" in sql              # branch 1
-    assert "embeddings.user_id IS NULL" in sql                # branches 2 + 3
-    assert "embeddings.space_id IS NULL" in sql               # branch 2
+    assert f"embeddings.user_id = '{me}'" in sql  # branch 1
+    assert "embeddings.user_id IS NULL" in sql  # branches 2 + 3
+    assert "embeddings.space_id IS NULL" in sql  # branch 2
     # branch 3: space_id IN (s1, s2)
     assert f"'{s1}'" in sql
     assert f"'{s2}'" in sql
-
 
 
 def test_personal_mode_does_not_leak_other_spaces_scoped_content():
@@ -160,9 +159,9 @@ def test_personal_mode_does_not_leak_other_spaces_scoped_content():
     assert null_idx >= 0 and space_null_idx >= 0
     # The two NULL conditions must appear close together (paired in
     # AND), not far apart (which would suggest separate clauses).
-    assert abs(null_idx - space_null_idx) < 200, (
-        "user_id IS NULL and space_id IS NULL must be ANDed together"
-    )
+    assert (
+        abs(null_idx - space_null_idx) < 200
+    ), "user_id IS NULL and space_id IS NULL must be ANDed together"
 
 
 def test_personal_mode_without_connection_stays_strict():

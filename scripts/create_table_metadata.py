@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Cria a tabela table_metadata no banco"""
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import os
 
 load_dotenv()
-engine = create_engine(os.getenv('DATABASE_URL'), future=True)
+engine = create_engine(os.getenv("DATABASE_URL"), future=True)
 
 with engine.begin() as conn:
     # Criar tabela table_metadata com UUID para compatibilidade
@@ -32,7 +33,7 @@ with engine.begin() as conn:
     except Exception as e:
         print(f"❌ Erro ao criar tabela: {e}")
         raise
-    
+
     # Verificar se precisa da extensão pgvector
     try:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

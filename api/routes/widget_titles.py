@@ -34,6 +34,7 @@ def _make_formatter_llm(temperature: float, max_tokens: int):
 
 class SuggestTitleRequest(BaseModel):
     """Request para sugerir título de widget."""
+
     question: str = Field(..., description="Pergunta original do widget")
     data_sample: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Amostra dos dados retornados (máx. 5 linhas)"
@@ -51,6 +52,7 @@ class SuggestTitleRequest(BaseModel):
 
 class SuggestTitleResponse(BaseModel):
     """Response with suggested title."""
+
     title: str = Field(..., description="Title suggested by AI")
 
 
@@ -58,28 +60,39 @@ class SuggestTitleResponse(BaseModel):
 async def suggest_widget_title(request: SuggestTitleRequest):
     """
     Suggests a better and more descriptive title for a widget based on the returned data.
-    
+
     This function analyzes:
     - The original question
     - The returned data (sample)
     - The AI's textual answer (if available)
     - The current title (which might be generic)
-    
+
     And generates a more specific and informative title.
     """
     try:
         # ✅ FIX: Fast-path fallback for error states
         # If the answer indicates a failure and there's no data, don't ask LLM (it hallucinates).
         if request.answer:
-            error_keywords = ["error", "impossible", "sorry", "i can't", "i cannot", "fail", "exception"]
+            error_keywords = [
+                "error",
+                "impossible",
+                "sorry",
+                "i can't",
+                "i cannot",
+                "fail",
+                "exception",
+            ]
             ans_lower = request.answer.lower()
             if any(k in ans_lower for k in error_keywords) and not request.data_sample:
-                log_event("widget_title_error_fallback", {"reason": "detected_error_in_answer"})
+                log_event(
+                    "widget_title_error_fallback",
+                    {"reason": "detected_error_in_answer"},
+                )
                 return SuggestTitleResponse(title=request.current_title or "Widget")
 
         # Create LLM instance (respects AI_PROVIDER)
         llm = _make_formatter_llm(temperature=0.3, max_tokens=50)
-        
+
         # Prepare data sample as text
         data_text = ""
         if request.data_sample:
@@ -89,7 +102,7 @@ async def suggest_widget_title(request: SuggestTitleRequest):
                 for i, row in enumerate(sample, 1):
                     row_str = ", ".join([f"{k}: {v}" for k, v in row.items()])
                     data_text += f"  Row {i}: {row_str}\n"
-        
+
         # Build messages for the LLM
         system_msg = {
             "role": "system",
@@ -110,50 +123,47 @@ async def suggest_widget_title(request: SuggestTitleRequest):
                 "  * 'Top 10 Customers' (not 'Customer Widget')\n"
                 "  * 'Total Revenue 2024' (not 'KPI')\n"
                 "  * 'Distribution by Region' (not 'Chart')\n"
-            )
+            ),
         }
-        
+
         user_content = f"Original question: {request.question}\n\n"
-        
+
         if request.current_title:
             user_content += f"Current title (generic): {request.current_title}\n\n"
-        
+
         if data_text:
             user_content += data_text + "\n"
-        
+
         if request.answer:
             answer_snippet = request.answer[:200]
             user_content += f"AI Answer: {answer_snippet}\n\n"
-        
+
         user_content += (
             "Suggest a better and more descriptive title for this widget based on the information above "
             "(ALWAYS in English)."
         )
-        
-        user_msg = {
-            "role": "user",
-            "content": user_content
-        }
-        
+
+        user_msg = {"role": "user", "content": user_content}
+
         # Chamar LLM
         resp = llm.invoke([system_msg, user_msg])
         title = getattr(resp, "content", "").strip()
-        
+
         # Limpar título: remover aspas, prefixos comuns, etc.
         title = title.strip('"').strip("'").strip()
         # Remover prefixos comuns que o LLM pode adicionar
         prefixes_to_remove = ["Título:", "Title:", "Sugestão:", "Suggestion:"]
         for prefix in prefixes_to_remove:
             if title.lower().startswith(prefix.lower()):
-                title = title[len(prefix):].strip()
-        
+                title = title[len(prefix) :].strip()
+
         # Validar título
         if not title:
             title = request.current_title or "Widget"
         elif len(title) > 100:
             # Se muito longo, truncar
             title = title[:97] + "..."
-        
+
         # Log do evento
         log_event(
             "widget_title_suggested",
@@ -166,9 +176,9 @@ async def suggest_widget_title(request: SuggestTitleRequest):
                 "data_rows": len(request.data_sample) if request.data_sample else 0,
             },
         )
-        
+
         return SuggestTitleResponse(title=title)
-        
+
     except Exception as e:
         # Em caso de erro, retornar título atual ou fallback
         log_event(
@@ -191,13 +201,16 @@ async def suggest_widget_title(request: SuggestTitleRequest):
 
 class GenerateInfographicRequest(BaseModel):
     """Request for generating structured infographic data."""
+
     question: str = Field(..., description="The original analytical question")
     answer: str = Field(..., description="The AI's textual answer/analysis")
     data_sample: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Data sample rows (max ~15)"
     )
     language: str = Field(default="en", description="Language (en, pt, es)")
-    style: str = Field(default="mix", description="Infographic style: textual, visual, mix")
+    style: str = Field(
+        default="mix", description="Infographic style: textual, visual, mix"
+    )
 
 
 @router.post("/infographic")
@@ -294,7 +307,9 @@ async def generate_infographic(request: GenerateInfographicRequest):
             raw = "\n".join(lines)
 
         result = _json.loads(raw)
-        logger.info(f"Successfully generated infographic JSON with {len(result)} fields. RAW JSON: {raw}")
+        logger.info(
+            f"Successfully generated infographic JSON with {len(result)} fields. RAW JSON: {raw}"
+        )
 
         log_event(
             "infographic_generated",
@@ -322,8 +337,11 @@ async def generate_infographic(request: GenerateInfographicRequest):
         return {
             "title": "Analysis",
             "subtitle": request.style.upper(),
-            "summary": request.answer[:500] if request.answer else "Analysis could not be generated.",
+            "summary": (
+                request.answer[:500]
+                if request.answer
+                else "Analysis could not be generated."
+            ),
             "whyTitle": "Details",
             "whyContent": request.answer[:300] if request.answer else "",
         }
-

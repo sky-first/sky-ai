@@ -29,14 +29,14 @@ def _make_curl_shim(tmp: Path, *, http_code: str = "200", body: str = "{}") -> P
     shim = tmp / "curl"
     shim.write_text(
         "#!/usr/bin/env bash\n"
-        "out=\"\"\n"
+        'out=""\n'
         "while [ $# -gt 0 ]; do\n"
-        "  case \"$1\" in\n"
-        "    -o) out=\"$2\"; shift 2 ;;\n"
+        '  case "$1" in\n'
+        '    -o) out="$2"; shift 2 ;;\n'
         "    *) shift ;;\n"
         "  esac\n"
         "done\n"
-        f"[ -n \"$out\" ] && printf '%s' {body!r} > \"$out\"\n"
+        f'[ -n "$out" ] && printf \'%s\' {body!r} > "$out"\n'
         f"printf '%s' {http_code!r}\n",
         encoding="utf-8",
     )
@@ -74,13 +74,16 @@ def test_fires_during_workday_window():
         # libfaketime might not be installed; override the script's
         # window checks via env so we don't need clock manipulation.
         # We still pass date shim for the log timestamp.
-        log = _run(tmp, {
-            "KEEPWARM_HOUR_START": "0",
-            "KEEPWARM_HOUR_END": "24",
-            "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
-            "OLLAMA_URL": "http://localhost:11434",
-            "KEEPWARM_MODEL": "qwen2.5-coder:32b",
-        })
+        log = _run(
+            tmp,
+            {
+                "KEEPWARM_HOUR_START": "0",
+                "KEEPWARM_HOUR_END": "24",
+                "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
+                "OLLAMA_URL": "http://localhost:11434",
+                "KEEPWARM_MODEL": "qwen2.5-coder:32b",
+            },
+        )
     assert "ok: model=qwen2.5-coder:32b" in log
 
 
@@ -90,11 +93,14 @@ def test_skips_when_outside_hour_window():
         _make_curl_shim(tmp)
         # Force a window that excludes any valid hour. Start=25 is
         # impossible so every hour fails the hour-start check.
-        log = _run(tmp, {
-            "KEEPWARM_HOUR_START": "25",
-            "KEEPWARM_HOUR_END": "26",
-            "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
-        })
+        log = _run(
+            tmp,
+            {
+                "KEEPWARM_HOUR_START": "25",
+                "KEEPWARM_HOUR_END": "26",
+                "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
+            },
+        )
     assert "skip: hour=" in log
     # Must not have even attempted the curl.
     assert "ok:" not in log
@@ -106,11 +112,14 @@ def test_skips_when_day_excluded():
         tmp = Path(d)
         _make_curl_shim(tmp)
         # Allow no DOWs — guaranteed skip regardless of clock.
-        log = _run(tmp, {
-            "KEEPWARM_DOWS": "",
-            "KEEPWARM_HOUR_START": "0",
-            "KEEPWARM_HOUR_END": "24",
-        })
+        log = _run(
+            tmp,
+            {
+                "KEEPWARM_DOWS": "",
+                "KEEPWARM_HOUR_START": "0",
+                "KEEPWARM_HOUR_END": "24",
+            },
+        )
     assert "skip: dow=" in log
 
 
@@ -118,11 +127,14 @@ def test_logs_failure_on_non_200():
     with TemporaryDirectory() as d:
         tmp = Path(d)
         _make_curl_shim(tmp, http_code="503", body='{"error":"boom"}')
-        log = _run(tmp, {
-            "KEEPWARM_HOUR_START": "0",
-            "KEEPWARM_HOUR_END": "24",
-            "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
-        })
+        log = _run(
+            tmp,
+            {
+                "KEEPWARM_HOUR_START": "0",
+                "KEEPWARM_HOUR_END": "24",
+                "KEEPWARM_DOWS": "1 2 3 4 5 6 7",
+            },
+        )
     assert "fail:" in log
     assert "http=503" in log
 
@@ -154,7 +166,9 @@ def test_logs_failure_when_curl_missing():
         )
     # Skip if the dev box has curl somewhere on /bin or /usr/bin.
     if (Path("/bin") / "curl").exists() or (Path("/usr/bin") / "curl").exists():
-        pytest.skip("system curl present on /bin or /usr/bin — can't force-miss curl here")
+        pytest.skip(
+            "system curl present on /bin or /usr/bin — can't force-miss curl here"
+        )
     assert result.returncode == 0  # set -e must not kill us on curl-missing
     log = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
     assert "fail:" in log

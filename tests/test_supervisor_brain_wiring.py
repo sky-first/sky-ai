@@ -132,9 +132,12 @@ def test_brain_retrieval_node_is_registered_in_graph():
     from core.agents import generic_sql_agent as g
 
     src = inspect.getsource(g.build_generic_sql_graph)
-    assert 'graph.add_node("brain_retrieval"' in src, \
-        "brain_retrieval must be registered as a graph node"
-    assert 'graph.add_edge("intent_classifier", "brain_retrieval")' in src, \
-        "intent_classifier must feed brain_retrieval"
-    assert 'add_conditional_edges(\n        "brain_retrieval",' in src, \
-        "brain_retrieval must drive the specialist router"
+    assert (
+        'graph.add_node("brain_retrieval"' in src
+    ), "brain_retrieval must be registered as a graph node"
+    assert (
+        'graph.add_edge("intent_classifier", "brain_retrieval")' in src
+    ), "intent_classifier must feed brain_retrieval"
+    assert (
+        'add_conditional_edges(\n        "brain_retrieval",' in src
+    ), "brain_retrieval must drive the specialist router"

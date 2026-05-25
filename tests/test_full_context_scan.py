@@ -18,13 +18,24 @@ from core.rag.context_brain import CandidateDoc, RankedDoc
 def _doc(id_: str, kind: str, title: str, body: str = "body") -> RankedDoc:
     return RankedDoc(
         doc=CandidateDoc(
-            id=id_, kind=kind, source_table=f"{kind}s", source_id=id_,
-            title=title, body=body, metadata={},
-            space_id=None, crew_id=None, owner_user_id=None, visibility="space",
-            pii_flags=[], updated_at=datetime.now(timezone.utc),
-            cosine=0.5, bm25=0.2,
+            id=id_,
+            kind=kind,
+            source_table=f"{kind}s",
+            source_id=id_,
+            title=title,
+            body=body,
+            metadata={},
+            space_id=None,
+            crew_id=None,
+            owner_user_id=None,
+            visibility="space",
+            pii_flags=[],
+            updated_at=datetime.now(timezone.utc),
+            cosine=0.5,
+            bm25=0.2,
         ),
-        score=0.8, components={},
+        score=0.8,
+        components={},
     )
 
 
@@ -62,7 +73,9 @@ async def test_produces_narrative_followups_and_citations():
         '"cited_doc_ids": ["d1", "d2"]}'
     )
 
-    r = await run_full_context_scan(question="What should I know?", retrieve=retrieve, llm=llm)
+    r = await run_full_context_scan(
+        question="What should I know?", retrieve=retrieve, llm=llm
+    )
     assert r.narrative == ["ARR is behind plan.", "Macro risk from USD."]
     assert r.follow_ups == ["How is ARR trending vs. Q4 target?"]
     assert r.cited_doc_ids == ["d1", "d2"]
@@ -155,7 +168,8 @@ async def test_unparseable_llm_response_yields_fallback():
         return [_doc("d1", "okr", "x")]
 
     r = await run_full_context_scan(
-        question="q", retrieve=retrieve,
+        question="q",
+        retrieve=retrieve,
         llm=_LLM("not json at all"),
     )
     assert r.fallback_reason == "unparseable_json"
@@ -166,11 +180,13 @@ async def test_unparseable_llm_response_yields_fallback():
 async def test_llm_missing_narrative_field_is_unparseable():
     """A JSON object without a narrative array should be treated as
     unparseable rather than published as an empty scan."""
+
     async def retrieve(q, **kw):
         return [_doc("d1", "okr", "x")]
 
     r = await run_full_context_scan(
-        question="q", retrieve=retrieve,
+        question="q",
+        retrieve=retrieve,
         llm=_LLM('{"follow_ups": ["q"], "cited_doc_ids": []}'),
     )
     assert r.fallback_reason == "unparseable_json"
@@ -183,8 +199,11 @@ async def test_tolerates_markdown_code_fences():
         return [_doc("d1", "okr", "x")]
 
     r = await run_full_context_scan(
-        question="q", retrieve=retrieve,
-        llm=_LLM('```json\n{"narrative": ["ok"], "follow_ups": [], "cited_doc_ids": []}\n```'),
+        question="q",
+        retrieve=retrieve,
+        llm=_LLM(
+            '```json\n{"narrative": ["ok"], "follow_ups": [], "cited_doc_ids": []}\n```'
+        ),
     )
     assert r.narrative == ["ok"]
 
@@ -195,8 +214,11 @@ async def test_tolerates_preamble_text_before_json():
         return [_doc("d1", "okr", "x")]
 
     r = await run_full_context_scan(
-        question="q", retrieve=retrieve,
-        llm=_LLM('Here is my take:\n{"narrative": ["ok"], "follow_ups": [], "cited_doc_ids": []}'),
+        question="q",
+        retrieve=retrieve,
+        llm=_LLM(
+            'Here is my take:\n{"narrative": ["ok"], "follow_ups": [], "cited_doc_ids": []}'
+        ),
     )
     assert r.narrative == ["ok"]
 
@@ -211,12 +233,17 @@ async def test_narrative_and_followups_are_clamped():
     import json as _json
 
     r = await run_full_context_scan(
-        question="q", retrieve=retrieve,
-        llm=_LLM(_json.dumps({
-            "narrative": big_list,
-            "follow_ups": big_list,
-            "cited_doc_ids": ["d1"],
-        })),
+        question="q",
+        retrieve=retrieve,
+        llm=_LLM(
+            _json.dumps(
+                {
+                    "narrative": big_list,
+                    "follow_ups": big_list,
+                    "cited_doc_ids": ["d1"],
+                }
+            )
+        ),
     )
     assert len(r.narrative) == 10
     assert len(r.follow_ups) == 10
@@ -237,7 +264,9 @@ async def test_retrieved_blocks_budget_truncates_when_over_limit():
             )
 
     await run_full_context_scan(
-        question="q", retrieve=retrieve, llm=_Capturing(),
+        question="q",
+        retrieve=retrieve,
+        llm=_Capturing(),
         max_chars_for_llm=5000,
     )
     assert "truncated" in captured["prompt"]
@@ -248,8 +277,11 @@ async def test_retrieved_blocks_budget_truncates_when_over_limit():
 # ─── to_result_payload ───────────────────────────────────────────────────
 def test_to_result_payload_has_expected_keys():
     r = FullContextResult(
-        narrative=["a"], follow_ups=["b"], cited_doc_ids=["d1"],
-        retrieved_doc_ids=["d1", "d2"], retrieved_kinds=["okr", "goal"],
+        narrative=["a"],
+        follow_ups=["b"],
+        cited_doc_ids=["d1"],
+        retrieved_doc_ids=["d1", "d2"],
+        retrieved_kinds=["okr", "goal"],
     )
     p = r.to_result_payload()
     assert p["mode"] == "context"

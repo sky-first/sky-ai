@@ -1,10 +1,12 @@
 """Supported dialects (SQL & NoSQL) and their specific properties."""
+
 from typing import Dict, Any
 from enum import Enum
 
 
 class Dialect(str, Enum):
     """Supported Data Dialects (SQL and NoSQL)."""
+
     # SQL
     BIGQUERY = "bigquery"
     POSTGRES = "postgres"
@@ -15,14 +17,14 @@ class Dialect(str, Enum):
     SNOWFLAKE = "snowflake"
     DATABRICKS = "databricks"
     REDSHIFT = "redshift"
-    
+
     # NoSQL
     MONGODB = "mongodb"
     DYNAMODB = "dynamodb"
     ELASTICSEARCH = "elasticsearch"
     REDIS = "redis"
     CASSANDRA = "cassandra"
-    NOSQL = "nosql" # Generic / API
+    NOSQL = "nosql"  # Generic / API
 
 
 def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
@@ -37,7 +39,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": "`",
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE()",
-            }
+            },
         },
         Dialect.POSTGRES: {
             "type": "sql",
@@ -45,7 +47,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE",
-            }
+            },
         },
         Dialect.MYSQL: {
             "type": "sql",
@@ -53,7 +55,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": "`",
                 "string_quote": "'",
                 "date_func": "CURDATE()",
-            }
+            },
         },
         Dialect.SQLSERVER: {
             "type": "sql",
@@ -61,7 +63,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": "[",
                 "string_quote": "'",
                 "date_func": "GETDATE()",
-            }
+            },
         },
         Dialect.SQLITE: {
             "type": "sql",
@@ -69,7 +71,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "DATE('now')",
-            }
+            },
         },
         Dialect.ORACLE: {
             "type": "sql",
@@ -77,7 +79,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "SYSDATE",
-            }
+            },
         },
         Dialect.SNOWFLAKE: {
             "type": "sql",
@@ -85,7 +87,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE()",
-            }
+            },
         },
         Dialect.DATABRICKS: {
             "type": "sql",
@@ -93,7 +95,7 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": "`",
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE()",
-            }
+            },
         },
         Dialect.REDSHIFT: {
             "type": "sql",
@@ -101,9 +103,8 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE",
-            }
+            },
         },
-
         # === NoSQL ===
         Dialect.MONGODB: {
             "type": "nosql",
@@ -111,35 +112,35 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "query_language": "MongoDB Aggregation Pipeline",
                 "output_format": "JSON array (strict)",
                 "example": '[{"$match": {"status": "active"}}, {"$group": {"_id": "$year", "total": {"$sum": "$amount"}}}]',
-            }
+            },
         },
         Dialect.DYNAMODB: {
             "type": "nosql",
             "details": {
                 "query_language": "PartiQL (AWS DynamoDB)",
                 "example": "SELECT * FROM Orders WHERE OrderID = 123",
-            }
+            },
         },
         Dialect.ELASTICSEARCH: {
             "type": "nosql",
             "details": {
                 "query_language": "Elasticsearch DSL (JSON)",
                 "example": '{"query": {"match": {"content": "search term"}}}',
-            }
+            },
         },
         Dialect.REDIS: {
             "type": "nosql",
             "details": {
                 "query_language": "Redis Commands",
                 "example": "HMGET user:1000 username email",
-            }
+            },
         },
         Dialect.CASSANDRA: {
             "type": "nosql",
             "details": {
                 "query_language": "CQL (Cassandra Query Language)",
                 "example": "SELECT * FROM users WHERE id = 123",
-            }
+            },
         },
         Dialect.NOSQL: {
             "type": "nosql",
@@ -147,8 +148,8 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "query_language": "JSON / API Payload",
                 "output_format": "JSON",
                 "example": '{"endpoint": "/users", "params": {"active": true}}',
-            }
+            },
         },
     }
-    
+
     return specifics.get(dialect, {})

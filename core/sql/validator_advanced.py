@@ -3,6 +3,7 @@
 Validador SQL avançado com AST e permissões.
 Otimizado para performance: regex primeiro, AST só se necessário.
 """
+
 import sqlparse
 from sqlparse.sql import Statement, IdentifierList, Identifier
 from sqlparse.tokens import Keyword, DML
@@ -12,11 +13,12 @@ import re
 # Reusar validação regex existente (rápida)
 from core.sql.validator import validate_sql_strict
 
+
 class AdvancedSQLValidator:
     """
     Validador que combina regex (rápido) + AST (robusto).
     """
-    
+
     def __init__(
         self,
         allowed_tables: List[str],
@@ -32,14 +34,12 @@ class AdvancedSQLValidator:
             k.lower().strip(): [c.lower().strip() for c in v]
             for k, v in (allowed_columns or {}).items()
         }
-        self.max_limit = 5000 # Force override for analytics
+        self.max_limit = 5000  # Force override for analytics
         self.max_columns = 50
         self.max_group_by = max_group_by
-    
+
     def validate(
-        self, 
-        sql: str,
-        dialect: str = "bigquery"
+        self, sql: str, dialect: str = "bigquery"
     ) -> Tuple[bool, Optional[str]]:
         """
         Valida SQL em 2 etapas:
@@ -48,7 +48,7 @@ class AdvancedSQLValidator:
         """
         # Bypass for NoSQL/API (Dialect.NOSQL)
         if dialect == "nosql" or dialect == "api":
-             return True, None
+            return True, None
 
         # ETAPA 1: Validação regex (rápida)
         is_valid, error = validate_sql_strict(sql)
@@ -74,39 +74,39 @@ class AdvancedSQLValidator:
         # Bloquear SELECT * e table.*
         if self._has_select_star(sql):
             return False, "SELECT * is not allowed"
-        
+
         # ETAPA 2: Validação AST (só se passar regex)
         try:
             parsed = sqlparse.parse(sql)
             if not parsed or len(parsed) == 0:
                 return False, "Invalid SQL: could not parse"
-            
+
             statement = parsed[0]
         except Exception as e:
             # Se AST falhar, rejeitar (melhor seguro)
             return False, f"Error parsing SQL: {str(e)[:200]}"
-        
+
         # Verificar se é SELECT
         if not self._is_select_statement(statement):
             return False, "Only SELECT statements are allowed"
-        
+
         # Extrair e validar tabelas
         tables = self._extract_tables(statement)
         if not tables:
             return False, "No tables found in query"
-        
+
         # Extrair CTEs (Common Table Expressions) para ignorá-las na validação
         ctes = self._extract_ctes(statement)
-        
+
         for raw_table in tables:
             # Se for uma CTE definida na própria query, ignorar validação
             if raw_table in ctes:
                 continue
-                
+
             variants = self._table_variants(raw_table)
             if not (variants & self.allowed_tables):
                 return False, f"Table '{raw_table}' is not allowed"
-        
+
         # Validar colunas (se allowed_columns fornecido)
         if self.allowed_columns:
             columns_used = self._extract_columns(statement, dialect)
@@ -119,78 +119,95 @@ class AdvancedSQLValidator:
                     table_variants = self._table_variants(table_name)
                     found_table = False
                     allowed_cols_for_table = []
-                    
+
                     for variant in table_variants:
                         variant_key = variant.lower().strip()
                         if variant_key in self.allowed_columns:
                             allowed_cols_for_table = self.allowed_columns[variant_key]
                             found_table = True
                             break
-                    
+
                     if found_table and col_name.lower() not in allowed_cols_for_table:
-                        return False, f"Column '{col_name}' is not allowed for table '{table_name}'"
+                        return (
+                            False,
+                            f"Column '{col_name}' is not allowed for table '{table_name}'",
+                        )
                 elif col_name and not table_name:
                     # Coluna sem prefixo de tabela - verificar em todas as tabelas usadas
                     # Por segurança, se allowed_columns está definido, exigir prefixo de tabela
                     # para evitar ambiguidade
                     if len(tables) > 1:
-                        return False, f"Column '{col_name}' must be qualified with table name (ambiguous in multi-table query)"
+                        return (
+                            False,
+                            f"Column '{col_name}' must be qualified with table name (ambiguous in multi-table query)",
+                        )
                     # Se só uma tabela, verificar nela
                     if tables:
                         table_key = list(tables)[0].lower().strip()
                         table_variants = self._table_variants(list(tables)[0])
                         found_table = False
                         allowed_cols_for_table = []
-                        
+
                         for variant in table_variants:
                             variant_key = variant.lower().strip()
                             if variant_key in self.allowed_columns:
-                                allowed_cols_for_table = self.allowed_columns[variant_key]
+                                allowed_cols_for_table = self.allowed_columns[
+                                    variant_key
+                                ]
                                 found_table = True
                                 break
-                        
-                        if found_table and col_name.lower() not in allowed_cols_for_table:
+
+                        if (
+                            found_table
+                            and col_name.lower() not in allowed_cols_for_table
+                        ):
                             return False, f"Column '{col_name}' is not allowed"
-        
+
         # Validar LIMIT (obrigatório, exceto ex: aggregation)
         limit_value = self._extract_limit(statement)
         is_agg = self._is_aggregation(sql)
 
         if limit_value is None:
             if not is_agg:
-                return False, f"LIMIT is required for non-aggregated queries (maximum {self.max_limit} rows)"
+                return (
+                    False,
+                    f"LIMIT is required for non-aggregated queries (maximum {self.max_limit} rows)",
+                )
         elif limit_value > self.max_limit:
             return False, f"LIMIT exceeds maximum of {self.max_limit} rows"
 
         # Validar quantidade de colunas (limite duro)
         num_select_items = self._count_select_items(sql)
         if num_select_items is not None and num_select_items > self.max_columns:
-            return False, f"Too many selected columns/expressions (max {self.max_columns})"
+            return (
+                False,
+                f"Too many selected columns/expressions (max {self.max_columns})",
+            )
 
         # Validar GROUP BY (limite duro)
         group_by_items = self._count_group_by_items(sql)
         if group_by_items is not None and group_by_items > self.max_group_by:
             return False, f"Too many GROUP BY fields (max {self.max_group_by})"
-        
+
         # Verificar operações perigosas
         if self._has_dangerous_operations(statement):
             return False, "SQL contains dangerous operations"
-        
+
         return True, None
-    
+
     def _is_select_statement(self, statement: Statement) -> bool:
         """Verifica se é SELECT (rápido) ou WITH (CTE)"""
         for token in statement.tokens:
-            if token.ttype is DML and token.value.upper() == 'SELECT':
+            if token.ttype is DML and token.value.upper() == "SELECT":
                 return True
             # CTE starts with Keyword.CTE (WITH)
             if token.ttype == Keyword.CTE or str(token.ttype) == "Token.Keyword.CTE":
                 return True
             # Fallback: check string value for compatibility
-            if token.value.upper() == 'WITH':
+            if token.value.upper() == "WITH":
                 return True
         return False
-    
+
     def _extract_tables(self, statement: Statement) -> Set[str]:
         """
         Extrai referências a tabelas a partir de FROM/JOIN.
@@ -222,17 +239,34 @@ class AdvancedSQLValidator:
         depth = 0
         for i, ch in enumerate(sql):
             depth_at[i] = depth
-            if ch == '(':
+            if ch == "(":
                 depth += 1
-            elif ch == ')':
+            elif ch == ")":
                 depth = max(0, depth - 1)
 
         SKIP_FUNCTIONS = {
-            'DATE_SUB', 'DATE_ADD', 'CURRENT_DATE', 'NOW',
-            'EXTRACT', 'SUBSTRING', 'TRIM', 'POSITION', 'OVERLAY',
-            'UNNEST', 'GENERATE_SERIES', 'VALUES',
-            'DATE_TRUNC', 'LAST_DAY', 'DATE_DIFF', 'CURRENT_DATETIME', 'CURRENT_TIMESTAMP',
-            'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'INTERVAL',
+            "DATE_SUB",
+            "DATE_ADD",
+            "CURRENT_DATE",
+            "NOW",
+            "EXTRACT",
+            "SUBSTRING",
+            "TRIM",
+            "POSITION",
+            "OVERLAY",
+            "UNNEST",
+            "GENERATE_SERIES",
+            "VALUES",
+            "DATE_TRUNC",
+            "LAST_DAY",
+            "DATE_DIFF",
+            "CURRENT_DATETIME",
+            "CURRENT_TIMESTAMP",
+            "DATE",
+            "DATETIME",
+            "TIMESTAMP",
+            "TIME",
+            "INTERVAL",
         }
 
         def _collect_tables(only_depth_zero: bool) -> Set[str]:
@@ -250,7 +284,7 @@ class AdvancedSQLValidator:
                 end_pos = m.end()
                 while end_pos < len(sql) and sql[end_pos].isspace():
                     end_pos += 1
-                if end_pos < len(sql) and sql[end_pos] == '(':
+                if end_pos < len(sql) and sql[end_pos] == "(":
                     continue
 
                 ident = m.group("ident").strip()
@@ -295,28 +329,36 @@ class AdvancedSQLValidator:
         """
         sql = str(statement)
         ctes: Set[str] = set()
-        
+
         # 1. Verificar se tem WITH
         if "WITH" not in sql.upper():
             return ctes
-            
+
         # Regex robusto para capturar nomes de CTEs
-        # Padrão: 
+        # Padrão:
         # (?:WITH\s+(?:RECURSIVE\s+)?)?  -> WITH (e RECURSIVE) opcional (para o seguimento)
         # [`]?                          -> Aspa/backtick opcional
         # (?P<name>[A-Za-z0-9_]+)       -> Identificador
         # [`]?                          -> Fechamento de aspa/backtick opcional
         # \s+AS\s*\(                    -> AS (
         pattern = re.compile(
-            r"(?:WITH|,\s+)?\s*[`]?(?P<name>[A-Za-z0-9_]+)[`]?\s+AS\s*\(",
-            re.IGNORECASE
+            r"(?:WITH|,\s+)?\s*[`]?(?P<name>[A-Za-z0-9_]+)[`]?\s+AS\s*\(", re.IGNORECASE
         )
-        
+
         for m in pattern.finditer(sql):
             name = m.group("name")
-            if name.upper() not in {"SELECT", "FROM", "WHERE", "JOIN", "UNION", "AND", "OR", "ON"}:
+            if name.upper() not in {
+                "SELECT",
+                "FROM",
+                "WHERE",
+                "JOIN",
+                "UNION",
+                "AND",
+                "OR",
+                "ON",
+            }:
                 ctes.add(name)
-                
+
         return ctes
 
     def _expand_allowed_tables(self, allowed_tables: List[str]) -> Set[str]:
@@ -363,7 +405,7 @@ class AdvancedSQLValidator:
             out.add(".".join(parts[-3:]))
 
         return out
-    
+
     def _extract_limit(self, statement: Statement) -> Optional[int]:
         """
         Extrai valor do LIMIT.
@@ -371,27 +413,31 @@ class AdvancedSQLValidator:
         """
         # Método 1: Usar regex no SQL completo (mais robusto para whitespace/newlines)
         sql_normalized = str(statement).strip()
-        limit_match = re.search(r'\bLIMIT\s+(\d+)', sql_normalized, re.IGNORECASE | re.MULTILINE)
+        limit_match = re.search(
+            r"\bLIMIT\s+(\d+)", sql_normalized, re.IGNORECASE | re.MULTILINE
+        )
         if limit_match:
             try:
                 return int(limit_match.group(1))
             except:
                 pass
-        
+
         # Método 2: Fallback para parsing de tokens (caso regex falhe)
         limit_seen = False
-        for token in statement.flatten():  # flatten() pega todos os tokens recursivamente
-            token_value = str(token.value).strip() if hasattr(token, 'value') else ''
-            
+        for (
+            token
+        ) in statement.flatten():  # flatten() pega todos os tokens recursivamente
+            token_value = str(token.value).strip() if hasattr(token, "value") else ""
+
             if limit_seen and token_value.isdigit():
                 try:
                     return int(token_value)
                 except:
                     pass
-            
-            if token.ttype is Keyword and token_value.upper() == 'LIMIT':
+
+            if token.ttype is Keyword and token_value.upper() == "LIMIT":
                 limit_seen = True
-        
+
         return None
 
     def _has_select_star(self, sql: str) -> bool:
@@ -399,18 +445,25 @@ class AdvancedSQLValidator:
         Detecta uso de SELECT * / table.* no SELECT list.
         Permite COUNT(*) (caso clássico).
         """
-        s = (sql or "")
+        s = sql or ""
         # Remover strings para evitar falsos positivos simples
         s_wo_strings = re.sub(r"('([^']|\\')*')", "''", s)
 
         # Capturar SELECT ... FROM
-        m = re.search(r"\bselect\b(.*?)\bfrom\b", s_wo_strings, re.IGNORECASE | re.DOTALL)
+        m = re.search(
+            r"\bselect\b(.*?)\bfrom\b", s_wo_strings, re.IGNORECASE | re.DOTALL
+        )
         if not m:
             return False
         select_clause = m.group(1)
 
         # Remover COUNT(*) / SUM(*) etc para não bloquear agregações comuns
-        select_clause = re.sub(r"\b(count|sum|avg|min|max)\s*\(\s*\*\s*\)", r"\1()", select_clause, flags=re.IGNORECASE)
+        select_clause = re.sub(
+            r"\b(count|sum|avg|min|max)\s*\(\s*\*\s*\)",
+            r"\1()",
+            select_clause,
+            flags=re.IGNORECASE,
+        )
 
         # Agora checar wildcard
         if re.search(r"(^|[,\s])\*\s*(,|$)", select_clause):
@@ -423,7 +476,7 @@ class AdvancedSQLValidator:
         """
         Conta itens no SELECT list (top-level, separado por vírgulas fora de parênteses).
         """
-        s = (sql or "")
+        s = sql or ""
         m = re.search(r"\bselect\b(.*?)\bfrom\b", s, re.IGNORECASE | re.DOTALL)
         if not m:
             return None
@@ -439,8 +492,12 @@ class AdvancedSQLValidator:
         """
         Conta itens no GROUP BY (top-level).
         """
-        s = (sql or "")
-        m = re.search(r"\bgroup\s+by\b(.*?)(\border\s+by\b|\blimit\b|$)", s, re.IGNORECASE | re.DOTALL)
+        s = sql or ""
+        m = re.search(
+            r"\bgroup\s+by\b(.*?)(\border\s+by\b|\blimit\b|$)",
+            s,
+            re.IGNORECASE | re.DOTALL,
+        )
         if not m:
             return 0
         clause = m.group(1).strip()
@@ -459,18 +516,28 @@ class AdvancedSQLValidator:
             elif ch == "," and depth == 0:
                 count += 1
         return count
-    
+
     def _has_dangerous_operations(self, statement: Statement) -> bool:
         """Verifica operações perigosas"""
-        dangerous = {'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 
-                     'ALTER', 'TRUNCATE', 'EXEC', 'EXECUTE', 'CALL'}
-        
+        dangerous = {
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "DROP",
+            "CREATE",
+            "ALTER",
+            "TRUNCATE",
+            "EXEC",
+            "EXECUTE",
+            "CALL",
+        }
+
         for token in statement.tokens:
             if token.ttype is Keyword and token.value.upper() in dangerous:
                 return True
-        
+
         return False
-    
+
     def _extract_columns(self, statement: Statement, connection_type: str) -> Set[str]:
         """
         Extrai colunas usadas no SELECT.
@@ -478,21 +545,23 @@ class AdvancedSQLValidator:
         """
         sql = str(statement)
         columns: Set[str] = set()
-        
+
         # Extrair SELECT clause
-        select_match = re.search(r'\bSELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
+        select_match = re.search(
+            r"\bSELECT\s+(.*?)\s+FROM", sql, re.IGNORECASE | re.DOTALL
+        )
         if not select_match:
             return columns
-        
+
         select_clause = select_match.group(1)
-        
+
         # Padrão para colunas:
         # - table.column
         # - `table`.`column`
         # - column
         # - `column`
         # - COUNT(*), SUM(column), etc (ignorar funções agregadas por enquanto)
-        
+
         # Primeiro, remover funções agregadas e subconsultas
         # Simplificado: pegar identificadores que parecem colunas
         pattern = re.compile(
@@ -505,7 +574,7 @@ class AdvancedSQLValidator:
             """,
             re.IGNORECASE | re.VERBOSE,
         )
-        
+
         # Encontrar todas as colunas (ignorar dentro de funções por enquanto)
         for match in pattern.finditer(select_clause):
             if match.group(1) and match.group(2):
@@ -515,27 +584,42 @@ class AdvancedSQLValidator:
                 # column sem prefixo
                 col_name = match.group(3)
                 # Ignorar palavras-chave SQL comuns
-                if col_name.upper() not in {'SELECT', 'FROM', 'WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'AS'}:
+                if col_name.upper() not in {
+                    "SELECT",
+                    "FROM",
+                    "WHERE",
+                    "GROUP",
+                    "ORDER",
+                    "HAVING",
+                    "LIMIT",
+                    "AS",
+                }:
                     columns.add(col_name)
-        
+
         return columns
-    
-    def _split_column_reference(self, col_ref: str, connection_type: str) -> Tuple[Optional[str], Optional[str]]:
+
+    def _split_column_reference(
+        self, col_ref: str, connection_type: str
+    ) -> Tuple[Optional[str], Optional[str]]:
         """
         Separa 'table.column' em (table, column).
         Se não tiver prefixo, retorna (None, column).
         """
-        if '.' in col_ref:
-            parts = col_ref.split('.')
+        if "." in col_ref:
+            parts = col_ref.split(".")
             if len(parts) == 2:
-                return parts[0].strip().strip('`'), parts[1].strip().strip('`')
+                return parts[0].strip().strip("`"), parts[1].strip().strip("`")
             elif len(parts) == 3:
                 # project.dataset.table.column -> (project.dataset.table, column)
-                return '.'.join(parts[:-1]).strip().strip('`'), parts[-1].strip().strip('`')
+                return ".".join(parts[:-1]).strip().strip("`"), parts[-1].strip().strip(
+                    "`"
+                )
             else:
                 # Mais de 3 partes - retornar tudo exceto último como tabela
-                return '.'.join(parts[:-1]).strip().strip('`'), parts[-1].strip().strip('`')
-        return None, col_ref.strip().strip('`')
+                return ".".join(parts[:-1]).strip().strip("`"), parts[-1].strip().strip(
+                    "`"
+                )
+        return None, col_ref.strip().strip("`")
 
     def _is_aggregation(self, sql: str) -> bool:
         """
@@ -545,22 +629,21 @@ class AdvancedSQLValidator:
         - OU usa funções de agregação no SELECT (COUNT, SUM, AVG, MIN, MAX) no nível principal
         """
         s = (sql or "").lower()
-        
+
         # 1. GROUP BY
         if "group by" in s:
             return True
-            
+
         # 2. Funções de agregação no SELECT
         m = re.search(r"\bselect\b(.*?)\bfrom\b", s, re.IGNORECASE | re.DOTALL)
         if not m:
             return False
-            
+
         select_clause = m.group(1)
-        
-        agg_funcs = ['count(', 'sum(', 'avg(', 'min(', 'max(']
+
+        agg_funcs = ["count(", "sum(", "avg(", "min(", "max("]
         for func in agg_funcs:
             if func in select_clause:
                 return True
-                
-        return False
 
+        return False

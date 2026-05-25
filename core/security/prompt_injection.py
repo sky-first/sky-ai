@@ -3,6 +3,7 @@
 Detecção rápida de prompt injection.
 Executa antes de chamar IA (tempo: < 1ms)
 """
+
 import re
 from typing import Tuple, Optional
 
@@ -93,12 +94,20 @@ MALICIOUS_PATTERNS = [
     re.compile(r"\bdata\s*catalog\b", re.IGNORECASE),
     re.compile(r"\bquais\b.*\btabelas\b", re.IGNORECASE),
     re.compile(r"\btabelas\b.*\bdispon[ií]veis\b", re.IGNORECASE),
-    re.compile(r"\btabelas\b.*\b(pode|posso|podem)\b.*\bver\b", re.IGNORECASE),  # "tabelas que X pode ver"
-    re.compile(r"\btables\b.*\b(can|could)\b.*\b(see|access|view)\b", re.IGNORECASE),  # "tables that X can see"
+    re.compile(
+        r"\btabelas\b.*\b(pode|posso|podem)\b.*\bver\b", re.IGNORECASE
+    ),  # "tabelas que X pode ver"
+    re.compile(
+        r"\btables\b.*\b(can|could)\b.*\b(see|access|view)\b", re.IGNORECASE
+    ),  # "tables that X can see"
     re.compile(r"\bacesso\b.*\btabelas\b", re.IGNORECASE),  # "acesso a tabelas"
     re.compile(r"\baccess\b.*\btables\b", re.IGNORECASE),  # "access to tables"
-    re.compile(r"\bpermiss[õo]es?\b.*\btabelas\b", re.IGNORECASE),  # "permissões de tabelas"
-    re.compile(r"\bpermissions?\b.*\btables\b", re.IGNORECASE),  # "permissions to tables"
+    re.compile(
+        r"\bpermiss[õo]es?\b.*\btabelas\b", re.IGNORECASE
+    ),  # "permissões de tabelas"
+    re.compile(
+        r"\bpermissions?\b.*\btables\b", re.IGNORECASE
+    ),  # "permissions to tables"
     re.compile(r"\bquais\b.*\bcolunas\b", re.IGNORECASE),
     re.compile(r"\bmostre\b.*\bcolunas\b", re.IGNORECASE),
     re.compile(r"\bestrutura\b", re.IGNORECASE),
@@ -146,12 +155,20 @@ CRITICAL_PATTERNS = [
     re.compile(r"\bschema\b", re.IGNORECASE),
     re.compile(r"\bmetadata\b", re.IGNORECASE),
     re.compile(r"\bquais\b.*\btabelas\b", re.IGNORECASE),
-    re.compile(r"\btabelas\b.*\b(pode|posso|podem)\b.*\bver\b", re.IGNORECASE),  # "tabelas que X pode ver"
-    re.compile(r"\btables\b.*\b(can|could)\b.*\b(see|access|view)\b", re.IGNORECASE),  # "tables that X can see"
+    re.compile(
+        r"\btabelas\b.*\b(pode|posso|podem)\b.*\bver\b", re.IGNORECASE
+    ),  # "tabelas que X pode ver"
+    re.compile(
+        r"\btables\b.*\b(can|could)\b.*\b(see|access|view)\b", re.IGNORECASE
+    ),  # "tables that X can see"
     re.compile(r"\bacesso\b.*\btabelas\b", re.IGNORECASE),  # "acesso a tabelas"
     re.compile(r"\baccess\b.*\btables\b", re.IGNORECASE),  # "access to tables"
-    re.compile(r"\bpermiss[õo]es?\b.*\btabelas\b", re.IGNORECASE),  # "permissões de tabelas"
-    re.compile(r"\bpermissions?\b.*\btables\b", re.IGNORECASE),  # "permissions to tables"
+    re.compile(
+        r"\bpermiss[õo]es?\b.*\btabelas\b", re.IGNORECASE
+    ),  # "permissões de tabelas"
+    re.compile(
+        r"\bpermissions?\b.*\btables\b", re.IGNORECASE
+    ),  # "permissions to tables"
     re.compile(r"\bquais\b.*\bcolunas\b", re.IGNORECASE),
     re.compile(r"\bestrutura\b", re.IGNORECASE),
     # Delimiter tricks
@@ -181,24 +198,24 @@ def detect_prompt_injection(question: str) -> Tuple[bool, Optional[str]]:
     """
     if not question:
         return False, None
-    
+
     question_lower = _normalize(question)
 
     # Heurística: payload base64 grande (tentativa de esconder instruções)
     # (strings longas com charset base64)
     if re.search(r"\b[A-Za-z0-9+/=]{120,}\b", question):
         return True, "base64_payload"
-    
+
     # Verificar padrões críticos primeiro (mais rápido)
     for pattern in CRITICAL_PATTERNS:
         if pattern.search(question_lower):
             return True, pattern.pattern
-    
+
     # Verificar outros padrões
     for pattern in MALICIOUS_PATTERNS:
         if pattern.search(question_lower):
             return True, pattern.pattern
-    
+
     return False, None
 
 
@@ -208,19 +225,18 @@ def sanitize_question(question: str) -> Optional[str]:
     Se for crítica, retorna None (deve ser rejeitada).
     """
     is_malicious, pattern = detect_prompt_injection(question)
-    
+
     if not is_malicious:
         return question
-    
+
     # Se for crítico, rejeitar
     for critical in CRITICAL_PATTERNS:
         if critical.search(question.lower()):
             return None
-    
+
     # Tentar limpar (remover padrões não críticos)
     cleaned = question
     for pattern in MALICIOUS_PATTERNS:
         cleaned = pattern.sub("", cleaned)
-    
-    return cleaned.strip() if cleaned.strip() else None
 
+    return cleaned.strip() if cleaned.strip() else None

@@ -25,14 +25,22 @@ from sqlalchemy import text
 from db.session import AsyncSessionLocal
 
 GREEN = "\033[92m"
-RED   = "\033[91m"
-YELLOW= "\033[93m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
 RESET = "\033[0m"
-BOLD  = "\033[1m"
+BOLD = "\033[1m"
 
-def ok(msg):  print(f"  {GREEN}✅ {msg}{RESET}")
-def fail(msg): print(f"  {RED}❌ {msg}{RESET}")
-def info(msg): print(f"  {YELLOW}ℹ️  {msg}{RESET}")
+
+def ok(msg):
+    print(f"  {GREEN}✅ {msg}{RESET}")
+
+
+def fail(msg):
+    print(f"  {RED}❌ {msg}{RESET}")
+
+
+def info(msg):
+    print(f"  {YELLOW}ℹ️  {msg}{RESET}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -44,45 +52,53 @@ async def test_semantic_cache_crew_isolation():
     de uma crew não são retornados para outra crew.
     """
     print(f"\n{BOLD}TEST 1 — Semantic Cache: Isolamento por Crew{RESET}")
-    
+
     fake_crew_a = str(uuid.uuid4())
     fake_crew_b = str(uuid.uuid4())
     fake_conn = str(uuid.uuid4())
     fake_space = str(uuid.uuid4())
     fake_embedding = "[" + ", ".join(["0.1"] * 768) + "]"
-    
+
     async with AsyncSessionLocal() as db:
         # Verificar coluna crew_id existe
-        r = await db.execute(text(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name='semantic_cache' AND column_name='crew_id'"
-        ))
+        r = await db.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='semantic_cache' AND column_name='crew_id'"
+            )
+        )
         if not r.fetchone():
             fail("crew_id column missing from semantic_cache — run migration first!")
             return False
         ok("semantic_cache.crew_id column exists")
 
         # Inserir um registro simulado da "Crew A"
-        await db.execute(text("""
+        await db.execute(
+            text("""
             INSERT INTO semantic_cache (id, connection_id, space_id, crew_id, question, embedding, response_json)
             VALUES (gen_random_uuid(), :conn, :space, :crew_a, 'test question crew A',
                     CAST(:emb AS vector), '{"answer": "crew_a_answer"}'::json)
-        """), {
-            "conn": fake_conn,
-            "space": fake_space,
-            "crew_a": fake_crew_a,
-            "emb": fake_embedding,
-        })
+        """),
+            {
+                "conn": fake_conn,
+                "space": fake_space,
+                "crew_a": fake_crew_a,
+                "emb": fake_embedding,
+            },
+        )
         await db.commit()
         ok("Inserted fake cache record for Crew A")
 
         # Buscar com crew_a → deve encontrar
-        r = await db.execute(text("""
+        r = await db.execute(
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id = :crew_id
-        """), {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_a})
+        """),
+            {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_a},
+        )
         row = r.fetchone()
         if row and row[0].get("answer") == "crew_a_answer":
             ok("Crew A can find its own cache record")
@@ -90,12 +106,15 @@ async def test_semantic_cache_crew_isolation():
             fail("Crew A could NOT find its own cache record")
 
         # Buscar com crew_b → NÃO deve encontrar
-        r = await db.execute(text("""
+        r = await db.execute(
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id = :crew_id
-        """), {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_b})
+        """),
+            {"conn": fake_conn, "space": fake_space, "crew_id": fake_crew_b},
+        )
         row = r.fetchone()
         if row is None:
             ok("Crew B correctly sees NO cache from Crew A")
@@ -103,12 +122,15 @@ async def test_semantic_cache_crew_isolation():
             fail(f"Crew B was able to see Crew A's cache! — {row[0]}")
 
         # Buscar sem crew (modo personal) → NÃO deve encontrar registro de crew específica
-        r = await db.execute(text("""
+        r = await db.execute(
+            text("""
             SELECT response_json FROM semantic_cache
             WHERE connection_id = :conn
             AND (space_id = :space OR space_id IS NULL)
             AND crew_id IS NULL
-        """), {"conn": fake_conn, "space": fake_space})
+        """),
+            {"conn": fake_conn, "space": fake_space},
+        )
         row = r.fetchone()
         if row is None:
             ok("Personal mode correctly sees NO crew-specific cache")
@@ -116,9 +138,10 @@ async def test_semantic_cache_crew_isolation():
             fail(f"Personal mode saw crew-specific cache — should not happen")
 
         # Cleanup
-        await db.execute(text(
-            "DELETE FROM semantic_cache WHERE connection_id = :conn"
-        ), {"conn": fake_conn})
+        await db.execute(
+            text("DELETE FROM semantic_cache WHERE connection_id = :conn"),
+            {"conn": fake_conn},
+        )
         await db.commit()
         info("Cleaned up test records")
 
@@ -172,9 +195,13 @@ async def test_table_permission_filter():
             strict_mode=False,
         )
         if len(result) == len(sample_tables):
-            ok("strict_mode=False with no metadata → returns all (fail-open / personal mode)")
+            ok(
+                "strict_mode=False with no metadata → returns all (fail-open / personal mode)"
+            )
         else:
-            fail(f"strict_mode=False returned {len(result)} tables — expected {len(sample_tables)}")
+            fail(
+                f"strict_mode=False returned {len(result)} tables — expected {len(sample_tables)}"
+            )
 
         # crew_ids=[] (no restriction) → deve retornar todas as tabelas
         result = await _filter_tables_by_permissions(
@@ -188,7 +215,9 @@ async def test_table_permission_filter():
         if len(result) == len(sample_tables):
             ok("crew_ids=[] (personal mode) → returns all tables")
         else:
-            fail(f"crew_ids=[] returned {len(result)} tables — expected {len(sample_tables)}")
+            fail(
+                f"crew_ids=[] returned {len(result)} tables — expected {len(sample_tables)}"
+            )
 
     return True
 
@@ -201,7 +230,9 @@ async def test_resolve_crew_ids():
     FIX 1+5: Garante que resolve_crew_ids_for_context diferencia
     corretamente personal vs collaborative.
     """
-    print(f"\n{BOLD}TEST 3 — resolve_crew_ids_for_context: personal vs collaborative{RESET}")
+    print(
+        f"\n{BOLD}TEST 3 — resolve_crew_ids_for_context: personal vs collaborative{RESET}"
+    )
 
     from core.auth.service import resolve_crew_ids_for_context
 
@@ -212,17 +243,20 @@ async def test_resolve_crew_ids():
         if not row:
             info("No users found in DB — skipping live resolve test")
             return True
-        
+
         user_id = row[0]
-        
+
         # Buscar um space_id com crew para esse usuário
-        r2 = await db.execute(text("""
+        r2 = await db.execute(
+            text("""
             SELECT DISTINCT c.space_id 
             FROM crew_members cm 
             JOIN crews c ON c.id = cm.crew_id
             WHERE cm.user_id = :uid
             LIMIT 1
-        """), {"uid": user_id})
+        """),
+            {"uid": user_id},
+        )
         space_row = r2.fetchone()
 
         if not space_row:

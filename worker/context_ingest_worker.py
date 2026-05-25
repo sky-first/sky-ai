@@ -69,7 +69,11 @@ async def _embed_or_skip(text: str) -> Optional[list[float]]:
         from core.rag.embeddings import get_embedding_provider
 
         provider = get_embedding_provider()
-        vec = await provider.embed_text(text) if hasattr(provider, "embed_text") else provider.embed([text])[0]
+        vec = (
+            await provider.embed_text(text)
+            if hasattr(provider, "embed_text")
+            else provider.embed([text])[0]
+        )
     except Exception:
         logger.exception("embedding provider failed — skipping vector")
         return None
@@ -99,6 +103,7 @@ async def _process_message(raw_payload: str) -> str:
     event = ContextEvent.from_payload(raw_payload)
 
     async with async_session() as db:  # type: ignore[operator]
+
         async def _upsert(spec):
             await postgres_upsert(db, spec)
             await db.commit()
@@ -146,12 +151,16 @@ async def _drain_batch_async(batch_size: int, block_ms: int) -> dict[str, int]:
         logger.exception("redis / settings import failed")
         return {"processed": 0, "errors": 1}
 
-    client = aioredis.from_url(settings.redis_url or "redis://localhost:6379/0", decode_responses=True)
+    client = aioredis.from_url(
+        settings.redis_url or "redis://localhost:6379/0", decode_responses=True
+    )
 
     # Ensure the consumer group exists. XGROUP fails with BUSYGROUP if it
     # already does — swallow that one case.
     try:
-        await client.xgroup_create(CONTEXT_STREAM, CONSUMER_GROUP, id="0", mkstream=True)
+        await client.xgroup_create(
+            CONTEXT_STREAM, CONSUMER_GROUP, id="0", mkstream=True
+        )
     except Exception as exc:  # noqa: BLE001
         if "BUSYGROUP" not in str(exc):
             logger.warning("xgroup_create: %s", exc)
@@ -192,9 +201,16 @@ async def _drain_batch_async(batch_size: int, block_ms: int) -> dict[str, int]:
                 counts[status] = counts.get(status, 0) + 1
                 await client.xack(CONTEXT_STREAM, CONSUMER_GROUP, msg_id)
             except Exception:
-                logger.exception("process_message failed for %s — leaving un-acked", msg_id)
+                logger.exception(
+                    "process_message failed for %s — leaving un-acked", msg_id
+                )
                 counts["errors"] += 1
 
     total = sum(v for k, v in counts.items() if k != "errors")
-    logger.info("context ingest drain: processed=%d errors=%d breakdown=%s", total, counts["errors"], counts)
+    logger.info(
+        "context ingest drain: processed=%d errors=%d breakdown=%s",
+        total,
+        counts["errors"],
+        counts,
+    )
     return counts

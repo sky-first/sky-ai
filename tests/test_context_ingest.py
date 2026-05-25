@@ -64,7 +64,12 @@ async def _exploding_embed(text: str):
 @pytest.mark.asyncio
 async def test_upsert_goal_renders_and_writes():
     store = FakeStore()
-    fetched = {"type": "corporate", "title": "Grow ARR 20%", "description": "north star", "status": "on_track"}
+    fetched = {
+        "type": "corporate",
+        "title": "Grow ARR 20%",
+        "description": "north star",
+        "status": "on_track",
+    }
 
     async def fetch(_evt):
         return fetched
@@ -225,7 +230,9 @@ async def test_embedder_crashing_still_upserts_row():
 def test_from_payload_accepts_string_or_dict():
     raw = '{"action":"upsert","kind":"goal","source_table":"t","source_id":"1"}'
     e1 = ContextEvent.from_payload(raw)
-    e2 = ContextEvent.from_payload({"action": "upsert", "kind": "goal", "source_table": "t", "source_id": "1"})
+    e2 = ContextEvent.from_payload(
+        {"action": "upsert", "kind": "goal", "source_table": "t", "source_id": "1"}
+    )
     assert e1 == e2
     assert e1.action == "upsert"
     assert e1.kind == "goal"
@@ -237,7 +244,13 @@ async def test_upsert_merges_event_meta_with_template_metadata():
     store = FakeStore()
 
     async def fetch(_):
-        return {"type": "corporate", "title": "x", "priority": "P0", "status": "at_risk", "area": "growth"}
+        return {
+            "type": "corporate",
+            "title": "x",
+            "priority": "P0",
+            "status": "at_risk",
+            "area": "growth",
+        }
 
     status = await process_event(
         make_event(meta={"source_origin": "backend-api"}),

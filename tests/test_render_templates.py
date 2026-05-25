@@ -11,7 +11,6 @@ import pytest
 
 from core.rag.render import RenderedDoc, has_template, render
 
-
 KINDS = [
     "pillar",
     "goal",
@@ -97,7 +96,9 @@ def test_okr_template_links_to_objective_and_cycle():
 
 
 def test_event_templates_prefix_with_category():
-    internal = render("event_internal", {"sub_type": "layoff", "description": "restructure"})
+    internal = render(
+        "event_internal", {"sub_type": "layoff", "description": "restructure"}
+    )
     external = render("event_external", {"sub_type": "fx_move", "description": "USD"})
     trend = render("event_trend", {"sub_type": "ai_demand", "description": "up 40%"})
     macro = render("event_macro", {"sub_type": "rates", "description": "Selic"})

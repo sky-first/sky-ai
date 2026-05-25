@@ -16,8 +16,8 @@ from core.logging_utils import log_event
 
 from db.models import TableMetadata  # seu modelo de metadados de tabela
 
-
 # ==================== HELPERS ====================
+
 
 def _normalize_logical_name(table_name: str) -> str:
     """
@@ -39,7 +39,7 @@ def _normalize_logical_name(table_name: str) -> str:
     # remove prefixos comuns
     for prefix in ("silver_", "gold_", "bronze_", "dim_", "fact_"):
         if name.startswith(prefix):
-            name = name[len(prefix):]
+            name = name[len(prefix) :]
 
     # remove sufixos comuns
     for suffix in ("_enriquecido", "_enriched", "_tbl", "_table"):
@@ -69,19 +69,20 @@ def _metadata_row_to_column(row: TableMetadata) -> TableColumn:
         "is_primary_key": bool(extra.get("is_primary_key") or extra.get("pk") or False),
         "is_foreign_key": bool(extra.get("is_foreign_key") or extra.get("fk") or False),
     }
-    
+
     # Propagate temporal ranges if they exist
     if "min_date" in extra:
         col["min_date"] = extra["min_date"]
     if "max_date" in extra:
         col["max_date"] = extra["max_date"]
-        
+
     return col
 
 
 # ==================== FUNÇÃO PRINCIPAL ====================
 
 from core.dialects import Dialect
+
 
 def build_agent_config_for_user_space(
     db: Session,
@@ -91,15 +92,17 @@ def build_agent_config_for_user_space(
     agent_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     dialect: Dialect = Dialect.POSTGRES,
+    space_ids: Optional[List[str]] = None,
 ) -> AgentConfig:
     """
     Constrói um AgentConfig a partir de TableMetadata, respeitando:
-      - space_id
+      - space_id  (modo collaborative — um único space)
+      - space_ids (modo personal — todos os spaces do utilizador; sobrepõe-se a space_id)
       - crew_ids do usuário (permissões)
       - opcionalmente data_connection_id (se houver mais de uma conexão por Space)
 
     Fluxo:
-      1. Busca TableMetadata do space_id (+ connection opcional)
+      1. Busca TableMetadata do(s) space_id(s) (+ connection opcional)
       2. Filtra por permissão: crew_id IN user_ctx.crew_ids OR crew_id IS NULL
       3. Agrupa por (table_name, data_connection_id)
       4. Monta TableSchema para cada grupo
@@ -107,17 +110,20 @@ def build_agent_config_for_user_space(
     """
     user_crew_ids: List[str] = getattr(user_ctx, "crew_ids", []) or []
 
-    # space_id IS NULL → "shared/global" metadata seeded for connections
-    # that every Space sharing the connection should see (e.g. the public
-    # demo dataset). The RAG retrieval at vector_store._build_embedding_base_query
-    # already does this OR-NULL match — without mirroring it here the
-    # orchestrator builds an empty AgentConfig (no tables) for the demo
-    # visitor, the specialist returns "no data", and the formatter answers
-    # "Sorry, I couldn't find any data". Lucas's 2026-05-05 review.
-    q = db.query(TableMetadata).filter(
-        (TableMetadata.space_id == space_id)
-        | (TableMetadata.space_id == None)  # noqa: E711
+    # Em modo personal, space_ids contém todos os spaces do utilizador.
+    # Em modo collaborative, usa apenas space_id (singular).
+    # space_id IS NULL → metadados "globais/shared" visíveis em todos os spaces.
+    effective_space_ids: List[str] = (
+        space_ids if space_ids else ([space_id] if space_id else [])
     )
+
+    if effective_space_ids:
+        q = db.query(TableMetadata).filter(
+            (TableMetadata.space_id.in_(effective_space_ids))
+            | (TableMetadata.space_id == None)  # noqa: E711
+        )
+    else:
+        q = db.query(TableMetadata).filter(TableMetadata.space_id == None)  # noqa: E711
 
     if data_connection_id:
         q = q.filter(TableMetadata.data_connection_id == data_connection_id)
@@ -155,7 +161,9 @@ def build_agent_config_for_user_space(
         )
 
     # Agrupa por (table_name, data_connection_id)
-    grouped: DefaultDict[Tuple[str, Optional[str]], List[TableMetadata]] = defaultdict(list)
+    grouped: DefaultDict[Tuple[str, Optional[str]], List[TableMetadata]] = defaultdict(
+        list
+    )
     for row in rows:
         key = (row.table_name, getattr(row, "data_connection_id", None))
         grouped[key].append(row)
@@ -170,12 +178,16 @@ def build_agent_config_for_user_space(
         physical_name = getattr(group_rows[0], "physical_name", table_name)
 
         # descrição da tabela (se houver no metadata)
-        table_desc = getattr(group_rows[0], "table_description", None) or \
-                     getattr(group_rows[0], "table_comment", None) or None
+        table_desc = (
+            getattr(group_rows[0], "table_description", None)
+            or getattr(group_rows[0], "table_comment", None)
+            or None
+        )
 
         # Fallback: ler do campo extra (JSON) se os atributos diretos não existirem
         if not table_desc:
             import json as _json
+
             first_extra = getattr(group_rows[0], "extra", {}) or {}
             if isinstance(first_extra, str):
                 try:
@@ -200,7 +212,7 @@ def build_agent_config_for_user_space(
                 "source_table_name": table_name,
             },
         )
-        
+
         # Propagate table-level temporal context (based on any of its columns)
         table_min = None
         table_max = None
@@ -214,7 +226,7 @@ def build_agent_config_for_user_space(
                 val = col["max_date"]
                 if not table_max or val > table_max:
                     table_max = val
-                    
+
         if table_min:
             schema.extra["data_min_date"] = table_min
         if table_max:
@@ -229,6 +241,7 @@ def build_agent_config_for_user_space(
         dialect=dialect,
         extra={
             "space_id": space_id,
+            "space_ids": effective_space_ids,
             "data_connection_id": data_connection_id,
             "user_id": getattr(user_ctx, "user_id", None),
             "crew_ids": user_crew_ids,
@@ -241,6 +254,8 @@ def build_agent_config_for_user_space(
             "agent_id": cfg.id,
             "agent_name": cfg.name,
             "space_id": space_id,
+            "space_ids": effective_space_ids,
+            "num_spaces": len(effective_space_ids),
             "data_connection_id": data_connection_id,
             "num_tables": len(tables),
             "user_id": getattr(user_ctx, "user_id", None),

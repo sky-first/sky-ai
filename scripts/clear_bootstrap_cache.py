@@ -16,31 +16,32 @@ sys.path.insert(0, str(project_root))
 
 from api.routes.connection_query import _bootstrap_cache, _dashboard_plan_cache
 
+
 def clear_caches():
     """Limpa todos os caches"""
     print("=" * 70)
     print("LIMPEZA DE CACHE")
     print("=" * 70)
     print()
-    
+
     bootstrap_size = len(_bootstrap_cache)
     dashboard_size = len(_dashboard_plan_cache)
-    
+
     print(f"📊 Cache Bootstrap: {bootstrap_size} entradas")
     print(f"📊 Cache Dashboard Plan: {dashboard_size} entradas")
     print()
-    
+
     if bootstrap_size > 0:
         _bootstrap_cache.clear()
         print("✅ Cache Bootstrap limpo!")
-    
+
     if dashboard_size > 0:
         _dashboard_plan_cache.clear()
         print("✅ Cache Dashboard Plan limpo!")
-    
+
     if bootstrap_size == 0 and dashboard_size == 0:
         print("ℹ️  Caches já estavam vazios")
-    
+
     print()
     print("=" * 70)
     print("✅ LIMPEZA CONCLUÍDA")
@@ -49,6 +50,6 @@ def clear_caches():
     print("💡 Agora as próximas chamadas vão gerar novas respostas sem cache")
     print("💡 O card 'Create dashboard' deve aparecer nas novas respostas")
 
+
 if __name__ == "__main__":
     clear_caches()
-

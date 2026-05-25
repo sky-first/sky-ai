@@ -1,4 +1,3 @@
-
 import os
 import sys
 import unittest
@@ -28,10 +27,7 @@ class MockDataSource(BaseDataSource):
 
     def run_query_arrow(self, sql: str):
         # Return a simple Arrow Table
-        data = [
-            pa.array(["User A", "User B"]),
-            pa.array([100, 200])
-        ]
+        data = [pa.array(["User A", "User B"]), pa.array([100, 200])]
         return pa.Table.from_arrays(data, names=["name", "amount"])
 
     def run_query(self, sql: str):
@@ -42,14 +38,10 @@ class TestFullRegression(unittest.TestCase):
 
     def setUp(self):
         self.table = TableSchema(
-            logical_name="users",
-            physical_name="project.dataset.users_v1",
-            columns=[]
+            logical_name="users", physical_name="project.dataset.users_v1", columns=[]
         )
         self.agent_config = AgentConfig(
-            id="reg_agent",
-            name="Regression Agent",
-            tables=[self.table]
+            id="reg_agent", name="Regression Agent", tables=[self.table]
         )
         self.data_source = MockDataSource()
         self.db_factory = MagicMock()
@@ -72,7 +64,7 @@ class TestFullRegression(unittest.TestCase):
             "question": "analyze users",
             "data": arrow_table,  # Arrow Table here
             "sql": "SELECT...",
-            "answer": None
+            "answer": None,
         }
 
         # Run Formatter directly to check state update
@@ -83,9 +75,8 @@ class TestFullRegression(unittest.TestCase):
         print(f"Data type in state: {type(data_in_state)}")
 
         self.assertIsInstance(
-            data_in_state,
-            list,
-            "Formatter should convert Arrow to List in state")
+            data_in_state, list, "Formatter should convert Arrow to List in state"
+        )
         self.assertEqual(len(data_in_state), 2)
         print("[Pass] Formatter correctly updated state with List.")
 

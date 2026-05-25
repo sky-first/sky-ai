@@ -9,13 +9,21 @@ from sqlalchemy import text
 # This project expects the AI Engine to read the same Postgres as the backend docker-compose.
 _db_url = os.getenv("DATABASE_URL", "")
 if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
-    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
+    os.environ["DATABASE_URL"] = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
+    )
 
 from api.routes import connection_query, connection_discover  # noqa: E402
-from api.routes import data_ingestion, pipeline, widget_titles, knowledge_graph, embeddings  # noqa: E402
+from api.routes import (
+    data_ingestion,
+    pipeline,
+    widget_titles,
+    knowledge_graph,
+    embeddings,
+)  # noqa: E402
 from api.routes import semantic_map, space_seed  # noqa: E402
+from api.routes import scan_schedule  # noqa: E402
 from core.logging_utils import log_event
-
 
 app = FastAPI(
     title="DataAssistant API",
@@ -27,45 +35,62 @@ app = FastAPI(
 # The endpoint will be served at /metrics
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
+
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 except ImportError:
     # If the lib is not installed in the local environment, it does not break execution
-    log_event("observability_init_failed", {"message": "prometheus_fastapi_instrumentator not found"})
+    log_event(
+        "observability_init_failed",
+        {"message": "prometheus_fastapi_instrumentator not found"},
+    )
 # --- OBSERVABILITY: FIM ---
 
 
 @app.on_event("startup")
 async def on_startup():
     log_event("app_startup", {"message": "DataAssistant API started"})
-    
+
     # Initialize database (create tables if they don't exist)
     try:
         from db.base import init_db
+
         await init_db()
         log_event("db_initialized", {"message": "Database tables ensured"})
     except Exception as e:
-        log_event("db_init_error", {"error": str(e), "message": "Failed to initialize DB tables, will retry on demand"})
+        log_event(
+            "db_init_error",
+            {
+                "error": str(e),
+                "message": "Failed to initialize DB tables, will retry on demand",
+            },
+        )
 
     # Start audit flusher (separate thread, non-blocking)
     from core.security.audit import start_audit_flusher
+
     start_audit_flusher()
     log_event("audit_flusher_started", {"message": "Audit log flusher started"})
-    
+
     # Initialize LangGraph Checkpoint Pool
     from core.agents.checkpoint_manager import get_connection_pool
+
     get_connection_pool()  # Init singleton
-    log_event("checkpoint_pool_initialized", {"message": "LangGraph checkpoint pool ready"})
+    log_event(
+        "checkpoint_pool_initialized", {"message": "LangGraph checkpoint pool ready"}
+    )
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     # Parar audit flusher e fazer flush final
     from core.security.audit import stop_audit_flusher
+
     stop_audit_flusher()
     log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
 
     # Close LangGraph Checkpoint Pool
     from core.agents.checkpoint_manager import close_pool
+
     close_pool()
     log_event("checkpoint_pool_closed", {"message": "LangGraph checkpoint pool closed"})
 
@@ -98,12 +123,18 @@ async def debug_db():
         result = await db.execute(text("select count(*) from connection_metadata"))
         total_meta = result.scalar_one()
         result = await db.execute(
-            text("select count(*) from connection_metadata where connection_id = CAST(:cid AS uuid)"),
+            text(
+                "select count(*) from connection_metadata where connection_id = CAST(:cid AS uuid)"
+            ),
             {"cid": "1fd6fee8-bf03-4e82-9c85-419a228ef726"},
         )
         sample = result.scalar_one()
 
-    return {"database_url": safe_url, "connection_metadata_count": int(total_meta), "sample_connection_row": int(sample)}
+    return {
+        "database_url": safe_url,
+        "connection_metadata_count": int(total_meta),
+        "sample_connection_row": int(sample),
+    }
 
 
 # ===========================
@@ -145,3 +176,6 @@ app.include_router(semantic_map.router)
 # (metrics + glossary + relationships + connections + agents) already
 # embedded and visible on the Universe canvas.
 app.include_router(space_seed.router)
+
+# Scan schedule — PUT/GET/DELETE /spaces/{id}/scan-schedule + POST trigger (items 23-24)
+app.include_router(scan_schedule.router)

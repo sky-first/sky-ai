@@ -1,4 +1,5 @@
 # api/routes/knowledge_graph.py
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -14,6 +15,26 @@ from core.rag.embeddings import build_strategy_text, build_signal_text
 
 router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"])
 logger = logging.getLogger(__name__)
+
+# Entity types that represent strategic OKR/brain context relevant to the scorer.
+# Excludes enterprise_graph_node (relationship edges) and signal_event (operational logs).
+_OKR_ENTITY_TYPES = {
+    "pillar",
+    "okr",
+    "kpi",
+    "metric",
+    "strategy_okr",
+    "strategy_kpi",
+    "strategy_pillar",
+    "strategy_goal",
+    "strategic_objective",
+}
+
+
+def _is_okr_relevant(entity_type: str) -> bool:
+    if entity_type in _OKR_ENTITY_TYPES:
+        return True
+    return entity_type.startswith("strategy_") or entity_type.startswith("strategic_")
 
 
 class SourceEntity(BaseModel):
@@ -47,10 +68,12 @@ class KnowledgeGraphIngestPayload(BaseModel):
 
 def _format_semantic_text(payload: KnowledgeGraphIngestPayload) -> str:
     """Transform the structured entity/relationship into plain English for the LLM."""
-    
+
     # CASE 1: Enterprise Graph Relationship
     if payload.entity_type == "enterprise_graph_node" and payload.sources:
-        sources_text = ", ".join([f"{f'{s.type} ' if s.type else ''}'{s.id}'" for s in payload.sources])
+        sources_text = ", ".join(
+            [f"{f'{s.type} ' if s.type else ''}'{s.id}'" for s in payload.sources]
+        )
         text = (
             f"ENTERPRISE GRAPH RELATIONSHIP: '{payload.name}'. "
             f"This node represents a '{payload.relationship_type}' connection. "
@@ -63,21 +86,23 @@ def _format_semantic_text(payload: KnowledgeGraphIngestPayload) -> str:
     # CASE 2: Strategic Strategy & Signals (Rich Logic from Strategy Branch)
     if payload.entity_type == "signal_event":
         return build_signal_text(payload)
-    elif payload.entity_type.startswith("strategy_") or payload.entity_type.startswith("strategic_"):
+    elif payload.entity_type.startswith("strategy_") or payload.entity_type.startswith(
+        "strategic_"
+    ):
         return build_strategy_text(payload)
 
     # CASE 3: Generic Business Context
     text = f"BUSINESS CONTEXT NODE ({payload.entity_type.upper()}): '{payload.name}'. "
     if payload.description:
         text += f"Description: {payload.description}. "
-    
+
     if payload.entity_details:
         details = payload.entity_details
         if payload.entity_type == "strategy_okr":
             text += f"This OKR has a baseline of {details.get('baseline')} and a target of {details.get('target')}. "
         elif payload.entity_type == "strategic_objective":
             text += f"Status: {details.get('status')}. Priority: {details.get('priority')}. "
-            
+
     return text
 
 
@@ -85,7 +110,7 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
     try:
         semantic_text = _format_semantic_text(payload)
         provider = create_embedding_provider()
-        
+
         # Gera embeddings do lote (async)
         vectors = await provider.embed_async([semantic_text])
         if not vectors or not vectors[0]:
@@ -107,13 +132,17 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
         # 2. Salvar novo registro
         metadata = {
             "kind": "knowledge_graph",
-            "type": "enterprise_graph_node" if payload.entity_type == "enterprise_graph_node" else "business_context",
+            "type": (
+                "enterprise_graph_node"
+                if payload.entity_type == "enterprise_graph_node"
+                else "business_context"
+            ),
             "entity_id": payload.id,
             "entity_type": payload.entity_type,
             "name": payload.name,
             "target_type": payload.target_type,
             "target_id": payload.target_id,
-            **(payload.entity_details or {})
+            **(payload.entity_details or {}),
         }
 
         record = EmbeddingRecord(
@@ -123,12 +152,29 @@ async def _process_ingestion(payload: KnowledgeGraphIngestPayload, db: AsyncSess
             document_id=doc_id,
             text=semantic_text,
             embedding=vector,
-            extra_metadata=metadata
+            extra_metadata=metadata,
         )
         db.add(record)
 
         await db.commit()
-        logger.info(f"Knowledge Graph Node {payload.id} safely ingested and vectorized.")
+        logger.info(
+            f"Knowledge Graph Node {payload.id} safely ingested and vectorized."
+        )
+
+        # Item 19: when a strategic OKR/brain doc is saved, regenerate dataset_description
+        # embeddings for all connections in the space so the cosine scorer stays fresh.
+        if payload.space_id and _is_okr_relevant(payload.entity_type):
+            from core.ingestion.service import refresh_dataset_embeddings_for_space
+
+            asyncio.create_task(
+                refresh_dataset_embeddings_for_space(payload.space_id),
+                name=f"refresh_dataset_emb_{payload.space_id[:8]}",
+            )
+            logger.debug(
+                "Scheduled dataset embedding refresh for space %s after OKR ingest (%s)",
+                payload.space_id,
+                payload.entity_type,
+            )
 
     except Exception as e:
         await db.rollback()
@@ -147,7 +193,7 @@ async def ingest_knowledge_graph_node(
     # BackgroundTasks is better for ingestion load
     background_tasks.add_task(_process_ingestion, payload, db)
     return {
-        "success": True, 
+        "success": True,
         "entity_id": payload.id,
-        "message": "Graph node ingestion scheduled in background."
+        "message": "Graph node ingestion scheduled in background.",
     }

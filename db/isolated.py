@@ -17,6 +17,7 @@ Mitigation: build a brand-new engine *inside the caller's loop* with
 crossing loop boundaries. Slightly more expensive per call, but these
 sites are rare (one per LangGraph invocation, one per audit flush).
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager

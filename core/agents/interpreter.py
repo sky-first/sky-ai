@@ -20,12 +20,12 @@ logger = logging.getLogger("dataassistant")
 
 # All available specialists that the Interpreter can dispatch to
 AVAILABLE_SPECIALISTS = [
-    "strategy",       # OKRs, pillars, goals, KPIs, initiatives
-    "events",         # Market signals, internal events, trends
+    "strategy",  # OKRs, pillars, goals, KPIs, initiatives
+    "events",  # Market signals, internal events, trends
     "relationships",  # Cross-space/department connections
-    "people",         # Teams, users, crew membership, activity
-    "widgets",        # Existing dashboards, past AI insights
-    "data",           # SQL queries against databases
+    "people",  # Teams, users, crew membership, activity
+    "widgets",  # Existing dashboards, past AI insights
+    "data",  # SQL queries against databases
 ]
 
 INTERPRETER_SYSTEM_PROMPT = """You are the Interpreter for a Collective Intelligence platform.
@@ -85,10 +85,12 @@ def create_query_plan(question: str, llm: Any) -> QueryPlan:
     log_event("interpreter_start", {"question": question[:100]})
 
     try:
-        response = llm.invoke([
-            {"role": "system", "content": INTERPRETER_SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ])
+        response = llm.invoke(
+            [
+                {"role": "system", "content": INTERPRETER_SYSTEM_PROMPT},
+                {"role": "user", "content": question},
+            ]
+        )
         text = response.content if hasattr(response, "content") else str(response)
 
         # Extract JSON
@@ -104,11 +106,13 @@ def create_query_plan(question: str, llm: Any) -> QueryPlan:
             name = sq.get("name", "")
             if name not in AVAILABLE_SPECIALISTS:
                 continue
-            sub_queries.append(SubQuery(
-                specialist=name,
-                sub_question=sq.get("sub_question", question),
-                depends_on=sq.get("depends_on", []),
-            ))
+            sub_queries.append(
+                SubQuery(
+                    specialist=name,
+                    sub_question=sq.get("sub_question", question),
+                    depends_on=sq.get("depends_on", []),
+                )
+            )
 
         if not sub_queries:
             raise ValueError("No valid specialists in plan")
@@ -119,12 +123,15 @@ def create_query_plan(question: str, llm: Any) -> QueryPlan:
             reasoning=plan_data.get("reasoning", ""),
         )
 
-        log_event("interpreter_plan_created", {
-            "question": question[:100],
-            "specialists": [sq.specialist for sq in plan.sub_queries],
-            "merge_strategy": plan.merge_strategy,
-            "reasoning": plan.reasoning[:200],
-        })
+        log_event(
+            "interpreter_plan_created",
+            {
+                "question": question[:100],
+                "specialists": [sq.specialist for sq in plan.sub_queries],
+                "merge_strategy": plan.merge_strategy,
+                "reasoning": plan.reasoning[:200],
+            },
+        )
 
         return plan
 
@@ -176,8 +183,11 @@ def resolve_execution_order(plan: QueryPlan) -> List[List[SubQuery]]:
             resolved.add(sq.specialist)
             del remaining[sq.specialist]
 
-    log_event("interpreter_execution_order", {
-        "waves": [[sq.specialist for sq in w] for w in waves],
-    })
+    log_event(
+        "interpreter_execution_order",
+        {
+            "waves": [[sq.specialist for sq in w] for w in waves],
+        },
+    )
 
     return waves

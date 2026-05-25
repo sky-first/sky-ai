@@ -1,14 +1,16 @@
-
 import asyncio
 import json
 from sqlalchemy import text
 from db.base import SessionLocal
 
+
 async def check_tables():
     async with SessionLocal() as db:
         result = await db.execute(
-            text("SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"),
-            {"cid": "4e96c724-b1a1-47a8-9f8c-60af9deaeb89"}
+            text(
+                "SELECT tables FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"
+            ),
+            {"cid": "4e96c724-b1a1-47a8-9f8c-60af9deaeb89"},
         )
         row = result.first()
         if row:
@@ -20,6 +22,7 @@ async def check_tables():
                 print("-" * 20)
         else:
             print("No metadata found")
+
 
 if __name__ == "__main__":
     asyncio.run(check_tables())

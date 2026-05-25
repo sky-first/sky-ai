@@ -58,7 +58,7 @@ def ingest_sql_metadata_for_connection(
         table_name = row["table_name"]
         column_name = row["column_name"]
         data_type = row.get("data_type", "text")
-        is_nullable = (row.get("is_nullable", "YES") == "YES")
+        is_nullable = row.get("is_nullable", "YES") == "YES"
 
         # Upsert bem simples: tenta achar a linha, se não tiver cria
         tm = (

@@ -4,10 +4,10 @@ Dataset Profiling Module
 Classifies datasets by size and generates execution constraints.
 Used to adapt query strategies based on dataset characteristics.
 """
+
 from __future__ import annotations
 from typing import Literal, List, Dict, Optional
 from dataclasses import dataclass
-
 
 # Type alias for size categories
 DatasetSize = Literal["tiny", "small", "medium", "large", "huge"]
@@ -16,10 +16,11 @@ DatasetSize = Literal["tiny", "small", "medium", "large", "huge"]
 @dataclass
 class DatasetProfile:
     """Profile of a single table/dataset"""
+
     table_name: str
     row_count: int
     size_category: DatasetSize
-    
+
     def __repr__(self) -> str:
         return f"DatasetProfile({self.table_name}: {self.row_count} rows, {self.size_category})"
 
@@ -27,7 +28,7 @@ class DatasetProfile:
 class DatasetProfiler:
     """
     Classifies datasets by size for adaptive query generation.
-    
+
     Size categories based on row count:
     - TINY: < 100 rows (very limited data, avoid filters)
     - SMALL: < 1,000 rows (limited data, prefer aggregations)
@@ -35,20 +36,20 @@ class DatasetProfiler:
     - LARGE: < 10,000,000 rows (large data, all queries safe)
     - HUGE: >= 10,000,000 rows (very large, optimize queries)
     """
-    
+
     # Size thresholds
     TINY_THRESHOLD = 100
     SMALL_THRESHOLD = 1_000
     MEDIUM_THRESHOLD = 100_000
     LARGE_THRESHOLD = 10_000_000
-    
+
     def classify_size(self, row_count: int) -> DatasetSize:
         """
         Classify dataset size based on row count.
-        
+
         Args:
             row_count: Number of rows in the table
-            
+
         Returns:
             Size category (tiny/small/medium/large/huge)
         """
@@ -62,69 +63,69 @@ class DatasetProfiler:
             return "large"
         else:
             return "huge"
-    
+
     def profile_table(self, table_metadata: Dict) -> DatasetProfile:
         """
         Create profile for a single table.
-        
+
         Args:
             table_metadata: Table metadata dict with 'name' and 'row_count'
-            
+
         Returns:
             DatasetProfile instance
         """
         table_name = table_metadata.get("name", "unknown")
         # Safely handle None or missing row_count
-        row_count_raw = table_metadata.get("row_count") or table_metadata.get("stats", {}).get("row_count")
+        row_count_raw = table_metadata.get("row_count") or table_metadata.get(
+            "stats", {}
+        ).get("row_count")
         try:
             row_count = int(row_count_raw) if row_count_raw is not None else 0
         except (ValueError, TypeError):
             row_count = 0
-        
+
         # Handle missing or zero row counts
         if row_count == 0:
             # Default to tiny if no data
             size_category = "tiny"
         else:
             size_category = self.classify_size(row_count)
-        
+
         return DatasetProfile(
-            table_name=table_name,
-            row_count=row_count,
-            size_category=size_category
+            table_name=table_name, row_count=row_count, size_category=size_category
         )
-    
+
     def profile_tables(self, tables_metadata: List[Dict]) -> List[DatasetProfile]:
         """
         Create profiles for multiple tables.
-        
+
         Args:
             tables_metadata: List of table metadata dicts
-            
+
         Returns:
             List of DatasetProfile instances
         """
         return [self.profile_table(table) for table in tables_metadata]
-    
+
     def get_smallest_size(self, profiles: List[DatasetProfile]) -> DatasetSize:
         """
         Get the smallest dataset size from a list of profiles.
-        
+
         This is used to determine the most conservative strategy
         when dealing with multiple tables.
-        
+
         Args:
             profiles: List of DatasetProfile instances
-            
+
         Returns:
             Smallest size category
         """
         if not profiles:
             return "tiny"  # Conservative default
-        
+
         # Order of sizes (smallest to largest)
         size_order = ["tiny", "small", "medium", "large", "huge"]
-        
+
         # Find minimum
         min_size = "huge"
         for profile in profiles:
@@ -132,13 +133,13 @@ class DatasetProfiler:
             min_idx = size_order.index(min_size)
             if current_idx < min_idx:
                 min_size = profile.size_category
-        
+
         return min_size
-    
+
     def get_size_statistics(self, profiles: List[DatasetProfile]) -> Dict:
         """
         Get statistics about dataset sizes.
-        
+
         Returns:
             Dict with counts per size category and other stats
         """
@@ -154,8 +155,8 @@ class DatasetProfiler:
             },
             "smallest_size": self.get_smallest_size(profiles) if profiles else "tiny",
         }
-        
+
         for profile in profiles:
             stats["by_size"][profile.size_category] += 1
-        
+
         return stats

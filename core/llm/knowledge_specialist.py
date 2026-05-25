@@ -62,7 +62,11 @@ def _format_metric(m: Dict[str, Any]) -> str:
     name = m.get("name", "Unnamed")
     scope = (m.get("scope") or "").upper()
     certified = bool(m.get("certified_by_user_id"))
-    tag = "[ORG-CERTIFIED]" if certified and scope == "ORG" else f"[{scope}]" if scope else ""
+    tag = (
+        "[ORG-CERTIFIED]"
+        if certified and scope == "ORG"
+        else f"[{scope}]" if scope else ""
+    )
     desc = m.get("formula_description") or m.get("description") or ""
     formula = m.get("formula_text")
     unit = m.get("unit")
@@ -157,48 +161,63 @@ def _build_evidence_chunks(
 
     def _trunc(text: str) -> str:
         text = text or ""
-        return text if len(text) <= _EVIDENCE_SNIPPET_MAX else text[: _EVIDENCE_SNIPPET_MAX - 1] + "…"
+        return (
+            text
+            if len(text) <= _EVIDENCE_SNIPPET_MAX
+            else text[: _EVIDENCE_SNIPPET_MAX - 1] + "…"
+        )
 
     metric_hits = [m for m in metrics if (m.get("name") or "").lower() in q]
     if not metric_hits:
         metric_hits = metrics[:3]
     for m in metric_hits[:5]:
         snippet = _trunc(m.get("formula_description") or m.get("description") or "")
-        chunks.append({
-            "id": str(m.get("id", "")),
-            "kind": "metric",
-            "source_label": m.get("name") or "Metric",
-            "snippet": snippet,
-            "href": f"/dashboard/universe-intelligence#metric/{m.get('id', '')}",
-        })
+        chunks.append(
+            {
+                "id": str(m.get("id", "")),
+                "kind": "metric",
+                "source_label": m.get("name") or "Metric",
+                "snippet": snippet,
+                "href": f"/dashboard/universe-intelligence#metric/{m.get('id', '')}",
+            }
+        )
 
     term_hits = [g for g in glossary if (g.get("term") or "").lower() in q]
     if not term_hits:
         term_hits = glossary[:3]
     for g in term_hits[:5]:
-        chunks.append({
-            "id": str(g.get("id", "")),
-            "kind": "glossary",
-            "source_label": g.get("term") or "Term",
-            "snippet": _trunc(g.get("definition") or ""),
-            "href": f"/dashboard/universe-intelligence#glossary/{g.get('id', '')}",
-        })
+        chunks.append(
+            {
+                "id": str(g.get("id", "")),
+                "kind": "glossary",
+                "source_label": g.get("term") or "Term",
+                "snippet": _trunc(g.get("definition") or ""),
+                "href": f"/dashboard/universe-intelligence#glossary/{g.get('id', '')}",
+            }
+        )
 
     for r in relationships[:3]:
         srcs = r.get("sources") or []
-        src_label = ", ".join(str(s.get("name") or s.get("id", "?")) for s in srcs[:2]) or "?"
+        src_label = (
+            ", ".join(str(s.get("name") or s.get("id", "?")) for s in srcs[:2]) or "?"
+        )
         tgts = r.get("targets") or []
         tgt_label = (
             ", ".join(str(t.get("id", "?")) for t in tgts[:2])
-            if tgts else (r.get("target_id") or "?")
+            if tgts
+            else (r.get("target_id") or "?")
         )
-        chunks.append({
-            "id": str(r.get("id", "")),
-            "kind": "relationship",
-            "source_label": r.get("name") or "Relationship",
-            "snippet": _trunc(f"{src_label} → {tgt_label} · {r.get('description') or ''}"),
-            "href": f"/dashboard/universe-intelligence#relationship/{r.get('id', '')}",
-        })
+        chunks.append(
+            {
+                "id": str(r.get("id", "")),
+                "kind": "relationship",
+                "source_label": r.get("name") or "Relationship",
+                "snippet": _trunc(
+                    f"{src_label} → {tgt_label} · {r.get('description') or ''}"
+                ),
+                "href": f"/dashboard/universe-intelligence#relationship/{r.get('id', '')}",
+            }
+        )
 
     return chunks
 
@@ -218,11 +237,18 @@ def run_knowledge_specialist(
     # Keep them human-readable and free of stack/infra details — the
     # user explicitly asked us not to expose how the answer is made.
     steps: List[Dict[str, Any]] = [
-        {"kind": "router", "summary": "Recognised this as a question about your knowledge catalog."},
+        {
+            "kind": "router",
+            "summary": "Recognised this as a question about your knowledge catalog.",
+        },
     ]
 
-    metrics = backend_client.get_metrics() if hasattr(backend_client, "get_metrics") else []
-    glossary = backend_client.get_glossary() if hasattr(backend_client, "get_glossary") else []
+    metrics = (
+        backend_client.get_metrics() if hasattr(backend_client, "get_metrics") else []
+    )
+    glossary = (
+        backend_client.get_glossary() if hasattr(backend_client, "get_glossary") else []
+    )
     relationships = (
         backend_client.get_enterprise_relationships()
         if hasattr(backend_client, "get_enterprise_relationships")
@@ -261,14 +287,16 @@ def run_knowledge_specialist(
 
     evidence = _build_evidence_chunks(metrics, glossary, relationships, question)
     if evidence:
-        steps.append({
-            "kind": "retrieval",
-            "summary": (
-                f"Selected {len(evidence)} entr"
-                + ("y" if len(evidence) == 1 else "ies")
-                + " most likely to answer your question."
-            ),
-        })
+        steps.append(
+            {
+                "kind": "retrieval",
+                "summary": (
+                    f"Selected {len(evidence)} entr"
+                    + ("y" if len(evidence) == 1 else "ies")
+                    + " most likely to answer your question."
+                ),
+            }
+        )
 
     # Phase 4.1: layer brain context (RAG evidence) on top of the Knowledge
     # block. No-op when empty.
@@ -284,20 +312,30 @@ def run_knowledge_specialist(
     try:
         response = llm.invoke(messages)
         answer = response.content if hasattr(response, "content") else str(response)
-        steps.append({"kind": "format", "summary": "Composed the answer from the catalog."})
+        steps.append(
+            {"kind": "format", "summary": "Composed the answer from the catalog."}
+        )
     except Exception as e:
         logger.error(f"Knowledge specialist LLM error: {e}")
         answer = f"I found Knowledge data but ran into an error analyzing it: {e}"
-        steps.append({"kind": "format", "summary": "Tried to compose the answer but hit an error."})
+        steps.append(
+            {
+                "kind": "format",
+                "summary": "Tried to compose the answer but hit an error.",
+            }
+        )
 
-    log_event("knowledge_specialist_done", {
-        "question": question[:100],
-        "answer_preview": (answer or "")[:200],
-        "num_metrics": len(metrics),
-        "num_glossary": len(glossary),
-        "num_relationships": len(relationships),
-        "num_evidence": len(evidence),
-    })
+    log_event(
+        "knowledge_specialist_done",
+        {
+            "question": question[:100],
+            "answer_preview": (answer or "")[:200],
+            "num_metrics": len(metrics),
+            "num_glossary": len(glossary),
+            "num_relationships": len(relationships),
+            "num_evidence": len(evidence),
+        },
+    )
 
     state["answer"] = answer
     state["data"] = []

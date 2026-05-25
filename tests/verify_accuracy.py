@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -18,13 +17,13 @@ def verify():
     project_id = "data-mesh-gcp"
     dataset = "billing_silver"
     # Use the local file we just created
-    creds_path = "/Users/thedatafirst/skyfirst/repositories/sky-poc-ai/gcp_service_account.json"
+    creds_path = (
+        "/Users/thedatafirst/skyfirst/repositories/sky-poc-ai/gcp_service_account.json"
+    )
     print(f"DEBUG: Using creds_path: '{creds_path}'")
 
     bq = BigQueryDataSource(
-        project_id=project_id,
-        dataset=dataset,
-        credentials_path=creds_path
+        project_id=project_id, dataset=dataset, credentials_path=creds_path
     )
 
     # 2. Run Query
@@ -66,12 +65,12 @@ def verify():
         found_min = False
 
         for row in results:
-            val = float(row['total_value'])
-            inv = row['invoice_id']
+            val = float(row["total_value"])
+            inv = row["invoice_id"]
 
-            if inv == 'INV_000742' and abs(val - 84962.88) < 0.1:
+            if inv == "INV_000742" and abs(val - 84962.88) < 0.1:
                 found_max = True
-            if inv == 'INV_000407' and abs(val - 53026.86) < 0.1:
+            if inv == "INV_000407" and abs(val - 53026.86) < 0.1:
                 found_min = True
 
         print("\n--- Verification ---")
