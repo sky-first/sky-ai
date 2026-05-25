@@ -418,10 +418,6 @@ async def discover_tables(
         return result
     except Exception as e:
         # Log technical details internally
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         logger.error(
             "Table discovery failed",
             extra={
