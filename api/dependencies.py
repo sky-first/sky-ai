@@ -10,6 +10,43 @@ from core.auth.models import UserContext
 from core.domain.spaces import get_space
 from core.domain.crews import get_crew
 from core.agents.factory import AgentConfig
+from core.tenant_context import (
+    DEFAULT_TENANT_CONTEXT,
+    TenantContext,
+    multi_tenant_enabled,
+    set_current_tenant,
+)
+from core.tenant_registry_lookup import lookup_tenant_by_slug
+
+
+async def get_tenant_context(
+    x_tenant_slug: Optional[str] = Header(None, alias="X-Tenant-Slug"),
+    db: AsyncSession = Depends(get_db),
+) -> TenantContext:
+    """Resolve the tenant for the current request (Projeto A — PR #9).
+
+    The backend forwards the resolved slug to sky-ai via the
+    ``X-Tenant-Slug`` header. When the header is missing or the
+    multi-tenant flag is off, the default context is returned and
+    nothing else in the pipeline changes.
+
+    Side-effect: also sets the contextvar so downstream non-FastAPI
+    code (LangGraph nodes, async tasks spawned from the handler) can
+    read ``current_tenant()`` without needing the FastAPI dependency
+    re-injected.
+    """
+    if not multi_tenant_enabled() or not x_tenant_slug:
+        set_current_tenant(DEFAULT_TENANT_CONTEXT)
+        return DEFAULT_TENANT_CONTEXT
+
+    ctx = await lookup_tenant_by_slug(db, x_tenant_slug.strip().lower())
+    if ctx is None:
+        # Spec: when the flag is ON and a slug was supplied but does
+        # not resolve, return 404 — matches backend resolver behaviour.
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    set_current_tenant(ctx)
+    return ctx
 
 
 # Placeholder for authentication - replace with actual JWT/OAuth implementation
