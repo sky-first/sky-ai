@@ -124,6 +124,14 @@ class BedrockChatProvider:
     /var/run/secrets/eks.amazonaws.com/serviceaccount/token and exchanges
     it for the role `sky-eks-staging-bedrock` (Terraform: infra/aws/
     _eks_staging/irsa.tf). No long-lived AWS keys ever land in the env.
+
+    Projeto A (Model B) — when ``inference_profile_arn`` is supplied the
+    provider routes through that profile instead of the bare model id.
+    Bedrock Application Inference Profiles tag every invocation with the
+    profile's ARN, which lets us split spend per tenant in Cost Explorer
+    without any extra plumbing. The lookup happens once at provider
+    construction; callers that want per-request routing build a fresh
+    provider per request.
     """
 
     def __init__(
@@ -132,18 +140,39 @@ class BedrockChatProvider:
         region: str = "eu-west-1",
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        inference_profile_arn: str | None = None,
     ) -> None:
         from langchain_aws import ChatBedrockConverse  # type: ignore
 
-        self.model_name = model
+        # Bedrock's ``model`` parameter accepts either a model id
+        # (``eu.anthropic.claude-…``) or any inference-profile ARN.
+        # When the caller hands us an ARN we use it verbatim and keep
+        # the original model id around for logging.
+        self.model_name = inference_profile_arn or model
+        self.base_model_id = model
+        self.inference_profile_arn = inference_profile_arn
+
         kwargs: Dict[str, Any] = {
-            "model": model,
+            "model": self.model_name,
             "region_name": region,
             "temperature": temperature,
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
         self._chat = ChatBedrockConverse(**kwargs)
+        log_event(
+            "bedrock_provider_init",
+            {
+                "model": self.base_model_id,
+                "inference_profile_arn": (
+                    self.inference_profile_arn[:80] + "…"
+                    if self.inference_profile_arn
+                    and len(self.inference_profile_arn) > 80
+                    else self.inference_profile_arn
+                ),
+                "region": region,
+            },
+        )
 
     def _convert_messages(self, messages: List[Dict[str, str]]):
         lc_msgs = []

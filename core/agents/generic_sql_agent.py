@@ -32,6 +32,14 @@ class AgentState(TypedDict, total=False):
     space_id: Optional[str]
     crew_ids: Optional[List[str]]
 
+    # Projeto A (Model B) — tenant the request is operating on. ``None``
+    # = default / single-tenant mode, in which case downstream providers
+    # use env-driven model IDs. When populated, the Bedrock provider
+    # looks up ``bedrock_inference_profile_arn`` and routes through it
+    # for per-tenant cost attribution.
+    tenant_slug: Optional[str]
+    tenant_bedrock_profile_arn: Optional[str]
+
     # User context (from UserContext schema)
     platform_role: Optional[str]  # admin | user | viewer
     crew_role: Optional[str]  # commander | navigator | explorer | guest
