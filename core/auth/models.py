@@ -44,7 +44,9 @@ class UserContext(BaseModel):
     permissions: List[str] = []  # List of permission strings (e.g., ["read", "write"])
 
     # Locale
-    locale: str = "en"  # Fixed to English for now
+    # None = no explicit preference (response language is detected / sticky).
+    # When set (e.g. "pt", "pt-BR"), it takes priority over detection.
+    locale: Optional[str] = None
 
     def has_permission(self, permission: str) -> bool:
         """Check if user has a specific permission."""

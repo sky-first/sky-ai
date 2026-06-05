@@ -70,7 +70,12 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
-from core.i18n.i18n import detect_language, get_message
+from core.i18n.i18n import (
+    detect_language,
+    get_message,
+    language_decision,
+    unsupported_language_message,
+)
 from core.security.rate_limiter_redis import _rate_limiter
 from core.security.audit import log_query_audit
 from core.security.progressive_escalation import detect_progressive_escalation
@@ -1391,8 +1396,9 @@ async def chat_bootstrap(
     from core.i18n.i18n import detect_language
     from uuid import UUID
 
-    # Gatekeeper: Force English
-    lang = "en"
+    lang = (body.language or "en").lower()
+    if lang not in {"en", "pt"}:
+        lang = "en"
 
     # ✅ Feature Flag: Pausar Bootstrap se solicitado
     if DISABLE_BOOTSTRAP_EXECUTION:
@@ -2041,22 +2047,26 @@ async def dashboards_plan(
     agent_config = None
     tables = []
 
-    # 🔒 GLOBAL LANGUAGE GUARD (User Requirement: English Only)
-    # Applied at the API entry point to cover direct dashboard generation access.
+    # 🔒 GLOBAL LANGUAGE GUARD (EN + PT supported)
     from core.i18n.i18n import detect_language
 
     detected_lang = detect_language(body.goal)
+    if detected_lang not in ("en", "pt"):
+        detected_lang = "en"
 
-    if detected_lang != "en":
+    # Override lang with detected value from goal text if not explicitly set
+    if not body.language:
+        lang = detected_lang
+
+    if detected_lang not in ("en", "pt"):
         msg = (
-            "I'm sorry, but I currently only understand English. "
-            "Please rephrase your question in English so I can analyze your data accurately."
+            "I'm sorry, but I currently only support English and Portuguese. "
+            "Please rephrase your question in one of those languages."
         )
-        # Construct a "blocked" response manually to fit DashboardPlanResponse schema
         return DashboardPlanResponse(
-            dashboard_name="English Only Support",
+            dashboard_name="Unsupported Language",
             title="Language Not Supported",
-            description="Please use English for your queries.",
+            description="Please use English or Portuguese for your queries.",
             widgets=[
                 DashboardPlanWidget(
                     widget_key="lang_block_1",
@@ -2075,8 +2085,8 @@ async def dashboards_plan(
             },
             full_results={
                 "verdict": msg,
-                "diagnostic": f"Detected language: {detected_lang}. System requires English.",
-                "execution": "Please rephrase in English.",
+                "diagnostic": f"Detected language: {detected_lang}. Only EN and PT are supported.",
+                "execution": "Please rephrase in English or Portuguese.",
             },
         )
     logical_tables: list[str] = []
@@ -2375,7 +2385,7 @@ async def dashboards_plan(
             generate_dashboard_plan,
             llm=llm,
             goal=body.goal,
-            # language=lang,  <-- REMOVED per user request (English Only enforcement)
+            language=lang,
             max_widgets=body.max_widgets,
             logical_tables=logical_tables,
             schema_summary=schema_summary,
@@ -3404,10 +3414,14 @@ async def _query_connection_inner(
             ),
         )
 
-    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-    if lang != "en":
-        # Log the blocked attempt (with safety wrapper)
+    # ✅ LANGUAGE GUARDRAIL (EN + PT) — locale-aware + mensagem bilíngue.
+    # A estabilidade por thread é aplicada de forma autoritativa no orchestrator;
+    # aqui só bloqueamos o caso claro: sem locale + detecção confiante de idioma
+    # não suportado. Um locale suportado evita o bloqueio.
+    _blocked, _ = language_decision(
+        body.question or "", locale=getattr(body, "locale", None)
+    )
+    if _blocked:
         try:
             log_event(
                 "query_blocked_language",
@@ -3419,11 +3433,10 @@ async def _query_connection_inner(
                 },
             )
         except Exception:
-            pass  # Fail safe log
+            pass
 
-        # Friendly blocking message
         return QueryResponse(
-            answer="I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!",
+            answer=unsupported_language_message(),
             data_sample=[],
             meta=QueryResultMeta(
                 detected_language=lang,
@@ -3538,7 +3551,7 @@ async def _query_connection_inner(
                 generate_dashboard_plan,
                 llm=llm,
                 goal=body.question,  # Use question as goal
-                language="en",
+                language=lang,
                 max_widgets=8,  # Default to 8 widgets for direct requests
                 logical_tables=logical_tables,
                 schema_summary=schema_summary,
@@ -3563,17 +3576,22 @@ async def _query_connection_inner(
             )
 
             # Format dashboard plan as answer (frontend will handle rendering)
-            # Option: Fluid & Modern (English)
-            loading_message = (
-                f'Your dashboard "{plan.dashboard_name}" is being created.\n\n'
-                f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
-            )
+            if lang == "pt":
+                loading_message = (
+                    f'Seu dashboard "{plan.dashboard_name}" está sendo criado.\n\n'
+                    f"Estamos analisando os dados para gerar {len(plan.widgets)} insights relevantes — isso levará apenas um momento."
+                )
+            else:
+                loading_message = (
+                    f'Your dashboard "{plan.dashboard_name}" is being created.\n\n'
+                    f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
+                )
 
             return QueryResponse(
                 answer=loading_message,
                 data_sample=[],
                 meta=QueryResultMeta(
-                    detected_language="en",
+                    detected_language=lang,
                     chosen_table=None,
                     chosen_datasets=None,
                     sql=None,
@@ -4077,7 +4095,7 @@ async def _query_connection_inner(
         crew_ids=crew_ids,
         platform_role=getattr(body, "platform_role", None) or "user",
         crew_role=getattr(body, "crew_role", None) or "guest",
-        locale=getattr(body, "locale", None) or "en",
+        locale=getattr(body, "locale", None),
         permissions=getattr(body, "permissions", None) or [],
         # security_config removed (not in UserContext schema)
     )
@@ -4740,8 +4758,13 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-        if lang != "en":
+        # ✅ LANGUAGE GUARDRAIL (EN + PT) — locale-aware + mensagem bilíngue.
+        # A estabilidade por thread é aplicada no orchestrator; aqui só bloqueamos
+        # o caso claro (sem locale + detecção confiante de idioma não suportado).
+        _blocked, _ = language_decision(
+            body.question or "", locale=getattr(body, "locale", None)
+        )
+        if _blocked:
             try:
                 log_event(
                     "stream_blocked_language",
@@ -4755,11 +4778,10 @@ async def _stream_connection_query(
             except Exception:
                 pass
 
-            error_msg = "I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!"
+            error_msg = unsupported_language_message()
 
-            # Send error message as a normal "answer" chunk so client displays it
             yield f"data: {json.dumps({'type': 'answer', 'text': error_msg})}\n\n"
-            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
@@ -5251,6 +5273,10 @@ async def _stream_connection_query(
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
             stats_text = _compute_basic_stats(raw_sample)
 
+            _stream_lang = detected_language if detected_language in ("en", "pt") else "en"
+            _stream_lang_name = "Portuguese" if _stream_lang == "pt" else "English"
+            _insufficient_msg = "Dados insuficientes para responder esta pergunta." if _stream_lang == "pt" else "Insufficient data to answer this question."
+
             system_msg = {
                 "role": "system",
                 "content": (
@@ -5266,11 +5292,11 @@ async def _stream_connection_query(
                     "- Mention table names, column names, or database structure\n\n"
                     "YOU MUST:\n"
                     "- Only use the data provided in the results\n"
-                    "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
-                    "- If data is insufficient, say 'Insufficient data to answer this question'\n"
+                    f"- Answer ONLY in {_stream_lang_name} - THIS IS A STRICT REQUIREMENT\n"
+                    f"- If data is insufficient, say '{_insufficient_msg}'\n"
                     "- Keep the answer concise and objective (maximum 4 sentences)\n\n"
-                    "CRITICAL LANGUAGE REQUIREMENT:\n"
-                    "- You MUST answer in English, even if the user question is in another language.\n"
+                    f"CRITICAL LANGUAGE REQUIREMENT:\n"
+                    f"- You MUST answer in {_stream_lang_name}, matching the user's language.\n"
                 ),
             }
 
@@ -5282,8 +5308,8 @@ async def _stream_connection_query(
                     f"{stats_text}\n\n"
                     "Sample of the data (up to 15 rows, JSON):\n"
                     f"{sample_json}\n\n"
-                    "Explain the main insight(s) from this data in a concise way, "
-                    "in English."
+                    f"Explain the main insight(s) from this data in a concise way, "
+                    f"in {_stream_lang_name}."
                 ),
             }
 
@@ -5767,13 +5793,17 @@ async def validate_sql(
                     stats_text = _compute_basic_stats(data_sample)
 
                     # 2. Criar contexto do sistema
+                    _expl_lang = detect_language(body.question or "") if (body.question or "") else "en"
+                    if _expl_lang not in ("en", "pt"):
+                        _expl_lang = "en"
+                    _expl_lang_name = "Portuguese" if _expl_lang == "pt" else "English"
                     system_msg = {
                         "role": "system",
                         "content": (
                             "You are a data analyst helper.\n"
                             "Your job is to explain the query results clearly and concisely.\n\n"
                             "RULES:\n"
-                            "- Answer in English (always).\n"
+                            f"- Answer in {_expl_lang_name} (always).\n"
                             "- Use the provided data sample to derive insights.\n"
                             "- Keep it short (max 3 sentences).\n"
                             "- Start directly with the insight (e.g. 'The data shows that...').\n"
