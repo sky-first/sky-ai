@@ -1215,6 +1215,57 @@ def build_generic_sql_graph(
     # ── Build the Graph ────────────────────────────────────
     graph = StateGraph(AgentState)
 
+    # ── Reset node: zero every field that is NOT explicitly durable ──
+    # Strategy: keep-list instead of clear-list.  We enumerate the small set
+    # of fields that SHOULD survive across turns; everything else is zeroed.
+    # This way a new ephemeral field added to AgentState is safe by default —
+    # it starts clean every turn without requiring anyone to remember to add
+    # it to a clean-up list.
+    #
+    # Durable fields (survive the turn):
+    #   question, user_id, space_id, crew_ids, tenant_slug,
+    #   tenant_bedrock_profile_arn, platform_role, crew_role, locale,
+    #   permissions, last_suggestions, chat_history, instructions,
+    #   creativity, length, response_format, ai_tone, ai_style,
+    #   sql_instructions, selected_datasets, explicit_relationships,
+    #   agent_mode, brain_context, brain_doc_ids, brain_doc_kinds,
+    #   context_intent, selected_context
+    _DURABLE: set = {
+        "question",
+        "user_id",
+        "space_id",
+        "crew_ids",
+        "tenant_slug",
+        "tenant_bedrock_profile_arn",
+        "platform_role",
+        "crew_role",
+        "locale",
+        "permissions",
+        "last_suggestions",
+        "chat_history",
+        "instructions",
+        "creativity",
+        "length",
+        "response_format",
+        "ai_tone",
+        "ai_style",
+        "sql_instructions",
+        "selected_datasets",
+        "explicit_relationships",
+        "agent_mode",
+        "brain_context",
+        "brain_doc_ids",
+        "brain_doc_kinds",
+        "context_intent",
+        "selected_context",
+    }
+
+    def reset_ephemeral(state: AgentState) -> dict:
+        """Zero every AgentState field that is not in _DURABLE."""
+        return {k: None for k in AgentState.__annotations__ if k not in _DURABLE}
+
+    graph.add_node("reset_ephemeral", reset_ephemeral)
+
     # Register all nodes
     graph.add_node("intent_classifier", intent_classifier_node)
     graph.add_node("full_context", full_context_node)
@@ -1259,8 +1310,9 @@ def build_generic_sql_graph(
             return "parallel_specialist"
         return "specialist"
 
-    # Entry point: always classify intent first
-    graph.set_entry_point("intent_classifier")
+    # Entry point: reset ephemeral state first, then classify intent
+    graph.set_entry_point("reset_ephemeral")
+    graph.add_edge("reset_ephemeral", "intent_classifier")
 
     # Intent classifier always feeds into the brain — every specialist
     # then gets the same evidence blend to work from.
@@ -1387,11 +1439,14 @@ def run_agent_once(
     Isso é o que sua API vai chamar dentro de uma rota.
     """
     if thread_id is None:
-        # você pode usar algo do user_ctx, ou gerar uuid, etc.
-        user_id = getattr(user_ctx, "user_id", None)
-        if not user_id and hasattr(user_ctx, "user") and user_ctx.user:
-            user_id = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
-        thread_id = f"{user_id or 'anon'}-{agent_config.id}"
+        # No conversation_id supplied → this is a one-off query, not part of
+        # an ongoing thread.  Generate a fresh UUID so the LangGraph checkpointer
+        # never loads stale working-state (sql / answer / data) from a previous
+        # unrelated invocation.  Conversation continuity is provided by
+        # chat_history loaded from the DB, not by checkpoint reuse.
+        import uuid as _uuid
+
+        thread_id = str(_uuid.uuid4())
 
     # Extrair informações do user_ctx
     user_id_str = getattr(user_ctx, "user_id", None)

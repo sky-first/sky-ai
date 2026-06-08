@@ -176,6 +176,15 @@ class QueryResponse(BaseModel):
         description="Sample of returned data (max 15 rows).",
     )
     meta: QueryResultMeta
+    # The conversation thread ID used for this request.  Clients MUST echo
+    # this value as thread_id in follow-up requests to keep multi-turn
+    # context alive.  When the request included a thread_id it is returned
+    # unchanged; when it was absent the server generated a UUID and returns
+    # it here so the first reply can seed the follow-up chain.
+    thread_id: Optional[str] = Field(
+        default=None,
+        description="Conversation thread ID. Echo this in the next request to continue the conversation.",
+    )
     recommended_widget_type: Optional[str] = Field(
         default=None,
         description="Suggested widget type (kpi/chart/table/text). Populated when response_format is present.",

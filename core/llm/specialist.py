@@ -611,17 +611,17 @@ def run_specialist(
         "- DO NOT use a single SELECT with multiple JOINs and SUMs unless you are 100% sure the relationship is 1:1.\n"
     )
 
-    # Se o orchestrator já respondeu (ex: modo catálogo/metadata), não gerar SQL.
-    # Se o orchestrator já respondeu (ex: modo catálogo/metadata) ou marcou como impossível, não gerar SQL.
-    if state.get("answer") or state.get("impossible_reason"):
+    # Skip specialist only when the orchestrator explicitly set an answer OR
+    # marked the question as impossible in THIS turn.  Stale values from a
+    # previous checkpoint turn can no longer reach here because reset_ephemeral
+    # zeroes answer/impossible_reason at the graph entry on every invocation.
+    if state.get("impossible_reason"):
         log_event(
             "specialist_skipped",
             {
                 "agent_id": agent_config.id,
                 "question": question[:200],
-                "has_answer": bool(state.get("answer")),
-                "has_impossible": bool(state.get("impossible_reason")),
-                "reason": state.get("impossible_reason") or "Pre-answered",
+                "reason": state.get("impossible_reason"),
             },
         )
         return state
