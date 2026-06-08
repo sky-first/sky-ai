@@ -70,8 +70,7 @@ NEW_FUNCTION_CODE = r'''def generate_dashboard_plan(
     mode = validate_mode(mode) if mode else "mix"
     config = MODE_CONFIG[mode]
     
-    # Force English only
-    language = "en"
+    # language is passed by the caller (en or pt)
 
     if not logical_tables:
         try:

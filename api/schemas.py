@@ -34,6 +34,10 @@ class QueryRequest(BaseModel):
         default=False,
         description="Indicates if query is in personal mode, granting access to all user's crews and spaces.",
     )
+    locale: Optional[str] = Field(
+        default=None,
+        description="User/platform language preference (e.g. 'en', 'pt', 'pt-BR'). When provided and supported, it takes priority over statistical language detection. When omitted, the response language is detected from the conversation.",
+    )
     # AI Behavior Configuration
     instructions: Optional[str] = Field(
         default=None, description="General instructions on how the AI should behave."

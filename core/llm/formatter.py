@@ -367,6 +367,7 @@ def run_formatter(
         extra_instructions=state.get("instructions"),
         ai_tone=state.get("ai_tone"),
         ai_style=state.get("ai_style"),
+        detected_language=lang,
     )
 
     try:

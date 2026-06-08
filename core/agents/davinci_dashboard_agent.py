@@ -1817,7 +1817,7 @@ def generate_dashboard_plan(
         f"Today is {datetime.utcnow().strftime('%Y-%m-%d')}.\n"
         "Your goal is to generate a comprehensive, coherent dashboard plan.\n"
         "Think like a Senior Data Analyst: Start with the most important numbers, then explain 'Why' (Diagnostics), then look forward (Predictive).\n"
-        "IMPORTANT: You must ALWAYS respond in English, regardless of the user's input language. If the user asks in Portuguese or Spanish, you must still answer in English.\n"
+        "IMPORTANT: You must respond in the same language as the user's input. If the user writes in Portuguese, respond in Portuguese. If in English, respond in English.\n"
     )
 
     # Context String

@@ -61,6 +61,7 @@ def build_formatter_prompt(
     extra_instructions: Optional[str] = None,
     ai_tone: Optional[str] = None,
     ai_style: Optional[str] = None,
+    detected_language: Optional[str] = None,
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Build formatter prompt optimized for both OpenAI and local models.
@@ -145,6 +146,10 @@ def build_formatter_prompt(
             "- Clearly distinguish between gross volume and net settlement.\n"
         )
 
+    # Resolve response language
+    _lang = detected_language if detected_language in ("en", "pt") else "en"
+    _lang_name = "Portuguese" if _lang == "pt" else "English"
+
     # SYSTEM PROMPT: Behavior definition
     # Precedence reminder for the LLM: user prefs (form) > role style (tone),
     # but role still drives substance/focus.
@@ -154,7 +159,7 @@ def build_formatter_prompt(
             "You are a data response narrator.\n"
             "Your ONLY job: translate query results into natural language.\n\n"
             "CRITICAL RULES (NON-NEGOTIABLE):\n"
-            "1. Answer ONLY in English (Strict Requirement).\n"
+            f"1. Answer ONLY in {_lang_name} (Strict Requirement).\n"
             "2. DO NOT mention SQL, tables, columns, or technical database terms.\n"
             "3. DO NOT hallucinate beyond provided data.\n"
             "4. NEVER output raw data rows, lists of names, or CSV format.\n"
@@ -179,7 +184,7 @@ def build_formatter_prompt(
                 f"STATUS: This request cannot be fulfilled via a database query.\n"
                 f"REASON: {impossible_reason}\n\n"
                 "Check the BUSINESS CONTEXT provided above. If the answer is available there (e.g. strategic pillars), "
-                "answer the question in English using that information. If not, explain concisely why it cannot be answered."
+                f"answer the question in {_lang_name} using that information. If not, explain concisely why it cannot be answered."
             ),
         }
     elif not has_data:
@@ -201,7 +206,7 @@ def build_formatter_prompt(
                 f"QUESTION: {question}\n\n"
                 f"DATA PREVIEW:\n{data_preview}\n\n"
                 f"{stats_summary if stats_summary else ''}\n\n"
-                "Explain the main insight(s) from this data. Answer ONLY in English."
+                f"Explain the main insight(s) from this data. Answer ONLY in {_lang_name}."
             ),
         }
 
@@ -216,13 +221,16 @@ def build_formatter_prompt_legacy(
 
     Used when context_bundle is disabled.
     """
+    _leg_lang = detected_language if detected_language in ("en", "pt") else "en"
+    _leg_lang_name = "Portuguese" if _leg_lang == "pt" else "English"
+
     system_msg = {
         "role": "system",
         "content": (
             "You are a data analysis assistant. Your job is to take SQL query results "
             "and present them in natural, conversational language.\n\n"
             "Rules:\n"
-            "- Answer ONLY in English (even if the question is in another language)\n"
+            f"- Answer ONLY in {_leg_lang_name}\n"
             "- Be professional but friendly\n"
             "- Reference actual numbers from the data\n"
             "- Do not hallucinate or make up information\n"
@@ -237,8 +245,8 @@ def build_formatter_prompt_legacy(
             f"User question: {question}\n\n"
             f"SQL query executed: {sql}\n\n"
             f"Query results:\n{data_preview}\n\n"
-            "Please answer the user's question based on this data. "
-            "Provide a clear, conversational response in English."
+            f"Please answer the user's question based on this data. "
+            f"Provide a clear, conversational response in {_leg_lang_name}."
         ),
     }
 

@@ -1409,7 +1409,7 @@ def run_agent_once(
     # Extract new fields from UserContext
     platform_role = getattr(user_ctx, "platform_role", "user")
     crew_role = getattr(user_ctx, "crew_role", "guest")
-    locale = getattr(user_ctx, "locale", "en")
+    locale = getattr(user_ctx, "locale", None)
     permissions = getattr(user_ctx, "permissions", []) or []
 
     # Estado inicial

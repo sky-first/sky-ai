@@ -59,7 +59,7 @@ def build_context_bundle(
         is_personal=state.get("is_personal", False),
         platform_role=state.get("platform_role", "user"),
         crew_role=state.get("crew_role", "guest"),
-        locale=state.get("locale", "en"),
+        locale=state.get("locale") or "en",
         role_label=state.get("role_label"),
     )
 
