@@ -299,6 +299,16 @@ class SemanticCacheRecord(Base):
     # Full serialized QueryResponse Dict
     response_json = Column(JSON, nullable=False)
 
+    # Response language — part of the cache key so that an EN-cached answer
+    # is never served back for a PT request (same question, different locale).
+    # Defaults to "en" for backward-compat rows (old rows are version=0 and
+    # will never be matched because the lookup filters cache_version=1).
+    locale = Column(String(10), nullable=False, server_default="en")
+
+    # Bump this when the key schema changes.  Old rows keep version=0 and are
+    # silently ignored by all lookups, avoiding stale-cache bugs after deploys.
+    cache_version = Column(Integer, nullable=False, server_default="1")
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

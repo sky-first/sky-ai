@@ -71,6 +71,7 @@ from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
 from core.i18n.i18n import (
+    _normalize_lang_code,
     detect_language,
     get_message,
     language_decision,
@@ -3149,6 +3150,28 @@ async def query_connection(
                 # Exactly one crew = strict collaborative mode; use it for cache isolation
                 active_cache_crew = body_crew_ids[0]
 
+            # Resolve the request locale for cache lookup.
+            # locale is a categorical dimension — pre-filter in WHERE (not
+            # post-retrieval Python) so a valid PT hit is never shadowed by
+            # an EN hit that ranks higher in vector similarity.
+            #
+            # We use resolve_language (same logic as the orchestrator) instead
+            # of a plain `body.locale or "en"` fallback.  Plain fallback breaks
+            # when body.locale is None and the question is in PT:
+            #   body.locale=None + PT question → fallback="en", but
+            #   orchestrator detects "pt" → response generated in PT →
+            #   stored under "en" → next EN request with locale="en" hits
+            #   the PT response.  resolve_language sees no locale and detects
+            #   "pt" from the question text — same prediction the orchestrator
+            #   will make — so store key and generated language agree.
+            from core.i18n.i18n import resolve_language as _resolve_lang
+
+            request_locale = _resolve_lang(
+                body.question or "",
+                locale=getattr(body, "locale", None),
+            )
+            _CACHE_VERSION = 1  # bump when key schema changes; old rows keep 0
+
             if active_cache_crew:
                 # Collaborative: match records cached for this specific crew.
                 # Personal rows (user_id IS NOT NULL) must NOT surface here —
@@ -3160,6 +3183,8 @@ async def query_connection(
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id = :crew_id
                     AND user_id IS NULL
+                    AND locale = :locale
+                    AND cache_version = :cache_version
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3171,6 +3196,8 @@ async def query_connection(
                         "conn_id": connection_id,
                         "space_id": body.space_id,
                         "crew_id": active_cache_crew,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
                     },
                 )
             elif is_personal_cache and cache_user_id:
@@ -3182,6 +3209,8 @@ async def query_connection(
                     FROM semantic_cache
                     WHERE connection_id = :conn_id
                     AND user_id = :user_id
+                    AND locale = :locale
+                    AND cache_version = :cache_version
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3192,12 +3221,12 @@ async def query_connection(
                         "query_emb": str(query_embedding),
                         "conn_id": connection_id,
                         "user_id": cache_user_id,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
                     },
                 )
             else:
                 # Space mode (no crew, no user): only rows without owner/crew.
-                # Keeps backward-compatibility for legacy callers that
-                # don't pass user_id.
                 sql_stmt = """
                     SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
                     FROM semantic_cache
@@ -3205,6 +3234,8 @@ async def query_connection(
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id IS NULL
                     AND user_id IS NULL
+                    AND locale = :locale
+                    AND cache_version = :cache_version
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3215,6 +3246,8 @@ async def query_connection(
                         "query_emb": str(query_embedding),
                         "conn_id": connection_id,
                         "space_id": body.space_id,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
                     },
                 )
 
@@ -3263,10 +3296,21 @@ async def query_connection(
             and response.meta
             and getattr(response.meta, "error", None) is None
         ):
-            # We don't cache errors from security/language blocks
-            if response.answer and not response.answer.startswith(
-                "I'm sorry, but I only support questions"
-            ):
+            # We don't cache errors from security/language blocks.
+            # Store and lookup MUST use the same locale source: the request's
+            # target locale (body.locale).  Using detected_language here would
+            # create a store/lookup asymmetry — e.g. body.locale=en + PT question
+            # → detected=pt → stored under "pt", but next lookup with body.locale=en
+            # searches under "en" → eternal miss.  The cache key is the intent
+            # (what language the user WANTS the answer in), not the input language.
+            _store_locale = (
+                request_locale  # same variable used in all three lookups above
+            )
+            _is_blocked = response.answer and (
+                "I'm sorry, but I only support questions" in response.answer
+                or unsupported_language_message()[:30] in response.answer
+            )
+            if response.answer and not _is_blocked:
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
@@ -3278,6 +3322,8 @@ async def query_connection(
                     question=body.question,
                     embedding=query_embedding,
                     response_json=response.model_dump(mode="json"),
+                    locale=_store_locale,
+                    cache_version=1,
                 )
                 db.add(cache_record)
                 await db.commit()
@@ -4721,6 +4767,12 @@ async def _query_connection_inner(
             _scan_silent if getattr(body, "agent_mode", None) == "scan" else None
         ),
         scan_insight_title=_scan_insight_title,
+        # Echo the thread_id so the client can send it back on the next turn
+        # to continue the conversation.  When the request had no thread_id the
+        # server generated a UUID (run_agent_once) — returning it here lets the
+        # frontend seed the follow-up chain without breaking backward-compat
+        # (field is Optional, old clients safely ignore it).
+        thread_id=query_thread_id,
     )
 
 
