@@ -46,49 +46,123 @@ def get_message(key: str, lang: str = "en", **kwargs: Any) -> str:
 
 logger = logging.getLogger("dataassistant.i18n")
 
-# Languages the system supports. Any detected language outside this set
-# falls back to "en". Adding a new language here is the only change needed.
+# Languages the system supports. Adding a new language here is the only
+# change needed at the i18n layer.
 SUPPORTED_LANGUAGES = {"en", "pt"}
 
-# Minimum confidence from langdetect to trust the result. Below this
-# threshold (or for texts too short to be reliable) we fall back to "en".
-_CONFIDENCE_THRESHOLD = 0.70
+# Minimum confidence (0–1) for the gatekeeper detector to trust a result.
+# Below this threshold the text is considered ambiguous and we don't block.
+_CONFIDENCE_THRESHOLD = 0.50
+
+# Minimum text length to attempt detection. Shorter texts are too ambiguous.
 _MIN_TEXT_LENGTH = 8
+
+# ---------------------------------------------------------------------------
+# Lingua detectors — initialised once at import time (thread-safe, read-only).
+#
+# Two detectors, two jobs:
+#   _DETECTOR_ALL      — knows all 75 languages. Used by detect_language() so
+#                        the gatekeeper can identify clearly unsupported ones
+#                        (FR/ES/DE). Low-confidence results fall back to "en"
+#                        so jargon-heavy PT questions are never wrongly blocked.
+#
+#   _DETECTOR_BILINGUAL — knows only EN and PT. Used by resolve_language() to
+#                        pick the response language. Always returns one of the
+#                        two, even for short or jargon-mixed text, which fixes
+#                        the code-switching false-positives langdetect had.
+# ---------------------------------------------------------------------------
+try:
+    from lingua import Language, LanguageDetectorBuilder  # type: ignore
+
+    _DETECTOR_ALL = (
+        LanguageDetectorBuilder
+        .from_all_languages()
+        .with_minimum_relative_distance(0.0)
+        .build()
+    )
+
+    _DETECTOR_BILINGUAL = (
+        LanguageDetectorBuilder
+        .from_languages(Language.ENGLISH, Language.PORTUGUESE)
+        .build()
+    )
+
+    _LINGUA_AVAILABLE = True
+except Exception:
+    _DETECTOR_ALL = None
+    _DETECTOR_BILINGUAL = None
+    _LINGUA_AVAILABLE = False
+
+
+def _lingua_lang_code(language) -> str:
+    """Convert a lingua Language enum to a lowercase BCP-47 base tag."""
+    if language is None:
+        return "en"
+    name = str(language)  # e.g. "Language.PORTUGUESE"
+    base = name.split(".")[-1].lower()  # "portuguese"
+    _MAP = {"portuguese": "pt", "english": "en"}
+    return _MAP.get(base, base[:2])
 
 
 def detect_language(text: str) -> str:
     """
-    Detects the language of *text* using langdetect (55+ languages).
+    Detects the language of *text* (gatekeeper use).
 
     Returns the raw BCP-47 language code (e.g. "en", "pt", "es", "fr").
-    Falls back to "en" only when the text is too short or confidence is low.
-    Unsupported languages are returned as-is so gatekeepers can block them
-    with an explicit message instead of silently answering in English.
+    Falls back to "en" when the text is too short or detection confidence
+    is below the threshold — so jargon-heavy or short messages are never
+    wrongly blocked.
+
+    Uses lingua's all-language detector for high accuracy on unsupported
+    languages (FR/ES/DE detected at 96-100% confidence).
     """
     if not text or len(text.strip()) < _MIN_TEXT_LENGTH:
         return "en"
 
     try:
-        from langdetect import detect_langs, LangDetectException  # type: ignore
+        if _LINGUA_AVAILABLE and _DETECTOR_ALL is not None:
+            values = _DETECTOR_ALL.compute_language_confidence_values(text)
+            if not values:
+                return "en"
+            top = values[0]
+            if top.value < _CONFIDENCE_THRESHOLD:
+                return "en"
+            return _lingua_lang_code(top.language)
 
+        # Fallback: langdetect (kept as safety net if lingua unavailable)
+        from langdetect import detect_langs  # type: ignore
+        from langdetect import DetectorFactory
+        DetectorFactory.seed = 0
         results = detect_langs(text)
-        if not results:
+        if not results or results[0].prob < 0.70:
             return "en"
+        lang = results[0].lang
+        return "pt" if lang.startswith("pt") else lang
 
-        top = results[0]
-        lang = top.lang  # e.g. "pt", "en", "es", "fr" …
+    except Exception:
+        return "en"
 
-        if top.prob < _CONFIDENCE_THRESHOLD:
-            return "en"
 
-        # Normalise pt-br / pt-pt → "pt"
-        if lang.startswith("pt"):
-            return "pt"
+def _detect_bilingual(text: str) -> str:
+    """
+    Picks the response language (EN or PT) for a given text.
 
-        # Return the real detected code — callers decide whether to support it.
-        # Unsupported languages are NOT silently remapped to "en" here so that
-        # gatekeepers can surface a proper "language not supported" message.
-        return lang
+    Uses lingua's bilingual detector (trained only on EN+PT) so it always
+    returns one of the two languages — even for short or jargon-mixed text.
+    This fixes code-switching false-positives where langdetect would return
+    'es' or 'fr' for valid PT business questions with English loanwords.
+    """
+    if not text or len(text.strip()) < _MIN_TEXT_LENGTH:
+        return "en"
+
+    try:
+        if _LINGUA_AVAILABLE and _DETECTOR_BILINGUAL is not None:
+            lang = _DETECTOR_BILINGUAL.detect_language_of(text)
+            return _lingua_lang_code(lang)
+
+        # Fallback to gatekeeper detector
+        detected = detect_language(text)
+        return detected if detected in SUPPORTED_LANGUAGES else "en"
 
     except Exception:
         return "en"
@@ -133,7 +207,8 @@ def resolve_language(
         if norm in SUPPORTED_LANGUAGES:
             return norm
 
-    detected = detect_language(question or "")
+    # Use the bilingual detector: always returns EN or PT, handles jargon well.
+    detected = _detect_bilingual(question or "")
     if detected in SUPPORTED_LANGUAGES:
         return detected
 
@@ -181,11 +256,18 @@ def language_decision(
         if norm in SUPPORTED_LANGUAGES:
             return False, norm
 
-    detected = detect_language(question or "")
-    if detected in SUPPORTED_LANGUAGES:
-        return False, detected
+    # Step 1 — gatekeeper: use the all-language detector to check if the
+    # question is *confidently* in an unsupported language (FR/ES/DE…).
+    # Low-confidence results (jargon, loanwords) fall back to "en" in
+    # detect_language(), so they are never wrongly blocked.
+    raw = detect_language(question or "")
+    if raw not in SUPPORTED_LANGUAGES:
+        return True, "en"
 
-    return True, "en"
+    # Step 2 — response language: use the bilingual detector (EN+PT only).
+    # It always picks one of the two, handling code-switching correctly.
+    response_lang = _detect_bilingual(question or "")
+    return False, response_lang
 
 
 def thread_language_from_history(
@@ -212,7 +294,7 @@ def thread_language_from_history(
         content = (msg.get("content") or "").strip()
         if len(content) < _MIN_TEXT_LENGTH:
             continue
-        detected = detect_language(content)
+        detected = _detect_bilingual(content)
         if detected in SUPPORTED_LANGUAGES:
             return detected
 
