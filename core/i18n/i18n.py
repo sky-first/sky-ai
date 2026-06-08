@@ -75,17 +75,14 @@ try:
     from lingua import Language, LanguageDetectorBuilder  # type: ignore
 
     _DETECTOR_ALL = (
-        LanguageDetectorBuilder
-        .from_all_languages()
+        LanguageDetectorBuilder.from_all_languages()
         .with_minimum_relative_distance(0.0)
         .build()
     )
 
-    _DETECTOR_BILINGUAL = (
-        LanguageDetectorBuilder
-        .from_languages(Language.ENGLISH, Language.PORTUGUESE)
-        .build()
-    )
+    _DETECTOR_BILINGUAL = LanguageDetectorBuilder.from_languages(
+        Language.ENGLISH, Language.PORTUGUESE
+    ).build()
 
     _LINGUA_AVAILABLE = True
 except Exception:
@@ -132,6 +129,7 @@ def detect_language(text: str) -> str:
         # Fallback: langdetect (kept as safety net if lingua unavailable)
         from langdetect import detect_langs  # type: ignore
         from langdetect import DetectorFactory
+
         DetectorFactory.seed = 0
         results = detect_langs(text)
         if not results or results[0].prob < 0.70:

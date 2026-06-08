@@ -350,14 +350,18 @@ def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
     # SECURITY: do not enumerate schema/tables from the orchestrator.
     if lang == "pt":
         return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
-    return "I can't help with that request. Please rephrase your question about your data."
+    return (
+        "I can't help with that request. Please rephrase your question about your data."
+    )
 
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
     # SECURITY: do not enumerate columns from the orchestrator.
     if lang == "pt":
         return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
-    return "I can't help with that request. Please rephrase your question about your data."
+    return (
+        "I can't help with that request. Please rephrase your question about your data."
+    )
 
 
 def _format_catalog_capabilities(lang: str) -> str:
@@ -391,9 +395,7 @@ def _detect_confirmation(
     if q in _OBVIOUS_AFFIRMATIONS:
         return True, 0
 
-    suggestions_text = "\n".join(
-        f"{i + 1}. {s}" for i, s in enumerate(suggestions)
-    )
+    suggestions_text = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(suggestions))
     system_msg = {
         "role": "system",
         "content": (
@@ -408,8 +410,7 @@ def _detect_confirmation(
     user_msg = {
         "role": "user",
         "content": (
-            f"Suggestions:\n{suggestions_text}\n\n"
-            f'User message: "{message}"'
+            f"Suggestions:\n{suggestions_text}\n\n" f'User message: "{message}"'
         ),
     }
 
@@ -420,6 +421,7 @@ def _detect_confirmation(
         if not parsed:
             return False, -1
         import json
+
         data = json.loads(parsed.group())
         is_conf = bool(data.get("is_confirmation", False))
         idx = data.get("chosen_index")

@@ -5273,9 +5273,15 @@ async def _stream_connection_query(
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
             stats_text = _compute_basic_stats(raw_sample)
 
-            _stream_lang = detected_language if detected_language in ("en", "pt") else "en"
+            _stream_lang = (
+                detected_language if detected_language in ("en", "pt") else "en"
+            )
             _stream_lang_name = "Portuguese" if _stream_lang == "pt" else "English"
-            _insufficient_msg = "Dados insuficientes para responder esta pergunta." if _stream_lang == "pt" else "Insufficient data to answer this question."
+            _insufficient_msg = (
+                "Dados insuficientes para responder esta pergunta."
+                if _stream_lang == "pt"
+                else "Insufficient data to answer this question."
+            )
 
             system_msg = {
                 "role": "system",
@@ -5793,7 +5799,11 @@ async def validate_sql(
                     stats_text = _compute_basic_stats(data_sample)
 
                     # 2. Criar contexto do sistema
-                    _expl_lang = detect_language(body.question or "") if (body.question or "") else "en"
+                    _expl_lang = (
+                        detect_language(body.question or "")
+                        if (body.question or "")
+                        else "en"
+                    )
                     if _expl_lang not in ("en", "pt"):
                         _expl_lang = "en"
                     _expl_lang_name = "Portuguese" if _expl_lang == "pt" else "English"
