@@ -3119,6 +3119,78 @@ async def load_agent_config_from_connection(
     return agent
 
 
+def resolve_temporal_bucket(question: str) -> str:
+    """
+    Resolves relative temporal expressions in the question to an absolute period string.
+
+    Returns "absoluto" when the question has no relative temporal keyword — meaning
+    it is safe to serve the same cached answer regardless of when it was stored.
+
+    Examples (today = 2026-06-09):
+      "faturas deste ano"      → "2026"
+      "vendas do último mês"   → "2026-05"
+      "this quarter"           → "2026-Q2"
+      "last week"              → "2026-W23"
+      "faturas de janeiro 2024"→ "absoluto"  (absolute date — safe to share)
+      "total de clientes"      → "absoluto"
+    """
+    import re
+    from datetime import date, timedelta
+
+    q = question.lower()
+    today = date.today()
+    y, m = today.year, today.month
+    quarter = (m - 1) // 3 + 1
+
+    # Year — includes contractions "deste ano", "neste ano"
+    if re.search(r'\b(?:(?:d?este|neste)\s+ano|esse\s+ano|this\s+year|ano\s+atual|current\s+year)\b', q):
+        return str(y)
+    if re.search(r'\b(ano passado|último ano|last year|previous year)\b', q):
+        return str(y - 1)
+
+    # Quarter — includes contractions "deste trimestre", "neste trimestre"
+    if re.search(r'\b(?:(?:d?este|neste)\s+trimestre|esse\s+trimestre|this\s+quarter|trimestre\s+atual|current\s+quarter)\b', q):
+        return f"{y}-Q{quarter}"
+    if re.search(r'\b(trimestre passado|último trimestre|last quarter|previous quarter)\b', q):
+        prev_q = quarter - 1 if quarter > 1 else 4
+        prev_y = y if quarter > 1 else y - 1
+        return f"{prev_y}-Q{prev_q}"
+
+    # Month — includes contractions "deste mês", "neste mês"
+    if re.search(r'\b(?:(?:d?este|neste)\s+m[êe]s|esse\s+m[êe]s|this\s+month|m[êe]s\s+atual|current\s+month)\b', q):
+        return f"{y}-{m:02d}"
+    if re.search(r'\b(mês passado|último mês|last month|previous month)\b', q):
+        prev_m = m - 1 if m > 1 else 12
+        prev_y = y if m > 1 else y - 1
+        return f"{prev_y}-{prev_m:02d}"
+
+    # Week — includes contractions "desta semana", "nesta semana"
+    iso_week = today.isocalendar()[1]
+    if re.search(r'\b(?:(?:d?esta|nesta)\s+semana|essa\s+semana|this\s+week|semana\s+atual|current\s+week)\b', q):
+        return f"{y}-W{iso_week:02d}"
+    if re.search(r'\b(semana passada|última semana|last week|previous week)\b', q):
+        prev = today - timedelta(weeks=1)
+        pw_y, pw_w, _ = prev.isocalendar()
+        return f"{pw_y}-W{pw_w:02d}"
+
+    # Day
+    if re.search(r'\b(hoje|today|dia de hoje|current day)\b', q):
+        return str(today)
+    if re.search(r'\b(ontem|yesterday)\b', q):
+        return str(today - timedelta(days=1))
+
+    # Absolute year ("de 2019", "em 2027") — same detection used by periodo_decision
+    # Uses "abs-YYYY" prefix to distinguish from relative buckets like "2026" (este ano)
+    m_abs = re.search(
+        r'\b(?:em|de|do\s+ano|no\s+ano|in(?:\s+the\s+year)?|of|for|from)\s+((?:19|20)\d{2})\b',
+        q, re.IGNORECASE
+    )
+    if m_abs:
+        return f"abs-{m_abs.group(1)}"
+
+    return "absoluto"
+
+
 @router.post("/{connection_id}/query", response_model=QueryResponse)
 async def query_connection(
     connection_id: str,
@@ -3171,7 +3243,8 @@ async def query_connection(
                 body.question or "",
                 locale=getattr(body, "locale", None),
             )
-            _CACHE_VERSION = 1  # bump when key schema changes; old rows keep 0
+            _temporal_bucket = resolve_temporal_bucket(body.question or "")
+            _CACHE_VERSION = 2  # bump when key schema changes; old rows keep 0
 
             if active_cache_crew:
                 # Collaborative: match records cached for this specific crew.
@@ -3186,6 +3259,7 @@ async def query_connection(
                     AND user_id IS NULL
                     AND locale = :locale
                     AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3199,6 +3273,7 @@ async def query_connection(
                         "crew_id": active_cache_crew,
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
             elif is_personal_cache and cache_user_id:
@@ -3212,6 +3287,7 @@ async def query_connection(
                     AND user_id = :user_id
                     AND locale = :locale
                     AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3224,6 +3300,7 @@ async def query_connection(
                         "user_id": cache_user_id,
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
             else:
@@ -3237,6 +3314,7 @@ async def query_connection(
                     AND user_id IS NULL
                     AND locale = :locale
                     AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3249,6 +3327,7 @@ async def query_connection(
                         "space_id": body.space_id,
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
 
@@ -3324,7 +3403,8 @@ async def query_connection(
                     embedding=query_embedding,
                     response_json=response.model_dump(mode="json"),
                     locale=_store_locale,
-                    cache_version=1,
+                    cache_version=2,
+                    temporal_bucket=_temporal_bucket,
                 )
                 db.add(cache_record)
                 await db.commit()
