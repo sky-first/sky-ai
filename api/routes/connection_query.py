@@ -5126,6 +5126,11 @@ async def _stream_connection_query(
                 "user_id": body.user_id,
                 "space_id": body.space_id,
                 "crew_ids": crew_ids,
+                # A2 fix: the streaming path built this dict by hand and dropped
+                # the user's target locale, so orchestrator/builder fell back to
+                # statistical detection and answered short PT messages in EN.
+                # Same source the non-streaming path uses (body.locale).
+                "locale": getattr(body, "locale", None),
                 "retrieval_context": retrieval_context,
                 # Configurações dinâmicas da IA
                 "instructions": body.instructions,
