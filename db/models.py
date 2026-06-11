@@ -309,6 +309,12 @@ class SemanticCacheRecord(Base):
     # silently ignored by all lookups, avoiding stale-cache bugs after deploys.
     cache_version = Column(Integer, nullable=False, server_default="1")
 
+    # Absolute time-period bucket for relative temporal expressions.
+    # "este ano" in 2026 → "2026"; "último mês" in June 2026 → "2026-05".
+    # "absoluto" for non-temporal or absolute-date questions.
+    # Cache rows without this field (version < 2) are skipped by version=2 lookups.
+    temporal_bucket = Column(String(20), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
