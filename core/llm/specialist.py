@@ -925,6 +925,24 @@ def run_specialist(
         "- If the data range may be old, use broad intervals (last 12 months, last 2 years) as fallback.\n"
     )
 
+    # Inject resolved period constraint when periodo_decision already determined the range
+    _periodo_modo = state.get("periodo_modo")
+    if _periodo_modo in ("normal", "fallback"):
+        _p_from = state.get("periodo_from")
+        _p_to = state.get("periodo_to")
+        _p_col = state.get("periodo_coluna")
+        _p_pedido = state.get("periodo_pedido")
+        _p_usado = state.get("periodo_usado")
+        if _p_from and _p_to and _p_col:
+            temporal_filter_guidance += (
+                f"\n\nRESOLVED PERIOD (already determined — do not recalculate):\n"
+                f"- User asked for: {_p_pedido}\n"
+                f"- Period to use: {_p_usado}\n"
+                f"- Apply this exact filter in your WHERE clause:\n"
+                f"  CAST({_p_col} AS DATE) BETWEEN '{_p_from}' AND '{_p_to}'\n"
+                f"- Do NOT use CURRENT_DATE or dynamic date expressions for this query.\n"
+            )
+
     # BigQuery table qualification guidance
     table_qualification_guidance = ""
     physical_names = (

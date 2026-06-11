@@ -103,6 +103,15 @@ class AgentState(TypedDict, total=False):
     # Saída final
     answer: Optional[str]
 
+    # Decisão de período temporal (node: periodo_decision)
+    periodo_modo: Optional[str]    # "nao_temporal" | "normal" | "fallback" | "lacuna" | "sem_dados"
+    periodo_pedido: Optional[str]  # período que o usuário pediu (legível)
+    periodo_usado: Optional[str]   # período que será de fato usado
+    periodo_aviso: Optional[str]   # aviso a prepender na resposta (modo fallback)
+    periodo_from: Optional[str]    # ISO date para filtro SQL — início
+    periodo_to: Optional[str]      # ISO date para filtro SQL — fim
+    periodo_coluna: Optional[str]  # coluna de data usada para MIN/MAX
+
     # Mixed dispatch: raw specialist results saved for mixed_merger_node
     mixed_specialist_results: Optional[Dict[str, Any]]
 
@@ -276,6 +285,11 @@ def build_generic_sql_graph(
             )
         new_state["reasoning_steps"] = steps
         return new_state
+
+    def periodo_decision_node(state: AgentState) -> AgentState:
+        """Resolve temporal period: detect boundary, classify, apply fallback policy."""
+        from core.llm.periodo_decision import run_periodo_decision
+        return run_periodo_decision(state=state, agent_config=agent_config, data_source=data_source)
 
     def specialist_node(state: AgentState) -> AgentState:
         """
@@ -1266,15 +1280,18 @@ def build_generic_sql_graph(
 
     graph.add_node("reset_ephemeral", reset_ephemeral)
 
-    # Register all nodes
-    graph.add_node("intent_classifier", intent_classifier_node)
+    from latency_timing import timed as _timed
+
+    # Register all nodes — core pipeline nodes wrapped with @timed for latency measurement
+    graph.add_node("intent_classifier", _timed("intent_classifier")(intent_classifier_node))
     graph.add_node("full_context", full_context_node)
-    graph.add_node("brain_retrieval", brain_retrieval_node)
-    graph.add_node("orchestrator", orchestrator_node)
-    graph.add_node("specialist", specialist_node)
-    graph.add_node("parallel_specialist", parallel_specialist_node)
-    graph.add_node("merger", merger_node)
-    graph.add_node("formatter", formatter_node)
+    graph.add_node("brain_retrieval", _timed("brain_retrieval")(brain_retrieval_node))
+    graph.add_node("orchestrator", _timed("orchestrator")(orchestrator_node))
+    graph.add_node("periodo_decision", _timed("periodo_decision")(periodo_decision_node))
+    graph.add_node("specialist", _timed("specialist")(specialist_node))
+    graph.add_node("parallel_specialist", _timed("parallel_specialist")(parallel_specialist_node))
+    graph.add_node("merger", _timed("merger")(merger_node))
+    graph.add_node("formatter", _timed("formatter")(formatter_node))
     graph.add_node("knowledge_specialist", knowledge_specialist_node)
     graph.add_node("events_specialist", events_specialist_node)
     graph.add_node("relationships_specialist", relationships_specialist_node)
@@ -1308,6 +1325,12 @@ def build_generic_sql_graph(
             return END
         if state.get("is_multi_source", False):
             return "parallel_specialist"
+        return "periodo_decision"
+
+    def route_periodo_decision(state: AgentState):
+        # lacuna and sem_dados both set answer — bypass specialist
+        if state.get("periodo_modo") in ("lacuna", "sem_dados"):
+            return END
         return "specialist"
 
     # Entry point: reset ephemeral state first, then classify intent
@@ -1376,10 +1399,16 @@ def build_generic_sql_graph(
         "orchestrator",
         route_orchestrator,
         {
-            "specialist": "specialist",
+            "periodo_decision": "periodo_decision",
             "parallel_specialist": "parallel_specialist",
             END: END,
         },
+    )
+
+    graph.add_conditional_edges(
+        "periodo_decision",
+        route_periodo_decision,
+        {"specialist": "specialist", END: END},
     )
 
     graph.add_edge("specialist", "formatter")

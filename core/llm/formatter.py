@@ -470,6 +470,11 @@ def run_formatter(
             },
         )
 
+    # Prepend period fallback warning — must come before the number, never silent
+    periodo_aviso = state.get("periodo_aviso")
+    if periodo_aviso and state.get("periodo_modo") == "fallback":
+        answer = f"{periodo_aviso}\n\n{answer}"
+
     state["answer"] = answer
     state["last_suggestions"] = followup_suggestions
 
