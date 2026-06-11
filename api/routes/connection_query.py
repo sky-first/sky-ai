@@ -3197,6 +3197,8 @@ async def query_connection(
     body: QueryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
+    from latency_timing import new_trace
+    new_trace(body.thread_id if body.thread_id else None)
     # ✅ SEMANTIC CACHE LAYER (Lookup)
     query_embedding = None
     try:

@@ -66,7 +66,9 @@ class LangChainChatOpenAIProvider:
     def invoke(self, messages: List[Dict[str, str]]):
         lc_msgs = self._convert_messages(messages)
         try:
-            resp = self._chat.invoke(lc_msgs)
+            from latency_timing import timed_span
+            with timed_span("llm_call", node="openai"):
+                resp = self._chat.invoke(lc_msgs)
             log_event(
                 "llm_invoke_success",
                 {
@@ -190,7 +192,9 @@ class BedrockChatProvider:
     def invoke(self, messages: List[Dict[str, str]]) -> Any:
         lc_msgs = self._convert_messages(messages)
         try:
-            resp = self._chat.invoke(lc_msgs)
+            from latency_timing import timed_span
+            with timed_span("llm_call", node="bedrock"):
+                resp = self._chat.invoke(lc_msgs)
             log_event(
                 "bedrock_invoke_success",
                 {"model": self.model_name, "num_messages": len(messages)},
@@ -312,7 +316,9 @@ class OllamaProvider:
 
         try:
             # Invoke ChatOllama directly (it handles prompting)
-            resp = self._chat.invoke(lc_msgs)
+            from latency_timing import timed_span
+            with timed_span("llm_call", node="ollama"):
+                resp = self._chat.invoke(lc_msgs)
 
             # Wrapper para manter contrato .content
             class ResponseWrapper:
