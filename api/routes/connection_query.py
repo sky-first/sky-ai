@@ -4879,6 +4879,42 @@ async def _query_connection_inner(
     )
 
 
+def _build_streaming_agent_state(body, crew_ids, retrieval_context) -> dict:
+    """Build the LangGraph state dict for the STREAMING path.
+
+    Extracted from the inline construction so the locale-passing contract is
+    unit-testable in isolation (see tests/test_bilingual_cache_locale_regression).
+
+    A2 regression guard: this path used to build the dict by hand and dropped
+    ``locale``, so downstream consumers (orchestrator/builder) fell back to
+    statistical detection and answered short PT messages in EN. ``locale`` MUST
+    come from the same source the non-streaming path uses (``body.locale``).
+    """
+    return {
+        "question": body.question,
+        "user_id": body.user_id,
+        "space_id": body.space_id,
+        "crew_ids": crew_ids,
+        # A2 fix — do not remove. The streaming path must carry the user's
+        # target locale; without it, short PT messages get answered in EN.
+        "locale": getattr(body, "locale", None),
+        "retrieval_context": retrieval_context,
+        # Configurações dinâmicas da IA
+        "instructions": body.instructions,
+        "creativity": body.creativity,
+        "length": body.length,
+        "response_format": body.response_format,
+        "ai_tone": body.ai_tone,
+        "ai_style": body.ai_style,
+        "sql_instructions": body.sql_instructions,
+        "selected_datasets": body.selected_datasets,
+        # ✅ Configuração de segurança dinâmica (RLS, colunas, etc.)
+        "security_config": body.security_config,
+        # Agent mode hint: forces data-path routing for scan/sql/context
+        "agent_mode": body.agent_mode,
+    }
+
+
 async def _stream_connection_query(
     connection_id: str,
     body: QueryRequest,
@@ -5121,31 +5157,7 @@ async def _stream_connection_query(
                 _extract_topic,
             )
 
-            state = {
-                "question": body.question,
-                "user_id": body.user_id,
-                "space_id": body.space_id,
-                "crew_ids": crew_ids,
-                # A2 fix: the streaming path built this dict by hand and dropped
-                # the user's target locale, so orchestrator/builder fell back to
-                # statistical detection and answered short PT messages in EN.
-                # Same source the non-streaming path uses (body.locale).
-                "locale": getattr(body, "locale", None),
-                "retrieval_context": retrieval_context,
-                # Configurações dinâmicas da IA
-                "instructions": body.instructions,
-                "creativity": body.creativity,
-                "length": body.length,
-                "response_format": body.response_format,
-                "ai_tone": body.ai_tone,
-                "ai_style": body.ai_style,
-                "sql_instructions": body.sql_instructions,
-                "selected_datasets": body.selected_datasets,
-                # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
-                "security_config": body.security_config,
-                # Agent mode hint: forces data-path routing for scan/sql/context
-                "agent_mode": body.agent_mode,
-            }
+            state = _build_streaming_agent_state(body, crew_ids, retrieval_context)
 
             def db_session_factory():
                 # Tenant-aware (Model B); falls back to the global sync
