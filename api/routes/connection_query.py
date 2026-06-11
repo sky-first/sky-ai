@@ -3361,6 +3361,14 @@ async def query_connection(
         from core.logging_utils import log_event
 
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+        # ⚠️ ALARM, not silence: a failing lookup means the cache is DOWN (e.g. a
+        # missing column after a schema change). Swallowing this quietly is what
+        # let the cache stay dead in prod for months. Surface it at error level.
+        logger.error(
+            "Semantic cache LOOKUP failed — cache may be DOWN (every query now "
+            "pays full LLM+SQL cost): %s",
+            str(sc_err)[:300],
+        )
         # ✅ FIX: Rollback the session if the cache query failed (e.g. vector type mismatch)
         # Prevents the subsequent inner query from failing with "transaction aborted"
         try:
@@ -3414,6 +3422,13 @@ async def query_connection(
         from core.logging_utils import log_event
 
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
+        # ⚠️ ALARM, not silence: a failing store means future identical questions
+        # will never hit the cache. Surface it at error level so a dead cache is
+        # visible instead of degrading quietly.
+        logger.error(
+            "Semantic cache STORE failed — answers are not being cached: %s",
+            str(sc_err)[:300],
+        )
         try:
             await db.rollback()
         except Exception:
