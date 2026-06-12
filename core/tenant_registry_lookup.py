@@ -72,7 +72,8 @@ async def lookup_tenant_by_slug(session, slug: str) -> Optional[TenantContext]:
                 SELECT id, slug, tier, display_name,
                        bedrock_inference_profile_arn,
                        rate_limit_rpm, rate_limit_tpm,
-                       is_active, feature_flags
+                       is_active, feature_flags,
+                       db_host, db_name, db_credentials_secret_arn
                 FROM tenant_registry
                 WHERE slug = :slug
                 LIMIT 1
@@ -101,6 +102,13 @@ async def lookup_tenant_by_slug(session, slug: str) -> Optional[TenantContext]:
         rate_limit_tpm=row["rate_limit_tpm"],
         is_active=row["is_active"],
         feature_flags=dict(row["feature_flags"] or {}),
+        # ``.get`` (not ``[...]``) so an older registry row — or a test
+        # mock — that doesn't carry the data-plane columns degrades to the
+        # default (empty → manager falls back to the global engine) instead
+        # of raising KeyError.
+        db_host=(row.get("db_host") or ""),
+        db_name=(row.get("db_name") or ""),
+        db_credentials_secret_arn=(row.get("db_credentials_secret_arn") or ""),
     )
     _cache_put(ctx)
     return ctx

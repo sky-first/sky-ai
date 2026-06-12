@@ -179,3 +179,45 @@ app.include_router(space_seed.router)
 
 # Scan schedule — PUT/GET/DELETE /spaces/{id}/scan-schedule + POST trigger (items 23-24)
 app.include_router(scan_schedule.router)
+
+
+@app.middleware("http")
+async def tenant_context_middleware(request, call_next):
+    """Bind the tenant (from ``X-Tenant-Slug``) to the contextvar for the
+    whole request — Model B / Phase 5.
+
+    Runs before route dependencies, so ``get_db()`` and the embeddings /
+    ingestion paths can route their sessions to the tenant's own database
+    via ``tenant_connection_manager``. When the flag is off or no slug is
+    sent, the default context is bound and behaviour is unchanged.
+
+    The registry lookup itself uses the platform-DB session
+    (``AsyncSessionLocal`` from ``db.session``) — ``tenant_registry``
+    lives there, not in the tenant DB.
+    """
+    from core.tenant_context import (
+        DEFAULT_TENANT_CONTEXT,
+        multi_tenant_enabled,
+        reset_current_tenant,
+        set_current_tenant,
+    )
+
+    slug = request.headers.get("x-tenant-slug")
+    ctx = DEFAULT_TENANT_CONTEXT
+    if multi_tenant_enabled() and slug:
+        try:
+            from db.session import AsyncSessionLocal
+            from core.tenant_registry_lookup import lookup_tenant_by_slug
+
+            async with AsyncSessionLocal() as session:
+                resolved = await lookup_tenant_by_slug(session, slug.strip().lower())
+            if resolved is not None:
+                ctx = resolved
+        except Exception:  # pragma: no cover — never block on tenant resolution
+            ctx = DEFAULT_TENANT_CONTEXT
+
+    token = set_current_tenant(ctx)
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_tenant(token)
