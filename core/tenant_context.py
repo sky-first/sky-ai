@@ -46,6 +46,15 @@ class TenantContext:
     is_active: bool = True
     feature_flags: Dict[str, Any] = field(default_factory=dict)
 
+    # Data plane (Model B / Phase 5). Empty for the default context.
+    # ``TenantConnectionManager`` uses these to open a tenant-scoped DB
+    # session so the AI service reads spaces/connections/metadata and
+    # writes embeddings/cache against the tenant's own database instead
+    # of the shared platform DB.
+    db_host: str = ""
+    db_name: str = ""
+    db_credentials_secret_arn: str = ""
+
     @property
     def is_default(self) -> bool:
         return self.id == _NIL_UUID
