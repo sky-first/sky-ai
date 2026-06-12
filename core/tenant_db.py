@@ -128,6 +128,7 @@ class TenantConnectionManager:
             pool_recycle=3600,
             echo=False,
         )
+        self._ensure_schema(sync_engine, ctx)
         logger.info(
             "ai_tenant_engine_created",
             extra={"slug": ctx.slug, "db_name": ctx.db_name},
@@ -144,6 +145,45 @@ class TenantConnectionManager:
                 bind=sync_engine, autoflush=False, autocommit=False
             ),
         )
+
+    @staticmethod
+    def _ensure_schema(sync_engine, ctx: TenantContext) -> None:
+        """Idempotently provision the AI-service schema in the tenant DB.
+
+        The onboard flow + backend alembic create spaces/crews/connections
+        /semantic_cache in each tenant DB, but NOT the AI-service-specific
+        tables (``embeddings``, ``table_metadata``) nor the
+        ``semantic_cache.locale`` column. ``create_all(checkfirst=True)``
+        adds only the missing tables (never alters existing ones); the
+        ALTER adds the column. pgvector is installed by the onboard flow.
+
+        Runs once per tenant per process (inside ``_build`` under the
+        lock). Never raises — a provisioning hiccup must not break the
+        engine; the worst case is the same FK/undefined-column error we
+        had before, surfaced in logs.
+        """
+        try:
+            from sqlalchemy import text
+
+            from db import models  # noqa: WPS433 — lazy, keeps import graph light
+
+            models.Base.metadata.create_all(bind=sync_engine, checkfirst=True)
+            with sync_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE IF EXISTS semantic_cache "
+                        "ADD COLUMN IF NOT EXISTS locale VARCHAR(10) "
+                        "NOT NULL DEFAULT 'en'"
+                    )
+                )
+            logger.info(
+                "ai_tenant_schema_ensured", extra={"slug": ctx.slug}
+            )
+        except Exception as exc:  # noqa: BLE001 — never break engine build
+            logger.warning(
+                "ai_tenant_schema_ensure_failed",
+                extra={"slug": ctx.slug, "error": str(exc)[:200]},
+            )
 
     @staticmethod
     def _fetch_secret(arn: str) -> Tuple[str, str]:

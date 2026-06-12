@@ -83,6 +83,7 @@ from core.security.progressive_escalation import detect_progressive_escalation
 from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
+from core.tenant_db import tenant_connection_manager
 from core.agents.generic_sql_agent import UserContext  # Import UserContext
 from datetime import datetime, timedelta
 from core.context.analysis_session_store import AnalysisSessionStore  # NEW IMPORT
@@ -4155,7 +4156,12 @@ async def _query_connection_inner(
             user_ctx=mock_user_ctx,  # Contexto montado acima
             agent_config=agent_config,
             data_source=data_source,
-            db_session_factory=lambda: SyncSessionLocal(),  # SÍNCRONO PARA O AGENTE
+            # Tenant-aware sync session for the LangGraph agent (Model B).
+            # asyncio.to_thread propagates the tenant contextvar into the
+            # worker thread, so sync_session_for() routes the agent's RAG /
+            # checkpoint reads to the tenant DB; falls back to the global
+            # sync session for the default context.
+            db_session_factory=lambda: tenant_connection_manager.sync_session_for(),
             embedding_provider=embedding_provider,
             llm_orchestrator=llm_orchestrator,
             llm_specialist=llm_specialist,
@@ -5040,7 +5046,9 @@ async def _stream_connection_query(
             }
 
             def db_session_factory():
-                return SyncSessionLocal()
+                # Tenant-aware (Model B); falls back to the global sync
+                # session for the default context.
+                return tenant_connection_manager.sync_session_for()
 
             app = build_generic_sql_graph(
                 agent_config=agent_config,
