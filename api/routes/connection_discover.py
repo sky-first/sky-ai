@@ -187,12 +187,24 @@ async def discover_tables(
 
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
+            # Capture the tenant resolved for THIS request. The tenant
+            # middleware resets the contextvar once the response is sent,
+            # so the FastAPI BackgroundTask below would otherwise run with
+            # the default context and write metadata/embeddings to the
+            # platform DB instead of the tenant's own DB (Model B). We
+            # re-bind it at the start of the task and open the session via
+            # the tenant connection manager.
+            from core.tenant_context import current_tenant, set_current_tenant
+            from core.tenant_db import tenant_connection_manager
+
+            _tenant_ctx = current_tenant()
 
             async def _discover_and_embed():
-                from db.session import get_db
-                from db.base import SessionLocal as AsyncSessionLocal
+                set_current_tenant(_tenant_ctx)
 
-                async with AsyncSessionLocal() as bg_db:
+                async with tenant_connection_manager.async_session_for(
+                    _tenant_ctx
+                ) as bg_db:
                     try:
                         await _discover_tables_sync(bg_db, connection_id=connection_id)
                         if auto_generate_embeddings:
