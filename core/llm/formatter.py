@@ -9,7 +9,6 @@ from core.llm.providers import LLMProvider
 from core.i18n.i18n import detect_language, get_message
 from core.logging_utils import log_event
 from config.settings import settings
-from core.suggestions.engine import suggestion_engine
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
 from core.llm.context.builder import build_context_bundle
 
@@ -413,62 +412,11 @@ def run_formatter(
 
     answer = answer.strip() or "No explanation available."
 
-    # 🎯 FOLLOW-UP SUGGESTIONS: Generate smart suggestions based on available schema
-    instructions = state.get("instructions") or ""
-    if "Do NOT include any 'Suggested Follow-up Questions'" in instructions:
-        followup_suggestions = []
-    else:
-        followup_suggestions = []
-        try:
-            # Extract available tables from agent_config
-            available_tables = [t.logical_name for t in agent_config.tables]
-
-            # Extract columns from the tables that were used
-            chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
-            available_columns = []
-            for table in agent_config.tables:
-                if table.logical_name in chosen_tables:
-                    for col in table.columns or []:
-                        col_name = (
-                            col.get("name")
-                            if isinstance(col, dict)
-                            else getattr(col, "name", "")
-                        )
-                        if col_name:
-                            available_columns.append(col_name)
-
-            # Generate suggestions (only if we have data and answer)
-            if data and answer and len(answer) > 50:
-                # 🎯 ZERO-COST SUGGESTIONS: Use static engine
-                user_crew_role = state.get("crew_role", "guest")
-
-                followup_suggestions = suggestion_engine.get_suggestions(
-                    tables=chosen_tables,  # Use the tables actually used in the query
-                    role=user_crew_role,
-                    max_suggestions=3,
-                )
-        except Exception as e:
-            log_event(
-                "formatter_followup_error",
-                {"error": str(e)[:200]},
-            )
-            followup_suggestions = []
-
-    # Append suggestions as markdown if we have any
-    if followup_suggestions:
-        # Clean formatting without markdown separators
-        suggestions_md = "\n\n💡 Suggested Follow-up:\n"
-        for i, suggestion in enumerate(followup_suggestions, 1):
-            suggestions_md += f"{i}. {suggestion}\n"
-        answer = answer + suggestions_md
-
-        log_event(
-            "formatter_added_followup_suggestions",
-            {
-                "agent_id": agent_config.id,
-                "num_suggestions": len(followup_suggestions),
-            },
-        )
+    # FOLLOW-UP SUGGESTIONS: disabled by product decision — the chat shows only
+    # the answer, with no appended "Suggested Follow-up" questions. Kept as an
+    # empty list so the downstream state (``last_suggestions``) and the
+    # ``has_followup_suggestions`` meta flag stay consistent.
+    followup_suggestions = []
 
     # Prepend period fallback warning — must come before the number, never silent
     periodo_aviso = state.get("periodo_aviso")
