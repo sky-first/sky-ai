@@ -48,6 +48,8 @@ except ImportError:
 
 @app.on_event("startup")
 async def on_startup():
+    from latency_timing import setup_file_logging
+    setup_file_logging("latency.log")
     log_event("app_startup", {"message": "DataAssistant API started"})
 
     # Initialize database (create tables if they don't exist)
