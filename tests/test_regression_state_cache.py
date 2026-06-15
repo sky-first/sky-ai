@@ -280,23 +280,23 @@ class TestCacheLocaleSymmetryP2:
 
     # ── cache_version isolation ───────────────────────────────────────────────
 
-    def test_cache_version_1_constant_in_lookup(self):
-        """_CACHE_VERSION used in lookup must be 1 (current schema version)."""
+    def test_cache_version_2_constant_in_lookup(self):
+        """_CACHE_VERSION used in lookup must be 2 (temporal_bucket bumped key)."""
         # We verify this by checking the source code contains the constant
         import pathlib
         source = pathlib.Path(
             "api/routes/connection_query.py"
         ).read_text()
-        assert "_CACHE_VERSION = 1" in source, (
-            "_CACHE_VERSION must be 1 in the lookup path"
+        assert "_CACHE_VERSION = 2" in source, (
+            "_CACHE_VERSION must be 2 in the lookup path"
         )
 
-    def test_cache_version_1_in_store(self):
-        """Records written to cache must carry cache_version=1."""
+    def test_cache_version_2_in_store(self):
+        """Records written to cache must carry cache_version=2 (temporal_bucket)."""
         import pathlib
         source = pathlib.Path("api/routes/connection_query.py").read_text()
-        assert "cache_version=1," in source, (
-            "Store must write cache_version=1 on every new record"
+        assert "cache_version=2," in source, (
+            "Store must write cache_version=2 on every new record"
         )
 
     def test_locale_column_exists_in_model(self):
