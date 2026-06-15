@@ -49,7 +49,9 @@ except ImportError:
 @app.on_event("startup")
 async def on_startup():
     from latency_timing import setup_file_logging
-    setup_file_logging("latency.log")
+    # readOnlyRootFilesystem: true no container — só /tmp é gravável.
+    # Caminho relativo criava o arquivo na raiz do app (read-only) → crash no boot.
+    setup_file_logging("/tmp/latency.log")
     log_event("app_startup", {"message": "DataAssistant API started"})
 
     # Initialize database (create tables if they don't exist)
