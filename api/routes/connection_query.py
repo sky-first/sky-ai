@@ -5213,6 +5213,14 @@ async def _stream_connection_query(
                         "events_specialist",
                         "relationships_specialist",
                         "widgets_specialist",
+                        # Scan mode routes to the full_context node, which is a
+                        # terminal node (edge -> END) that produces the final
+                        # `answer` directly. It was missing from this capture
+                        # list, so its state was discarded and final_state stayed
+                        # None — surfacing as a false "Erro ao executar agente"
+                        # and a "Run produced no output" finding. The downstream
+                        # answer/no-sql branch already streams its answer.
+                        "full_context",
                     ]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
