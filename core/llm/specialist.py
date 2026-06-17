@@ -807,9 +807,26 @@ def run_specialist(
     # 🔹 INSTRUÇÕES SQL PERSONALIZADAS
     sql_instructions = state.get("sql_instructions")
     sql_instructions_block = ""
+    # SQL mode: the user supplied an explicit base query. The "User question"
+    # is only a routing hint for the orchestrator (it reads "Analyze the key
+    # metrics…"), but if left unframed the specialist treats it as the task and
+    # invents its own analytical query — adding date filters, JOINs and GROUP BY
+    # the user never asked for (which then returns 0 rows on historical data).
+    # This override goes at the very TOP of the user message so the base query
+    # wins over the analytical framing below it.
+    sql_mode_override = ""
     if sql_instructions:
         sql_instructions_block = (
             "\n\nSQL-SPECIFIC INSTRUCTIONS:\n" f"{sql_instructions}\n"
+        )
+        sql_mode_override = (
+            "⚠️ SQL MODE — the user supplied an explicit BASE SQL QUERY (see "
+            "SQL-SPECIFIC INSTRUCTIONS below). That query is the single source "
+            "of truth: build your output from it, applying ONLY the adaptations "
+            "listed there. Treat 'User question' purely as a routing hint — do "
+            "NOT design a new analysis, and do NOT add date filters, JOINs, "
+            "GROUP BY, aggregations or any logic the base query does not "
+            "already contain.\n\n"
         )
 
     # 🔒 INSTRUÇÕES DE SEGURANÇA (RLS, colunas bloqueadas, etc.)
@@ -1048,6 +1065,7 @@ def run_specialist(
     user_msg = {
         "role": "user",
         "content": (
+            f"{sql_mode_override}"
             f"User question:\n{question}\n\n"
             f"Table schema(s):\n{schema_text}\n"
             f"{data_preview_block}"
