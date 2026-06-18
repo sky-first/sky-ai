@@ -141,6 +141,10 @@ SQL RULES:
 - NEVER use the logical name in SQL — it will fail with "relation does not exist".
 - If a query fails, call get_table_schema() to confirm the physical name,
   then retry ONCE with the corrected name. Do not retry more than once.
+- Report ONLY numbers that appear in the rows returned to you. NEVER infer,
+  estimate or invent values for rows you did not see. If a result is marked
+  TRUNCATED, it is incomplete — refine the query to surface the exact rows you
+  need before drawing any conclusion.
 
 OUTPUT FORMAT — use ONLY when you have something meaningful to surface:
 ## [Insight title — 8 words max]
@@ -387,11 +391,25 @@ def run_full_context_agent(
             rows = s.run_query(q)
             if not rows:
                 return "Query returned 0 rows."
+            # This is fed to a REASONING agent that writes conclusions, not a UI
+            # preview a human scrolls — it must see EVERY row it queried, or it
+            # will narrate values it never saw. Show all rows up to MAX_SQL_ROWS;
+            # the agent is told to LIMIT, so results are normally small.
+            total = len(rows)
+            truncated = total > MAX_SQL_ROWS
             rows = rows[:MAX_SQL_ROWS]
             header = " | ".join(rows[0].keys())
-            lines = [" | ".join(str(v) for v in row.values()) for row in rows[:5]]
+            lines = [" | ".join(str(v) for v in row.values()) for row in rows]
             preview = "\n".join([header, "---"] + lines)
-            suffix = f"\n... ({len(rows)} rows total)" if len(rows) > 5 else ""
+            if truncated:
+                suffix = (
+                    f"\n\n⚠️ TRUNCATED — only the first {MAX_SQL_ROWS} of {total} rows "
+                    "are shown. This result is INCOMPLETE: do NOT describe or infer the "
+                    "rows you cannot see. Refine the query (tighter GROUP BY / WHERE / "
+                    "ORDER BY / LIMIT) to bring exactly the rows you need into view."
+                )
+            else:
+                suffix = f"\n({total} row{'s' if total != 1 else ''})"
             return preview + suffix
 
         try:
