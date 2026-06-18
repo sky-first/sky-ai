@@ -4172,6 +4172,7 @@ async def _query_connection_inner(
                 allowed_document_ids=_allowed_doc_ids,
                 mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
                 caller_space_ids=getattr(body, "space_ids", None),
+                authorized_tables=body.authorized_tables,
             )
         )
     except Exception:
@@ -5142,6 +5143,7 @@ async def _stream_connection_query(
                 is_personal=bool(getattr(body, "is_personal", False)),
                 user_id=getattr(body, "user_id", None),
                 mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
+                authorized_tables=body.authorized_tables,
             )
         except Exception:
             retrieval_context = []

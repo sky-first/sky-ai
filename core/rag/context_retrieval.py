@@ -96,6 +96,40 @@ def _format_ranked(ranked: List[RankedDoc]) -> List[str]:
     return blocks
 
 
+def _normalize_table_name(name: str) -> str:
+    """Strip connection/schema prefixes: 'conn::schema.table' -> 'table'."""
+    n = (name or "").split("::")[-1]
+    return n.rsplit(".", 1)[-1].strip()
+
+
+def _filter_ranked_by_authorized_tables(
+    ranked: List[RankedDoc], authorized_tables: Optional[List[str]]
+) -> List[RankedDoc]:
+    """Drop table/column docs whose table is not in the backend allow-list.
+
+    ``authorized_tables`` is the control-plane list the backend resolved for
+    this user/crew. Table and column docs whose table isn't in it are removed
+    so the RAG can't surface names/descriptions of another crew's tables.
+    Non-table docs (goals, okrs, connections, documents) keep their own
+    crew_id scoping and pass through. ``None`` means "no restriction".
+    """
+    if authorized_tables is None:
+        return ranked
+    allowed = {_normalize_table_name(t) for t in authorized_tables}
+    kept: List[RankedDoc] = []
+    for r in ranked:
+        d = r.doc
+        if d.kind not in ("table", "column"):
+            kept.append(r)
+            continue
+        md = d.metadata if isinstance(d.metadata, dict) else {}
+        tname = md.get("table_name") or (d.title if d.kind == "table" else None)
+        if tname and _normalize_table_name(tname) in allowed:
+            kept.append(r)
+        # else: a table/column we can't attribute to an authorized table → drop
+    return kept
+
+
 # ─────────────────────────── public API ───────────────────────────────────
 async def build_retrieval_context_for_question(
     db: AsyncSession,
@@ -112,6 +146,7 @@ async def build_retrieval_context_for_question(
     allowed_document_ids: Optional[List[str]] = None,
     mentioned_file_ids: Optional[List[str]] = None,
     caller_space_ids: Optional[List[str]] = None,
+    authorized_tables: Optional[List[str]] = None,
 ) -> tuple[List[str], List]:
     """Unified retrieval — reads context_documents, legacy embeddings,
     and knowledge_file_chunks (Knowledge Library).
@@ -184,6 +219,11 @@ async def build_retrieval_context_for_question(
             },
         )
         return [], []
+
+    # Control-plane: drop table/column hits the user isn't authorized for, so
+    # the RAG context can't leak another crew's table names/descriptions.
+    if ranked:
+        ranked = _filter_ranked_by_authorized_tables(ranked, authorized_tables)
 
     table_blocks = _format_ranked(ranked) if ranked else []
 
