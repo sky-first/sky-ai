@@ -3143,47 +3143,62 @@ def resolve_temporal_bucket(question: str) -> str:
     quarter = (m - 1) // 3 + 1
 
     # Year — includes contractions "deste ano", "neste ano"
-    if re.search(r'\b(?:(?:d?este|neste)\s+ano|esse\s+ano|this\s+year|ano\s+atual|current\s+year)\b', q):
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+ano|esse\s+ano|this\s+year|ano\s+atual|current\s+year)\b",
+        q,
+    ):
         return str(y)
-    if re.search(r'\b(ano passado|último ano|last year|previous year)\b', q):
+    if re.search(r"\b(ano passado|último ano|last year|previous year)\b", q):
         return str(y - 1)
 
     # Quarter — includes contractions "deste trimestre", "neste trimestre"
-    if re.search(r'\b(?:(?:d?este|neste)\s+trimestre|esse\s+trimestre|this\s+quarter|trimestre\s+atual|current\s+quarter)\b', q):
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+trimestre|esse\s+trimestre|this\s+quarter|trimestre\s+atual|current\s+quarter)\b",
+        q,
+    ):
         return f"{y}-Q{quarter}"
-    if re.search(r'\b(trimestre passado|último trimestre|last quarter|previous quarter)\b', q):
+    if re.search(
+        r"\b(trimestre passado|último trimestre|last quarter|previous quarter)\b", q
+    ):
         prev_q = quarter - 1 if quarter > 1 else 4
         prev_y = y if quarter > 1 else y - 1
         return f"{prev_y}-Q{prev_q}"
 
     # Month — includes contractions "deste mês", "neste mês"
-    if re.search(r'\b(?:(?:d?este|neste)\s+m[êe]s|esse\s+m[êe]s|this\s+month|m[êe]s\s+atual|current\s+month)\b', q):
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+m[êe]s|esse\s+m[êe]s|this\s+month|m[êe]s\s+atual|current\s+month)\b",
+        q,
+    ):
         return f"{y}-{m:02d}"
-    if re.search(r'\b(mês passado|último mês|last month|previous month)\b', q):
+    if re.search(r"\b(mês passado|último mês|last month|previous month)\b", q):
         prev_m = m - 1 if m > 1 else 12
         prev_y = y if m > 1 else y - 1
         return f"{prev_y}-{prev_m:02d}"
 
     # Week — includes contractions "desta semana", "nesta semana"
     iso_week = today.isocalendar()[1]
-    if re.search(r'\b(?:(?:d?esta|nesta)\s+semana|essa\s+semana|this\s+week|semana\s+atual|current\s+week)\b', q):
+    if re.search(
+        r"\b(?:(?:d?esta|nesta)\s+semana|essa\s+semana|this\s+week|semana\s+atual|current\s+week)\b",
+        q,
+    ):
         return f"{y}-W{iso_week:02d}"
-    if re.search(r'\b(semana passada|última semana|last week|previous week)\b', q):
+    if re.search(r"\b(semana passada|última semana|last week|previous week)\b", q):
         prev = today - timedelta(weeks=1)
         pw_y, pw_w, _ = prev.isocalendar()
         return f"{pw_y}-W{pw_w:02d}"
 
     # Day
-    if re.search(r'\b(hoje|today|dia de hoje|current day)\b', q):
+    if re.search(r"\b(hoje|today|dia de hoje|current day)\b", q):
         return str(today)
-    if re.search(r'\b(ontem|yesterday)\b', q):
+    if re.search(r"\b(ontem|yesterday)\b", q):
         return str(today - timedelta(days=1))
 
     # Absolute year ("de 2019", "em 2027") — same detection used by periodo_decision
     # Uses "abs-YYYY" prefix to distinguish from relative buckets like "2026" (este ano)
     m_abs = re.search(
-        r'\b(?:em|de|do\s+ano|no\s+ano|in(?:\s+the\s+year)?|of|for|from)\s+((?:19|20)\d{2})\b',
-        q, re.IGNORECASE
+        r"\b(?:em|de|do\s+ano|no\s+ano|in(?:\s+the\s+year)?|of|for|from)\s+((?:19|20)\d{2})\b",
+        q,
+        re.IGNORECASE,
     )
     if m_abs:
         return f"abs-{m_abs.group(1)}"
@@ -3198,6 +3213,7 @@ async def query_connection(
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     from latency_timing import new_trace
+
     new_trace(body.thread_id if body.thread_id else None)
     # ✅ SEMANTIC CACHE LAYER (Lookup)
     query_embedding = None
@@ -5479,7 +5495,16 @@ async def _stream_connection_query(
                     "- Create new queries or suggest queries\n"
                     "- Explain how data was retrieved\n"
                     "- Answer questions not answered by the results\n"
-                    "- Mention table names, column names, or database structure\n\n"
+                    "- Mention table names, column names, or database structure\n"
+                    "- Claim values are 'constant', 'uniform', 'do not vary', 'are all equal',\n"
+                    "  or that 'min, max and average are the same'. The result may be an\n"
+                    "  AGGREGATE (COUNT/SUM/AVG) — a single aggregated value says NOTHING\n"
+                    "  about how the underlying rows are spread.\n"
+                    "- Infer ABSENCE from a limited/aggregated result ('there are no other X',\n"
+                    "  'no variation', 'nothing else exists') just because few rows came back —\n"
+                    "  more may exist beyond what was returned.\n"
+                    "- Invent statistics (min/max/average/trends/variation) not literally\n"
+                    "  present in the provided results.\n\n"
                     "YOU MUST:\n"
                     "- Only use the data provided in the results\n"
                     f"- Answer ONLY in {_stream_lang_name} - THIS IS A STRICT REQUIREMENT\n"
@@ -5498,8 +5523,11 @@ async def _stream_connection_query(
                     f"{stats_text}\n\n"
                     "Sample of the data (up to 15 rows, JSON):\n"
                     f"{sample_json}\n\n"
-                    f"Explain the main insight(s) from this data in a concise way, "
-                    f"in {_stream_lang_name}."
+                    "Explain the main insight(s) from this data in a concise way. The "
+                    "result may be aggregated or limited to a few rows — describe ONLY "
+                    "what these rows show; do not infer the full distribution, the "
+                    "variation of the underlying rows, or the absence of other values. "
+                    f"Answer in {_stream_lang_name}."
                 ),
             }
 
@@ -5768,12 +5796,26 @@ def _transform_data_for_format(
 
 
 def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
-    """Compute basic stats for context."""
+    """Compute basic stats for context.
+
+    For a single-row result (almost always an AGGREGATE — COUNT/SUM/AVG), avg
+    and max equal the value itself, which the formatter would otherwise narrate
+    as "no variation / all values are the same". That is misleading: one
+    aggregated row says nothing about the spread of the underlying rows. So we
+    emit no distributional stats for <=1 row and flag it as a single aggregate.
+    """
     if not data:
         return "No data."
 
     first_row = data[0]
     total_cols = len(first_row.keys())
+
+    if len(data) <= 1:
+        return (
+            f"Columns: {total_cols}. Single aggregated row — the values are the "
+            "result itself, not a distribution. Do NOT describe variation, "
+            "uniformity, min/max or whether values differ."
+        )
 
     # Identify numeric columns
     numeric_cols = []

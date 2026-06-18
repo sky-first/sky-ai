@@ -134,6 +134,18 @@ def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
         return ""
 
     total = len(data_sample)
+
+    # A single value (almost always an AGGREGATE — COUNT/SUM/AVG) has mean==min
+    # ==max trivially. Emitting them makes the formatter narrate "no variation /
+    # all values are the same", which is misleading: one aggregated row says
+    # nothing about the spread of the underlying rows. Suppress the spread stats
+    # and flag it instead.
+    if len(values) <= 1:
+        return (
+            f"'{col}' is a single aggregated value, not a distribution — "
+            "do NOT describe variation, uniformity, or min/max."
+        )
+
     mean_val = sum(values) / len(values)
     min_val = min(values)
     max_val = max(values)
