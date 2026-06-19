@@ -455,6 +455,46 @@ async def _build_merged_agent_config_for_scan(
     )
 
 
+def _dispatch_map_from_conn_rows(rows) -> dict:
+    """Build {connection_id: DataSource} from ``data_connections`` rows.
+
+    Each row is expected as ``(id, name, connector_id, config)``. A connection
+    that fails to build (bad credentials, unreachable host) is skipped and
+    logged, so one broken source never breaks routing for the others.
+    """
+    from core.data_sources.factory import DataSourceFactory
+    from core.security.config_decryption import decrypt_config as _decrypt
+
+    class _TempConn:
+        def __init__(self, id, name, type, config):
+            self.id = id
+            self.name = name
+            self.type = type
+            self.config = config
+
+    dispatch_map: dict = {}
+    for row in rows:
+        conn_id = str(row[0])
+        name = row[1] or conn_id
+        conn_type = (row[2] or "postgres").lower()
+        raw_config = row[3]
+        try:
+            if isinstance(raw_config, str):
+                raw_config = json.loads(raw_config)
+            config = _decrypt(raw_config or {})
+            ds = DataSourceFactory.build_from_dataconnection(
+                _TempConn(conn_id, name, conn_type, config)
+            )
+            # Attach label so list_tables can show a human-readable source name
+            ds.label = f"{name} ({conn_type})"
+            dispatch_map[conn_id] = ds
+        except Exception as exc:
+            logger.warning(
+                "dispatch_map: skipping connection %s (%s): %s", conn_id, name, exc
+            )
+    return dispatch_map
+
+
 async def _build_dispatch_map_for_scan(
     db: AsyncSession,
     space_ids: List[str],
@@ -465,9 +505,6 @@ async def _build_dispatch_map_for_scan(
     calls to the right database when the user has multiple connections.
     Returns an empty dict on failure (agent falls back to single data_source).
     """
-    from core.data_sources.factory import DataSourceFactory
-    from core.security.config_decryption import decrypt_config as _decrypt
-
     if not space_ids:
         return {}
 
@@ -488,41 +525,50 @@ async def _build_dispatch_map_for_scan(
         logger.warning("_build_dispatch_map_for_scan: query failed: %s", exc)
         return {}
 
-    class _TempConn:
-        def __init__(self, id, name, type, config):
-            self.id = id
-            self.name = name
-            self.type = type
-            self.config = config
-
-    dispatch_map: dict = {}
-    for row in rows.fetchall():
-        conn_id = str(row[0])
-        name = row[1] or conn_id
-        conn_type = (row[2] or "postgres").lower()
-        raw_config = row[3]
-        try:
-            if isinstance(raw_config, str):
-                raw_config = json.loads(raw_config)
-            config = _decrypt(raw_config or {})
-            ds = DataSourceFactory.build_from_dataconnection(
-                _TempConn(conn_id, name, conn_type, config)
-            )
-            # Attach label so list_tables can show a human-readable source name
-            ds.label = f"{name} ({conn_type})"
-            dispatch_map[conn_id] = ds
-        except Exception as exc:
-            logger.warning(
-                "_build_dispatch_map_for_scan: skipping connection %s (%s): %s",
-                conn_id,
-                name,
-                exc,
-            )
-
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
     log_event(
         "scan_dispatch_map_built",
         {
             "space_ids": space_ids,
+            "num_connections": len(dispatch_map),
+            "connection_ids": list(dispatch_map.keys()),
+        },
+    )
+    return dispatch_map
+
+
+async def _build_dispatch_map_for_connections(
+    db: AsyncSession,
+    connection_ids: List[str],
+) -> dict:
+    """Build {connection_id: DataSource} for an explicit set of connections.
+
+    Used by the collaborative query path when a question spans more than one
+    connection (``body.connection_ids``), so each table's sub-query runs against
+    its own database and the partial results are merged in-memory (DuckDB).
+    Returns an empty dict on failure (caller falls back to the single primary
+    source).
+    """
+    if not connection_ids:
+        return {}
+
+    try:
+        rows = await db.execute(
+            text("""
+                SELECT dc.id, dc.name, dc.connector_id, dc.config
+                FROM data_connections dc
+                WHERE dc.id = ANY(CAST(:ids AS uuid[]))
+                """),
+            {"ids": connection_ids},
+        )
+    except Exception as exc:
+        logger.warning("_build_dispatch_map_for_connections: query failed: %s", exc)
+        return {}
+
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
+    log_event(
+        "cross_connection_dispatch_map_built",
+        {
             "num_connections": len(dispatch_map),
             "connection_ids": list(dispatch_map.keys()),
         },
@@ -2796,6 +2842,7 @@ async def load_agent_config_from_connection(
                         physical_name=physical_name,
                         description=t.get("description"),
                         columns=columns,
+                        data_connection_id=connection_id,
                     )
                 )
 
@@ -2808,6 +2855,13 @@ async def load_agent_config_from_connection(
                     if cid and cid != connection_id
                 ]
                 if extra_conn_ids:
+                    # Track physical names already present so the same table
+                    # surfaced by overlapping connections is not merged twice.
+                    # Distinct physical names from different connections are
+                    # kept side by side (each tagged with its source below),
+                    # which is what lets the orchestrator disambiguate tables
+                    # that share a logical name across connections.
+                    seen_physicals = {ts.physical_name for ts in table_schemas}
                     for extra_cid in extra_conn_ids:
                         try:
                             extra_meta = await db.execute(
@@ -2853,6 +2907,9 @@ async def load_agent_config_from_connection(
                                         extra_physical = f"{extra_schema}.{extra_name}"
                                     else:
                                         extra_physical = extra_name
+                                    if extra_physical in seen_physicals:
+                                        continue
+                                    seen_physicals.add(extra_physical)
                                     extra_logical = t.get(
                                         "logical_name"
                                     ) or _normalize_logical_name(extra_name)
@@ -2880,6 +2937,7 @@ async def load_agent_config_from_connection(
                                             physical_name=extra_physical,
                                             description=t.get("description"),
                                             columns=extra_cols,
+                                            data_connection_id=extra_cid,
                                         )
                                     )
                         except Exception as merge_err:
@@ -4009,6 +4067,27 @@ async def _query_connection_inner(
             except Exception as _exc:
                 logger.warning("Failed to build merged agent config for scan: %s", _exc)
 
+    # Collaborative cross-connection: when the loaded tables span more than one
+    # connection (caller passed body.connection_ids), build a dispatch_map so the
+    # specialist runs one sub-query per source and the orchestrator's merger
+    # (DuckDB) consolidates them. Without this, is_multi_source stays False and
+    # every table is queried against the primary connection only.
+    if dispatch_map is None:
+        table_conn_ids = {
+            str(getattr(t, "data_connection_id", "") or "")
+            for t in agent_config.tables
+        }
+        table_conn_ids.discard("")
+        if len(table_conn_ids) > 1:
+            try:
+                dispatch_map = await _build_dispatch_map_for_connections(
+                    db, sorted(table_conn_ids)
+                )
+            except Exception as _exc:
+                logger.warning(
+                    "Failed to build cross-connection dispatch_map: %s", _exc
+                )
+
     # DatasetPriorityScorer: rank all tables and keep top-K most valuable ones
     # before handing the config to the agent (roadmap items 13-14).
     # Every CROSS_DATASET_EVERY_N runs, use cross_dataset_rank() to force
@@ -4488,7 +4567,11 @@ async def _query_connection_inner(
     error = final_state.get("error")
 
     # ✅ CAMADA 3: Validação AST do SQL gerado
-    if sql:
+    # Multi-source results carry the DuckDB merger SQL (over in-memory datasets
+    # like dataset_1/dataset_2), not a connection query. Each per-source
+    # sub-query was already validated against its own source, so re-checking the
+    # merge SQL against this connection's tables would wrongly reject it.
+    if sql and not final_state.get("is_multi_source"):
         # Obter tabelas permitidas (usar physical_name porque SQL usa physical)
         allowed_tables = [t.physical_name for t in agent_config.tables]
         # Também adicionar logical_name para compatibilidade

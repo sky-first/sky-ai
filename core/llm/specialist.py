@@ -1142,7 +1142,27 @@ def run_specialist(
         agent_mode = (state.get("agent_mode") or "").lower()
         # For autonomous agent modes the question is always broad by design —
         # IMPOSSIBLE is never acceptable; force a concrete aggregate query instead.
-        if agent_mode in ("datasource", "scan"):
+        if state.get("multi_source_subquery"):
+            # This run is one slice of a question that spans multiple data
+            # sources; the caller gave us only one source's table(s) and a
+            # downstream merger combines the per-source results. Refusing just
+            # because these tables cannot answer the whole question would starve
+            # the merger, so extract this source's contribution instead.
+            retry_hint = (
+                "\n\nYour previous response was IMPOSSIBLE. This query is ONE part "
+                "of a larger question that spans MULTIPLE data sources, and you "
+                "were given only the table(s) of a SINGLE source. A later step "
+                "combines your result with the other sources, so do NOT refuse "
+                "because these tables cannot answer the whole question alone.\n"
+                "Extract, from the table(s) above, only the slice this source can "
+                "contribute (the metric, group-by, or rows). Ignore the parts of "
+                "the question that belong to other sources.\n"
+                "FORMAT (mandatory): respond with the SQL ONLY — no prose, no "
+                "markdown fences. Start with a single '-- TITLE: <short title>' "
+                "line, then a SELECT statement. NEVER respond IMPOSSIBLE."
+            )
+            retry_extra = ""
+        elif agent_mode in ("datasource", "scan"):
             retry_hint = (
                 "\n\nYour previous response was IMPOSSIBLE. For a datasource scan you MUST "
                 "always generate SQL — broad questions are expected and acceptable.\n"
@@ -1199,6 +1219,10 @@ def run_specialist(
             ).strip()
             if not re.match(r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE):
                 content_clean = retry_content
+                # Downstream SQL extraction parses `raw`, not content_clean, so
+                # the retried answer must replace it — otherwise the original
+                # IMPOSSIBLE text is what gets parsed and validated.
+                raw = retry_raw
                 log_event(
                     "specialist_impossible_retry_success", {"agent_id": agent_config.id}
                 )

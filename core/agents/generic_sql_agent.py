@@ -489,12 +489,23 @@ def build_generic_sql_graph(
                                             conn_id
                                         ) or data_source
                                         thr = dict(orch_result)
-                                        thr["chosen_table"] = tbl_name
-                                        thr["chosen_table_physical"] = getattr(
+                                        tbl_physical = getattr(
                                             tbl_obj, "physical_name", tbl_name
                                         )
+                                        thr["chosen_table"] = tbl_name
+                                        thr["chosen_table_physical"] = tbl_physical
                                         thr["chosen_tables"] = None
-                                        thr["chosen_tables_physical"] = None
+                                        # Scope this sub-query to its single table.
+                                        # run_specialist isolates the schema via the
+                                        # *plural* chosen_tables_physical; leaving it
+                                        # empty would expose every connection's tables
+                                        # and let the LLM emit cross-source SQL that
+                                        # fails against this single data source.
+                                        thr["chosen_tables_physical"] = [tbl_physical]
+                                        # Extract this source's slice instead of
+                                        # refusing the whole multi-source question;
+                                        # the merger combines the slices downstream.
+                                        thr["multi_source_subquery"] = True
                                         tbl_futures[
                                             tbl_ex.submit(
                                                 _run_sql,
@@ -696,14 +707,28 @@ def build_generic_sql_graph(
                 tbl_obj = next(
                     (t for t in agent_config.tables if t.logical_name == tbl_name), None
                 )
+                tbl_physical = tbl_obj.physical_name if tbl_obj else None
                 thread_state = state.copy()
                 thread_state["chosen_table"] = tbl_name
-                thread_state["chosen_table_physical"] = (
-                    tbl_obj.physical_name if tbl_obj else None
-                )
+                thread_state["chosen_table_physical"] = tbl_physical
                 thread_state["chosen_tables"] = None
+                # Isolate this sub-query to its single table: run_specialist hides
+                # every other table (including the other sources') by filtering on
+                # the *plural* chosen_tables_physical. Leaving it unset would expose
+                # all sources and let the LLM emit cross-source SQL that fails.
+                thread_state["chosen_tables_physical"] = (
+                    [tbl_physical] if tbl_physical else None
+                )
                 thread_state["join_relationships"] = None
-                tasks.append({"state": thread_state, "table": tbl_obj})
+                # One slice of a multi-source question: the merger (DuckDB)
+                # combines the per-source results downstream, so the specialist
+                # must extract this source's contribution instead of refusing.
+                thread_state["multi_source_subquery"] = True
+                # Route each sub-query to its own data source; fall back to the
+                # primary when the table is not in the dispatch_map.
+                conn_id = str(getattr(tbl_obj, "data_connection_id", "") or "")
+                src = (dispatch_map or {}).get(conn_id) or data_source
+                tasks.append({"state": thread_state, "table": tbl_obj, "src": src})
 
             results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -713,7 +738,7 @@ def build_generic_sql_graph(
                         run_specialist,
                         task["state"],
                         agent_config,
-                        data_source,
+                        task["src"],
                         dynamic_llm,
                     )
                     future_to_task[future] = task
@@ -721,6 +746,17 @@ def build_generic_sql_graph(
                 for future in concurrent.futures.as_completed(future_to_task):
                     try:
                         res_state = future.result()
+                        log_event(
+                            "multi_source_subquery_result",
+                            {
+                                "table": res_state.get("chosen_table"),
+                                "has_data": bool(res_state.get("data")),
+                                "rows": len(res_state.get("data") or []),
+                                "sql": (res_state.get("sql") or "")[:200],
+                                "error": res_state.get("error"),
+                                "impossible_reason": res_state.get("impossible_reason"),
+                            },
+                        )
                         if res_state.get("data"):
                             results.append(
                                 {
