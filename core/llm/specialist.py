@@ -1409,6 +1409,96 @@ def run_specialist(
             state["error"] = "Specialist did not return any SQL."
             return state
 
+        # 🔎 Semantic verification (deterministic AST checks): degenerate
+        # group-count (#4) is auto-rewritten; aggregate fan-out (#3) gets one
+        # targeted repair retry, then a non-silent warning if still risky.
+        if not state.get("_semantic_checked"):
+            state["_semantic_checked"] = True
+            try:
+                from core.sql.semantic_checks import analyze_sql, REPAIR
+
+                findings = analyze_sql(sql, current_dialect.value)
+                if findings:
+                    log_event(
+                        "semantic_check_findings",
+                        {
+                            "agent_id": agent_config.id,
+                            "findings": [f.code for f in findings],
+                        },
+                    )
+            except Exception as _sem_exc:
+                log_event("semantic_check_error", {"error": str(_sem_exc)[:200]})
+                findings = []
+
+            # (a) Mechanical rewrites first (no LLM, deterministic).
+            for f in findings:
+                if f.rewritten_sql:
+                    log_event(
+                        "semantic_autofix",
+                        {"code": f.code, "agent_id": agent_config.id},
+                    )
+                    sql = f.rewritten_sql
+
+            # (b) Fan-out that needs a real rewrite: one targeted repair retry.
+            fanout = next(
+                (
+                    f
+                    for f in findings
+                    if f.code == "AGGREGATE_FANOUT" and f.severity == REPAIR
+                ),
+                None,
+            )
+            if fanout:
+                repair_msg = {
+                    "role": "user",
+                    "content": (
+                        f"User question:\n{question}\n\n"
+                        f"Table schema(s):\n{schema_text}\n"
+                        f"{context_block}"
+                        f"\n\nYour previous SQL risks fan-out (row multiplication):\n{sql}\n"
+                        f"{fanout.fix_hint}\n"
+                        "Return ONLY the corrected SQL: a single '-- TITLE: ...' "
+                        "line then a SELECT/WITH statement."
+                    ),
+                }
+                try:
+                    repair_raw = llm.invoke([system_msg, repair_msg])
+                    repair_txt = (
+                        getattr(repair_raw, "content", None) or str(repair_raw)
+                    ).strip()
+                    _, repaired_sql = _extract_title_from_sql(
+                        _strip_sql_fences(repair_txt)
+                    )
+                    still_fanout = any(
+                        x.code == "AGGREGATE_FANOUT"
+                        for x in analyze_sql(repaired_sql, current_dialect.value)
+                    )
+                    if repaired_sql and not still_fanout:
+                        log_event(
+                            "semantic_fanout_repaired",
+                            {"agent_id": agent_config.id},
+                        )
+                        sql = repaired_sql
+                    else:
+                        state["semantic_warning"] = (
+                            "O resultado pode estar inflado por junção de tabelas "
+                            "de granularidades diferentes (fan-out)."
+                        )
+                except Exception:
+                    state["semantic_warning"] = (
+                        "O resultado pode estar inflado por junção de tabelas "
+                        "de granularidades diferentes (fan-out)."
+                    )
+
+            # (c) Low-confidence: never block, never stay silent — just flag.
+            if not state.get("semantic_warning"):
+                warn = next((f for f in findings if f.severity == "warn"), None)
+                if warn:
+                    state["semantic_warning"] = (
+                        "Possível inflação por fan-out: confirme se a relação "
+                        "entre as tabelas é 1:1."
+                    )
+
         # 3. Validation Chain
 
         # A) Basic Safety
