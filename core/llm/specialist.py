@@ -298,6 +298,7 @@ def _build_schema_text(
                 col_description = col.get("description", "")
                 col_is_pk = col.get("is_primary_key", False)
                 col_is_fk = col.get("is_foreign_key", False)
+                col_samples = col.get("sample_values")
             else:
                 col_name = col.name
                 col_type = col.type
@@ -307,6 +308,7 @@ def _build_schema_text(
                 col_description = getattr(col, "description", "") or ""
                 col_is_pk = getattr(col, "is_primary_key", False)
                 col_is_fk = getattr(col, "is_foreign_key", False)
+                col_samples = getattr(col, "sample_values", None)
 
             nullable = "NULLABLE" if col_nullable else "NOT NULL"
             extra = []
@@ -315,12 +317,17 @@ def _build_schema_text(
             if col_is_fk:
                 extra.append("FK")
             extras_str = f" [{' | '.join(extra)}]" if extra else ""
-            if col_description:
-                lines.append(
-                    f"  - {col_name} ({col_type}, {nullable}){extras_str} – {col_description}"
-                )
-            else:
-                lines.append(f"  - {col_name} ({col_type}, {nullable}){extras_str}")
+            # Show the column's real value domain when it is categorical, so the
+            # model filters on existing values instead of inventing them.
+            values_str = ""
+            if col_samples:
+                values_str = " — allowed values: {" + ", ".join(
+                    str(v) for v in col_samples
+                ) + "}"
+            desc_str = f" – {col_description}" if col_description else ""
+            lines.append(
+                f"  - {col_name} ({col_type}, {nullable}){extras_str}{desc_str}{values_str}"
+            )
 
     # 🛡️ ANTI-HALLUCINATION: Explicitly list allowed columns and forbid others
     if getattr(table, "columns", None):
