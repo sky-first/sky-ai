@@ -161,9 +161,23 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
             else ""
         )
         parts.append(
-            f"- {t.logical_name} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
+            f"- {_label(t)} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
         )
     return "\n".join(parts)
+
+
+def _label(t) -> str:
+    """Selection label shown to and parsed from the LLM. Equals logical_name
+    except when a table got a display_name to disambiguate a cross-connection
+    name collision (e.g. 'finance.invoices' vs 'billing.invoices'). With no
+    collision, display_name is None, so behaviour is identical to before."""
+    return getattr(t, "display_name", None) or t.logical_name
+
+
+def _find_by_label(tables: List[TableSchema], label: str):
+    """Resolve a chosen label back to its TableSchema (label is unique even
+    when two connections share a logical_name)."""
+    return next((t for t in tables if _label(t) == label), None)
 
 
 def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
@@ -181,11 +195,11 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
 
-    logical_names = [t.logical_name for t in tables]
+    labels = [_label(t) for t in tables]
 
-    # fuzzy match: se o que o modelo respondeu (text) é parte de algum nome lógico
-    # OU se algum nome lógico é parte do que o modelo respondeu
-    for name in logical_names:
+    # fuzzy match: se o que o modelo respondeu (text) é parte de algum rótulo
+    # OU se algum rótulo é parte do que o modelo respondeu
+    for name in labels:
         lname = name.lower()
         if text and (text in lname or lname in text):
             return name
@@ -214,7 +228,7 @@ def _extract_multiple_table_choices(
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
 
-    logical_names = [t.logical_name.lower() for t in tables]
+    labels = [_label(t).lower() for t in tables]
     found_tables = []
 
     # Tentar separar por vírgula, "and", ou nova linha
@@ -226,20 +240,20 @@ def _extract_multiple_table_choices(
             continue
 
         # Match exato
-        for name in logical_names:
+        for name in labels:
             if part == name:
                 table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
+                    _label(t) for t in tables if _label(t).lower() == name
                 )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
 
         # Match parcial
-        for name in logical_names:
+        for name in labels:
             if name in part and name not in [t.lower() for t in found_tables]:
                 table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
+                    _label(t) for t in tables if _label(t).lower() == name
                 )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
@@ -1289,7 +1303,7 @@ def run_orchestrator(
                         (
                             t.physical_name
                             for t in agent_config.tables
-                            if t.logical_name == name
+                            if _label(t) == name
                         ),
                         name,
                     )
@@ -1311,7 +1325,7 @@ def run_orchestrator(
                     (
                         t.physical_name
                         for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
+                        if _label(t) == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
                 )
@@ -1339,7 +1353,7 @@ def run_orchestrator(
                         (
                             t.physical_name
                             for t in agent_config.tables
-                            if t.logical_name == name
+                            if _label(t) == name
                         ),
                         name,
                     )
@@ -1354,7 +1368,7 @@ def run_orchestrator(
                     (
                         t.physical_name
                         for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
+                        if _label(t) == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
                 )
@@ -1372,13 +1386,12 @@ def run_orchestrator(
                 )
         elif len(chosen_logicals) == 1:
             chosen_logical = chosen_logicals[0]
-            chosen_table_obj = next(
-                (t for t in agent_config.tables if t.logical_name == chosen_logical),
-                agent_config.tables[0],
+            chosen_table_obj = _find_by_label(agent_config.tables, chosen_logical) or (
+                agent_config.tables[0]
             )
-            state["chosen_tables"] = [chosen_table_obj.logical_name]
+            state["chosen_tables"] = [_label(chosen_table_obj)]
             state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
-            state["chosen_table"] = chosen_table_obj.logical_name
+            state["chosen_table"] = _label(chosen_table_obj)
             state["chosen_table_physical"] = chosen_table_obj.physical_name
 
         else:
@@ -1386,12 +1399,12 @@ def run_orchestrator(
             # tables so that context/scan/datasource agents never stall on an empty
             # table list. For question-mode queries this is a last resort; the
             # specialist will scope down via its own reasoning.
-            chosen_logicals = [t.logical_name for t in agent_config.tables]
+            chosen_logicals = [_label(t) for t in agent_config.tables]
             state["chosen_tables"] = chosen_logicals
             state["chosen_tables_physical"] = [
                 t.physical_name for t in agent_config.tables
             ]
-            state["chosen_table"] = agent_config.tables[0].logical_name
+            state["chosen_table"] = _label(agent_config.tables[0])
             state["chosen_table_physical"] = agent_config.tables[0].physical_name
             log_event(
                 "orchestrator_fallback_all_tables",
@@ -1408,9 +1421,7 @@ def run_orchestrator(
         # This runs for all cases where len(chosen_logicals) > 1
         chosen_schemas_chk = []
         for name in chosen_logicals:
-            t = next(
-                (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
-            )
+            t = _find_by_label(agent_config.tables, name)
             if t:
                 chosen_schemas_chk.append(t)
 

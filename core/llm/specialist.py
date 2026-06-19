@@ -699,7 +699,14 @@ def run_specialist(
     if use_multiple_tables:
         # Modo JOIN: múltiplas tabelas
         tables = [
-            next((t for t in effective_tables if t.logical_name == name), None)
+            next(
+                (
+                    t
+                    for t in effective_tables
+                    if (getattr(t, "display_name", None) or t.logical_name) == name
+                ),
+                None,
+            )
             for name in chosen_tables_logical
         ]
 
@@ -756,7 +763,11 @@ def run_specialist(
             return state
 
         table = next(
-            (t for t in effective_tables if t.logical_name == chosen_logical),
+            (
+                t
+                for t in effective_tables
+                if (getattr(t, "display_name", None) or t.logical_name) == chosen_logical
+            ),
             None,
         )
         if table is None:

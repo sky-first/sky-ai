@@ -171,6 +171,11 @@ class TableSchema:
     columns: List[TableColumn] = field(default_factory=list)
     # opcional: ID da conexão externa (BigQuery, Postgres do cliente, etc.)
     data_connection_id: Optional[str] = None
+    # Rótulo de SELEÇÃO usado só pelo orchestrator quando duas conexões têm
+    # tabelas de mesmo logical_name (ex.: "finance.invoices" vs
+    # "billing.invoices"). NÃO substitui logical_name/physical_name — RAG,
+    # relacionamentos e authorized_tables seguem usando os nomes originais.
+    display_name: Optional[str] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -476,7 +481,8 @@ def build_generic_sql_graph(
                                             (
                                                 t
                                                 for t in agent_config.tables
-                                                if t.logical_name == tbl_name
+                                                if (t.display_name or t.logical_name)
+                                                == tbl_name
                                             ),
                                             None,
                                         )
@@ -705,7 +711,12 @@ def build_generic_sql_graph(
             tasks = []
             for tbl_name in chosen_tables:
                 tbl_obj = next(
-                    (t for t in agent_config.tables if t.logical_name == tbl_name), None
+                    (
+                        t
+                        for t in agent_config.tables
+                        if (t.display_name or t.logical_name) == tbl_name
+                    ),
+                    None,
                 )
                 tbl_physical = tbl_obj.physical_name if tbl_obj else None
                 thread_state = state.copy()

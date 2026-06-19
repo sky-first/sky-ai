@@ -2631,6 +2631,36 @@ async def list_available_tables(
     }
 
 
+def _source_qualifier(physical_name: str) -> str:
+    """Short source token from a physical name, used to disambiguate same-named
+    tables across connections: the dataset for project.dataset.table, the schema
+    for schema.table, else the bare name."""
+    parts = [p for p in str(physical_name).replace("`", "").split(".") if p]
+    if len(parts) >= 3:
+        return parts[-2]
+    if len(parts) == 2:
+        return parts[0]
+    return parts[-1] if parts else "src"
+
+
+def _disambiguate_table_labels(table_schemas: list) -> None:
+    """When two connections expose tables with the same logical_name, give the
+    colliding ones a display_name qualified by source (e.g. 'finance.invoices'
+    vs 'billing_silver.invoices') so the orchestrator can pick the right one.
+    logical_name/physical_name stay untouched — RAG, relationships and
+    authorized_tables keep matching on the originals. No-op without collisions."""
+    from collections import defaultdict
+
+    by_logical = defaultdict(list)
+    for t in table_schemas:
+        by_logical[t.logical_name].append(t)
+    for logical, group in by_logical.items():
+        conns = {getattr(t, "data_connection_id", None) for t in group}
+        if len(group) > 1 and len(conns) > 1:
+            for t in group:
+                t.display_name = f"{_source_qualifier(t.physical_name)}.{logical}"
+
+
 async def load_agent_config_from_connection(
     db: AsyncSession,
     space_id: str,
@@ -2945,6 +2975,9 @@ async def load_agent_config_from_connection(
                                 "load_agent_config_merge_extra_conn_error",
                                 {"extra_cid": extra_cid, "error": str(merge_err)[:300]},
                             )
+
+                # Disambiguate same logical_name across merged connections.
+                _disambiguate_table_labels(table_schemas)
 
                 agent = AgentConfig(
                     id=f"agent-conn-{connection_id}",
