@@ -298,6 +298,7 @@ def _build_schema_text(
                 col_description = col.get("description", "")
                 col_is_pk = col.get("is_primary_key", False)
                 col_is_fk = col.get("is_foreign_key", False)
+                col_samples = col.get("sample_values")
             else:
                 col_name = col.name
                 col_type = col.type
@@ -307,6 +308,7 @@ def _build_schema_text(
                 col_description = getattr(col, "description", "") or ""
                 col_is_pk = getattr(col, "is_primary_key", False)
                 col_is_fk = getattr(col, "is_foreign_key", False)
+                col_samples = getattr(col, "sample_values", None)
 
             nullable = "NULLABLE" if col_nullable else "NOT NULL"
             extra = []
@@ -315,12 +317,17 @@ def _build_schema_text(
             if col_is_fk:
                 extra.append("FK")
             extras_str = f" [{' | '.join(extra)}]" if extra else ""
-            if col_description:
-                lines.append(
-                    f"  - {col_name} ({col_type}, {nullable}){extras_str} – {col_description}"
-                )
-            else:
-                lines.append(f"  - {col_name} ({col_type}, {nullable}){extras_str}")
+            # Show the column's real value domain when it is categorical, so the
+            # model filters on existing values instead of inventing them.
+            values_str = ""
+            if col_samples:
+                values_str = " — allowed values: {" + ", ".join(
+                    str(v) for v in col_samples
+                ) + "}"
+            desc_str = f" – {col_description}" if col_description else ""
+            lines.append(
+                f"  - {col_name} ({col_type}, {nullable}){extras_str}{desc_str}{values_str}"
+            )
 
     # 🛡️ ANTI-HALLUCINATION: Explicitly list allowed columns and forbid others
     if getattr(table, "columns", None):
@@ -692,7 +699,14 @@ def run_specialist(
     if use_multiple_tables:
         # Modo JOIN: múltiplas tabelas
         tables = [
-            next((t for t in effective_tables if t.logical_name == name), None)
+            next(
+                (
+                    t
+                    for t in effective_tables
+                    if (getattr(t, "display_name", None) or t.logical_name) == name
+                ),
+                None,
+            )
             for name in chosen_tables_logical
         ]
 
@@ -749,7 +763,11 @@ def run_specialist(
             return state
 
         table = next(
-            (t for t in effective_tables if t.logical_name == chosen_logical),
+            (
+                t
+                for t in effective_tables
+                if (getattr(t, "display_name", None) or t.logical_name) == chosen_logical
+            ),
             None,
         )
         if table is None:
@@ -1142,7 +1160,27 @@ def run_specialist(
         agent_mode = (state.get("agent_mode") or "").lower()
         # For autonomous agent modes the question is always broad by design —
         # IMPOSSIBLE is never acceptable; force a concrete aggregate query instead.
-        if agent_mode in ("datasource", "scan"):
+        if state.get("multi_source_subquery"):
+            # This run is one slice of a question that spans multiple data
+            # sources; the caller gave us only one source's table(s) and a
+            # downstream merger combines the per-source results. Refusing just
+            # because these tables cannot answer the whole question would starve
+            # the merger, so extract this source's contribution instead.
+            retry_hint = (
+                "\n\nYour previous response was IMPOSSIBLE. This query is ONE part "
+                "of a larger question that spans MULTIPLE data sources, and you "
+                "were given only the table(s) of a SINGLE source. A later step "
+                "combines your result with the other sources, so do NOT refuse "
+                "because these tables cannot answer the whole question alone.\n"
+                "Extract, from the table(s) above, only the slice this source can "
+                "contribute (the metric, group-by, or rows). Ignore the parts of "
+                "the question that belong to other sources.\n"
+                "FORMAT (mandatory): respond with the SQL ONLY — no prose, no "
+                "markdown fences. Start with a single '-- TITLE: <short title>' "
+                "line, then a SELECT statement. NEVER respond IMPOSSIBLE."
+            )
+            retry_extra = ""
+        elif agent_mode in ("datasource", "scan"):
             retry_hint = (
                 "\n\nYour previous response was IMPOSSIBLE. For a datasource scan you MUST "
                 "always generate SQL — broad questions are expected and acceptable.\n"
@@ -1199,6 +1237,10 @@ def run_specialist(
             ).strip()
             if not re.match(r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE):
                 content_clean = retry_content
+                # Downstream SQL extraction parses `raw`, not content_clean, so
+                # the retried answer must replace it — otherwise the original
+                # IMPOSSIBLE text is what gets parsed and validated.
+                raw = retry_raw
                 log_event(
                     "specialist_impossible_retry_success", {"agent_id": agent_config.id}
                 )
@@ -1377,6 +1419,96 @@ def run_specialist(
         if not sql:
             state["error"] = "Specialist did not return any SQL."
             return state
+
+        # 🔎 Semantic verification (deterministic AST checks): degenerate
+        # group-count (#4) is auto-rewritten; aggregate fan-out (#3) gets one
+        # targeted repair retry, then a non-silent warning if still risky.
+        if not state.get("_semantic_checked"):
+            state["_semantic_checked"] = True
+            try:
+                from core.sql.semantic_checks import analyze_sql, REPAIR
+
+                findings = analyze_sql(sql, current_dialect.value)
+                if findings:
+                    log_event(
+                        "semantic_check_findings",
+                        {
+                            "agent_id": agent_config.id,
+                            "findings": [f.code for f in findings],
+                        },
+                    )
+            except Exception as _sem_exc:
+                log_event("semantic_check_error", {"error": str(_sem_exc)[:200]})
+                findings = []
+
+            # (a) Mechanical rewrites first (no LLM, deterministic).
+            for f in findings:
+                if f.rewritten_sql:
+                    log_event(
+                        "semantic_autofix",
+                        {"code": f.code, "agent_id": agent_config.id},
+                    )
+                    sql = f.rewritten_sql
+
+            # (b) Fan-out that needs a real rewrite: one targeted repair retry.
+            fanout = next(
+                (
+                    f
+                    for f in findings
+                    if f.code == "AGGREGATE_FANOUT" and f.severity == REPAIR
+                ),
+                None,
+            )
+            if fanout:
+                repair_msg = {
+                    "role": "user",
+                    "content": (
+                        f"User question:\n{question}\n\n"
+                        f"Table schema(s):\n{schema_text}\n"
+                        f"{context_block}"
+                        f"\n\nYour previous SQL risks fan-out (row multiplication):\n{sql}\n"
+                        f"{fanout.fix_hint}\n"
+                        "Return ONLY the corrected SQL: a single '-- TITLE: ...' "
+                        "line then a SELECT/WITH statement."
+                    ),
+                }
+                try:
+                    repair_raw = llm.invoke([system_msg, repair_msg])
+                    repair_txt = (
+                        getattr(repair_raw, "content", None) or str(repair_raw)
+                    ).strip()
+                    _, repaired_sql = _extract_title_from_sql(
+                        _strip_sql_fences(repair_txt)
+                    )
+                    still_fanout = any(
+                        x.code == "AGGREGATE_FANOUT"
+                        for x in analyze_sql(repaired_sql, current_dialect.value)
+                    )
+                    if repaired_sql and not still_fanout:
+                        log_event(
+                            "semantic_fanout_repaired",
+                            {"agent_id": agent_config.id},
+                        )
+                        sql = repaired_sql
+                    else:
+                        state["semantic_warning"] = (
+                            "O resultado pode estar inflado por junção de tabelas "
+                            "de granularidades diferentes (fan-out)."
+                        )
+                except Exception:
+                    state["semantic_warning"] = (
+                        "O resultado pode estar inflado por junção de tabelas "
+                        "de granularidades diferentes (fan-out)."
+                    )
+
+            # (c) Low-confidence: never block, never stay silent — just flag.
+            if not state.get("semantic_warning"):
+                warn = next((f for f in findings if f.severity == "warn"), None)
+                if warn:
+                    state["semantic_warning"] = (
+                        "Possível inflação por fan-out: confirme se a relação "
+                        "entre as tabelas é 1:1."
+                    )
 
         # 3. Validation Chain
 
