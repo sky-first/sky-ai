@@ -455,6 +455,46 @@ async def _build_merged_agent_config_for_scan(
     )
 
 
+def _dispatch_map_from_conn_rows(rows) -> dict:
+    """Build {connection_id: DataSource} from ``data_connections`` rows.
+
+    Each row is expected as ``(id, name, connector_id, config)``. A connection
+    that fails to build (bad credentials, unreachable host) is skipped and
+    logged, so one broken source never breaks routing for the others.
+    """
+    from core.data_sources.factory import DataSourceFactory
+    from core.security.config_decryption import decrypt_config as _decrypt
+
+    class _TempConn:
+        def __init__(self, id, name, type, config):
+            self.id = id
+            self.name = name
+            self.type = type
+            self.config = config
+
+    dispatch_map: dict = {}
+    for row in rows:
+        conn_id = str(row[0])
+        name = row[1] or conn_id
+        conn_type = (row[2] or "postgres").lower()
+        raw_config = row[3]
+        try:
+            if isinstance(raw_config, str):
+                raw_config = json.loads(raw_config)
+            config = _decrypt(raw_config or {})
+            ds = DataSourceFactory.build_from_dataconnection(
+                _TempConn(conn_id, name, conn_type, config)
+            )
+            # Attach label so list_tables can show a human-readable source name
+            ds.label = f"{name} ({conn_type})"
+            dispatch_map[conn_id] = ds
+        except Exception as exc:
+            logger.warning(
+                "dispatch_map: skipping connection %s (%s): %s", conn_id, name, exc
+            )
+    return dispatch_map
+
+
 async def _build_dispatch_map_for_scan(
     db: AsyncSession,
     space_ids: List[str],
@@ -465,9 +505,6 @@ async def _build_dispatch_map_for_scan(
     calls to the right database when the user has multiple connections.
     Returns an empty dict on failure (agent falls back to single data_source).
     """
-    from core.data_sources.factory import DataSourceFactory
-    from core.security.config_decryption import decrypt_config as _decrypt
-
     if not space_ids:
         return {}
 
@@ -488,41 +525,50 @@ async def _build_dispatch_map_for_scan(
         logger.warning("_build_dispatch_map_for_scan: query failed: %s", exc)
         return {}
 
-    class _TempConn:
-        def __init__(self, id, name, type, config):
-            self.id = id
-            self.name = name
-            self.type = type
-            self.config = config
-
-    dispatch_map: dict = {}
-    for row in rows.fetchall():
-        conn_id = str(row[0])
-        name = row[1] or conn_id
-        conn_type = (row[2] or "postgres").lower()
-        raw_config = row[3]
-        try:
-            if isinstance(raw_config, str):
-                raw_config = json.loads(raw_config)
-            config = _decrypt(raw_config or {})
-            ds = DataSourceFactory.build_from_dataconnection(
-                _TempConn(conn_id, name, conn_type, config)
-            )
-            # Attach label so list_tables can show a human-readable source name
-            ds.label = f"{name} ({conn_type})"
-            dispatch_map[conn_id] = ds
-        except Exception as exc:
-            logger.warning(
-                "_build_dispatch_map_for_scan: skipping connection %s (%s): %s",
-                conn_id,
-                name,
-                exc,
-            )
-
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
     log_event(
         "scan_dispatch_map_built",
         {
             "space_ids": space_ids,
+            "num_connections": len(dispatch_map),
+            "connection_ids": list(dispatch_map.keys()),
+        },
+    )
+    return dispatch_map
+
+
+async def _build_dispatch_map_for_connections(
+    db: AsyncSession,
+    connection_ids: List[str],
+) -> dict:
+    """Build {connection_id: DataSource} for an explicit set of connections.
+
+    Used by the collaborative query path when a question spans more than one
+    connection (``body.connection_ids``), so each table's sub-query runs against
+    its own database and the partial results are merged in-memory (DuckDB).
+    Returns an empty dict on failure (caller falls back to the single primary
+    source).
+    """
+    if not connection_ids:
+        return {}
+
+    try:
+        rows = await db.execute(
+            text("""
+                SELECT dc.id, dc.name, dc.connector_id, dc.config
+                FROM data_connections dc
+                WHERE dc.id = ANY(CAST(:ids AS uuid[]))
+                """),
+            {"ids": connection_ids},
+        )
+    except Exception as exc:
+        logger.warning("_build_dispatch_map_for_connections: query failed: %s", exc)
+        return {}
+
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
+    log_event(
+        "cross_connection_dispatch_map_built",
+        {
             "num_connections": len(dispatch_map),
             "connection_ids": list(dispatch_map.keys()),
         },
@@ -2585,6 +2631,36 @@ async def list_available_tables(
     }
 
 
+def _source_qualifier(physical_name: str) -> str:
+    """Short source token from a physical name, used to disambiguate same-named
+    tables across connections: the dataset for project.dataset.table, the schema
+    for schema.table, else the bare name."""
+    parts = [p for p in str(physical_name).replace("`", "").split(".") if p]
+    if len(parts) >= 3:
+        return parts[-2]
+    if len(parts) == 2:
+        return parts[0]
+    return parts[-1] if parts else "src"
+
+
+def _disambiguate_table_labels(table_schemas: list) -> None:
+    """When two connections expose tables with the same logical_name, give the
+    colliding ones a display_name qualified by source (e.g. 'finance.invoices'
+    vs 'billing_silver.invoices') so the orchestrator can pick the right one.
+    logical_name/physical_name stay untouched — RAG, relationships and
+    authorized_tables keep matching on the originals. No-op without collisions."""
+    from collections import defaultdict
+
+    by_logical = defaultdict(list)
+    for t in table_schemas:
+        by_logical[t.logical_name].append(t)
+    for logical, group in by_logical.items():
+        conns = {getattr(t, "data_connection_id", None) for t in group}
+        if len(group) > 1 and len(conns) > 1:
+            for t in group:
+                t.display_name = f"{_source_qualifier(t.physical_name)}.{logical}"
+
+
 async def load_agent_config_from_connection(
     db: AsyncSession,
     space_id: str,
@@ -2796,6 +2872,7 @@ async def load_agent_config_from_connection(
                         physical_name=physical_name,
                         description=t.get("description"),
                         columns=columns,
+                        data_connection_id=connection_id,
                     )
                 )
 
@@ -2808,6 +2885,13 @@ async def load_agent_config_from_connection(
                     if cid and cid != connection_id
                 ]
                 if extra_conn_ids:
+                    # Track physical names already present so the same table
+                    # surfaced by overlapping connections is not merged twice.
+                    # Distinct physical names from different connections are
+                    # kept side by side (each tagged with its source below),
+                    # which is what lets the orchestrator disambiguate tables
+                    # that share a logical name across connections.
+                    seen_physicals = {ts.physical_name for ts in table_schemas}
                     for extra_cid in extra_conn_ids:
                         try:
                             extra_meta = await db.execute(
@@ -2853,6 +2937,9 @@ async def load_agent_config_from_connection(
                                         extra_physical = f"{extra_schema}.{extra_name}"
                                     else:
                                         extra_physical = extra_name
+                                    if extra_physical in seen_physicals:
+                                        continue
+                                    seen_physicals.add(extra_physical)
                                     extra_logical = t.get(
                                         "logical_name"
                                     ) or _normalize_logical_name(extra_name)
@@ -2880,6 +2967,7 @@ async def load_agent_config_from_connection(
                                             physical_name=extra_physical,
                                             description=t.get("description"),
                                             columns=extra_cols,
+                                            data_connection_id=extra_cid,
                                         )
                                     )
                         except Exception as merge_err:
@@ -2887,6 +2975,9 @@ async def load_agent_config_from_connection(
                                 "load_agent_config_merge_extra_conn_error",
                                 {"extra_cid": extra_cid, "error": str(merge_err)[:300]},
                             )
+
+                # Disambiguate same logical_name across merged connections.
+                _disambiguate_table_labels(table_schemas)
 
                 agent = AgentConfig(
                     id=f"agent-conn-{connection_id}",
@@ -3445,6 +3536,93 @@ async def query_connection(
     return response
 
 
+# Cache of profiled categorical values, keyed by "connection|physical|column".
+# A value of None marks a column already checked and found high-cardinality, so
+# it is never re-queried. Values rarely change, so a process-level cache is
+# enough here; the canonical home for this is discover-time enrichment.
+_SAMPLE_VALUES_CACHE: Dict[str, Optional[List[str]]] = {}
+_SAMPLE_VALUES_MAX_DISTINCT = 25  # only surface low-cardinality columns
+_SAMPLE_VALUES_MAX_COLUMNS = 40  # safety cap on profiling work per request
+
+
+def _is_text_column(col_type: str) -> bool:
+    """True for string-like column types across dialects (BigQuery STRING,
+    Postgres varchar/text, etc.)."""
+    t = (col_type or "").upper()
+    return any(k in t for k in ("STR", "CHAR", "TEXT", "VARCHAR", "ENUM"))
+
+
+def _fetch_distinct_values(
+    data_source: Any, physical: str, column: str
+) -> Optional[List[str]]:
+    """Return distinct non-null values for a column, or None when it is
+    high-cardinality (more than the threshold) or unreadable. Source-agnostic:
+    runs a bounded SELECT DISTINCT through the DataSource."""
+    limit = _SAMPLE_VALUES_MAX_DISTINCT + 1
+    sql = (
+        f"SELECT DISTINCT {column} AS v FROM {physical} "
+        f"WHERE {column} IS NOT NULL LIMIT {limit}"
+    )
+    try:
+        rows = data_source.run_query(sql) or []
+    except Exception as exc:
+        log_event(
+            "sample_values_profile_error",
+            {"physical": physical, "column": column, "error": str(exc)[:160]},
+        )
+        return None
+    values = [
+        str(r.get("v"))
+        for r in rows
+        if isinstance(r, dict) and r.get("v") is not None
+    ]
+    # Too many distinct → not a categorical column; don't surface it.
+    if not values or len(values) > _SAMPLE_VALUES_MAX_DISTINCT:
+        return None
+    return values
+
+
+def _enrich_tables_with_sample_values(
+    tables: list, data_source: Any, connection_id: str
+) -> None:
+    """Attach the real value domain of low-cardinality text columns to each
+    column dict as ``sample_values``, so the schema shown to the LLM lists the
+    actual values (e.g. status in {Paid, Pending, Overdue}). This stops the
+    model from inventing logic for a value it cannot see (e.g. deriving
+    "overdue" from dates instead of using the status column).
+
+    Best-effort and cached per (connection, table, column); high-cardinality
+    columns are remembered as skipped. Any failure leaves the column
+    unannotated and never breaks the query path.
+    """
+    profiled = 0
+    for table in tables or []:
+        physical = getattr(table, "physical_name", None)
+        if not physical:
+            continue
+        for col in getattr(table, "columns", None) or []:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or col.get("sample_values") is not None:
+                continue
+            if not _is_text_column(col.get("type") or col.get("data_type") or ""):
+                continue
+            key = f"{connection_id}|{physical}|{name}"
+            if key in _SAMPLE_VALUES_CACHE:
+                cached = _SAMPLE_VALUES_CACHE[key]
+                if cached:
+                    col["sample_values"] = cached
+                continue
+            if profiled >= _SAMPLE_VALUES_MAX_COLUMNS:
+                continue
+            profiled += 1
+            values = _fetch_distinct_values(data_source, physical, name)
+            _SAMPLE_VALUES_CACHE[key] = values
+            if values:
+                col["sample_values"] = values
+
+
 async def _query_connection_inner(
     connection_id: str,
     body: QueryRequest,
@@ -3975,6 +4153,17 @@ async def _query_connection_inner(
         error_detail = f"Erro ao criar DataSource: {str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=error_detail)
 
+    # Surface the real value domain of low-cardinality text columns (status,
+    # category, method, ...) so the specialist maps business terms to actual
+    # column values instead of inventing logic (e.g. date heuristics). Cached,
+    # best-effort — never blocks the query.
+    try:
+        _enrich_tables_with_sample_values(
+            agent_config.tables, data_source, connection_id
+        )
+    except Exception as _exc:
+        logger.warning("sample-value enrichment skipped: %s", _exc)
+
     # For scan mode: build multi-source dispatch_map so the full_context_agent
     # can query any of the user's connections, not just the primary one.
     dispatch_map: Optional[dict] = None
@@ -4008,6 +4197,27 @@ async def _query_connection_inner(
                 )
             except Exception as _exc:
                 logger.warning("Failed to build merged agent config for scan: %s", _exc)
+
+    # Collaborative cross-connection: when the loaded tables span more than one
+    # connection (caller passed body.connection_ids), build a dispatch_map so the
+    # specialist runs one sub-query per source and the orchestrator's merger
+    # (DuckDB) consolidates them. Without this, is_multi_source stays False and
+    # every table is queried against the primary connection only.
+    if dispatch_map is None:
+        table_conn_ids = {
+            str(getattr(t, "data_connection_id", "") or "")
+            for t in agent_config.tables
+        }
+        table_conn_ids.discard("")
+        if len(table_conn_ids) > 1:
+            try:
+                dispatch_map = await _build_dispatch_map_for_connections(
+                    db, sorted(table_conn_ids)
+                )
+            except Exception as _exc:
+                logger.warning(
+                    "Failed to build cross-connection dispatch_map: %s", _exc
+                )
 
     # DatasetPriorityScorer: rank all tables and keep top-K most valuable ones
     # before handing the config to the agent (roadmap items 13-14).
@@ -4488,7 +4698,11 @@ async def _query_connection_inner(
     error = final_state.get("error")
 
     # ✅ CAMADA 3: Validação AST do SQL gerado
-    if sql:
+    # Multi-source results carry the DuckDB merger SQL (over in-memory datasets
+    # like dataset_1/dataset_2), not a connection query. Each per-source
+    # sub-query was already validated against its own source, so re-checking the
+    # merge SQL against this connection's tables would wrongly reject it.
+    if sql and not final_state.get("is_multi_source"):
         # Obter tabelas permitidas (usar physical_name porque SQL usa physical)
         allowed_tables = [t.physical_name for t in agent_config.tables]
         # Também adicionar logical_name para compatibilidade
