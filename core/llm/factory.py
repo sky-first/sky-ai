@@ -153,6 +153,13 @@ def create_embedding_provider() -> EmbeddingProvider:
     embeddings to Bedrock direct (``EMBEDDING_PROVIDER=bedrock``).
     """
     provider = (settings.embedding_provider or "").lower()
+    if provider == "local":
+        # Em-processo, via ONNX. Não fala com a rede — existe porque a
+        # inferência on-demand do Bedrock está bloqueada ao nível da conta
+        # e o proxy mantle não serve modelos de embedding.
+        from core.rag.embeddings import LocalEmbeddingProvider
+
+        return LocalEmbeddingProvider(model=settings.embedding_model_local)
     if provider == "bedrock":
         from core.rag.embeddings import BedrockEmbeddingProvider
 
