@@ -107,6 +107,85 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         return self._client.embed_documents(list(texts))
 
 
+# Local provider (in-process, sem rede)
+class LocalEmbeddingProvider(EmbeddingProvider):
+    """Embeddings calculados dentro do próprio processo, via ONNX.
+
+    Sem chamadas de rede: o modelo é carregado uma vez para memória e as
+    chamadas seguintes são locais. Existe porque a inferência on-demand
+    do Bedrock está bloqueada ao nível da conta AWS — quota 0 e
+    ``Adjustable: False`` em eu-west-1, e estrangulada em us-east-1
+    apesar de a quota reportar 6000 — e o proxy mantle que salva o
+    caminho do chat serve 35 modelos de chat e zero de embedding.
+
+    Medido em CPU, com o modelo já quente:
+
+        1 texto        ~370 ms
+        lote de 32     ~130 ms por texto
+        memória        ~1,5 GB residentes
+
+    Contra os ~18 s que o caminho Bedrock gastava a esgotar 4 retries
+    antes de falhar na mesma.
+
+    O modelo por omissão dá **1024 dimensões**, exactamente o que a
+    coluna pgvector espera — trocar para aqui não obriga a migração de
+    schema. Qualquer modelo configurado tem de manter essa largura,
+    senão ``embedding_dim`` deixa de bater certo.
+
+    Nota sobre espaço vectorial: vectores gravados por outro modelo
+    (Titan, no caso) têm a mesma largura mas vivem noutro espaço.
+    Misturá-los degrada a pesquisa em silêncio, por isso é preciso
+    re-embed do corpo já indexado ao mudar de modelo.
+    """
+
+    # 1024 dims, ~2,24 GB. Multilingue de propósito: a plataforma serve
+    # conteúdo em PT e EN, e o Titan que este provider substitui também
+    # era multilingue.
+    #
+    # Medido, com a mesma pergunta em PT e EN (similaridade do cosseno,
+    # média de 3 pares — quanto mais alto, melhor a pesquisa cruzada):
+    #
+    #     mixedbread-ai/mxbai-embed-large-v1   0,549   853 ms/par   0,64 GB
+    #     intfloat/multilingual-e5-large       0,917   529 ms/par   2,24 GB
+    #
+    # O multilingue é melhor E mais rápido; só pesa mais em disco e
+    # memória (~2,5 GB residentes contra ~1,5 GB). Trocar para o mxbai
+    # via LOCAL_EMBEDDING_MODEL se a memória do pod alguma vez apertar —
+    # ambos dão 1024 dims, portanto não há migração de schema, mas
+    # obriga a re-embed por ser outro espaço vectorial.
+    _DEFAULT_MODEL = "intfloat/multilingual-e5-large"
+
+    def __init__(self, model: str = None, cache_dir: str = None):
+        from config.settings import settings
+
+        self.model = model or self._DEFAULT_MODEL
+        self._cache_dir = cache_dir or getattr(settings, "embedding_cache_dir", None)
+        # Carregamento preguiçoso: construir o TextEmbedding descarrega o
+        # modelo (0,64 GB, ou 2,24 GB no multilingue) e carrega-o para
+        # memória. A fábrica é chamada no arranque do processo, e fazer
+        # isso aqui atrasaria o readiness probe do pod — ou, pior,
+        # falharia o arranque se a rede estivesse indisponível nesse
+        # instante. O primeiro embed() paga o custo, os seguintes não.
+        self._client = None
+
+    def _ensure_client(self):
+        if self._client is None:
+            from fastembed import TextEmbedding
+
+            self._client = TextEmbedding(
+                model_name=self.model,
+                cache_dir=self._cache_dir,
+            )
+        return self._client
+
+    def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        # fastembed devolve um gerador de numpy arrays; a interface do
+        # projecto é List[List[float]].
+        return [v.tolist() for v in self._ensure_client().embed(list(texts))]
+
+
 # OpenAI provider (Cloud)
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """

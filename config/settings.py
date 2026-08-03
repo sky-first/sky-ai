@@ -188,9 +188,30 @@ class Settings(BaseSettings):
             "BEDROCK_EMBEDDING_MODEL", "embedding_model_bedrock"
         ),
     )
+    # Modelo do provider local (EMBEDDING_PROVIDER=local), corrido em ONNX
+    # dentro do próprio processo. 1024 dims, a largura que a coluna
+    # pgvector já tem. Multilingue de propósito — ver a medição PT/EN no
+    # docstring de LocalEmbeddingProvider. Alternativa mais leve com a
+    # mesma largura: mixedbread-ai/mxbai-embed-large-v1 (0,64 GB, mas
+    # muito pior em português).
+    embedding_model_local: str = Field(
+        default="intfloat/multilingual-e5-large",
+        validation_alias=AliasChoices(
+            "LOCAL_EMBEDDING_MODEL", "embedding_model_local"
+        ),
+    )
+    # Onde o modelo local fica em cache. Deve apontar para um volume
+    # persistente em produção, senão cada arranque do pod volta a
+    # descarregar ~0,64 GB e atrasa o readiness.
+    embedding_cache_dir: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("EMBEDDING_CACHE_DIR", "embedding_cache_dir"),
+    )
     # Pgvector column dimension. Must match the active embedding model:
     #   - Titan v2:    256 / 512 / 1024
     #   - Cohere v3:   1024 (fixed)
+    #   - local mxbai-embed-large-v1: 1024
+    #   - local multilingual-e5-large: 1024
     #   - Ollama mxbai-embed-large: 1024
     #   - OpenAI text-embedding-3-large: any via dimensions param (we use 1024)
     embedding_dim: int = Field(
