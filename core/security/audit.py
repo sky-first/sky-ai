@@ -204,6 +204,35 @@ async def _ensure_audit_table_async() -> None:
                         pii_blocked BOOLEAN DEFAULT FALSE
                     );
                     """))
+            # ── Columns added after the table first shipped ──────────
+            # ``CREATE TABLE IF NOT EXISTS`` is a no-op once the table
+            # exists, so every column appended to the DDL above never
+            # reached an environment created before it. Production hit
+            # exactly that: the table predates ``platform_role``,
+            # ``crew_role`` and the whole PII block, so each flush died
+            # with
+            #     column "platform_role" of relation "query_audit_log"
+            #     does not exist
+            # and the audit rows were silently dropped — including the
+            # PII-detection evidence, which is the part we actually need
+            # for compliance.
+            #
+            # ``ADD COLUMN IF NOT EXISTS`` is idempotent and cheap (a
+            # catalogue lookup when the column is already there), so it
+            # is safe to run on the same cooldown as the CREATE and
+            # self-heals whatever an environment happens to be missing.
+            # Keep this list in lockstep with the DDL above.
+            await db.execute(text("""
+                    ALTER TABLE query_audit_log
+                        ADD COLUMN IF NOT EXISTS platform_role VARCHAR(50),
+                        ADD COLUMN IF NOT EXISTS crew_role VARCHAR(50),
+                        ADD COLUMN IF NOT EXISTS pii_detected_in_prompt BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS pii_detected_in_response BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS pii_types TEXT[],
+                        ADD COLUMN IF NOT EXISTS pii_severity VARCHAR(10),
+                        ADD COLUMN IF NOT EXISTS pii_patterns_matched TEXT[],
+                        ADD COLUMN IF NOT EXISTS pii_blocked BOOLEAN DEFAULT FALSE;
+                    """))
             await db.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON query_audit_log(timestamp);"
