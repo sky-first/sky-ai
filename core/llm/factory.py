@@ -168,7 +168,11 @@ def create_embedding_provider() -> EmbeddingProvider:
             region=settings.bedrock_region,
         )
     if provider == "ollama":
-        return OllamaEmbeddingProvider()
+        # Pass the model explicitly. The provider's own default is
+        # nomic-embed-text (768 dims); a deployment backing a 1024-dim
+        # pgvector column needs mxbai-embed-large, and with no argument
+        # here there was no way to ask for it.
+        return OllamaEmbeddingProvider(model=settings.embedding_model_ollama)
     if provider == "openai":
         from core.rag.embeddings import OpenAIEmbeddingProvider
 
