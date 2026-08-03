@@ -200,18 +200,37 @@ class Settings(BaseSettings):
             "LOCAL_EMBEDDING_MODEL", "embedding_model_local"
         ),
     )
-    # Onde o modelo local fica em cache. Deve apontar para um volume
-    # persistente em produção, senão cada arranque do pod volta a
-    # descarregar ~0,64 GB e atrasa o readiness.
+    # Onde o modelo local fica em cache. Deve apontar para um volume em
+    # produção, senão cada arranque do pod volta a descarregar o modelo
+    # (~2,24 GB no default multilingue) e o primeiro embed fica lento.
     embedding_cache_dir: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("EMBEDDING_CACHE_DIR", "embedding_cache_dir"),
+    )
+    # Ollama embedding model. Kept separate from the Bedrock, OpenAI and
+    # local model fields because each provider names its models
+    # differently — sharing one field is exactly what makes a mis-set
+    # value 404 at the other provider's endpoint.
+    #
+    # Default stays ``nomic-embed-text`` (768 dims) for backwards
+    # compatibility: that is what the provider hardcoded before this
+    # field existed. Self-hosted deployments backing a 1024-dim pgvector
+    # column want ``mxbai-embed-large`` — and until now there was no way
+    # to ask for it, so the Ollama path could only ever emit 768-dim
+    # vectors and was unusable against the current schema. Whatever is
+    # set here must match ``embedding_dim`` below.
+    embedding_model_ollama: str = Field(
+        default="nomic-embed-text",
+        validation_alias=AliasChoices(
+            "OLLAMA_EMBEDDING_MODEL", "embedding_model_ollama"
+        ),
     )
     # Pgvector column dimension. Must match the active embedding model:
     #   - Titan v2:    256 / 512 / 1024
     #   - Cohere v3:   1024 (fixed)
     #   - local mxbai-embed-large-v1: 1024
     #   - local multilingual-e5-large: 1024
+    #   - Ollama nomic-embed-text: 768
     #   - Ollama mxbai-embed-large: 1024
     #   - OpenAI text-embedding-3-large: any via dimensions param (we use 1024)
     embedding_dim: int = Field(
