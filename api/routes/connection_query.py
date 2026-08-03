@@ -5853,6 +5853,7 @@ async def _stream_connection_query(
             import traceback
 
             error_detail = str(e)
+            logger.error("api_query_connection_stream traceback:\n%s", traceback.format_exc())
             msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(

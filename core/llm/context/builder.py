@@ -95,7 +95,10 @@ def build_context_bundle(
     )
 
     # 5. HISTORICAL CONTEXT (Consome o RAG pré-carregado no state)
-    retrieval_context = state.get("retrieval_context", [])
+    # `.get(k, [])` still returns None when the key exists with an explicit
+    # None value (RAG failed / returned nothing) — coalesce so the formatter
+    # never crashes on iteration or len() below.
+    retrieval_context = state.get("retrieval_context") or []
 
     rag_results = {
         "schema_rag": [],
