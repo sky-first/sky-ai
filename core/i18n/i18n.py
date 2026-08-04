@@ -13,9 +13,15 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "en": "I cannot process sensitive personal information. Please rephrase your question without including personal data.",
         "pt": "Não consigo processar informações pessoais sensíveis. Por favor, reformule sua pergunta sem incluir dados pessoais.",
     },
+    # Every call site for this key is an exception handler — the pipeline
+    # broke. The old copy claimed "no data / outside your Space or Crew's
+    # access", which sent everyone investigating permissions and datasets
+    # while the real cause was an unhandled TypeError. Say what happened:
+    # a failure the user cannot fix by rephrasing. Genuine empty results use
+    # NO_DATA_FOUND / NO_DATA_GENERIC.
     "TECHNICAL_ERROR": {
-        "en": "I couldn't find any data to answer this question. This usually happens if the data is outside your Space or Crew's authorized access.",
-        "pt": "Não encontrei dados para responder esta pergunta. Isso geralmente acontece quando os dados estão fora do acesso autorizado do seu Space ou Crew.",
+        "en": "Something went wrong on our side while answering this question — it isn't a problem with your data or your access. The error has been logged. Please try again, and tell your administrator if it keeps happening.",
+        "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é um problema dos teus dados nem do teu acesso. O erro ficou registado. Tenta de novo e avisa o teu administrador se continuar.",
     },
     "NO_DATA_FOUND": {
         "en": "Sorry, I couldn't find any data about {topic}. Please try rephrasing.",
