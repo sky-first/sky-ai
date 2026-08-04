@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Dict, Any
 import re
+import traceback
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -1213,9 +1214,18 @@ def run_orchestrator(
                 "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
             )
             state["error"] = str(e)
+            # str(e) alone throws away the traceback, and a bare TypeError like
+            # "'NoneType' object is not iterable" is unactionable without it:
+            # it took hours to even locate this handler. Log the stack so the
+            # next occurrence names the file and line.
             log_event(
                 "orchestrator_agentic_llm_error",
-                {"agent_id": agent_config.id, "error": str(e)[:500]},
+                {
+                    "agent_id": agent_config.id,
+                    "error": str(e)[:500],
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()[-3000:],
+                },
             )
             return state
 
@@ -1280,7 +1290,12 @@ def run_orchestrator(
             state["error"] = str(e)
             log_event(
                 "orchestrator_llm_error",
-                {"agent_id": agent_config.id, "error": str(e)[:500]},
+                {
+                    "agent_id": agent_config.id,
+                    "error": str(e)[:500],
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()[-3000:],
+                },
             )
             return state
 

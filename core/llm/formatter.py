@@ -6,7 +6,7 @@ import json
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
-from core.i18n.i18n import detect_language, get_message
+from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
 from config.settings import settings
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
@@ -156,16 +156,31 @@ def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
     )
 
 
-def _ensure_language(question: str, detected_language: Optional[str]) -> str:
+def _ensure_language(
+    question: str,
+    detected_language: Optional[str],
+    locale: Optional[str] = None,
+) -> str:
+    """Resolve the response language.
+
+    Delegates to :func:`resolve_language`, the single source of truth, so the
+    account/platform preference wins over per-message statistical detection.
+    This used to detect from the question alone, which answered a Portuguese
+    account in English whenever one short question failed to trip the
+    detector — the user saw the language flip mid-conversation.
+
+    ``detected_language`` is passed as the thread language: it is the language
+    already established in the conversation, so short follow-ups stay sticky.
     """
-    Garante um código de idioma (lang) consistente.
-    """
-    if detected_language:
-        return detected_language
     try:
-        return detect_language(question or "")
+        return resolve_language(
+            question or "",
+            locale=locale,
+            thread_language=detected_language,
+        )
     except Exception:
-        return "en"
+        # Never let language resolution break an answer.
+        return detected_language or "en"
 
 
 def _invoke_llm(llm: LLMProvider, system_msg: dict, user_msg: dict) -> str:
