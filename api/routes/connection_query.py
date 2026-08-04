@@ -5544,6 +5544,13 @@ async def _stream_connection_query(
                     locale=getattr(body, "locale", None),
                 )
                 msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
+                # The DEBUG suffix is the only channel reaching an operator
+                # while the observability stack is down. A bare TypeError with
+                # no stack is unactionable, so carry the traceback the failing
+                # node recorded. Remove once Grafana/Loki are back.
+                _tb = final_state.get("error_traceback")
+                if _tb:
+                    msg = f"{msg}\nTRACEBACK: {_tb}"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -5859,19 +5866,39 @@ async def _stream_connection_query(
             import traceback
 
             error_detail = str(e)
-            msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
+            tb = traceback.format_exc()
+            msg = (
+                f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
+                f"\nTRACEBACK: {tb[-2000:]}"
+            )
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
                 {
                     "connection_id": connection_id,
                     "error": error_detail,
+                    "error_type": type(e).__name__,
+                    "traceback": tb[-3000:],
                 },
             )
 
     except Exception as e:
-        msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
+        import traceback as _traceback
+
+        _tb = _traceback.format_exc()
+        msg = (
+            f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
+            f"\nTRACEBACK: {_tb[-2000:]}"
+        )
         yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
+        log_event(
+            "api_query_connection_stream_outer_error",
+            {
+                "error": str(e)[:500],
+                "error_type": type(e).__name__,
+                "traceback": _tb[-3000:],
+            },
+        )
 
 
 @router.post("/{connection_id}/query/stream")

@@ -1214,6 +1214,7 @@ def run_orchestrator(
                 "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
             )
             state["error"] = str(e)
+            state["error_traceback"] = traceback.format_exc()[-2000:]
             # str(e) alone throws away the traceback, and a bare TypeError like
             # "'NoneType' object is not iterable" is unactionable without it:
             # it took hours to even locate this handler. Log the stack so the
