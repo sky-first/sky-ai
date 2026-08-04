@@ -71,6 +71,22 @@ def _generate_service_token(
             + datetime.timedelta(hours=24),
             "iat": datetime.datetime.now(datetime.timezone.utc),
             "type": "access",
+            # Marca este token como emitido pelo motor, não por uma
+            # pessoa. Ambos são assinados com o mesmo JWT_SECRET_KEY e
+            # este token carrega a identidade de um utilizador real
+            # (AI_SERVICE_USER_ID), portanto sem esta marca o backend
+            # não tem como os distinguir — foi por isso que
+            # `/ai/scan-insights/notify` acabou aberto a qualquer
+            # utilizador autenticado.
+            #
+            # Ordem de deploy: **este serviço primeiro**. Enquanto o
+            # backend antigo estiver a correr o claim é simplesmente
+            # ignorado; se o backend for primeiro, as notificações de
+            # scan levam 403 até esta imagem subir. A falha é benigna —
+            # o `notify_scan_insight` já trata o erro como não-crítico e
+            # os insights continuam a ser gerados — mas não deixam de
+            # aterrar no feed nesse intervalo.
+            "svc": True,
         }
         token = jwt.encode(payload, jwt_secret, algorithm="HS256")
         logger.info(f"Service token generated for sub={sub} (len={len(token)})")
