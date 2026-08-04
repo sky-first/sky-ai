@@ -20,6 +20,7 @@ from api.routes import (
     widget_titles,
     knowledge_graph,
     embeddings,
+    demo_documents,
 )  # noqa: E402
 from api.routes import semantic_map, space_seed  # noqa: E402
 from api.routes import scan_schedule  # noqa: E402
@@ -163,6 +164,9 @@ app.include_router(pipeline.router)
 
 # Widget routes (title suggestions)
 app.include_router(widget_titles.router)
+# Perguntas sobre um ficheiro largado na demo publica. Nao usa
+# connection_id: o visitante nao tem ligacao configurada nenhuma.
+app.include_router(demo_documents.router)
 
 # Knowledge Graph (Strategy, Signals & Enterprise Context)
 app.include_router(knowledge_graph.router)
