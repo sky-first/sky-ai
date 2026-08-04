@@ -65,7 +65,7 @@ def build_context_bundle(
 
     # 2. CREW CONTEXT
     crew_ctx = CrewContext(
-        crew_ids=state.get("crew_ids", []),
+        crew_ids=state.get("crew_ids") or [],
         allowed_datasets=[t.logical_name for t in agent_config.tables],
         restricted_domains=[],  # TODO: Implement domain restrictions
     )
@@ -95,7 +95,7 @@ def build_context_bundle(
     )
 
     # 5. HISTORICAL CONTEXT (Consome o RAG pré-carregado no state)
-    retrieval_context = state.get("retrieval_context", [])
+    retrieval_context = state.get("retrieval_context") or []
 
     rag_results = {
         "schema_rag": [],
@@ -131,7 +131,7 @@ def build_context_bundle(
         glossary_rag=rag_results["glossary_rag"],
         strategy_rag=rag_results["strategy_rag"],
         governance_rag=rag_results["governance_rag"],
-        chat_history=state.get("chat_history", [])[-4:],  # Last 4 messages only
+        chat_history=(state.get("chat_history") or [])[-4:],  # Last 4 messages only
     )
 
     log_event(
