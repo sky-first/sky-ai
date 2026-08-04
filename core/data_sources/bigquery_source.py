@@ -277,8 +277,10 @@ class BigQueryDataSource:
 
         out: List[Dict[str, Any]] = []
         try:
-            job = client.query(sql)
-            rows_iter = job.result(timeout=timeout_seconds)
+            from latency_timing import timed_span
+            with timed_span("bigquery", node="specialist"):
+                job = client.query(sql)
+                rows_iter = job.result(timeout=timeout_seconds)
 
             count = 0
             for row in rows_iter:

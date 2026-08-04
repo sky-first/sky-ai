@@ -32,6 +32,14 @@ class AgentState(TypedDict, total=False):
     space_id: Optional[str]
     crew_ids: Optional[List[str]]
 
+    # Projeto A (Model B) — tenant the request is operating on. ``None``
+    # = default / single-tenant mode, in which case downstream providers
+    # use env-driven model IDs. When populated, the Bedrock provider
+    # looks up ``bedrock_inference_profile_arn`` and routes through it
+    # for per-tenant cost attribution.
+    tenant_slug: Optional[str]
+    tenant_bedrock_profile_arn: Optional[str]
+
     # User context (from UserContext schema)
     platform_role: Optional[str]  # admin | user | viewer
     crew_role: Optional[str]  # commander | navigator | explorer | guest
@@ -95,6 +103,15 @@ class AgentState(TypedDict, total=False):
     # Saída final
     answer: Optional[str]
 
+    # Decisão de período temporal (node: periodo_decision)
+    periodo_modo: Optional[str]    # "nao_temporal" | "normal" | "fallback" | "lacuna" | "sem_dados"
+    periodo_pedido: Optional[str]  # período que o usuário pediu (legível)
+    periodo_usado: Optional[str]   # período que será de fato usado
+    periodo_aviso: Optional[str]   # aviso a prepender na resposta (modo fallback)
+    periodo_from: Optional[str]    # ISO date para filtro SQL — início
+    periodo_to: Optional[str]      # ISO date para filtro SQL — fim
+    periodo_coluna: Optional[str]  # coluna de data usada para MIN/MAX
+
     # Mixed dispatch: raw specialist results saved for mixed_merger_node
     mixed_specialist_results: Optional[Dict[str, Any]]
 
@@ -154,6 +171,11 @@ class TableSchema:
     columns: List[TableColumn] = field(default_factory=list)
     # opcional: ID da conexão externa (BigQuery, Postgres do cliente, etc.)
     data_connection_id: Optional[str] = None
+    # Rótulo de SELEÇÃO usado só pelo orchestrator quando duas conexões têm
+    # tabelas de mesmo logical_name (ex.: "finance.invoices" vs
+    # "billing.invoices"). NÃO substitui logical_name/physical_name — RAG,
+    # relacionamentos e authorized_tables seguem usando os nomes originais.
+    display_name: Optional[str] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -268,6 +290,11 @@ def build_generic_sql_graph(
             )
         new_state["reasoning_steps"] = steps
         return new_state
+
+    def periodo_decision_node(state: AgentState) -> AgentState:
+        """Resolve temporal period: detect boundary, classify, apply fallback policy."""
+        from core.llm.periodo_decision import run_periodo_decision
+        return run_periodo_decision(state=state, agent_config=agent_config, data_source=data_source)
 
     def specialist_node(state: AgentState) -> AgentState:
         """
@@ -454,7 +481,8 @@ def build_generic_sql_graph(
                                             (
                                                 t
                                                 for t in agent_config.tables
-                                                if t.logical_name == tbl_name
+                                                if (t.display_name or t.logical_name)
+                                                == tbl_name
                                             ),
                                             None,
                                         )
@@ -467,12 +495,23 @@ def build_generic_sql_graph(
                                             conn_id
                                         ) or data_source
                                         thr = dict(orch_result)
-                                        thr["chosen_table"] = tbl_name
-                                        thr["chosen_table_physical"] = getattr(
+                                        tbl_physical = getattr(
                                             tbl_obj, "physical_name", tbl_name
                                         )
+                                        thr["chosen_table"] = tbl_name
+                                        thr["chosen_table_physical"] = tbl_physical
                                         thr["chosen_tables"] = None
-                                        thr["chosen_tables_physical"] = None
+                                        # Scope this sub-query to its single table.
+                                        # run_specialist isolates the schema via the
+                                        # *plural* chosen_tables_physical; leaving it
+                                        # empty would expose every connection's tables
+                                        # and let the LLM emit cross-source SQL that
+                                        # fails against this single data source.
+                                        thr["chosen_tables_physical"] = [tbl_physical]
+                                        # Extract this source's slice instead of
+                                        # refusing the whole multi-source question;
+                                        # the merger combines the slices downstream.
+                                        thr["multi_source_subquery"] = True
                                         tbl_futures[
                                             tbl_ex.submit(
                                                 _run_sql,
@@ -672,16 +711,35 @@ def build_generic_sql_graph(
             tasks = []
             for tbl_name in chosen_tables:
                 tbl_obj = next(
-                    (t for t in agent_config.tables if t.logical_name == tbl_name), None
+                    (
+                        t
+                        for t in agent_config.tables
+                        if (t.display_name or t.logical_name) == tbl_name
+                    ),
+                    None,
                 )
+                tbl_physical = tbl_obj.physical_name if tbl_obj else None
                 thread_state = state.copy()
                 thread_state["chosen_table"] = tbl_name
-                thread_state["chosen_table_physical"] = (
-                    tbl_obj.physical_name if tbl_obj else None
-                )
+                thread_state["chosen_table_physical"] = tbl_physical
                 thread_state["chosen_tables"] = None
+                # Isolate this sub-query to its single table: run_specialist hides
+                # every other table (including the other sources') by filtering on
+                # the *plural* chosen_tables_physical. Leaving it unset would expose
+                # all sources and let the LLM emit cross-source SQL that fails.
+                thread_state["chosen_tables_physical"] = (
+                    [tbl_physical] if tbl_physical else None
+                )
                 thread_state["join_relationships"] = None
-                tasks.append({"state": thread_state, "table": tbl_obj})
+                # One slice of a multi-source question: the merger (DuckDB)
+                # combines the per-source results downstream, so the specialist
+                # must extract this source's contribution instead of refusing.
+                thread_state["multi_source_subquery"] = True
+                # Route each sub-query to its own data source; fall back to the
+                # primary when the table is not in the dispatch_map.
+                conn_id = str(getattr(tbl_obj, "data_connection_id", "") or "")
+                src = (dispatch_map or {}).get(conn_id) or data_source
+                tasks.append({"state": thread_state, "table": tbl_obj, "src": src})
 
             results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -691,7 +749,7 @@ def build_generic_sql_graph(
                         run_specialist,
                         task["state"],
                         agent_config,
-                        data_source,
+                        task["src"],
                         dynamic_llm,
                     )
                     future_to_task[future] = task
@@ -699,6 +757,17 @@ def build_generic_sql_graph(
                 for future in concurrent.futures.as_completed(future_to_task):
                     try:
                         res_state = future.result()
+                        log_event(
+                            "multi_source_subquery_result",
+                            {
+                                "table": res_state.get("chosen_table"),
+                                "has_data": bool(res_state.get("data")),
+                                "rows": len(res_state.get("data") or []),
+                                "sql": (res_state.get("sql") or "")[:200],
+                                "error": res_state.get("error"),
+                                "impossible_reason": res_state.get("impossible_reason"),
+                            },
+                        )
                         if res_state.get("data"):
                             results.append(
                                 {
@@ -1207,15 +1276,69 @@ def build_generic_sql_graph(
     # ── Build the Graph ────────────────────────────────────
     graph = StateGraph(AgentState)
 
-    # Register all nodes
-    graph.add_node("intent_classifier", intent_classifier_node)
+    # ── Reset node: zero every field that is NOT explicitly durable ──
+    # Strategy: keep-list instead of clear-list.  We enumerate the small set
+    # of fields that SHOULD survive across turns; everything else is zeroed.
+    # This way a new ephemeral field added to AgentState is safe by default —
+    # it starts clean every turn without requiring anyone to remember to add
+    # it to a clean-up list.
+    #
+    # Durable fields (survive the turn):
+    #   question, user_id, space_id, crew_ids, tenant_slug,
+    #   tenant_bedrock_profile_arn, platform_role, crew_role, locale,
+    #   permissions, last_suggestions, chat_history, instructions,
+    #   creativity, length, response_format, ai_tone, ai_style,
+    #   sql_instructions, selected_datasets, explicit_relationships,
+    #   agent_mode, brain_context, brain_doc_ids, brain_doc_kinds,
+    #   context_intent, selected_context
+    _DURABLE: set = {
+        "question",
+        "user_id",
+        "space_id",
+        "crew_ids",
+        "tenant_slug",
+        "tenant_bedrock_profile_arn",
+        "platform_role",
+        "crew_role",
+        "locale",
+        "permissions",
+        "last_suggestions",
+        "chat_history",
+        "instructions",
+        "creativity",
+        "length",
+        "response_format",
+        "ai_tone",
+        "ai_style",
+        "sql_instructions",
+        "selected_datasets",
+        "explicit_relationships",
+        "agent_mode",
+        "brain_context",
+        "brain_doc_ids",
+        "brain_doc_kinds",
+        "context_intent",
+        "selected_context",
+    }
+
+    def reset_ephemeral(state: AgentState) -> dict:
+        """Zero every AgentState field that is not in _DURABLE."""
+        return {k: None for k in AgentState.__annotations__ if k not in _DURABLE}
+
+    graph.add_node("reset_ephemeral", reset_ephemeral)
+
+    from latency_timing import timed as _timed
+
+    # Register all nodes — core pipeline nodes wrapped with @timed for latency measurement
+    graph.add_node("intent_classifier", _timed("intent_classifier")(intent_classifier_node))
     graph.add_node("full_context", full_context_node)
-    graph.add_node("brain_retrieval", brain_retrieval_node)
-    graph.add_node("orchestrator", orchestrator_node)
-    graph.add_node("specialist", specialist_node)
-    graph.add_node("parallel_specialist", parallel_specialist_node)
-    graph.add_node("merger", merger_node)
-    graph.add_node("formatter", formatter_node)
+    graph.add_node("brain_retrieval", _timed("brain_retrieval")(brain_retrieval_node))
+    graph.add_node("orchestrator", _timed("orchestrator")(orchestrator_node))
+    graph.add_node("periodo_decision", _timed("periodo_decision")(periodo_decision_node))
+    graph.add_node("specialist", _timed("specialist")(specialist_node))
+    graph.add_node("parallel_specialist", _timed("parallel_specialist")(parallel_specialist_node))
+    graph.add_node("merger", _timed("merger")(merger_node))
+    graph.add_node("formatter", _timed("formatter")(formatter_node))
     graph.add_node("knowledge_specialist", knowledge_specialist_node)
     graph.add_node("events_specialist", events_specialist_node)
     graph.add_node("relationships_specialist", relationships_specialist_node)
@@ -1249,10 +1372,17 @@ def build_generic_sql_graph(
             return END
         if state.get("is_multi_source", False):
             return "parallel_specialist"
+        return "periodo_decision"
+
+    def route_periodo_decision(state: AgentState):
+        # lacuna and sem_dados both set answer — bypass specialist
+        if state.get("periodo_modo") in ("lacuna", "sem_dados"):
+            return END
         return "specialist"
 
-    # Entry point: always classify intent first
-    graph.set_entry_point("intent_classifier")
+    # Entry point: reset ephemeral state first, then classify intent
+    graph.set_entry_point("reset_ephemeral")
+    graph.add_edge("reset_ephemeral", "intent_classifier")
 
     # Intent classifier always feeds into the brain — every specialist
     # then gets the same evidence blend to work from.
@@ -1316,10 +1446,16 @@ def build_generic_sql_graph(
         "orchestrator",
         route_orchestrator,
         {
-            "specialist": "specialist",
+            "periodo_decision": "periodo_decision",
             "parallel_specialist": "parallel_specialist",
             END: END,
         },
+    )
+
+    graph.add_conditional_edges(
+        "periodo_decision",
+        route_periodo_decision,
+        {"specialist": "specialist", END: END},
     )
 
     graph.add_edge("specialist", "formatter")
@@ -1379,11 +1515,14 @@ def run_agent_once(
     Isso é o que sua API vai chamar dentro de uma rota.
     """
     if thread_id is None:
-        # você pode usar algo do user_ctx, ou gerar uuid, etc.
-        user_id = getattr(user_ctx, "user_id", None)
-        if not user_id and hasattr(user_ctx, "user") and user_ctx.user:
-            user_id = str(user_ctx.user.id) if hasattr(user_ctx.user, "id") else None
-        thread_id = f"{user_id or 'anon'}-{agent_config.id}"
+        # No conversation_id supplied → this is a one-off query, not part of
+        # an ongoing thread.  Generate a fresh UUID so the LangGraph checkpointer
+        # never loads stale working-state (sql / answer / data) from a previous
+        # unrelated invocation.  Conversation continuity is provided by
+        # chat_history loaded from the DB, not by checkpoint reuse.
+        import uuid as _uuid
+
+        thread_id = str(_uuid.uuid4())
 
     # Extrair informações do user_ctx
     user_id_str = getattr(user_ctx, "user_id", None)
@@ -1401,7 +1540,7 @@ def run_agent_once(
     # Extract new fields from UserContext
     platform_role = getattr(user_ctx, "platform_role", "user")
     crew_role = getattr(user_ctx, "crew_role", "guest")
-    locale = getattr(user_ctx, "locale", "en")
+    locale = getattr(user_ctx, "locale", None)
     permissions = getattr(user_ctx, "permissions", []) or []
 
     # Estado inicial

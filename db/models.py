@@ -299,6 +299,22 @@ class SemanticCacheRecord(Base):
     # Full serialized QueryResponse Dict
     response_json = Column(JSON, nullable=False)
 
+    # Response language — part of the cache key so that an EN-cached answer
+    # is never served back for a PT request (same question, different locale).
+    # Defaults to "en" for backward-compat rows (old rows are version=0 and
+    # will never be matched because the lookup filters cache_version=1).
+    locale = Column(String(10), nullable=False, server_default="en")
+
+    # Bump this when the key schema changes.  Old rows keep version=0 and are
+    # silently ignored by all lookups, avoiding stale-cache bugs after deploys.
+    cache_version = Column(Integer, nullable=False, server_default="1")
+
+    # Absolute time-period bucket for relative temporal expressions.
+    # "este ano" in 2026 → "2026"; "último mês" in June 2026 → "2026-05".
+    # "absoluto" for non-temporal or absolute-date questions.
+    # Cache rows without this field (version < 2) are skipped by version=2 lookups.
+    temporal_bucket = Column(String(20), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

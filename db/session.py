@@ -69,12 +69,19 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    # Tenant-aware (Model B / Phase 5): route the session to the tenant's
+    # own DB when a tenant is bound to the contextvar (set by the tenant
+    # middleware). For the default context the manager returns a session
+    # on the global ``AsyncSessionLocal`` — identical to the legacy path.
+    # Imported lazily to avoid a circular import at module load.
+    from core.tenant_db import tenant_connection_manager
+
+    session = tenant_connection_manager.async_session_for()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()

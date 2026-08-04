@@ -28,7 +28,7 @@ pydantic>=2.7.4,<3.0.0
 pydantic-settings>=2.3.4,<3.0.0
 
 # --- Language detection ---
-langdetect==1.0.9
+lingua-language-detector==2.1.1
 
 SQLAlchemy==2.0.31
 psycopg[binary]==3.2.13
@@ -69,3 +69,17 @@ cryptography>=42.0.0
 umap-learn>=0.5.5
 scikit-learn>=1.4.0
 hdbscan>=0.8.33
+sqlglot>=30,<31
+
+# --- Embeddings locais (EMBEDDING_PROVIDER=local) ---
+# ONNX runtime, NÃO torch. sentence-transformers arrastaria ~2GB de torch
+# para a imagem; o fastembed faz o mesmo trabalho com modelos quantizados
+# e uma biblioteca de ~50MB.
+#
+# Existe porque a inferência on-demand do Bedrock está bloqueada ao nível
+# da conta AWS (quota 0 e não ajustável em eu-west-1; estrangulada também
+# em us-east-1 apesar da quota dizer 6000), e o proxy mantle que salva o
+# chat serve 35 modelos de chat e zero de embedding. Correr o modelo
+# dentro do próprio pod do sky-ai mantém o gasto nos créditos AWS sem
+# acrescentar pods nem nós.
+fastembed>=0.4.0,<0.8.0

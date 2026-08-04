@@ -75,6 +75,10 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        # sky-ai shares the platform DB with sky-be. Each app tracks its
+        # own alembic head in a dedicated version table so cross-app
+        # revisions never collide. sky-be → alembic_version_be.
+        version_table="alembic_version_ai",
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -93,6 +97,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            # See note in run_migrations_offline().
+            version_table="alembic_version_ai",
         )
         with context.begin_transaction():
             context.run_migrations()

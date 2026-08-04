@@ -6,10 +6,9 @@ import json
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
-from core.i18n.i18n import detect_language, get_message
+from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
 from config.settings import settings
-from core.suggestions.engine import suggestion_engine
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
 from core.llm.context.builder import build_context_bundle
 
@@ -135,6 +134,18 @@ def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
         return ""
 
     total = len(data_sample)
+
+    # A single value (almost always an AGGREGATE — COUNT/SUM/AVG) has mean==min
+    # ==max trivially. Emitting them makes the formatter narrate "no variation /
+    # all values are the same", which is misleading: one aggregated row says
+    # nothing about the spread of the underlying rows. Suppress the spread stats
+    # and flag it instead.
+    if len(values) <= 1:
+        return (
+            f"'{col}' is a single aggregated value, not a distribution — "
+            "do NOT describe variation, uniformity, or min/max."
+        )
+
     mean_val = sum(values) / len(values)
     min_val = min(values)
     max_val = max(values)
@@ -145,16 +156,31 @@ def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
     )
 
 
-def _ensure_language(question: str, detected_language: Optional[str]) -> str:
+def _ensure_language(
+    question: str,
+    detected_language: Optional[str],
+    locale: Optional[str] = None,
+) -> str:
+    """Resolve the response language.
+
+    Delegates to :func:`resolve_language`, the single source of truth, so the
+    account/platform preference wins over per-message statistical detection.
+    This used to detect from the question alone, which answered a Portuguese
+    account in English whenever one short question failed to trip the
+    detector — the user saw the language flip mid-conversation.
+
+    ``detected_language`` is passed as the thread language: it is the language
+    already established in the conversation, so short follow-ups stay sticky.
     """
-    Garante um código de idioma (lang) consistente.
-    """
-    if detected_language:
-        return detected_language
     try:
-        return detect_language(question or "")
+        return resolve_language(
+            question or "",
+            locale=locale,
+            thread_language=detected_language,
+        )
     except Exception:
-        return "en"
+        # Never let language resolution break an answer.
+        return detected_language or "en"
 
 
 def _invoke_llm(llm: LLMProvider, system_msg: dict, user_msg: dict) -> str:
@@ -367,6 +393,7 @@ def run_formatter(
         extra_instructions=state.get("instructions"),
         ai_tone=state.get("ai_tone"),
         ai_style=state.get("ai_style"),
+        detected_language=lang,
     )
 
     try:
@@ -412,62 +439,16 @@ def run_formatter(
 
     answer = answer.strip() or "No explanation available."
 
-    # 🎯 FOLLOW-UP SUGGESTIONS: Generate smart suggestions based on available schema
-    instructions = state.get("instructions") or ""
-    if "Do NOT include any 'Suggested Follow-up Questions'" in instructions:
-        followup_suggestions = []
-    else:
-        followup_suggestions = []
-        try:
-            # Extract available tables from agent_config
-            available_tables = [t.logical_name for t in agent_config.tables]
+    # FOLLOW-UP SUGGESTIONS: disabled by product decision — the chat shows only
+    # the answer, with no appended "Suggested Follow-up" questions. Kept as an
+    # empty list so the downstream state (``last_suggestions``) and the
+    # ``has_followup_suggestions`` meta flag stay consistent.
+    followup_suggestions = []
 
-            # Extract columns from the tables that were used
-            chosen_tables = state.get("chosen_tables") or [state.get("chosen_table")]
-            available_columns = []
-            for table in agent_config.tables:
-                if table.logical_name in chosen_tables:
-                    for col in table.columns or []:
-                        col_name = (
-                            col.get("name")
-                            if isinstance(col, dict)
-                            else getattr(col, "name", "")
-                        )
-                        if col_name:
-                            available_columns.append(col_name)
-
-            # Generate suggestions (only if we have data and answer)
-            if data and answer and len(answer) > 50:
-                # 🎯 ZERO-COST SUGGESTIONS: Use static engine
-                user_crew_role = state.get("crew_role", "guest")
-
-                followup_suggestions = suggestion_engine.get_suggestions(
-                    tables=chosen_tables,  # Use the tables actually used in the query
-                    role=user_crew_role,
-                    max_suggestions=3,
-                )
-        except Exception as e:
-            log_event(
-                "formatter_followup_error",
-                {"error": str(e)[:200]},
-            )
-            followup_suggestions = []
-
-    # Append suggestions as markdown if we have any
-    if followup_suggestions:
-        # Clean formatting without markdown separators
-        suggestions_md = "\n\n💡 Suggested Follow-up:\n"
-        for i, suggestion in enumerate(followup_suggestions, 1):
-            suggestions_md += f"{i}. {suggestion}\n"
-        answer = answer + suggestions_md
-
-        log_event(
-            "formatter_added_followup_suggestions",
-            {
-                "agent_id": agent_config.id,
-                "num_suggestions": len(followup_suggestions),
-            },
-        )
+    # Prepend period fallback warning — must come before the number, never silent
+    periodo_aviso = state.get("periodo_aviso")
+    if periodo_aviso and state.get("periodo_modo") == "fallback":
+        answer = f"{periodo_aviso}\n\n{answer}"
 
     state["answer"] = answer
     state["last_suggestions"] = followup_suggestions

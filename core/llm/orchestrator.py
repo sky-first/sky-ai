@@ -3,12 +3,18 @@ from __future__ import annotations
 
 from typing import List, Optional, Dict, Any
 import re
+import traceback
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
-from core.i18n.i18n import detect_language
+from core.i18n.i18n import (
+    detect_language,
+    language_decision,
+    thread_language_from_history,
+    unsupported_language_message,
+)
 from core.logging_utils import log_event
 from core.rag.user_profiler import get_user_table_profile, format_profile_for_prompt
 from core.rag.context_retrieval import (
@@ -156,9 +162,23 @@ def _build_tables_summary(tables: List[TableSchema]) -> str:
             else ""
         )
         parts.append(
-            f"- {t.logical_name} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
+            f"- {_label(t)} -> physical: {t.physical_name}{desc_part} | columns: {col_desc}"
         )
     return "\n".join(parts)
+
+
+def _label(t) -> str:
+    """Selection label shown to and parsed from the LLM. Equals logical_name
+    except when a table got a display_name to disambiguate a cross-connection
+    name collision (e.g. 'finance.invoices' vs 'billing.invoices'). With no
+    collision, display_name is None, so behaviour is identical to before."""
+    return getattr(t, "display_name", None) or t.logical_name
+
+
+def _find_by_label(tables: List[TableSchema], label: str):
+    """Resolve a chosen label back to its TableSchema (label is unique even
+    when two connections share a logical_name)."""
+    return next((t for t in tables if _label(t) == label), None)
 
 
 def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
@@ -176,11 +196,11 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
 
-    logical_names = [t.logical_name for t in tables]
+    labels = [_label(t) for t in tables]
 
-    # fuzzy match: se o que o modelo respondeu (text) é parte de algum nome lógico
-    # OU se algum nome lógico é parte do que o modelo respondeu
-    for name in logical_names:
+    # fuzzy match: se o que o modelo respondeu (text) é parte de algum rótulo
+    # OU se algum rótulo é parte do que o modelo respondeu
+    for name in labels:
         lname = name.lower()
         if text and (text in lname or lname in text):
             return name
@@ -209,7 +229,7 @@ def _extract_multiple_table_choices(
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
 
-    logical_names = [t.logical_name.lower() for t in tables]
+    labels = [_label(t).lower() for t in tables]
     found_tables = []
 
     # Tentar separar por vírgula, "and", ou nova linha
@@ -221,20 +241,20 @@ def _extract_multiple_table_choices(
             continue
 
         # Match exato
-        for name in logical_names:
+        for name in labels:
             if part == name:
                 table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
+                    _label(t) for t in tables if _label(t).lower() == name
                 )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
                 break
 
         # Match parcial
-        for name in logical_names:
+        for name in labels:
             if name in part and name not in [t.lower() for t in found_tables]:
                 table_name = next(
-                    t.logical_name for t in tables if t.logical_name.lower() == name
+                    _label(t) for t in tables if _label(t).lower() == name
                 )
                 if table_name not in found_tables:
                     found_tables.append(table_name)
@@ -343,7 +363,8 @@ def _extract_table_name_from_question(
 
 def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
     # SECURITY: do not enumerate schema/tables from the orchestrator.
-    # Keep chat focused on business questions and prevent schema abuse.
+    if lang == "pt":
+        return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
     return (
         "I can't help with that request. Please rephrase your question about your data."
     )
@@ -351,6 +372,8 @@ def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
     # SECURITY: do not enumerate columns from the orchestrator.
+    if lang == "pt":
+        return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
     return (
         "I can't help with that request. Please rephrase your question about your data."
     )
@@ -360,6 +383,68 @@ def _format_catalog_capabilities(lang: str) -> str:
     # SECURITY: keep responses focused on business outcomes, not schema exploration.
     # Domain agnostic: generic examples work for any business type.
     return "Tell me an analysis goal (e.g., monthly performance, top results, time-based analysis) and I will generate SQL."
+
+
+_OBVIOUS_AFFIRMATIONS = {"sim", "yes", "ok", "okay", "oui", "si"}
+
+
+def _detect_confirmation(
+    message: str,
+    suggestions: List[str],
+    llm: LLMProvider,
+) -> "tuple[bool, int]":
+    """
+    Decide if *message* is the user confirming one of the prior *suggestions*.
+
+    Returns ``(is_confirmation, index)`` where index is 0-based.
+
+    Priority:
+      1. Fast-path: obvious single-word affirmations (sim/yes/ok…) → index 0.
+      2. LLM: structured call at temperature=0 for ambiguous cases.
+         The LLM receives the suggestions list and the message and returns
+         JSON: {"is_confirmation": bool, "chosen_index": int | null}.
+      3. On any error → (False, -1) so the message is treated as a new question.
+    """
+    q = message.strip().lower()
+
+    if q in _OBVIOUS_AFFIRMATIONS:
+        return True, 0
+
+    suggestions_text = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(suggestions))
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are a confirmation detector. "
+            "Given a list of suggestions and a user message, decide if the user "
+            "is selecting one of the suggestions or asking a new question.\n"
+            "Reply with ONLY valid JSON, no markdown, no explanation:\n"
+            '{"is_confirmation": true|false, "chosen_index": 0|1|2|null}\n'
+            "chosen_index is 0-based. Use null when is_confirmation is false."
+        ),
+    }
+    user_msg = {
+        "role": "user",
+        "content": (
+            f"Suggestions:\n{suggestions_text}\n\n" f'User message: "{message}"'
+        ),
+    }
+
+    try:
+        raw = llm.invoke([system_msg, user_msg])
+        content = raw.content if hasattr(raw, "content") else str(raw)
+        parsed = re.search(r"\{.*\}", content, re.DOTALL)
+        if not parsed:
+            return False, -1
+        import json
+
+        data = json.loads(parsed.group())
+        is_conf = bool(data.get("is_confirmation", False))
+        idx = data.get("chosen_index")
+        if is_conf and isinstance(idx, int) and 0 <= idx < len(suggestions):
+            return True, idx
+        return False, -1
+    except Exception:
+        return False, -1
 
 
 def run_orchestrator(
@@ -383,13 +468,14 @@ def run_orchestrator(
         log_event("orchestrator_empty_question", {})
         return state
     # 🧠 CONTEXT RECALL: Handle short follow-up confirmations
-    # Handles: "yes", "sure", "show me" -> uses first suggestion
-    # Handles: "1", "2", "3" -> uses the corresponding numbered suggestion
+    # Handles: "1", "2", "3"          → numeric fast-path (zero LLM cost)
+    # Handles: "sim", "yes", "ok" …   → obvious affirmation fast-path
+    # Handles: "manda o segundo", "the first one", "isso aí" … → LLM decides
     last_suggestions = state.get("last_suggestions")
-    if last_suggestions and len(question.split()) <= 4:
+    if last_suggestions and len(question.split()) <= 6:
         q_lower = question.strip().lower()
 
-        # Check for numeric selection (1, 2, 3)
+        # Fast-path: numeric selection (1, 2, 3)
         numeric_map = {"1": 0, "2": 1, "3": 2}
         if q_lower in numeric_map:
             idx = numeric_map[q_lower]
@@ -407,53 +493,43 @@ def run_orchestrator(
                     },
                 )
         else:
-            # ONLY English affirmations -> uses first suggestion
-            affirmations = [
-                "yes",
-                "sure",
-                "ok",
-                "okay",
-                "please",
-                "confirm",
-                "show me",
-                "do it",
-                "i want to see",
-                "go ahead",
-            ]
-
-            is_affirmation = any(w == q_lower for w in affirmations) or (
-                q_lower in affirmations
-            )
-
-            if is_affirmation:
+            # LLM-based detection: multilingual, understands intent.
+            # _detect_confirmation has an internal fast-path for obvious
+            # affirmations (sim/yes/ok) so it only calls the LLM when needed.
+            is_conf, idx = _detect_confirmation(question, last_suggestions, llm)
+            if is_conf:
                 original_q = question
-                question = last_suggestions[0]
+                question = last_suggestions[idx]
                 state["question"] = question
                 log_event(
                     "orchestrator_context_recall",
                     {
                         "original": original_q,
                         "replaced_with": question,
-                        "reason": "affirmation_match",
+                        "reason": "llm_confirmation",
+                        "index": idx,
                     },
                 )
 
-    # 🔤 Detecção de idioma
-    try:
-        lang = detect_language(question)
-    except Exception:
-        lang = "en"
+    # 🌍 Idioma da resposta + gatekeeper, decididos juntos pela mesma fonte.
+    # Prioridade: locale explícito → idioma "sticky" da thread → detecção.
+    # Só bloqueia quando NÃO há locale nem idioma estabelecido na conversa E a
+    # detecção confiante aponta um idioma não suportado — assim follow-ups
+    # curtos / com jargão numa thread EN/PT nunca são bloqueados por engano.
+    thread_lang = thread_language_from_history(state.get("chat_history"))
+    blocked, lang = language_decision(
+        question,
+        locale=state.get("locale"),
+        thread_language=thread_lang,
+    )
     state["detected_language"] = lang
 
-    # 🔒 GATEKEEPER: English Only
-    if not lang.startswith("en"):
-        state["answer"] = (
-            "I'm sorry, but I currently only understand English. "
-            "Please rephrase your question in English so I can analyze your data accurately."
-        )
+    # 🔒 GATEKEEPER: idioma não suportado (mensagem bilíngue)
+    if blocked:
+        state["answer"] = unsupported_language_message()
         log_event(
             "orchestrator_booted_language",
-            {"detected": lang, "question": question[:50]},
+            {"detected": detect_language(question), "question": question[:50]},
         )
         return state
 
@@ -1058,11 +1134,18 @@ def run_orchestrator(
             if not _is_forced_data and re.search(
                 r"\bOUT_OF_SCOPE\b", _final_line, re.IGNORECASE
             ):
-                state["answer"] = (
-                    "I'm designed to answer questions about your business data. "
-                    "That question doesn't seem related to your data. "
-                    "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
-                )
+                if lang == "pt":
+                    state["answer"] = (
+                        "Fui desenvolvido para responder perguntas sobre seus dados de negócio. "
+                        "Essa pergunta não parece estar relacionada aos seus dados. "
+                        "Sinta-se à vontade para perguntar sobre pedidos, clientes, receita, produtos ou outras métricas!"
+                    )
+                else:
+                    state["answer"] = (
+                        "I'm designed to answer questions about your business data. "
+                        "That question doesn't seem related to your data. "
+                        "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
+                    )
                 log_event(
                     "orchestrator_out_of_scope",
                     {
@@ -1131,9 +1214,19 @@ def run_orchestrator(
                 "Error consulting the AI orchestrator (Agentic Loop). Please try again later."
             )
             state["error"] = str(e)
+            state["error_traceback"] = traceback.format_exc()[-2000:]
+            # str(e) alone throws away the traceback, and a bare TypeError like
+            # "'NoneType' object is not iterable" is unactionable without it:
+            # it took hours to even locate this handler. Log the stack so the
+            # next occurrence names the file and line.
             log_event(
                 "orchestrator_agentic_llm_error",
-                {"agent_id": agent_config.id, "error": str(e)[:500]},
+                {
+                    "agent_id": agent_config.id,
+                    "error": str(e)[:500],
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()[-3000:],
+                },
             )
             return state
 
@@ -1198,7 +1291,12 @@ def run_orchestrator(
             state["error"] = str(e)
             log_event(
                 "orchestrator_llm_error",
-                {"agent_id": agent_config.id, "error": str(e)[:500]},
+                {
+                    "agent_id": agent_config.id,
+                    "error": str(e)[:500],
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()[-3000:],
+                },
             )
             return state
 
@@ -1221,7 +1319,7 @@ def run_orchestrator(
                         (
                             t.physical_name
                             for t in agent_config.tables
-                            if t.logical_name == name
+                            if _label(t) == name
                         ),
                         name,
                     )
@@ -1243,7 +1341,7 @@ def run_orchestrator(
                     (
                         t.physical_name
                         for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
+                        if _label(t) == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
                 )
@@ -1271,7 +1369,7 @@ def run_orchestrator(
                         (
                             t.physical_name
                             for t in agent_config.tables
-                            if t.logical_name == name
+                            if _label(t) == name
                         ),
                         name,
                     )
@@ -1286,7 +1384,7 @@ def run_orchestrator(
                     (
                         t.physical_name
                         for t in agent_config.tables
-                        if t.logical_name == chosen_logicals[0]
+                        if _label(t) == chosen_logicals[0]
                     ),
                     chosen_logicals[0],
                 )
@@ -1304,13 +1402,12 @@ def run_orchestrator(
                 )
         elif len(chosen_logicals) == 1:
             chosen_logical = chosen_logicals[0]
-            chosen_table_obj = next(
-                (t for t in agent_config.tables if t.logical_name == chosen_logical),
-                agent_config.tables[0],
+            chosen_table_obj = _find_by_label(agent_config.tables, chosen_logical) or (
+                agent_config.tables[0]
             )
-            state["chosen_tables"] = [chosen_table_obj.logical_name]
+            state["chosen_tables"] = [_label(chosen_table_obj)]
             state["chosen_tables_physical"] = [chosen_table_obj.physical_name]
-            state["chosen_table"] = chosen_table_obj.logical_name
+            state["chosen_table"] = _label(chosen_table_obj)
             state["chosen_table_physical"] = chosen_table_obj.physical_name
 
         else:
@@ -1318,12 +1415,12 @@ def run_orchestrator(
             # tables so that context/scan/datasource agents never stall on an empty
             # table list. For question-mode queries this is a last resort; the
             # specialist will scope down via its own reasoning.
-            chosen_logicals = [t.logical_name for t in agent_config.tables]
+            chosen_logicals = [_label(t) for t in agent_config.tables]
             state["chosen_tables"] = chosen_logicals
             state["chosen_tables_physical"] = [
                 t.physical_name for t in agent_config.tables
             ]
-            state["chosen_table"] = agent_config.tables[0].logical_name
+            state["chosen_table"] = _label(agent_config.tables[0])
             state["chosen_table_physical"] = agent_config.tables[0].physical_name
             log_event(
                 "orchestrator_fallback_all_tables",
@@ -1340,9 +1437,7 @@ def run_orchestrator(
         # This runs for all cases where len(chosen_logicals) > 1
         chosen_schemas_chk = []
         for name in chosen_logicals:
-            t = next(
-                (tbl for tbl in agent_config.tables if tbl.logical_name == name), None
-            )
+            t = _find_by_label(agent_config.tables, name)
             if t:
                 chosen_schemas_chk.append(t)
 
@@ -1377,7 +1472,9 @@ def run_orchestrator(
 
         if not chosen_logical:
             state["impossible_reason"] = (
-                "I couldn't find any relevant tables to answer your question."
+                "Não encontrei tabelas relevantes para responder sua pergunta."
+                if lang == "pt"
+                else "I couldn't find any relevant tables to answer your question."
             )
             log_event("orchestrator_choice_impossible", {"question": question})
             return state
@@ -1387,9 +1484,12 @@ def run_orchestrator(
             reason = re.sub(
                 r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE
             ).strip()
-            state["impossible_reason"] = (
-                reason or "I don't have enough data to answer this question."
+            _fallback = (
+                "Não tenho dados suficientes para responder esta pergunta."
+                if lang == "pt"
+                else "I don't have enough data to answer this question."
             )
+            state["impossible_reason"] = reason or _fallback
 
             return state
 

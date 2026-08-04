@@ -79,3 +79,104 @@ def test_factory_falls_back_to_use_local_models_when_provider_unset(monkeypatch)
 
     provider = create_embedding_provider()
     assert isinstance(provider, OllamaEmbeddingProvider)
+
+
+def test_factory_picks_local_when_provider_is_local(monkeypatch):
+    """EMBEDDING_PROVIDER=local corre o modelo dentro do processo.
+
+    Existe porque a inferência on-demand do Bedrock está bloqueada ao
+    nível da conta AWS e o proxy mantle não serve embeddings.
+    """
+    monkeypatch.setattr(settings, "embedding_provider", "local")
+    monkeypatch.setattr(
+        settings, "embedding_model_local", "mixedbread-ai/mxbai-embed-large-v1"
+    )
+
+    from core.llm.factory import create_embedding_provider
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    provider = create_embedding_provider()
+    assert isinstance(provider, LocalEmbeddingProvider)
+    assert provider.model == "mixedbread-ai/mxbai-embed-large-v1"
+
+
+def test_local_model_is_configurable(monkeypatch):
+    """Trocar para o modelo multilingue não deve exigir alteração de código."""
+    monkeypatch.setattr(settings, "embedding_provider", "local")
+    monkeypatch.setattr(
+        settings, "embedding_model_local", "intfloat/multilingual-e5-large"
+    )
+
+    from core.llm.factory import create_embedding_provider
+
+    provider = create_embedding_provider()
+    assert provider.model == "intfloat/multilingual-e5-large"
+
+
+def test_ollama_model_comes_from_settings(monkeypatch):
+    """The Ollama path must honour OLLAMA_EMBEDDING_MODEL.
+
+    Regression cover: the factory used to call ``OllamaEmbeddingProvider()``
+    with no arguments, so it always got the provider's hardcoded
+    ``nomic-embed-text`` (768 dims). A deployment backing the 1024-dim
+    pgvector column needs ``mxbai-embed-large`` and had no way to say so —
+    every self-hosted embedding would have been the wrong width.
+    """
+    monkeypatch.setattr(settings, "embedding_provider", "ollama")
+    monkeypatch.setattr(settings, "embedding_model_ollama", "mxbai-embed-large")
+
+    from core.llm.factory import create_embedding_provider
+
+    provider = create_embedding_provider()
+    assert provider.model == "mxbai-embed-large"
+
+
+def test_local_default_model_is_1024_dims():
+    """A coluna pgvector está a 1024. Um default de outra largura partiria
+    todas as escritas — este teste trava a troca acidental."""
+    from core.rag.embeddings import LocalEmbeddingProvider
+    from fastembed import TextEmbedding
+
+    dims = {
+        m["model"]: m.get("dim") for m in TextEmbedding.list_supported_models()
+    }
+    assert dims[LocalEmbeddingProvider._DEFAULT_MODEL] == 1024
+
+
+def test_local_model_setting_reads_the_env_alias(monkeypatch):
+    from config.settings import Settings
+
+    monkeypatch.setenv("LOCAL_EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+    assert Settings().embedding_model_local == "intfloat/multilingual-e5-large"
+
+
+def test_local_provider_does_not_load_the_model_on_construction(monkeypatch):
+    """Construir não pode descarregar nem carregar o modelo.
+
+    A fábrica corre no arranque do processo. Carregar 0,64-2,24 GB aí
+    atrasaria o readiness probe do pod, e falharia o arranque se a rede
+    estivesse em baixo nesse instante. O primeiro embed() é que paga.
+    """
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    provider = LocalEmbeddingProvider(model="intfloat/multilingual-e5-large")
+    assert provider._client is None
+
+
+def test_ollama_model_defaults_to_nomic_for_backwards_compatibility(monkeypatch):
+    """Unset env keeps the pre-existing behaviour."""
+    monkeypatch.setattr(settings, "embedding_provider", "ollama")
+    monkeypatch.setattr(settings, "embedding_model_ollama", "nomic-embed-text")
+
+    from core.llm.factory import create_embedding_provider
+
+    provider = create_embedding_provider()
+    assert provider.model == "nomic-embed-text"
+
+
+def test_ollama_model_setting_reads_the_env_alias(monkeypatch):
+    """OLLAMA_EMBEDDING_MODEL is the name used in the deployment manifests."""
+    from config.settings import Settings
+
+    monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
+    assert Settings().embedding_model_ollama == "mxbai-embed-large"

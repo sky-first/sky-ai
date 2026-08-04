@@ -12,6 +12,22 @@ from core.llm.providers import OllamaProvider, LLMProvider
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # type: ignore
 from core.rag.embeddings import OllamaEmbeddingProvider, EmbeddingProvider
 from core.logging_utils import log_event
+from core.tenant_context import current_tenant
+
+
+def _tenant_bedrock_profile_arn() -> Optional[str]:
+    """Return the current tenant's Bedrock inference profile ARN.
+
+    Projeto A (Model B) — when a tenant has a per-tenant Application
+    Inference Profile configured in ``tenant_registry``, every Bedrock
+    call routes through that profile so AWS Cost Explorer can split
+    spend per tenant. Default tenant or no ARN configured → return
+    None and the factory uses the env-driven model id.
+    """
+    ctx = current_tenant()
+    if ctx.is_default:
+        return None
+    return ctx.bedrock_inference_profile_arn or None
 
 
 def _convert_creativity_to_temperature(creativity: Optional[int]) -> float:
@@ -49,6 +65,7 @@ def create_llm_orchestrator(
             model=settings.llm_model_orchestrator_bedrock,
             region=settings.bedrock_region,
             temperature=0.0,
+            inference_profile_arn=_tenant_bedrock_profile_arn(),
         )
     if settings.use_local_models:
         return OllamaProvider(
@@ -78,6 +95,7 @@ def create_llm_specialist(
             model=settings.llm_model_specialist_bedrock,
             region=settings.bedrock_region,
             temperature=0.0,
+            inference_profile_arn=_tenant_bedrock_profile_arn(),
         )
     if settings.use_local_models:
         return OllamaProvider(
@@ -108,6 +126,7 @@ def create_llm_formatter(
             model=settings.llm_model_formatter_bedrock,
             region=settings.bedrock_region,
             temperature=temp,
+            inference_profile_arn=_tenant_bedrock_profile_arn(),
         )
     if settings.use_local_models:
         return OllamaProvider(
@@ -134,6 +153,13 @@ def create_embedding_provider() -> EmbeddingProvider:
     embeddings to Bedrock direct (``EMBEDDING_PROVIDER=bedrock``).
     """
     provider = (settings.embedding_provider or "").lower()
+    if provider == "local":
+        # Em-processo, via ONNX. Não fala com a rede — existe porque a
+        # inferência on-demand do Bedrock está bloqueada ao nível da conta
+        # e o proxy mantle não serve modelos de embedding.
+        from core.rag.embeddings import LocalEmbeddingProvider
+
+        return LocalEmbeddingProvider(model=settings.embedding_model_local)
     if provider == "bedrock":
         from core.rag.embeddings import BedrockEmbeddingProvider
 
@@ -142,7 +168,11 @@ def create_embedding_provider() -> EmbeddingProvider:
             region=settings.bedrock_region,
         )
     if provider == "ollama":
-        return OllamaEmbeddingProvider()
+        # Pass the model explicitly. The provider's own default is
+        # nomic-embed-text (768 dims); a deployment backing a 1024-dim
+        # pgvector column needs mxbai-embed-large, and with no argument
+        # here there was no way to ask for it.
+        return OllamaEmbeddingProvider(model=settings.embedding_model_ollama)
     if provider == "openai":
         from core.rag.embeddings import OpenAIEmbeddingProvider
 

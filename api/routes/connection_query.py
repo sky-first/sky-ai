@@ -70,13 +70,20 @@ from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.data_sources.factory import DataSourceFactory
 from core.logging_utils import log_event
 from core.auth.service import get_user_crew_ids_in_space, resolve_crew_ids_for_context
-from core.i18n.i18n import detect_language, get_message
+from core.i18n.i18n import (
+    _normalize_lang_code,
+    detect_language,
+    get_message,
+    language_decision,
+    unsupported_language_message,
+)
 from core.security.rate_limiter_redis import _rate_limiter
 from core.security.audit import log_query_audit
 from core.security.progressive_escalation import detect_progressive_escalation
 from core.sql.validator_advanced import AdvancedSQLValidator
 from db.session import get_db
 from db.base import SyncSessionLocal
+from core.tenant_db import tenant_connection_manager
 from core.agents.generic_sql_agent import UserContext  # Import UserContext
 from datetime import datetime, timedelta
 from core.context.analysis_session_store import AnalysisSessionStore  # NEW IMPORT
@@ -448,6 +455,46 @@ async def _build_merged_agent_config_for_scan(
     )
 
 
+def _dispatch_map_from_conn_rows(rows) -> dict:
+    """Build {connection_id: DataSource} from ``data_connections`` rows.
+
+    Each row is expected as ``(id, name, connector_id, config)``. A connection
+    that fails to build (bad credentials, unreachable host) is skipped and
+    logged, so one broken source never breaks routing for the others.
+    """
+    from core.data_sources.factory import DataSourceFactory
+    from core.security.config_decryption import decrypt_config as _decrypt
+
+    class _TempConn:
+        def __init__(self, id, name, type, config):
+            self.id = id
+            self.name = name
+            self.type = type
+            self.config = config
+
+    dispatch_map: dict = {}
+    for row in rows:
+        conn_id = str(row[0])
+        name = row[1] or conn_id
+        conn_type = (row[2] or "postgres").lower()
+        raw_config = row[3]
+        try:
+            if isinstance(raw_config, str):
+                raw_config = json.loads(raw_config)
+            config = _decrypt(raw_config or {})
+            ds = DataSourceFactory.build_from_dataconnection(
+                _TempConn(conn_id, name, conn_type, config)
+            )
+            # Attach label so list_tables can show a human-readable source name
+            ds.label = f"{name} ({conn_type})"
+            dispatch_map[conn_id] = ds
+        except Exception as exc:
+            logger.warning(
+                "dispatch_map: skipping connection %s (%s): %s", conn_id, name, exc
+            )
+    return dispatch_map
+
+
 async def _build_dispatch_map_for_scan(
     db: AsyncSession,
     space_ids: List[str],
@@ -458,9 +505,6 @@ async def _build_dispatch_map_for_scan(
     calls to the right database when the user has multiple connections.
     Returns an empty dict on failure (agent falls back to single data_source).
     """
-    from core.data_sources.factory import DataSourceFactory
-    from core.security.config_decryption import decrypt_config as _decrypt
-
     if not space_ids:
         return {}
 
@@ -481,41 +525,50 @@ async def _build_dispatch_map_for_scan(
         logger.warning("_build_dispatch_map_for_scan: query failed: %s", exc)
         return {}
 
-    class _TempConn:
-        def __init__(self, id, name, type, config):
-            self.id = id
-            self.name = name
-            self.type = type
-            self.config = config
-
-    dispatch_map: dict = {}
-    for row in rows.fetchall():
-        conn_id = str(row[0])
-        name = row[1] or conn_id
-        conn_type = (row[2] or "postgres").lower()
-        raw_config = row[3]
-        try:
-            if isinstance(raw_config, str):
-                raw_config = json.loads(raw_config)
-            config = _decrypt(raw_config or {})
-            ds = DataSourceFactory.build_from_dataconnection(
-                _TempConn(conn_id, name, conn_type, config)
-            )
-            # Attach label so list_tables can show a human-readable source name
-            ds.label = f"{name} ({conn_type})"
-            dispatch_map[conn_id] = ds
-        except Exception as exc:
-            logger.warning(
-                "_build_dispatch_map_for_scan: skipping connection %s (%s): %s",
-                conn_id,
-                name,
-                exc,
-            )
-
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
     log_event(
         "scan_dispatch_map_built",
         {
             "space_ids": space_ids,
+            "num_connections": len(dispatch_map),
+            "connection_ids": list(dispatch_map.keys()),
+        },
+    )
+    return dispatch_map
+
+
+async def _build_dispatch_map_for_connections(
+    db: AsyncSession,
+    connection_ids: List[str],
+) -> dict:
+    """Build {connection_id: DataSource} for an explicit set of connections.
+
+    Used by the collaborative query path when a question spans more than one
+    connection (``body.connection_ids``), so each table's sub-query runs against
+    its own database and the partial results are merged in-memory (DuckDB).
+    Returns an empty dict on failure (caller falls back to the single primary
+    source).
+    """
+    if not connection_ids:
+        return {}
+
+    try:
+        rows = await db.execute(
+            text("""
+                SELECT dc.id, dc.name, dc.connector_id, dc.config
+                FROM data_connections dc
+                WHERE dc.id = ANY(CAST(:ids AS uuid[]))
+                """),
+            {"ids": connection_ids},
+        )
+    except Exception as exc:
+        logger.warning("_build_dispatch_map_for_connections: query failed: %s", exc)
+        return {}
+
+    dispatch_map = _dispatch_map_from_conn_rows(rows.fetchall())
+    log_event(
+        "cross_connection_dispatch_map_built",
+        {
             "num_connections": len(dispatch_map),
             "connection_ids": list(dispatch_map.keys()),
         },
@@ -1391,8 +1444,9 @@ async def chat_bootstrap(
     from core.i18n.i18n import detect_language
     from uuid import UUID
 
-    # Gatekeeper: Force English
-    lang = "en"
+    lang = (body.language or "en").lower()
+    if lang not in {"en", "pt"}:
+        lang = "en"
 
     # ✅ Feature Flag: Pausar Bootstrap se solicitado
     if DISABLE_BOOTSTRAP_EXECUTION:
@@ -2041,22 +2095,26 @@ async def dashboards_plan(
     agent_config = None
     tables = []
 
-    # 🔒 GLOBAL LANGUAGE GUARD (User Requirement: English Only)
-    # Applied at the API entry point to cover direct dashboard generation access.
+    # 🔒 GLOBAL LANGUAGE GUARD (EN + PT supported)
     from core.i18n.i18n import detect_language
 
     detected_lang = detect_language(body.goal)
+    if detected_lang not in ("en", "pt"):
+        detected_lang = "en"
 
-    if detected_lang != "en":
+    # Override lang with detected value from goal text if not explicitly set
+    if not body.language:
+        lang = detected_lang
+
+    if detected_lang not in ("en", "pt"):
         msg = (
-            "I'm sorry, but I currently only understand English. "
-            "Please rephrase your question in English so I can analyze your data accurately."
+            "I'm sorry, but I currently only support English and Portuguese. "
+            "Please rephrase your question in one of those languages."
         )
-        # Construct a "blocked" response manually to fit DashboardPlanResponse schema
         return DashboardPlanResponse(
-            dashboard_name="English Only Support",
+            dashboard_name="Unsupported Language",
             title="Language Not Supported",
-            description="Please use English for your queries.",
+            description="Please use English or Portuguese for your queries.",
             widgets=[
                 DashboardPlanWidget(
                     widget_key="lang_block_1",
@@ -2075,8 +2133,8 @@ async def dashboards_plan(
             },
             full_results={
                 "verdict": msg,
-                "diagnostic": f"Detected language: {detected_lang}. System requires English.",
-                "execution": "Please rephrase in English.",
+                "diagnostic": f"Detected language: {detected_lang}. Only EN and PT are supported.",
+                "execution": "Please rephrase in English or Portuguese.",
             },
         )
     logical_tables: list[str] = []
@@ -2375,7 +2433,7 @@ async def dashboards_plan(
             generate_dashboard_plan,
             llm=llm,
             goal=body.goal,
-            # language=lang,  <-- REMOVED per user request (English Only enforcement)
+            language=lang,
             max_widgets=body.max_widgets,
             logical_tables=logical_tables,
             schema_summary=schema_summary,
@@ -2571,6 +2629,36 @@ async def list_available_tables(
         "tables": tables_info,
         "total_tables": len(tables_info),
     }
+
+
+def _source_qualifier(physical_name: str) -> str:
+    """Short source token from a physical name, used to disambiguate same-named
+    tables across connections: the dataset for project.dataset.table, the schema
+    for schema.table, else the bare name."""
+    parts = [p for p in str(physical_name).replace("`", "").split(".") if p]
+    if len(parts) >= 3:
+        return parts[-2]
+    if len(parts) == 2:
+        return parts[0]
+    return parts[-1] if parts else "src"
+
+
+def _disambiguate_table_labels(table_schemas: list) -> None:
+    """When two connections expose tables with the same logical_name, give the
+    colliding ones a display_name qualified by source (e.g. 'finance.invoices'
+    vs 'billing_silver.invoices') so the orchestrator can pick the right one.
+    logical_name/physical_name stay untouched — RAG, relationships and
+    authorized_tables keep matching on the originals. No-op without collisions."""
+    from collections import defaultdict
+
+    by_logical = defaultdict(list)
+    for t in table_schemas:
+        by_logical[t.logical_name].append(t)
+    for logical, group in by_logical.items():
+        conns = {getattr(t, "data_connection_id", None) for t in group}
+        if len(group) > 1 and len(conns) > 1:
+            for t in group:
+                t.display_name = f"{_source_qualifier(t.physical_name)}.{logical}"
 
 
 async def load_agent_config_from_connection(
@@ -2784,6 +2872,7 @@ async def load_agent_config_from_connection(
                         physical_name=physical_name,
                         description=t.get("description"),
                         columns=columns,
+                        data_connection_id=connection_id,
                     )
                 )
 
@@ -2796,6 +2885,13 @@ async def load_agent_config_from_connection(
                     if cid and cid != connection_id
                 ]
                 if extra_conn_ids:
+                    # Track physical names already present so the same table
+                    # surfaced by overlapping connections is not merged twice.
+                    # Distinct physical names from different connections are
+                    # kept side by side (each tagged with its source below),
+                    # which is what lets the orchestrator disambiguate tables
+                    # that share a logical name across connections.
+                    seen_physicals = {ts.physical_name for ts in table_schemas}
                     for extra_cid in extra_conn_ids:
                         try:
                             extra_meta = await db.execute(
@@ -2841,6 +2937,9 @@ async def load_agent_config_from_connection(
                                         extra_physical = f"{extra_schema}.{extra_name}"
                                     else:
                                         extra_physical = extra_name
+                                    if extra_physical in seen_physicals:
+                                        continue
+                                    seen_physicals.add(extra_physical)
                                     extra_logical = t.get(
                                         "logical_name"
                                     ) or _normalize_logical_name(extra_name)
@@ -2868,6 +2967,7 @@ async def load_agent_config_from_connection(
                                             physical_name=extra_physical,
                                             description=t.get("description"),
                                             columns=extra_cols,
+                                            data_connection_id=extra_cid,
                                         )
                                     )
                         except Exception as merge_err:
@@ -2875,6 +2975,9 @@ async def load_agent_config_from_connection(
                                 "load_agent_config_merge_extra_conn_error",
                                 {"extra_cid": extra_cid, "error": str(merge_err)[:300]},
                             )
+
+                # Disambiguate same logical_name across merged connections.
+                _disambiguate_table_labels(table_schemas)
 
                 agent = AgentConfig(
                     id=f"agent-conn-{connection_id}",
@@ -3107,12 +3210,102 @@ async def load_agent_config_from_connection(
     return agent
 
 
+def resolve_temporal_bucket(question: str) -> str:
+    """
+    Resolves relative temporal expressions in the question to an absolute period string.
+
+    Returns "absoluto" when the question has no relative temporal keyword — meaning
+    it is safe to serve the same cached answer regardless of when it was stored.
+
+    Examples (today = 2026-06-09):
+      "faturas deste ano"      → "2026"
+      "vendas do último mês"   → "2026-05"
+      "this quarter"           → "2026-Q2"
+      "last week"              → "2026-W23"
+      "faturas de janeiro 2024"→ "absoluto"  (absolute date — safe to share)
+      "total de clientes"      → "absoluto"
+    """
+    import re
+    from datetime import date, timedelta
+
+    q = question.lower()
+    today = date.today()
+    y, m = today.year, today.month
+    quarter = (m - 1) // 3 + 1
+
+    # Year — includes contractions "deste ano", "neste ano"
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+ano|esse\s+ano|this\s+year|ano\s+atual|current\s+year)\b",
+        q,
+    ):
+        return str(y)
+    if re.search(r"\b(ano passado|último ano|last year|previous year)\b", q):
+        return str(y - 1)
+
+    # Quarter — includes contractions "deste trimestre", "neste trimestre"
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+trimestre|esse\s+trimestre|this\s+quarter|trimestre\s+atual|current\s+quarter)\b",
+        q,
+    ):
+        return f"{y}-Q{quarter}"
+    if re.search(
+        r"\b(trimestre passado|último trimestre|last quarter|previous quarter)\b", q
+    ):
+        prev_q = quarter - 1 if quarter > 1 else 4
+        prev_y = y if quarter > 1 else y - 1
+        return f"{prev_y}-Q{prev_q}"
+
+    # Month — includes contractions "deste mês", "neste mês"
+    if re.search(
+        r"\b(?:(?:d?este|neste)\s+m[êe]s|esse\s+m[êe]s|this\s+month|m[êe]s\s+atual|current\s+month)\b",
+        q,
+    ):
+        return f"{y}-{m:02d}"
+    if re.search(r"\b(mês passado|último mês|last month|previous month)\b", q):
+        prev_m = m - 1 if m > 1 else 12
+        prev_y = y if m > 1 else y - 1
+        return f"{prev_y}-{prev_m:02d}"
+
+    # Week — includes contractions "desta semana", "nesta semana"
+    iso_week = today.isocalendar()[1]
+    if re.search(
+        r"\b(?:(?:d?esta|nesta)\s+semana|essa\s+semana|this\s+week|semana\s+atual|current\s+week)\b",
+        q,
+    ):
+        return f"{y}-W{iso_week:02d}"
+    if re.search(r"\b(semana passada|última semana|last week|previous week)\b", q):
+        prev = today - timedelta(weeks=1)
+        pw_y, pw_w, _ = prev.isocalendar()
+        return f"{pw_y}-W{pw_w:02d}"
+
+    # Day
+    if re.search(r"\b(hoje|today|dia de hoje|current day)\b", q):
+        return str(today)
+    if re.search(r"\b(ontem|yesterday)\b", q):
+        return str(today - timedelta(days=1))
+
+    # Absolute year ("de 2019", "em 2027") — same detection used by periodo_decision
+    # Uses "abs-YYYY" prefix to distinguish from relative buckets like "2026" (este ano)
+    m_abs = re.search(
+        r"\b(?:em|de|do\s+ano|no\s+ano|in(?:\s+the\s+year)?|of|for|from)\s+((?:19|20)\d{2})\b",
+        q,
+        re.IGNORECASE,
+    )
+    if m_abs:
+        return f"abs-{m_abs.group(1)}"
+
+    return "absoluto"
+
+
 @router.post("/{connection_id}/query", response_model=QueryResponse)
 async def query_connection(
     connection_id: str,
     body: QueryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
+    from latency_timing import new_trace
+
+    new_trace(body.thread_id if body.thread_id else None)
     # ✅ SEMANTIC CACHE LAYER (Lookup)
     query_embedding = None
     try:
@@ -3139,6 +3332,29 @@ async def query_connection(
                 # Exactly one crew = strict collaborative mode; use it for cache isolation
                 active_cache_crew = body_crew_ids[0]
 
+            # Resolve the request locale for cache lookup.
+            # locale is a categorical dimension — pre-filter in WHERE (not
+            # post-retrieval Python) so a valid PT hit is never shadowed by
+            # an EN hit that ranks higher in vector similarity.
+            #
+            # We use resolve_language (same logic as the orchestrator) instead
+            # of a plain `body.locale or "en"` fallback.  Plain fallback breaks
+            # when body.locale is None and the question is in PT:
+            #   body.locale=None + PT question → fallback="en", but
+            #   orchestrator detects "pt" → response generated in PT →
+            #   stored under "en" → next EN request with locale="en" hits
+            #   the PT response.  resolve_language sees no locale and detects
+            #   "pt" from the question text — same prediction the orchestrator
+            #   will make — so store key and generated language agree.
+            from core.i18n.i18n import resolve_language as _resolve_lang
+
+            request_locale = _resolve_lang(
+                body.question or "",
+                locale=getattr(body, "locale", None),
+            )
+            _temporal_bucket = resolve_temporal_bucket(body.question or "")
+            _CACHE_VERSION = 2  # bump when key schema changes; old rows keep 0
+
             if active_cache_crew:
                 # Collaborative: match records cached for this specific crew.
                 # Personal rows (user_id IS NOT NULL) must NOT surface here —
@@ -3150,6 +3366,9 @@ async def query_connection(
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id = :crew_id
                     AND user_id IS NULL
+                    AND locale = :locale
+                    AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3161,6 +3380,9 @@ async def query_connection(
                         "conn_id": connection_id,
                         "space_id": body.space_id,
                         "crew_id": active_cache_crew,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
             elif is_personal_cache and cache_user_id:
@@ -3172,6 +3394,9 @@ async def query_connection(
                     FROM semantic_cache
                     WHERE connection_id = :conn_id
                     AND user_id = :user_id
+                    AND locale = :locale
+                    AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3182,12 +3407,13 @@ async def query_connection(
                         "query_emb": str(query_embedding),
                         "conn_id": connection_id,
                         "user_id": cache_user_id,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
             else:
                 # Space mode (no crew, no user): only rows without owner/crew.
-                # Keeps backward-compatibility for legacy callers that
-                # don't pass user_id.
                 sql_stmt = """
                     SELECT response_json, (1 - (embedding <=> :query_emb)) AS similarity
                     FROM semantic_cache
@@ -3195,6 +3421,9 @@ async def query_connection(
                     AND (space_id = :space_id OR space_id IS NULL)
                     AND crew_id IS NULL
                     AND user_id IS NULL
+                    AND locale = :locale
+                    AND cache_version = :cache_version
+                    AND temporal_bucket = :temporal_bucket
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3205,6 +3434,9 @@ async def query_connection(
                         "query_emb": str(query_embedding),
                         "conn_id": connection_id,
                         "space_id": body.space_id,
+                        "locale": request_locale,
+                        "cache_version": _CACHE_VERSION,
+                        "temporal_bucket": _temporal_bucket,
                     },
                 )
 
@@ -3236,6 +3468,14 @@ async def query_connection(
         from core.logging_utils import log_event
 
         log_event("semantic_cache_lookup_error", {"error": str(sc_err)[:200]})
+        # ⚠️ ALARM, not silence: a failing lookup means the cache is DOWN (e.g. a
+        # missing column after a schema change). Swallowing this quietly is what
+        # let the cache stay dead in prod for months. Surface it at error level.
+        logger.error(
+            "Semantic cache LOOKUP failed — cache may be DOWN (every query now "
+            "pays full LLM+SQL cost): %s",
+            str(sc_err)[:300],
+        )
         # ✅ FIX: Rollback the session if the cache query failed (e.g. vector type mismatch)
         # Prevents the subsequent inner query from failing with "transaction aborted"
         try:
@@ -3253,10 +3493,21 @@ async def query_connection(
             and response.meta
             and getattr(response.meta, "error", None) is None
         ):
-            # We don't cache errors from security/language blocks
-            if response.answer and not response.answer.startswith(
-                "I'm sorry, but I only support questions"
-            ):
+            # We don't cache errors from security/language blocks.
+            # Store and lookup MUST use the same locale source: the request's
+            # target locale (body.locale).  Using detected_language here would
+            # create a store/lookup asymmetry — e.g. body.locale=en + PT question
+            # → detected=pt → stored under "pt", but next lookup with body.locale=en
+            # searches under "en" → eternal miss.  The cache key is the intent
+            # (what language the user WANTS the answer in), not the input language.
+            _store_locale = (
+                request_locale  # same variable used in all three lookups above
+            )
+            _is_blocked = response.answer and (
+                "I'm sorry, but I only support questions" in response.answer
+                or unsupported_language_message()[:30] in response.answer
+            )
+            if response.answer and not _is_blocked:
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
@@ -3268,6 +3519,9 @@ async def query_connection(
                     question=body.question,
                     embedding=query_embedding,
                     response_json=response.model_dump(mode="json"),
+                    locale=_store_locale,
+                    cache_version=2,
+                    temporal_bucket=_temporal_bucket,
                 )
                 db.add(cache_record)
                 await db.commit()
@@ -3275,6 +3529,13 @@ async def query_connection(
         from core.logging_utils import log_event
 
         log_event("semantic_cache_store_error", {"error": str(sc_err)[:200]})
+        # ⚠️ ALARM, not silence: a failing store means future identical questions
+        # will never hit the cache. Surface it at error level so a dead cache is
+        # visible instead of degrading quietly.
+        logger.error(
+            "Semantic cache STORE failed — answers are not being cached: %s",
+            str(sc_err)[:300],
+        )
         try:
             await db.rollback()
         except Exception:
@@ -3289,6 +3550,93 @@ async def query_connection(
     )
 
     return response
+
+
+# Cache of profiled categorical values, keyed by "connection|physical|column".
+# A value of None marks a column already checked and found high-cardinality, so
+# it is never re-queried. Values rarely change, so a process-level cache is
+# enough here; the canonical home for this is discover-time enrichment.
+_SAMPLE_VALUES_CACHE: Dict[str, Optional[List[str]]] = {}
+_SAMPLE_VALUES_MAX_DISTINCT = 25  # only surface low-cardinality columns
+_SAMPLE_VALUES_MAX_COLUMNS = 40  # safety cap on profiling work per request
+
+
+def _is_text_column(col_type: str) -> bool:
+    """True for string-like column types across dialects (BigQuery STRING,
+    Postgres varchar/text, etc.)."""
+    t = (col_type or "").upper()
+    return any(k in t for k in ("STR", "CHAR", "TEXT", "VARCHAR", "ENUM"))
+
+
+def _fetch_distinct_values(
+    data_source: Any, physical: str, column: str
+) -> Optional[List[str]]:
+    """Return distinct non-null values for a column, or None when it is
+    high-cardinality (more than the threshold) or unreadable. Source-agnostic:
+    runs a bounded SELECT DISTINCT through the DataSource."""
+    limit = _SAMPLE_VALUES_MAX_DISTINCT + 1
+    sql = (
+        f"SELECT DISTINCT {column} AS v FROM {physical} "
+        f"WHERE {column} IS NOT NULL LIMIT {limit}"
+    )
+    try:
+        rows = data_source.run_query(sql) or []
+    except Exception as exc:
+        log_event(
+            "sample_values_profile_error",
+            {"physical": physical, "column": column, "error": str(exc)[:160]},
+        )
+        return None
+    values = [
+        str(r.get("v"))
+        for r in rows
+        if isinstance(r, dict) and r.get("v") is not None
+    ]
+    # Too many distinct → not a categorical column; don't surface it.
+    if not values or len(values) > _SAMPLE_VALUES_MAX_DISTINCT:
+        return None
+    return values
+
+
+def _enrich_tables_with_sample_values(
+    tables: list, data_source: Any, connection_id: str
+) -> None:
+    """Attach the real value domain of low-cardinality text columns to each
+    column dict as ``sample_values``, so the schema shown to the LLM lists the
+    actual values (e.g. status in {Paid, Pending, Overdue}). This stops the
+    model from inventing logic for a value it cannot see (e.g. deriving
+    "overdue" from dates instead of using the status column).
+
+    Best-effort and cached per (connection, table, column); high-cardinality
+    columns are remembered as skipped. Any failure leaves the column
+    unannotated and never breaks the query path.
+    """
+    profiled = 0
+    for table in tables or []:
+        physical = getattr(table, "physical_name", None)
+        if not physical:
+            continue
+        for col in getattr(table, "columns", None) or []:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or col.get("sample_values") is not None:
+                continue
+            if not _is_text_column(col.get("type") or col.get("data_type") or ""):
+                continue
+            key = f"{connection_id}|{physical}|{name}"
+            if key in _SAMPLE_VALUES_CACHE:
+                cached = _SAMPLE_VALUES_CACHE[key]
+                if cached:
+                    col["sample_values"] = cached
+                continue
+            if profiled >= _SAMPLE_VALUES_MAX_COLUMNS:
+                continue
+            profiled += 1
+            values = _fetch_distinct_values(data_source, physical, name)
+            _SAMPLE_VALUES_CACHE[key] = values
+            if values:
+                col["sample_values"] = values
 
 
 async def _query_connection_inner(
@@ -3404,10 +3752,14 @@ async def _query_connection_inner(
             ),
         )
 
-    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-    # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-    if lang != "en":
-        # Log the blocked attempt (with safety wrapper)
+    # ✅ LANGUAGE GUARDRAIL (EN + PT) — locale-aware + mensagem bilíngue.
+    # A estabilidade por thread é aplicada de forma autoritativa no orchestrator;
+    # aqui só bloqueamos o caso claro: sem locale + detecção confiante de idioma
+    # não suportado. Um locale suportado evita o bloqueio.
+    _blocked, _ = language_decision(
+        body.question or "", locale=getattr(body, "locale", None)
+    )
+    if _blocked:
         try:
             log_event(
                 "query_blocked_language",
@@ -3419,11 +3771,10 @@ async def _query_connection_inner(
                 },
             )
         except Exception:
-            pass  # Fail safe log
+            pass
 
-        # Friendly blocking message
         return QueryResponse(
-            answer="I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!",
+            answer=unsupported_language_message(),
             data_sample=[],
             meta=QueryResultMeta(
                 detected_language=lang,
@@ -3538,7 +3889,7 @@ async def _query_connection_inner(
                 generate_dashboard_plan,
                 llm=llm,
                 goal=body.question,  # Use question as goal
-                language="en",
+                language=lang,
                 max_widgets=8,  # Default to 8 widgets for direct requests
                 logical_tables=logical_tables,
                 schema_summary=schema_summary,
@@ -3563,17 +3914,22 @@ async def _query_connection_inner(
             )
 
             # Format dashboard plan as answer (frontend will handle rendering)
-            # Option: Fluid & Modern (English)
-            loading_message = (
-                f'Your dashboard "{plan.dashboard_name}" is being created.\n\n'
-                f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
-            )
+            if lang == "pt":
+                loading_message = (
+                    f'Seu dashboard "{plan.dashboard_name}" está sendo criado.\n\n'
+                    f"Estamos analisando os dados para gerar {len(plan.widgets)} insights relevantes — isso levará apenas um momento."
+                )
+            else:
+                loading_message = (
+                    f'Your dashboard "{plan.dashboard_name}" is being created.\n\n'
+                    f"We are analyzing the data to generate {len(plan.widgets)} relevant insights — this will take just a moment."
+                )
 
             return QueryResponse(
                 answer=loading_message,
                 data_sample=[],
                 meta=QueryResultMeta(
-                    detected_language="en",
+                    detected_language=lang,
                     chosen_table=None,
                     chosen_datasets=None,
                     sql=None,
@@ -3813,6 +4169,17 @@ async def _query_connection_inner(
         error_detail = f"Erro ao criar DataSource: {str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=error_detail)
 
+    # Surface the real value domain of low-cardinality text columns (status,
+    # category, method, ...) so the specialist maps business terms to actual
+    # column values instead of inventing logic (e.g. date heuristics). Cached,
+    # best-effort — never blocks the query.
+    try:
+        _enrich_tables_with_sample_values(
+            agent_config.tables, data_source, connection_id
+        )
+    except Exception as _exc:
+        logger.warning("sample-value enrichment skipped: %s", _exc)
+
     # For scan mode: build multi-source dispatch_map so the full_context_agent
     # can query any of the user's connections, not just the primary one.
     dispatch_map: Optional[dict] = None
@@ -3846,6 +4213,27 @@ async def _query_connection_inner(
                 )
             except Exception as _exc:
                 logger.warning("Failed to build merged agent config for scan: %s", _exc)
+
+    # Collaborative cross-connection: when the loaded tables span more than one
+    # connection (caller passed body.connection_ids), build a dispatch_map so the
+    # specialist runs one sub-query per source and the orchestrator's merger
+    # (DuckDB) consolidates them. Without this, is_multi_source stays False and
+    # every table is queried against the primary connection only.
+    if dispatch_map is None:
+        table_conn_ids = {
+            str(getattr(t, "data_connection_id", "") or "")
+            for t in agent_config.tables
+        }
+        table_conn_ids.discard("")
+        if len(table_conn_ids) > 1:
+            try:
+                dispatch_map = await _build_dispatch_map_for_connections(
+                    db, sorted(table_conn_ids)
+                )
+            except Exception as _exc:
+                logger.warning(
+                    "Failed to build cross-connection dispatch_map: %s", _exc
+                )
 
     # DatasetPriorityScorer: rank all tables and keep top-K most valuable ones
     # before handing the config to the agent (roadmap items 13-14).
@@ -4010,6 +4398,7 @@ async def _query_connection_inner(
                 allowed_document_ids=_allowed_doc_ids,
                 mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
                 caller_space_ids=getattr(body, "space_ids", None),
+                authorized_tables=body.authorized_tables,
             )
         )
     except Exception:
@@ -4077,7 +4466,7 @@ async def _query_connection_inner(
         crew_ids=crew_ids,
         platform_role=getattr(body, "platform_role", None) or "user",
         crew_role=getattr(body, "crew_role", None) or "guest",
-        locale=getattr(body, "locale", None) or "en",
+        locale=getattr(body, "locale", None),
         permissions=getattr(body, "permissions", None) or [],
         # security_config removed (not in UserContext schema)
     )
@@ -4091,7 +4480,12 @@ async def _query_connection_inner(
             user_ctx=mock_user_ctx,  # Contexto montado acima
             agent_config=agent_config,
             data_source=data_source,
-            db_session_factory=lambda: SyncSessionLocal(),  # SÍNCRONO PARA O AGENTE
+            # Tenant-aware sync session for the LangGraph agent (Model B).
+            # asyncio.to_thread propagates the tenant contextvar into the
+            # worker thread, so sync_session_for() routes the agent's RAG /
+            # checkpoint reads to the tenant DB; falls back to the global
+            # sync session for the default context.
+            db_session_factory=lambda: tenant_connection_manager.sync_session_for(),
             embedding_provider=embedding_provider,
             llm_orchestrator=llm_orchestrator,
             llm_specialist=llm_specialist,
@@ -4320,7 +4714,11 @@ async def _query_connection_inner(
     error = final_state.get("error")
 
     # ✅ CAMADA 3: Validação AST do SQL gerado
-    if sql:
+    # Multi-source results carry the DuckDB merger SQL (over in-memory datasets
+    # like dataset_1/dataset_2), not a connection query. Each per-source
+    # sub-query was already validated against its own source, so re-checking the
+    # merge SQL against this connection's tables would wrongly reject it.
+    if sql and not final_state.get("is_multi_source"):
         # Obter tabelas permitidas (usar physical_name porque SQL usa physical)
         allowed_tables = [t.physical_name for t in agent_config.tables]
         # Também adicionar logical_name para compatibilidade
@@ -4703,7 +5101,49 @@ async def _query_connection_inner(
             _scan_silent if getattr(body, "agent_mode", None) == "scan" else None
         ),
         scan_insight_title=_scan_insight_title,
+        # Echo the thread_id so the client can send it back on the next turn
+        # to continue the conversation.  When the request had no thread_id the
+        # server generated a UUID (run_agent_once) — returning it here lets the
+        # frontend seed the follow-up chain without breaking backward-compat
+        # (field is Optional, old clients safely ignore it).
+        thread_id=query_thread_id,
     )
+
+
+def _build_streaming_agent_state(body, crew_ids, retrieval_context) -> dict:
+    """Build the LangGraph state dict for the STREAMING path.
+
+    Extracted from the inline construction so the locale-passing contract is
+    unit-testable in isolation (see tests/test_bilingual_cache_locale_regression).
+
+    A2 regression guard: this path used to build the dict by hand and dropped
+    ``locale``, so downstream consumers (orchestrator/builder) fell back to
+    statistical detection and answered short PT messages in EN. ``locale`` MUST
+    come from the same source the non-streaming path uses (``body.locale``).
+    """
+    return {
+        "question": body.question,
+        "user_id": body.user_id,
+        "space_id": body.space_id,
+        "crew_ids": crew_ids,
+        # A2 fix — do not remove. The streaming path must carry the user's
+        # target locale; without it, short PT messages get answered in EN.
+        "locale": getattr(body, "locale", None),
+        "retrieval_context": retrieval_context,
+        # Configurações dinâmicas da IA
+        "instructions": body.instructions,
+        "creativity": body.creativity,
+        "length": body.length,
+        "response_format": body.response_format,
+        "ai_tone": body.ai_tone,
+        "ai_style": body.ai_style,
+        "sql_instructions": body.sql_instructions,
+        "selected_datasets": body.selected_datasets,
+        # ✅ Configuração de segurança dinâmica (RLS, colunas, etc.)
+        "security_config": body.security_config,
+        # Agent mode hint: forces data-path routing for scan/sql/context
+        "agent_mode": body.agent_mode,
+    }
 
 
 async def _stream_connection_query(
@@ -4740,8 +5180,13 @@ async def _stream_connection_query(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        # ✅ LANGUAGE GUARDRAIL (STRICT ENGLISH ONLY)
-        if lang != "en":
+        # ✅ LANGUAGE GUARDRAIL (EN + PT) — locale-aware + mensagem bilíngue.
+        # A estabilidade por thread é aplicada no orchestrator; aqui só bloqueamos
+        # o caso claro (sem locale + detecção confiante de idioma não suportado).
+        _blocked, _ = language_decision(
+            body.question or "", locale=getattr(body, "locale", None)
+        )
+        if _blocked:
             try:
                 log_event(
                     "stream_blocked_language",
@@ -4755,11 +5200,10 @@ async def _stream_connection_query(
             except Exception:
                 pass
 
-            error_msg = "I'm sorry, but I only support questions in English. Please rephrase your question, and I'll be happy to help!"
+            error_msg = unsupported_language_message()
 
-            # Send error message as a normal "answer" chunk so client displays it
             yield f"data: {json.dumps({'type': 'answer', 'text': error_msg})}\n\n"
-            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\\n\\n"
+            yield f"data: {json.dumps({'type': 'meta', 'meta': {'detected_language': lang, 'error': 'language_not_supported'}, 'data_sample': []})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
@@ -4929,6 +5373,7 @@ async def _stream_connection_query(
                 is_personal=bool(getattr(body, "is_personal", False)),
                 user_id=getattr(body, "user_id", None),
                 mentioned_file_ids=getattr(body, "mentioned_file_ids", None),
+                authorized_tables=body.authorized_tables,
             )
         except Exception:
             retrieval_context = []
@@ -4944,29 +5389,12 @@ async def _stream_connection_query(
                 _extract_topic,
             )
 
-            state = {
-                "question": body.question,
-                "user_id": body.user_id,
-                "space_id": body.space_id,
-                "crew_ids": crew_ids,
-                "retrieval_context": retrieval_context,
-                # Configurações dinâmicas da IA
-                "instructions": body.instructions,
-                "creativity": body.creativity,
-                "length": body.length,
-                "response_format": body.response_format,
-                "ai_tone": body.ai_tone,
-                "ai_style": body.ai_style,
-                "sql_instructions": body.sql_instructions,
-                "selected_datasets": body.selected_datasets,
-                # ✅ NOVO: Configuração de segurança dinâmica (RLS, colunas, etc.)
-                "security_config": body.security_config,
-                # Agent mode hint: forces data-path routing for scan/sql/context
-                "agent_mode": body.agent_mode,
-            }
+            state = _build_streaming_agent_state(body, crew_ids, retrieval_context)
 
             def db_session_factory():
-                return SyncSessionLocal()
+                # Tenant-aware (Model B); falls back to the global sync
+                # session for the default context.
+                return tenant_connection_manager.sync_session_for()
 
             app = build_generic_sql_graph(
                 agent_config=agent_config,
@@ -5017,6 +5445,14 @@ async def _stream_connection_query(
                         "events_specialist",
                         "relationships_specialist",
                         "widgets_specialist",
+                        # Scan mode routes to the full_context node, which is a
+                        # terminal node (edge -> END) that produces the final
+                        # `answer` directly. It was missing from this capture
+                        # list, so its state was discarded and final_state stayed
+                        # None — surfacing as a false "Erro ao executar agente"
+                        # and a "Run produced no output" finding. The downstream
+                        # answer/no-sql branch already streams its answer.
+                        "full_context",
                     ]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
@@ -5103,9 +5539,18 @@ async def _stream_connection_query(
             # Se houve erro no agente, enviar amigável e terminar
             if final_state.get("error"):
                 lang = _ensure_language(
-                    body.question, final_state.get("detected_language")
+                    body.question,
+                    final_state.get("detected_language"),
+                    locale=getattr(body, "locale", None),
                 )
                 msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
+                # The DEBUG suffix is the only channel reaching an operator
+                # while the observability stack is down. A bare TypeError with
+                # no stack is unactionable, so carry the traceback the failing
+                # node recorded. Remove once Grafana/Loki are back.
+                _tb = final_state.get("error_traceback")
+                if _tb:
+                    msg = f"{msg}\nTRACEBACK: {_tb}"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -5124,7 +5569,9 @@ async def _stream_connection_query(
             # mas preservar o motivo para debug.
             if final_state.get("impossible_reason"):
                 lang = _ensure_language(
-                    body.question, final_state.get("detected_language")
+                    body.question,
+                    final_state.get("detected_language"),
+                    locale=getattr(body, "locale", None),
                 )
                 topic = _extract_topic(body.question)
                 msg = get_message("NO_DATA_FOUND", lang, topic=topic)
@@ -5192,7 +5639,9 @@ async def _stream_connection_query(
             # Se não há SQL, usar mensagem genérica de no-data.
             if not final_state.get("data") and not final_state.get("sql"):
                 lang = _ensure_language(
-                    body.question, final_state.get("detected_language")
+                    body.question,
+                    final_state.get("detected_language"),
+                    locale=getattr(body, "locale", None),
                 )
                 topic = _extract_topic(body.question)
                 msg = get_message("NO_DATA_FOUND", lang, topic=topic)
@@ -5251,6 +5700,16 @@ async def _stream_connection_query(
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
             stats_text = _compute_basic_stats(raw_sample)
 
+            _stream_lang = (
+                detected_language if detected_language in ("en", "pt") else "en"
+            )
+            _stream_lang_name = "Portuguese" if _stream_lang == "pt" else "English"
+            _insufficient_msg = (
+                "Dados insuficientes para responder esta pergunta."
+                if _stream_lang == "pt"
+                else "Insufficient data to answer this question."
+            )
+
             system_msg = {
                 "role": "system",
                 "content": (
@@ -5263,14 +5722,26 @@ async def _stream_connection_query(
                     "- Create new queries or suggest queries\n"
                     "- Explain how data was retrieved\n"
                     "- Answer questions not answered by the results\n"
-                    "- Mention table names, column names, or database structure\n\n"
+                    "- Mention table names, column names, or database structure\n"
+                    "- Claim values are 'constant', 'uniform', 'do not vary', 'are all equal',\n"
+                    "  or that 'min, max and average are the same'. The result may be an\n"
+                    "  AGGREGATE (COUNT/SUM/AVG) — a single aggregated value says NOTHING\n"
+                    "  about how the underlying rows are spread.\n"
+                    "- Infer ABSENCE from a limited/aggregated result ('there are no other X',\n"
+                    "  'no variation', 'nothing else exists') just because few rows came back —\n"
+                    "  more may exist beyond what was returned.\n"
+                    "- Invent statistics (min/max/average/trends/variation) not literally\n"
+                    "  present in the provided results.\n"
+                    "- Rescale, multiply, divide or convert any numeric value. Report every\n"
+                    "  number EXACTLY as it appears (0.75 is 0.75, NOT 75%). If a value is\n"
+                    "  already a percentage, append '%' without changing the digits.\n\n"
                     "YOU MUST:\n"
                     "- Only use the data provided in the results\n"
-                    "- Answer ONLY in English - THIS IS A STRICT REQUIREMENT\n"
-                    "- If data is insufficient, say 'Insufficient data to answer this question'\n"
+                    f"- Answer ONLY in {_stream_lang_name} - THIS IS A STRICT REQUIREMENT\n"
+                    f"- If data is insufficient, say '{_insufficient_msg}'\n"
                     "- Keep the answer concise and objective (maximum 4 sentences)\n\n"
-                    "CRITICAL LANGUAGE REQUIREMENT:\n"
-                    "- You MUST answer in English, even if the user question is in another language.\n"
+                    f"CRITICAL LANGUAGE REQUIREMENT:\n"
+                    f"- You MUST answer in {_stream_lang_name}, matching the user's language.\n"
                 ),
             }
 
@@ -5282,8 +5753,11 @@ async def _stream_connection_query(
                     f"{stats_text}\n\n"
                     "Sample of the data (up to 15 rows, JSON):\n"
                     f"{sample_json}\n\n"
-                    "Explain the main insight(s) from this data in a concise way, "
-                    "in English."
+                    "Explain the main insight(s) from this data in a concise way. The "
+                    "result may be aggregated or limited to a few rows — describe ONLY "
+                    "what these rows show; do not infer the full distribution, the "
+                    "variation of the underlying rows, or the absence of other values. "
+                    f"Answer in {_stream_lang_name}."
                 ),
             }
 
@@ -5392,19 +5866,39 @@ async def _stream_connection_query(
             import traceback
 
             error_detail = str(e)
-            msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
+            tb = traceback.format_exc()
+            msg = (
+                f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
+                f"\nTRACEBACK: {tb[-2000:]}"
+            )
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
                 {
                     "connection_id": connection_id,
                     "error": error_detail,
+                    "error_type": type(e).__name__,
+                    "traceback": tb[-3000:],
                 },
             )
 
     except Exception as e:
-        msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
+        import traceback as _traceback
+
+        _tb = _traceback.format_exc()
+        msg = (
+            f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
+            f"\nTRACEBACK: {_tb[-2000:]}"
+        )
         yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
+        log_event(
+            "api_query_connection_stream_outer_error",
+            {
+                "error": str(e)[:500],
+                "error_type": type(e).__name__,
+                "traceback": _tb[-3000:],
+            },
+        )
 
 
 @router.post("/{connection_id}/query/stream")
@@ -5552,12 +6046,26 @@ def _transform_data_for_format(
 
 
 def _compute_basic_stats(data: List[Dict[str, Any]]) -> str:
-    """Compute basic stats for context."""
+    """Compute basic stats for context.
+
+    For a single-row result (almost always an AGGREGATE — COUNT/SUM/AVG), avg
+    and max equal the value itself, which the formatter would otherwise narrate
+    as "no variation / all values are the same". That is misleading: one
+    aggregated row says nothing about the spread of the underlying rows. So we
+    emit no distributional stats for <=1 row and flag it as a single aggregate.
+    """
     if not data:
         return "No data."
 
     first_row = data[0]
     total_cols = len(first_row.keys())
+
+    if len(data) <= 1:
+        return (
+            f"Columns: {total_cols}. Single aggregated row — the values are the "
+            "result itself, not a distribution. Do NOT describe variation, "
+            "uniformity, min/max or whether values differ."
+        )
 
     # Identify numeric columns
     numeric_cols = []
@@ -5767,13 +6275,21 @@ async def validate_sql(
                     stats_text = _compute_basic_stats(data_sample)
 
                     # 2. Criar contexto do sistema
+                    _expl_lang = (
+                        detect_language(body.question or "")
+                        if (body.question or "")
+                        else "en"
+                    )
+                    if _expl_lang not in ("en", "pt"):
+                        _expl_lang = "en"
+                    _expl_lang_name = "Portuguese" if _expl_lang == "pt" else "English"
                     system_msg = {
                         "role": "system",
                         "content": (
                             "You are a data analyst helper.\n"
                             "Your job is to explain the query results clearly and concisely.\n\n"
                             "RULES:\n"
-                            "- Answer in English (always).\n"
+                            f"- Answer in {_expl_lang_name} (always).\n"
                             "- Use the provided data sample to derive insights.\n"
                             "- Keep it short (max 3 sentences).\n"
                             "- Start directly with the insight (e.g. 'The data shows that...').\n"
