@@ -437,7 +437,9 @@ def _truncate_bundle(bundle: ContextBundle, max_tokens: int) -> ContextBundle:
     3. Data context (never truncate table list)
     4. Historical RAG layers (truncate in priority order)
 
-    RAG truncation priority: schema > questions > metrics > comments > glossary
+    RAG truncation priority: schema > camada semantica (glossario+metricas) > questions > comments > sinais.
+    A camada semantica sai logo antes do esquema e nunca por inteiro — ver a nota
+    no corpo da funcao.
     """
     truncation_details = {}
 
@@ -471,12 +473,8 @@ def _truncate_bundle(bundle: ContextBundle, max_tokens: int) -> ContextBundle:
         tokens_to_remove -= removed * 50
         truncation_details["catalog_rag"] = f"removed {removed} chunks"
 
-    # 4. Glossary
-    if bundle.historical.glossary_rag and tokens_to_remove > 0:
-        removed = len(bundle.historical.glossary_rag)
-        bundle.historical.glossary_rag = []
-        tokens_to_remove -= removed * 50  # Assume ~50 tokens per chunk
-        truncation_details["glossary_rag"] = f"removed {removed} chunks"
+    # (O glossário SAÍA AQUI — passou para o fim, junto às métricas. Ver a nota
+    #  extensa mais abaixo, antes de "Camada semântica".)
 
     # 5. Comments
     if bundle.historical.comments_rag and tokens_to_remove > 0:
@@ -492,12 +490,7 @@ def _truncate_bundle(bundle: ContextBundle, max_tokens: int) -> ContextBundle:
         tokens_to_remove -= removed * 50
         truncation_details["analytics_rag"] = f"removed {removed} chunks"
 
-    # 7. Metrics (keep top 1)
-    if len(bundle.historical.metrics_rag) > 1 and tokens_to_remove > 0:
-        removed = len(bundle.historical.metrics_rag) - 1
-        bundle.historical.metrics_rag = bundle.historical.metrics_rag[:1]
-        tokens_to_remove -= removed * 60
-        truncation_details["metrics_rag"] = f"kept 1/{removed + 1} chunks"
+    # (As métricas também saíam aqui. Passaram para o fim, com o glossário.)
 
     # 8. Questions (keep top 2)
     if len(bundle.historical.questions_rag) > 2 and tokens_to_remove > 0:
@@ -519,6 +512,35 @@ def _truncate_bundle(bundle: ContextBundle, max_tokens: int) -> ContextBundle:
         bundle.historical.governance_rag = bundle.historical.governance_rag[:1]
         tokens_to_remove -= removed * 50
         truncation_details["governance_rag"] = f"kept 1/{removed + 1} chunks"
+
+    # ── Camada semântica: quase intocável ────────────────────────────────────
+    #
+    # O glossário era a PRIMEIRA coisa a sair, e as métricas ficavam reduzidas a
+    # uma. Ou seja: quando a pergunta era grande — que é exactamente quando as
+    # definições do negócio mais importam — a definição do negócio era a
+    # primeira a desaparecer, e o modelo respondia com a sua ideia de "margem"
+    # em vez da do cliente.
+    #
+    # É também a diferença de estatuto que nos separa de quem faz isto bem: na
+    # Snowflake, se a coluna não está na *semantic view*, o Cortex **não gera
+    # query contra ela**; o Genie Ontology organiza as definições num grafo e
+    # desempata por autoridade. Neles a camada semântica é caminho obrigatório;
+    # aqui era contexto opcional que se descartava quando não cabia.
+    #
+    # Passa a sair logo antes do esquema, e nunca por inteiro: três termos e
+    # três métricas sobrevivem sempre. Preferimos cortar um pedaço de esquema
+    # irrelevante a perder a definição de uma métrica certificada.
+    if len(bundle.historical.glossary_rag) > 3 and tokens_to_remove > 0:
+        removed = len(bundle.historical.glossary_rag) - 3
+        bundle.historical.glossary_rag = bundle.historical.glossary_rag[:3]
+        tokens_to_remove -= removed * 50
+        truncation_details["glossary_rag"] = f"kept 3/{removed + 3} chunks"
+
+    if len(bundle.historical.metrics_rag) > 3 and tokens_to_remove > 0:
+        removed = len(bundle.historical.metrics_rag) - 3
+        bundle.historical.metrics_rag = bundle.historical.metrics_rag[:3]
+        tokens_to_remove -= removed * 60
+        truncation_details["metrics_rag"] = f"kept 3/{removed + 3} chunks"
 
     # Schema (keep top 2) - highest priority, truncate last
     if len(bundle.historical.schema_rag) > 2 and tokens_to_remove > 0:
