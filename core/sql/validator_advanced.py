@@ -517,25 +517,49 @@ class AdvancedSQLValidator:
                 count += 1
         return count
 
-    def _has_dangerous_operations(self, statement: Statement) -> bool:
-        """Verifica operações perigosas"""
-        dangerous = {
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "CREATE",
-            "ALTER",
-            "TRUNCATE",
-            "EXEC",
-            "EXECUTE",
-            "CALL",
+    #: Tudo o que não é ler. A promessa ao cliente é que só corremos SELECT
+    #: na base dele — esta é a segunda linha de defesa dessa promessa.
+    #:
+    #: `COPY` e `DO` não estavam na lista e são os dois piores do Postgres:
+    #: `COPY ... TO PROGRAM` corre comandos da máquina, `COPY ... FROM` lê
+    #: ficheiros, e `DO $$ ... $$` executa um bloco PL/pgSQL que pode fazer
+    #: tudo o que o papel da ligação puder.
+    OPERACOES_PERIGOSAS = frozenset(
+        {
+            # escrita
+            "INSERT", "UPDATE", "DELETE", "MERGE", "UPSERT", "REPLACE",
+            # estrutura
+            "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "COMMENT",
+            # execução
+            "EXEC", "EXECUTE", "CALL", "DO", "PREPARE", "DEALLOCATE",
+            # sistema e privilégios
+            "GRANT", "REVOKE", "COPY", "VACUUM", "ANALYZE", "REINDEX",
+            "REFRESH", "LOCK", "SET", "RESET", "LISTEN", "NOTIFY",
         }
+    )
 
-        for token in statement.tokens:
-            if token.ttype is Keyword and token.value.upper() in dangerous:
+    def _has_dangerous_operations(self, statement: Statement) -> bool:
+        """Verifica operações perigosas.
+
+        Esta função **apanhava 1 em 6**. Duas razões, ambas silenciosas:
+
+        1. `token.ttype is Keyword` compara por identidade, e o sqlparse
+           classifica `DELETE` como `Keyword.DML` e `DROP` como `Keyword.DDL`
+           — que são tipos *filhos*, não o mesmo objecto. Só `CALL` (que é
+           `Keyword` puro) passava no teste.
+        2. `statement.tokens` é raso: uma escrita dentro de um parêntese, de
+           um CTE ou de um subselect nunca aparecia à superfície.
+
+        A primeira etapa (regex) recusa todos estes casos, por isso nada
+        passou — mas uma segunda linha de defesa que não defende nada é pior
+        do que não a ter: quem lê o código conta com ela.
+
+        `ttype in Keyword` (em vez de `is`) inclui os subtipos, e `flatten()`
+        percorre a árvore toda.
+        """
+        for token in statement.flatten():
+            if token.ttype in Keyword and token.value.upper() in self.OPERACOES_PERIGOSAS:
                 return True
-
         return False
 
     def _extract_columns(self, statement: Statement, connection_type: str) -> Set[str]:
