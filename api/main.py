@@ -17,6 +17,7 @@ from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import (
     data_ingestion,
     pipeline,
+    classificar_achado,
     widget_titles,
     knowledge_graph,
     embeddings,
@@ -163,6 +164,7 @@ app.include_router(data_ingestion.router)
 app.include_router(pipeline.router)
 
 # Widget routes (title suggestions)
+app.include_router(classificar_achado.router)
 app.include_router(widget_titles.router)
 # Perguntas sobre um ficheiro largado na demo publica. Nao usa
 # connection_id: o visitante nao tem ligacao configurada nenhuma.
