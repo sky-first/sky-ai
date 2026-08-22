@@ -27,6 +27,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/connections", tags=["connection_discover"])
 
 
+async def _contar_table_metadata(db, connection_id: str) -> int:
+    """Quantas linhas a DESCOBERTA deixou para esta ligação.
+
+    É a tabela que o `/query` lê. Distingue-se do catálogo do backend
+    (`connection_metadata.tables`), que diz o que a ligação tem mas não o que
+    já foi indexado — e confundir as duas foi o que deixou um cliente inteiro
+    sem um único achado.
+    """
+    from sqlalchemy import text as _text
+
+    try:
+        return int(
+            (
+                await db.execute(
+                    _text(
+                        "SELECT COUNT(*) FROM table_metadata "
+                        "WHERE data_connection_id = CAST(:cid AS uuid)"
+                    ),
+                    {"cid": connection_id},
+                )
+            ).scalar()
+            or 0
+        )
+    except Exception:
+        # Falhar a contar não pode partir o endpoint. Zero manda descobrir,
+        # que é o lado seguro: descobrir a mais custa tempo, descobrir a menos
+        # deixa o cliente sem respostas.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return 0
+
+
 async def _load_connection_metadata_tables(
     db: AsyncSession, connection_id: str
 ) -> List[Dict[str, Any]]:
@@ -141,12 +175,37 @@ async def discover_tables(
             try:
                 from sqlalchemy import text as _text
 
+                # O guarda tem de olhar para a tabela que a DESCOBERTA
+                # escreve, não para a que o backend escreve.
+                #
+                # Isto perguntava só a idade de `connection_metadata` — que é
+                # do BACKEND, escrita pelo `sync_connection`. `table_metadata`
+                # — a que a descoberta enche e a que o `/query` lê — podia
+                # estar VAZIA e o guarda saltava à mesma.
+                #
+                # E não era um caso raro: bastava o backend sincronizar uma
+                # ligação, coisa que faz sozinho, para a janela ficar fresca e
+                # a descoberta ser saltada. Para sempre — cada nova tentativa
+                # encontrava-a fresca outra vez.
+                #
+                # Encontrado em produção a 22/08/2026, no cliente `sandbox`:
+                # `connection_metadata` fresca, `table_metadata` a ZERO, e o
+                # `/query` a devolver 404 a todos os agentes com
+                # `load_agent_config_no_metadata`. Nenhum agente daquele
+                # cliente conseguia produzir um único achado, e a resposta ao
+                # pedido de descoberta era «skipped — recent metadata exists».
+                #
+                # Uma consulta só, com as duas perguntas: há quanto tempo, e
+                # há alguma linha do que interessa.
                 row = (
                     (
                         await db.execute(
                             _text(
-                                "SELECT EXTRACT(EPOCH FROM (NOW() - last_metadata_update))::int AS age "
-                                "FROM connection_metadata WHERE connection_id = CAST(:cid AS uuid)"
+                                "SELECT EXTRACT(EPOCH FROM (NOW() - cm.last_metadata_update))::int AS age, "
+                                "(SELECT COUNT(*) FROM table_metadata tm "
+                                " WHERE tm.data_connection_id = cm.connection_id) AS linhas "
+                                "FROM connection_metadata cm "
+                                "WHERE cm.connection_id = CAST(:cid AS uuid)"
                             ),
                             {"cid": connection_id},
                         )
@@ -158,6 +217,10 @@ async def discover_tables(
                     row
                     and row["age"] is not None
                     and row["age"] < skip_if_recent_seconds
+                    # Sem uma única linha em `table_metadata` não há nada de
+                    # recente para reaproveitar — há uma descoberta que nunca
+                    # correu, ou que correu para outra base.
+                    and (row["linhas"] or 0) > 0
                 ):
                     log_event(
                         "discover_skipped_recent",
@@ -475,7 +538,18 @@ async def metadata_status(
     tables = await _load_connection_metadata_tables(db, connection_id)
     tables_discovered = len(tables)
     metadata_rows = _count_metadata_rows(tables)
-    has_metadata = tables_discovered > 0
+
+    # «Tem metadados» é ter linhas em `table_metadata`, não ter catálogo.
+    #
+    # O catálogo (`connection_metadata.tables`) é do BACKEND — diz que tabelas
+    # a ligação TEM. A `table_metadata` é o que a descoberta produz, e é a
+    # única que o `/query` lê. Este endpoito respondia «tem metadados» só por
+    # haver catálogo, e assim quem o consultasse decidia não descobrir sobre
+    # uma base onde o `/query` iria devolver 404.
+    #
+    # Mesmo engano que o guarda do `/discover` tinha. Ver a nota lá.
+    linhas_reais = await _contar_table_metadata(db, connection_id)
+    has_metadata = tables_discovered > 0 and linhas_reais > 0
 
     last_update = await _get_last_metadata_update(db, connection_id)
 
