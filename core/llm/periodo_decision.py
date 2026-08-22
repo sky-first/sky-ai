@@ -225,6 +225,30 @@ def find_date_column(table) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Query MIN/MAX no data source (síncrono)
 # ---------------------------------------------------------------------------
+def _citar(nome_fisico: str, aspas: str = '"') -> str:
+    """`finance.invoices` → `"finance"."invoices"`.
+
+    O nome inteiro estava a ser citado de uma vez — `"finance.invoices"` — e
+    isso é UM nome com um ponto lá dentro, não um schema e uma tabela. O
+    Postgres procura uma tabela chamada literalmente «finance.invoices», não a
+    encontra, e devolve:
+
+        relation "finance.invoices" does not exist
+
+    Visto em produção a 22/08/2026. O efeito não é um erro à vista: quem
+    chama isto está só a descobrir o período dos dados, e uma falha aqui
+    devolve `(None, None)` — o motor conclui que a fonte não tem datas e a
+    resposta que chega a quem perguntou é **«Não há dados disponíveis nessa
+    fonte»**, com 558 faturas na tabela.
+
+    A consulta principal escapava porque o modelo escreve o SQL sem aspas; era
+    só este passo.
+
+    Um nome sem ponto continua a ser citado inteiro — nem tudo tem schema.
+    """
+    return ".".join(f"{aspas}{parte}{aspas}" for parte in nome_fisico.split("."))
+
+
 def query_data_range(
     data_source,
     physical_name: str,
@@ -239,13 +263,13 @@ def query_data_range(
             sql = (
                 f"SELECT MIN(CAST(`{date_col}` AS DATE)) AS min_date, "
                 f"MAX(CAST(`{date_col}` AS DATE)) AS max_date "
-                f"FROM `{physical_name}`"
+                f"FROM {_citar(physical_name, '`')}"
             )
         else:
             sql = (
                 f'SELECT MIN(CAST("{date_col}" AS DATE)) AS min_date, '
                 f'MAX(CAST("{date_col}" AS DATE)) AS max_date '
-                f'FROM "{physical_name}"'
+                f"FROM {_citar(physical_name)}"
             )
 
         rows = data_source.run_query(sql)
