@@ -138,8 +138,70 @@ TABELAS_DA_IA = (
 )
 
 
+#: Onde vivem as migrações SQL — as mesmas que o hook corre contra a base da
+#: plataforma.
+PASTA_DAS_MIGRACOES = "db/migrations"
+
+
+async def _correr_migracoes_sql(slug: str, pura: str, a_serio: bool) -> int:
+    """Corre os `.sql` desta pasta contra a base de UM cliente.
+
+    **Ter as tabelas não é ter o esquema.** Isto verificava se as tabelas
+    existiam, dizia «já tem tudo» e ficava-se por aí — mas o que falta a um
+    cliente que nunca correu estas migrações são as COLUNAS e os TIPOS:
+
+      · `semantic_cache` sem a coluna `user_id`   (004)
+      · `embedding` em `json` em vez de `vector`  (005)
+      · `query_audit_log` a não existir de todo   (001)
+
+    Medido em produção a 22/08/2026, no cliente `sandbox`, com o Job a dizer
+    «sandbox: já tem tudo» na mesma hora em que o serviço escrevia nos logs:
+
+        operator does not exist: json <=> unknown
+        column "user_id" of relation "semantic_cache" does not exist
+        relation "query_audit_log" does not exist
+
+    E o efeito não é cosmético: sem cache semântica cada pergunta paga o custo
+    inteiro, e sem `query_audit_log` o perfilador falha. Foi por isto que
+    alguém já escreveu DDL À MÃO na base do GBT — e o cliente seguinte nasceu
+    com o mesmo defeito, porque a correcção foi na base e não no caminho.
+
+    Cada ficheiro corre por si e falhar não trava os outros: são migrações
+    escritas para serem repetidas (`IF NOT EXISTS`), e uma que já esteja
+    aplicada queixa-se sem que isso seja um problema. O que TRAVA é a base não
+    abrir — isso é outra coisa, e quem chama trata dela.
+    """
+    import glob
+    import os
+
+    import asyncpg
+
+    ficheiros = sorted(glob.glob(os.path.join(PASTA_DAS_MIGRACOES, "*.sql")))
+    if not ficheiros:
+        print(f"  {slug}: nenhuma migração SQL encontrada em {PASTA_DAS_MIGRACOES}")
+        return 0
+    if not a_serio:
+        print(f"  {slug}: correria {len(ficheiros)} migrações SQL")
+        return len(ficheiros)
+
+    ligacao = await asyncpg.connect(pura)
+    corridas = 0
+    try:
+        for f in ficheiros:
+            with open(f, encoding="utf-8") as fh:
+                try:
+                    await ligacao.execute(fh.read())
+                    corridas += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Uma migração já aplicada queixa-se, e isso não é falha.
+                    print(f"  {slug}: {os.path.basename(f)} — {exc}")
+    finally:
+        await ligacao.close()
+    return corridas
+
+
 async def _sincronizar(slug: str, url: str, a_serio: bool) -> list[str]:
-    """Cria o que falta nessa base. Devolve as tabelas que criou."""
+    """Põe a base deste cliente em dia: tabelas E esquema."""
     import asyncpg
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -166,12 +228,15 @@ async def _sincronizar(slug: str, url: str, a_serio: bool) -> list[str]:
             await ligacao.close()
 
         em_falta = sorted(set(TABELAS_DA_IA) - antes)
-        if not em_falta:
-            print(f"  {slug}: já tem tudo")
-            return []
         if not a_serio:
-            print(f"  {slug}: criaria {em_falta}")
+            print(f"  {slug}: criaria {em_falta or 'nada'}")
+            await _correr_migracoes_sql(slug, pura, a_serio)
             return em_falta
+        if not em_falta:
+            # SEM `return` aqui. Era o defeito: ter as tabelas dava «já tem
+            # tudo» e as migrações SQL nunca corriam nesta base — e são elas
+            # que trazem as colunas e os tipos. Ver `_correr_migracoes_sql`.
+            print(f"  {slug}: tabelas em dia")
 
         # Só as que faltam e só as que são nossas — `tables=` restringe o
         # `create_all` em vez de o deixar percorrer o metadata inteiro.
@@ -182,7 +247,12 @@ async def _sincronizar(slug: str, url: str, a_serio: bool) -> list[str]:
                     sync_conn, tables=objectos, checkfirst=True
                 )
             )
-        print(f"  {slug}: criadas {len(em_falta)} tabelas: {', '.join(em_falta)}")
+        if em_falta:
+            print(f"  {slug}: criadas {len(em_falta)} tabelas: {', '.join(em_falta)}")
+
+        # As migrações SQL correm SEMPRE, tenha ou não faltado alguma tabela.
+        n = await _correr_migracoes_sql(slug, pura, a_serio)
+        print(f"  {slug}: {n} migrações SQL aplicadas")
         return em_falta
     finally:
         await motor.dispose()
