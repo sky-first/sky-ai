@@ -87,4 +87,6 @@ class TestAsRegrasQueVaoParaOPrompt:
 
     def test_nao_manda_converter_moeda(self):
         # Converter com uma taxa que nao temos e pior do que nao dizer nada.
-        assert "Do NOT convert between currencies" in regras_de_numeros("pt", ["amount"])
+        assert "Do NOT convert between currencies" in regras_de_numeros(
+            "pt", ["amount"]
+        )

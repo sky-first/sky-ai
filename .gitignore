@@ -80,3 +80,4 @@ alembic/versions/*.pyc
 config/gcp/service_account.json
 *.json
 !requirements.txt
+reativar_tmp.py
