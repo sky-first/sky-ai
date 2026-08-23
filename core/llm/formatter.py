@@ -10,6 +10,7 @@ from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
 from config.settings import settings
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
+from core.llm.numeros import regras_de_numeros
 from core.llm.context.builder import build_context_bundle
 
 
@@ -394,6 +395,14 @@ def run_formatter(
         ai_tone=state.get("ai_tone"),
         ai_style=state.get("ai_style"),
         detected_language=lang,
+        # As colunas decidem se ha dinheiro na resposta, e portanto se os
+        # numeros levam simbolo de moeda. E o ESQUEMA que sabe: a pergunta nao
+        # sabe — «quantas faturas» tem «fatura» e e uma contagem.
+        regras_dos_numeros=regras_de_numeros(
+            lang,
+            colunas=list(data[0].keys()) if data and isinstance(data[0], dict) else [],
+            moeda_pedida=state.get("currency"),
+        ),
     )
 
     try:

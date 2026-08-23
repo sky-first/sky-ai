@@ -62,6 +62,10 @@ def build_formatter_prompt(
     ai_tone: Optional[str] = None,
     ai_style: Optional[str] = None,
     detected_language: Optional[str] = None,
+    #: As regras de separadores e moeda. Ver `core/llm/numeros.py` — o prompt
+    #: tinha dez regras sobre o que nao inventar e zero sobre como escrever
+    #: um numero, e o modelo copiava o formato americano da pre-visualizacao.
+    regras_dos_numeros: str = "",
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
     Build formatter prompt optimized for both OpenAI and local models.
@@ -178,7 +182,9 @@ def build_formatter_prompt(
             "    number EXACTLY as it appears in the results. A value of 0.75 is 0.75, NOT 75%.\n"
             "    If a value already represents a percentage (e.g. a column meaning a percent),\n"
             "    append '%' WITHOUT changing the digits (0.75 → '0.75%', never '75%').\n\n"
-            f"{user_prefs_block}"
+            f"{regras_dos_numeros}"
+            f"
+{user_prefs_block}"
             f"ROLE STYLE (substance/focus): {role_style}\n"
             f"{length_guidance}"
             f"{format_guidance}"
