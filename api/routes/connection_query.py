@@ -19,6 +19,12 @@ Arquitetura dos Agentes:
 
 from __future__ import annotations
 
+from core.llm.lingua_da_resposta import (
+    NOME_DA_LINGUA,
+    lingua_da_resposta,
+    nome_da_lingua,
+)
+
 from typing import Optional, List, Dict, Tuple, Any
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
@@ -2099,14 +2105,14 @@ async def dashboards_plan(
     from core.i18n.i18n import detect_language
 
     detected_lang = detect_language(body.goal)
-    if detected_lang not in ("en", "pt"):
+    if detected_lang not in NOME_DA_LINGUA:
         detected_lang = "en"
 
     # Override lang with detected value from goal text if not explicitly set
     if not body.language:
         lang = detected_lang
 
-    if detected_lang not in ("en", "pt"):
+    if detected_lang not in NOME_DA_LINGUA:
         msg = (
             "I'm sorry, but I currently only support English and Portuguese. "
             "Please rephrase your question in one of those languages."
@@ -5701,9 +5707,9 @@ async def _stream_connection_query(
             stats_text = _compute_basic_stats(raw_sample)
 
             _stream_lang = (
-                detected_language if detected_language in ("en", "pt") else "en"
+                lingua_da_resposta(detected_language)
             )
-            _stream_lang_name = "Portuguese" if _stream_lang == "pt" else "English"
+            _stream_lang_name = nome_da_lingua(_stream_lang)
             _insufficient_msg = (
                 "Dados insuficientes para responder esta pergunta."
                 if _stream_lang == "pt"
@@ -6280,9 +6286,9 @@ async def validate_sql(
                         if (body.question or "")
                         else "en"
                     )
-                    if _expl_lang not in ("en", "pt"):
+                    if _expl_lang not in NOME_DA_LINGUA:
                         _expl_lang = "en"
-                    _expl_lang_name = "Portuguese" if _expl_lang == "pt" else "English"
+                    _expl_lang_name = nome_da_lingua(_expl_lang)
                     system_msg = {
                         "role": "system",
                         "content": (

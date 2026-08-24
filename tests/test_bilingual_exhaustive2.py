@@ -218,12 +218,15 @@ def test_a4_en_followup_stays_en_with_thread(followup):
 
 
 # A5 — Unsupported languages (should block without locale/thread)
+#
+# O espanhol saiu daqui a 24/08/2026: passou a ser suportado, e uma
+# pergunta em espanhol tem de ser respondida em espanhol. A prova de que
+# passa a estar do outro lado esta em `test_a5_espanhol_e_respondido`.
 UNSUPPORTED = [
     ("fr", "quel a été le chiffre d'affaires du mois dernier en France?"),
     ("fr", "combien de clients actifs avons-nous aujourd'hui?"),
     ("de", "Was waren die Gesamtverkäufe im letzten Monat?"),
     ("de", "Wie viele aktive Kunden haben wir heute?"),
-    ("es", "¿cuáles fueron las ventas totales del mes pasado en España?"),
     ("it", "quali sono state le vendite totali del mese scorso?"),
     ("nl", "wat waren de totale verkopen afgelopen maand?"),
     ("ru", "каковы были общие продажи за прошлый месяц?"),
@@ -236,6 +239,16 @@ def test_a5_unsupported_languages_blocked_without_signals(lang_code, question):
     blocked, lang = language_decision(question)
     assert blocked is True, f"Should block {lang_code}: {question!r}"
     assert lang in SUPPORTED_LANGUAGES
+
+
+@pytest.mark.parametrize("question", [
+    "¿cuáles fueron las ventas totales del mes pasado en España?",
+    "¿cuántos clientes activos tenemos hoy?",
+])
+def test_a5_espanhol_e_respondido(question):
+    blocked, lang = language_decision(question)
+    assert blocked is False, f"espanhol bloqueado: {question!r}"
+    assert lang == "es"
 
 
 @pytest.mark.parametrize("lang_code,question", UNSUPPORTED)
@@ -561,8 +574,8 @@ class TestPipelineStateFlow:
             "quel a été le chiffre d'affaires du mois dernier en France?"
         )
         assert "answer" in state
-        assert "English and Portuguese" in state["answer"]
-        assert "inglês e português" in state["answer"]
+        assert "English, Portuguese and Spanish" in state["answer"]
+        assert "inglês, português e espanhol" in state["answer"]
 
     def test_c5b_blocked_detected_language_is_supported_fallback(self):
         state = run_orch(
@@ -643,7 +656,7 @@ class TestSystemGaps:
         ).read_text()
         # Locate the hardcoded EN-only string in the Davinci path
         assert (
-            "I'm sorry, but I currently only support English and Portuguese."
+            "I'm sorry, but I currently only support English, Portuguese and"
             in source
         ), "Davinci EN-only gate was removed — update or remove this gap test."
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 from core.llm.context.models import ContextBundle
 from core.llm.context.serializers import serialize_for_prompt
+from core.llm.lingua_da_resposta import lingua_da_resposta, nome_da_lingua
 
 # Maps the tone IDs emitted by the frontend Settings → AI Customization UI
 # (see sky-poc-frontend settings/ai-preferences.tsx `toneOptions`) to concrete
@@ -151,8 +152,8 @@ def build_formatter_prompt(
         )
 
     # Resolve response language
-    _lang = detected_language if detected_language in ("en", "pt") else "en"
-    _lang_name = "Portuguese" if _lang == "pt" else "English"
+    _lang = lingua_da_resposta(detected_language)
+    _lang_name = nome_da_lingua(detected_language)
 
     # SYSTEM PROMPT: Behavior definition
     # Precedence reminder for the LLM: user prefs (form) > role style (tone),
@@ -256,8 +257,8 @@ def build_formatter_prompt_legacy(
 
     Used when context_bundle is disabled.
     """
-    _leg_lang = detected_language if detected_language in ("en", "pt") else "en"
-    _leg_lang_name = "Portuguese" if _leg_lang == "pt" else "English"
+    _leg_lang = lingua_da_resposta(detected_language)
+    _leg_lang_name = nome_da_lingua(detected_language)
 
     system_msg = {
         "role": "system",
