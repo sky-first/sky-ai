@@ -2101,48 +2101,26 @@ async def dashboards_plan(
     agent_config = None
     tables = []
 
-    # 🔒 GLOBAL LANGUAGE GUARD (EN + PT supported)
+    # A língua do painel.
+    #
+    # Havia aqui um "GLOBAL LANGUAGE GUARD" que devolvia um painel de
+    # bloqueio com uma promessa de duas línguas cravada no código.
+    # Nunca corria: duas linhas acima o `detected_lang` já era forçado
+    # para dentro das línguas conhecidas, portanto o `if` seguinte era
+    # sempre falso. Código morto desde antes deste trabalho.
+    #
+    # **O comportamento a sério é este, e não mudou:** uma pergunta em
+    # alemão não bloqueia — responde-se em inglês. Foi por isso que o
+    # bloco saiu em vez de ser traduzido: traduzi-lo dava a impressão de
+    # que alguém o lê, e ninguém o lê.
     from core.i18n.i18n import detect_language
 
-    detected_lang = detect_language(body.goal)
-    if detected_lang not in NOME_DA_LINGUA:
-        detected_lang = "en"
+    detected_lang = lingua_da_resposta(detect_language(body.goal))
 
-    # Override lang with detected value from goal text if not explicitly set
+    # Sem `language` no pedido, manda a língua do texto do objectivo.
     if not body.language:
         lang = detected_lang
 
-    if detected_lang not in NOME_DA_LINGUA:
-        msg = (
-            "I'm sorry, but I currently only support English and Portuguese. "
-            "Please rephrase your question in one of those languages."
-        )
-        return DashboardPlanResponse(
-            dashboard_name="Unsupported Language",
-            title="Language Not Supported",
-            description="Please use English or Portuguese for your queries.",
-            widgets=[
-                DashboardPlanWidget(
-                    widget_key="lang_block_1",
-                    type="text",
-                    title="Language Not Supported",
-                    question="N/A",
-                    viz={"type": "text", "content": msg},
-                )
-            ],
-            meta={
-                "mode": "blocked",
-                "grounding": {},
-                "generated_at": datetime.utcnow().isoformat(),
-                "model": "system-guard",
-                "blocked_language": detected_lang,
-            },
-            full_results={
-                "verdict": msg,
-                "diagnostic": f"Detected language: {detected_lang}. Only EN and PT are supported.",
-                "execution": "Please rephrase in English or Portuguese.",
-            },
-        )
     logical_tables: list[str] = []
     schema_summary = ""
     max_tables_in_prompt = 0
