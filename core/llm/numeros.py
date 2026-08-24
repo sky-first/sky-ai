@@ -152,7 +152,7 @@ def e_dinheiro(nome_da_coluna: str) -> bool:
 
 #: A moeda de omissao por lingua. Nao e adivinhacao sobre os DADOS — e sobre
 #: quem le. Ver a limitacao la em cima: nao se converte nada.
-MOEDA_POR_LINGUA = {"pt": "EUR", "en": "USD"}
+MOEDA_POR_LINGUA = {"pt": "EUR", "es": "EUR", "en": "USD"}
 
 SIMBOLO = {"EUR": "€", "USD": "$", "BRL": "R$", "GBP": "£"}
 
@@ -185,7 +185,10 @@ def regras_de_numeros(
     prompt faz modelos pequenos responderem na língua das instruções em vez
     da língua pedida — já aconteceu aqui.
     """
-    if lingua == "pt":
+    # O espanhol usa os mesmos separadores do portugues — ponto nos milhares,
+    # virgula nos decimais — e tambem o euro. Nao e uma coincidencia
+    # feliz: e a convencao europeia, e a Sky vende-se na Europa.
+    if lingua in ("pt", "es"):
         milhares, decimal, exemplo = "a dot (.)", "a comma (,)", "192.022,60"
         exemplo_inteiro = "17"
     else:
@@ -209,7 +212,7 @@ def regras_de_numeros(
 
     if moeda:
         s = SIMBOLO.get(moeda, moeda)
-        if lingua == "pt":
+        if lingua in ("pt", "es"):
             linhas += [
                 f"- MONEY: this answer reports monetary values in {moeda}. Write every",
                 f"  monetary amount with EXACTLY two decimals and the symbol AFTER the",

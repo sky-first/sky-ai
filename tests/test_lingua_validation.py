@@ -21,7 +21,7 @@ Covers every meaningful combination:
 import pytest
 from core.i18n.i18n import (
     detect_language,
-    _detect_bilingual,
+    _detect_lingua_da_resposta,
     resolve_language,
     language_decision,
     thread_language_from_history,
@@ -69,7 +69,7 @@ def test_pure_en_detected_as_en(q):
 
 @pytest.mark.parametrize("q", PURE_EN)
 def test_pure_en_bilingual_detector(q):
-    assert _detect_bilingual(q) == "en", f"Bilingual wrong for: {q!r}"
+    assert _detect_lingua_da_resposta(q) == "en", f"Bilingual wrong for: {q!r}"
 
 @pytest.mark.parametrize("q", PURE_EN)
 def test_pure_en_with_locale_en(q):
@@ -128,7 +128,7 @@ def test_pure_pt_detected_as_pt(q):
 
 @pytest.mark.parametrize("q", PURE_PT)
 def test_pure_pt_bilingual_detector(q):
-    assert _detect_bilingual(q) == "pt", f"Bilingual wrong for: {q!r}"
+    assert _detect_lingua_da_resposta(q) == "pt", f"Bilingual wrong for: {q!r}"
 
 @pytest.mark.parametrize("q", PURE_PT)
 def test_pure_pt_with_locale_pt(q):
@@ -223,7 +223,7 @@ def test_mixed_pt_en_resolve_with_locale(q):
 def test_mixed_pt_en_bilingual_picks_pt(q):
     # The bilingual detector (EN+PT only) must pick PT for mixed PT+EN
     # (excludes ultra-EN-heavy cases which have their own test below)
-    result = _detect_bilingual(q)
+    result = _detect_lingua_da_resposta(q)
     assert result == "pt", f"Bilingual picked {result!r} for: {q!r}"
 
 
@@ -406,8 +406,6 @@ UNSUPPORTED_QUESTIONS = [
     ("fr", "quel a été le chiffre d'affaires du mois dernier en France?"),
     ("fr", "combien de clients actifs avons-nous aujourd'hui?"),
     ("fr", "quels sont les produits les plus vendus ce trimestre?"),
-    ("es", "¿cuáles fueron las ventas totales del mes pasado en España?"),
-    ("es", "¿cuántos clientes activos tenemos hoy?"),
     ("de", "Was waren die Gesamtverkäufe im letzten Monat?"),
     ("de", "Wie viele aktive Kunden haben wir heute?"),
     ("it", "quali sono state le vendite totali del mese scorso?"),
@@ -419,6 +417,51 @@ UNSUPPORTED_QUESTIONS = [
     ("ko", "지난 달 총 판매량은 얼마였나요?"),
     ("ar", "ما كانت إجمالي المبيعات الشهر الماضي؟"),
 ]
+
+# O espanhol saiu desta lista a 24/08/2026.
+#
+# Passou a ser lingua suportada, portanto uma pergunta em espanhol tem de
+# ser RESPONDIDA em espanhol, e nao bloqueada. As duas frases que estavam
+# aqui mudaram-se para `SUPPORTED_SPANISH` em baixo, com a asercao ao
+# contrario — porque uma frase que deixa de ser bloqueada e uma frase que
+# tem de passar a ter resposta, e so a segunda metade prova isso.
+SUPPORTED_SPANISH = [
+    "¿cuáles fueron las ventas totales del mes pasado en España?",
+    "¿cuántos clientes activos tenemos hoy?",
+    "cuantos clientes activos tenemos hoy",
+    "muestrame las ventas por region del ultimo trimestre",
+]
+
+
+@pytest.mark.parametrize("question", SUPPORTED_SPANISH)
+def test_spanish_is_answered_not_blocked(question):
+    blocked, lang = language_decision(question)
+    assert blocked is False, f"espanhol bloqueado: {question!r}"
+    assert lang == "es", f"espanhol respondido em {lang!r}: {question!r}"
+
+
+# **O portugues com jargao ingles NAO pode virar espanhol.**
+#
+# Foi o unico dano real de acrescentar o espanhol ao detector: a frase de
+# baixo media ES 0,351 / PT 0,327 / EN 0,322 — um empate a tres — e com o
+# empate a decidir ganhava o espanhol. Uma pergunta portuguesa respondida
+# em espanhol a frente de um cliente e dos erros mais caros que a app pode
+# cometer.
+PT_COM_JARGAO_INGLES = [
+    "qual o win rate do time de sales no último quarter?",
+    "qual o pipeline de vendas atual por estágio?",
+    "quais clientes fizeram upsell esse trimestre?",
+    "qual o churn rate do último trimestre?",
+    "qual o headcount atual por departamento?",
+]
+
+
+@pytest.mark.parametrize("question", PT_COM_JARGAO_INGLES)
+def test_portugues_com_jargao_nao_vira_espanhol(question):
+    assert _detect_lingua_da_resposta(question) == "pt", (
+        f"{question!r} deixou de ser portugues"
+    )
+
 
 @pytest.mark.parametrize("lang_code,question", UNSUPPORTED_QUESTIONS)
 def test_unsupported_lang_blocked_no_signals(lang_code, question):
@@ -441,12 +484,15 @@ def test_unsupported_lang_thread_prevents_block(lang_code, question):
     assert blocked is False and lang == "pt"
 
 @pytest.mark.parametrize("lang_code,question", UNSUPPORTED_QUESTIONS)
-def test_unsupported_block_message_is_bilingual(lang_code, question):
+def test_unsupported_block_message_names_every_supported_language(lang_code, question):
     blocked, _ = language_decision(question)
     if blocked:
         msg = unsupported_language_message()
-        assert "English and Portuguese" in msg
-        assert "inglês e português" in msg
+        # Tres linguas, e a frase tem de aparecer nas tres: quem escreve em
+        # alemao nao le a versao portuguesa.
+        assert "English, Portuguese and Spanish" in msg
+        assert "inglês, português e espanhol" in msg
+        assert "inglés, portugués y español" in msg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -456,7 +502,7 @@ def test_unsupported_block_message_is_bilingual(lang_code, question):
 @pytest.mark.parametrize("text", ["", "   ", "\t\n", None if False else ""])
 def test_empty_text_returns_en(text):
     assert detect_language(text) == "en"
-    assert _detect_bilingual(text) == "en"
+    assert _detect_lingua_da_resposta(text) == "en"
     assert resolve_language(text) == "en"
 
 @pytest.mark.parametrize("text,expected_lang", [

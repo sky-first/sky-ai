@@ -8,10 +8,12 @@ MESSAGES: Dict[str, Dict[str, str]] = {
     "SECURITY_BLOCKED": {
         "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
         "pt": "Não posso ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados ou entre em contato com um administrador.",
+        "es": "No puedo ayudar con esa solicitud. Reformule su pregunta sobre sus datos o hable con un administrador.",
     },
     "PII_BLOCKED": {
         "en": "I cannot process sensitive personal information. Please rephrase your question without including personal data.",
         "pt": "Não consigo processar informações pessoais sensíveis. Por favor, reformule sua pergunta sem incluir dados pessoais.",
+        "es": "No puedo procesar información personal sensible. Reformule su pregunta sin incluir datos personales.",
     },
     # Every call site for this key is an exception handler — the pipeline
     # broke. The old copy claimed "no data / outside your Space or Crew's
@@ -22,21 +24,24 @@ MESSAGES: Dict[str, Dict[str, str]] = {
     "TECHNICAL_ERROR": {
         "en": "Something went wrong on our side while answering this question — it isn't a problem with your data or your access. The error has been logged. Please try again, and tell your administrator if it keeps happening.",
         "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é um problema dos teus dados nem do teu acesso. O erro ficou registado. Tenta de novo e avisa o teu administrador se continuar.",
+        "es": "Algo falló de nuestro lado al responder a esta pregunta — no es un problema de sus datos ni de su acceso. El error quedó registrado. Inténtelo de nuevo y avise a su administrador si continúa.",
     },
     "NO_DATA_FOUND": {
         "en": "Sorry, I couldn't find any data about {topic}. Please try rephrasing.",
         "pt": "Desculpe, não encontrei dados sobre {topic}. Tente reformular a pergunta.",
+        "es": "No encontré datos sobre {topic}. Pruebe a reformular la pregunta.",
     },
     "NO_DATA_GENERIC": {
         "en": "Sorry, I couldn't find any data to answer this question. Please try rephrasing.",
         "pt": "Desculpe, não encontrei dados para responder esta pergunta. Tente reformular.",
+        "es": "No encontré datos para responder a esta pregunta. Pruebe a reformular.",
     },
 }
 
 
 def get_message(key: str, lang: str = "en", **kwargs: Any) -> str:
-    """Returns a translated and formatted message for EN or PT (falls back to EN)."""
-    resolved = lang if lang in ("en", "pt") else "en"
+    """A mensagem traduzida, em EN, PT ou ES (recorre ao EN)."""
+    resolved = lang if lang in SUPPORTED_LANGUAGES else "en"
 
     msg_dict = MESSAGES.get(key, MESSAGES.get("TECHNICAL_ERROR", {}))
     msg = msg_dict.get(resolved) or msg_dict.get("en", "An unexpected error occurred.")
@@ -54,7 +59,7 @@ logger = logging.getLogger("dataassistant.i18n")
 
 # Languages the system supports. Adding a new language here is the only
 # change needed at the i18n layer.
-SUPPORTED_LANGUAGES = {"en", "pt"}
+SUPPORTED_LANGUAGES = {"en", "pt", "es"}
 
 # Minimum confidence (0–1) for the gatekeeper detector to trust a result.
 # Below this threshold the text is considered ambiguous and we don't block.
@@ -62,6 +67,14 @@ _CONFIDENCE_THRESHOLD = 0.50
 
 # Minimum text length to attempt detection. Shorter texts are too ambiguous.
 _MIN_TEXT_LENGTH = 8
+
+# A confiança que o espanhol tem de ter para ganhar ao português.
+#
+# Ver `_detect_lingua_da_resposta` para a medição que fixou este número. Em
+# resumo: o espanhol a sério mede-se entre 0,76 e 0,999; o português com
+# jargão inglês empata a três à volta de 0,35. 0,60 fica no vazio entre os
+# dois, longe de ambos.
+_CONFIANCA_MINIMA_ES = 0.60
 
 # ---------------------------------------------------------------------------
 # Lingua detectors — initialised once at import time (thread-safe, read-only).
@@ -72,10 +85,11 @@ _MIN_TEXT_LENGTH = 8
 #                        (FR/ES/DE). Low-confidence results fall back to "en"
 #                        so jargon-heavy PT questions are never wrongly blocked.
 #
-#   _DETECTOR_BILINGUAL — knows only EN and PT. Used by resolve_language() to
+#   _DETECTOR_RESPOSTA — knows EN, PT and ES. Used by resolve_language() to
 #                        pick the response language. Always returns one of the
-#                        two, even for short or jargon-mixed text, which fixes
-#                        the code-switching false-positives langdetect had.
+#                        three, even for short or jargon-mixed text, which
+#                        fixes the code-switching false-positives langdetect
+#                        had.
 # ---------------------------------------------------------------------------
 try:
     from lingua import Language, LanguageDetectorBuilder  # type: ignore
@@ -86,14 +100,21 @@ try:
         .build()
     )
 
-    _DETECTOR_BILINGUAL = LanguageDetectorBuilder.from_languages(
-        Language.ENGLISH, Language.PORTUGUESE
+    # Tres linguas, nao duas.
+    #
+    # Chamava-se BILINGUAL e conhecia EN+PT. Acrescentar "es" ao
+    # SUPPORTED_LANGUAGES sem lhe tocar dava o defeito silencioso: uma
+    # pergunta em espanhol, sem locale fixado, era classificada como PT ou
+    # EN — nunca ES — e respondia-se na lingua errada com toda a confianca.
+    # A app tem hoje um modo "segue a sua pergunta" que depende disto.
+    _DETECTOR_RESPOSTA = LanguageDetectorBuilder.from_languages(
+        Language.ENGLISH, Language.PORTUGUESE, Language.SPANISH
     ).build()
 
     _LINGUA_AVAILABLE = True
 except Exception:
     _DETECTOR_ALL = None
-    _DETECTOR_BILINGUAL = None
+    _DETECTOR_RESPOSTA = None
     _LINGUA_AVAILABLE = False
 
 
@@ -103,7 +124,11 @@ def _lingua_lang_code(language) -> str:
         return "en"
     name = str(language)  # e.g. "Language.PORTUGUESE"
     base = name.split(".")[-1].lower()  # "portuguese"
-    _MAP = {"portuguese": "pt", "english": "en"}
+    # O recurso `base[:2]` acerta em muitas linguas por acidente e falha
+    # exactamente nesta: "spanish"[:2] e "sp", que nao existe em lado
+    # nenhum — e "sp" not in SUPPORTED_LANGUAGES fazia o espanhol cair em
+    # ingles sem deixar rasto.
+    _MAP = {"portuguese": "pt", "english": "en", "spanish": "es"}
     return _MAP.get(base, base[:2])
 
 
@@ -147,22 +172,52 @@ def detect_language(text: str) -> str:
         return "en"
 
 
-def _detect_bilingual(text: str) -> str:
+def _detect_lingua_da_resposta(text: str) -> str:
     """
-    Picks the response language (EN or PT) for a given text.
+    Picks the response language (EN, PT or ES) for a given text.
 
-    Uses lingua's bilingual detector (trained only on EN+PT) so it always
-    returns one of the two languages — even for short or jargon-mixed text.
-    This fixes code-switching false-positives where langdetect would return
-    'es' or 'fr' for valid PT business questions with English loanwords.
+    Uses lingua's three-language detector so it always returns one of the
+    three — even for short or jargon-mixed text. This fixes code-switching
+    false-positives where langdetect would return 'fr' for valid PT
+    business questions with English loanwords.
+
+    ── O espanhol precisa de mais prova do que as outras duas ────────────
+
+    Português e espanhol são línguas irmãs, e o jargão inglês do dia-a-dia
+    empurra o detector para o espanhol sem que a frase tenha nada de
+    espanhol. Medido:
+
+        "qual o win rate do time de sales no último quarter?"
+            ES 0,351 · PT 0,327 · EN 0,322
+
+    Isso não é uma detecção, é um empate a três — e com o empate a decidir
+    ganhava o espanhol. Uma pergunta portuguesa respondida em espanhol à
+    frente de um cliente é dos erros mais caros que a app pode cometer, e
+    Portugal é o mercado principal.
+
+    Por isso o espanhol só ganha acima de `_CONFIANCA_MINIMA_ES`. Abaixo
+    disso escolhe-se o melhor entre PT e EN — que é o que o detector de
+    duas línguas fazia antes de o espanhol existir.
+
+    O espanhol a sério passa com folga: as frases espanholas medidas dão
+    entre 0,76 e 0,999.
     """
     if not text or len(text.strip()) < _MIN_TEXT_LENGTH:
         return "en"
 
     try:
-        if _LINGUA_AVAILABLE and _DETECTOR_BILINGUAL is not None:
-            lang = _DETECTOR_BILINGUAL.detect_language_of(text)
-            return _lingua_lang_code(lang)
+        if _LINGUA_AVAILABLE and _DETECTOR_RESPOSTA is not None:
+            valores = _DETECTOR_RESPOSTA.compute_language_confidence_values(text)
+            if not valores:
+                return "en"
+            escolha = _lingua_lang_code(valores[0].language)
+            if escolha == "es" and valores[0].value < _CONFIANCA_MINIMA_ES:
+                for v in valores[1:]:
+                    codigo = _lingua_lang_code(v.language)
+                    if codigo in ("pt", "en"):
+                        return codigo
+                return "pt"
+            return escolha
 
         # Fallback to gatekeeper detector
         detected = detect_language(text)
@@ -192,7 +247,7 @@ def resolve_language(
     fallback: str = "en",
 ) -> str:
     """
-    Single source of truth for the *response* language (always EN or PT).
+    Single source of truth for the *response* language (always EN, PT or ES).
 
     Priority chain (first supported signal wins):
         1. ``locale``          — explicit user/platform preference (deterministic)
@@ -211,8 +266,8 @@ def resolve_language(
         if norm in SUPPORTED_LANGUAGES:
             return norm
 
-    # Use the bilingual detector: always returns EN or PT, handles jargon well.
-    detected = _detect_bilingual(question or "")
+    # O detector da resposta: devolve sempre EN, PT ou ES, e aguenta jargão.
+    detected = _detect_lingua_da_resposta(question or "")
     if detected in SUPPORTED_LANGUAGES:
         return detected
 
@@ -221,16 +276,20 @@ def resolve_language(
 
 def unsupported_language_message() -> str:
     """
-    Bilingual message shown when a question is in an unsupported language.
+    Message shown when a question is in an unsupported language.
 
     Since we don't know the user's language (it's unsupported), we surface the
-    notice in BOTH supported languages so it's actionable either way.
+    notice in ALL supported languages so it's actionable either way.
     """
     return (
-        "I'm sorry, but I currently only support English and Portuguese. "
-        "Please rephrase your question in one of those languages.\n\n"
-        "Desculpe, mas no momento só dou suporte a inglês e português. "
-        "Por favor, reformule sua pergunta em um desses idiomas."
+        "I'm sorry, but I currently only support English, Portuguese and "
+        "Spanish. Please rephrase your question in one of those languages."
+        "\n\n"
+        "Desculpe, mas de momento só suporto inglês, português e espanhol. "
+        "Reformule a sua pergunta numa dessas línguas."
+        "\n\n"
+        "Lo siento, pero por ahora solo admito inglés, portugués y español. "
+        "Reformule su pregunta en uno de esos idiomas."
     )
 
 
@@ -270,7 +329,7 @@ def language_decision(
 
     # Step 2 — response language: use the bilingual detector (EN+PT only).
     # It always picks one of the two, handling code-switching correctly.
-    response_lang = _detect_bilingual(question or "")
+    response_lang = _detect_lingua_da_resposta(question or "")
     return False, response_lang
 
 
@@ -298,7 +357,7 @@ def thread_language_from_history(
         content = (msg.get("content") or "").strip()
         if len(content) < _MIN_TEXT_LENGTH:
             continue
-        detected = _detect_bilingual(content)
+        detected = _detect_lingua_da_resposta(content)
         if detected in SUPPORTED_LANGUAGES:
             return detected
 

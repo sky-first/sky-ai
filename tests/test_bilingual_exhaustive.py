@@ -146,8 +146,11 @@ class TestResolveLanguage:
         assert resolve_language("") == "en"
 
     def test_always_returns_supported_language(self):
-        # Spanish question, no signals → must land on en or pt, never "es"
+        # O espanhol passou a ser suportado a 24/08/2026. Até aí, o comentário
+        # aqui dizia «must land on en or pt, never "es"» — hoje tem de dar
+        # mesmo "es", e é isso que se afirma.
         result = resolve_language("¿cuáles fueron las ventas del mes pasado?")
+        assert result == "es"
         assert result in SUPPORTED_LANGUAGES
 
 
@@ -291,11 +294,11 @@ class TestUnsupportedLanguageMessage:
 
     def test_contains_english(self):
         msg = unsupported_language_message()
-        assert "English and Portuguese" in msg
+        assert "English, Portuguese and Spanish" in msg
 
     def test_contains_portuguese(self):
         msg = unsupported_language_message()
-        assert "inglês e português" in msg
+        assert "inglês, português e espanhol" in msg
 
     def test_is_non_empty_string(self):
         msg = unsupported_language_message()
@@ -387,9 +390,9 @@ class TestOrchestratorLanguageFlow:
             "quel a été le chiffre d'affaires du mois dernier en France?"
         )
         assert "answer" in state
-        # Message must be bilingual
-        assert "English and Portuguese" in state["answer"]
-        assert "inglês e português" in state["answer"]
+        # A mensagem nomeia as TRES linguas suportadas.
+        assert "English, Portuguese and Spanish" in state["answer"]
+        assert "inglês, português e espanhol" in state["answer"]
 
     def test_locale_prevents_block_for_unsupported_detected_lang(self):
         state = self._run(
@@ -407,7 +410,7 @@ class TestOrchestratorLanguageFlow:
             "qual foi o MRR do mês passado?",
         ]:
             state = self._run(question)
-            assert "answer" not in state or "inglês e português" not in state.get("answer", ""), \
+            assert "answer" not in state or "inglês, português e espanhol" not in state.get("answer", ""), \
                 f"Falsely blocked: {question!r}"
 
 
@@ -569,7 +572,6 @@ class TestGatekeeperPaths:
 
     @pytest.mark.parametrize("question", [
         "quel a été le chiffre d'affaires du mois dernier en France?",
-        "¿cuáles fueron las ventas del mes pasado en España?",
         "Was waren die Verkaufszahlen im letzten Monat?",
     ])
     def test_clear_unsupported_languages_blocked(self, question):
