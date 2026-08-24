@@ -178,8 +178,21 @@ def build_formatter_prompt(
             "   returned one row or one group — more may exist beyond what was returned.\n"
             "9. State ONLY what the returned numbers literally support. Do NOT invent\n"
             "   statistics (min/max/average/trends/variation) that are not present in the data.\n"
-            "10. NEVER rescale, multiply, divide or convert a numeric value — report every\n"
-            "    number EXACTLY as it appears in the results. A value of 0.75 is 0.75, NOT 75%.\n"
+            # A regra 10 dizia «report every number EXACTLY as it appears in
+            # the results» — e isso CONTRADIZIA o bloco de formatação logo a
+            # seguir, que manda escrever os separadores do sítio de quem lê.
+            #
+            # O modelo obedecia à regra 10, que é mais antiga, está numerada e
+            # grita NON-NEGOTIABLE. Resultado ao vivo, com as duas regras no
+            # mesmo prompt: «O total das faturas em atraso é 7476.32.»
+            #
+            # Duas instruções que se contradizem não são duas instruções: são
+            # uma instrução e uma ilusão de que se pediu a outra coisa.
+            "10. NEVER rescale, multiply, divide or convert a numeric value. The DIGITS\n"
+            "    are exactly those in the results: a value of 0.75 is 0.75, NOT 75%.\n"
+            "    This is about the VALUE, not about punctuation. The NUMBER FORMATTING\n"
+            "    section below says which separators to write those same digits with,\n"
+            "    and the two never conflict: moving a separator is not converting.\n"
             "    If a value already represents a percentage (e.g. a column meaning a percent),\n"
             "    append '%' WITHOUT changing the digits (0.75 → '0.75%', never '75%').\n\n"
             f"{regras_dos_numeros}"
