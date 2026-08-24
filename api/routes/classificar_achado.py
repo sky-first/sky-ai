@@ -51,7 +51,16 @@ router = APIRouter(prefix="/findings", tags=["findings"])
 #: interfaces já mostram nos filtros — inventar aqui um quarto obrigaria a
 #: mudar os dois clientes para o mostrar.
 TIPOS = ("risk", "opportunity", "insight")
-GRAVIDADES = ("high", "med", "low")
+#: `medium` e nao `med`.
+#:
+#: Escrevi `med` aqui a 22/08. O esquema do backend tem um enum
+#: `low|medium|high|critical`, e todo o achado que este classificador tocou
+#: passou a rebentar o `GET /agents/{id}` com um 500. Nao dei por isso porque
+#: a LISTA de agentes funciona — so o DETALHE e que parte.
+#:
+#: Duas palavras para a mesma coisa, em dois servicos, e a diferenca so
+#: aparece num 500 dois dias depois.
+GRAVIDADES = ("high", "medium", "low")
 
 #: Uma resposta que contenha isto não é um achado — é o sistema a dizer que
 #: não conseguiu. Classificá-la seria pôr uma etiqueta numa não-resposta.
@@ -78,13 +87,13 @@ Decide duas coisas sobre o achado:
 
 "severity":
   "high" — pede acção esta semana. Grande em tamanho ou rápido a piorar.
-  "med"  — vale a pena olhar, não é urgente.
+  "medium" — vale a pena olhar, não é urgente.
   "low"  — de registo.
 
 Regras:
 - A gravidade sai do que os NÚMEROS dizem, não do tom do texto. Um texto
   alarmado sobre uma variação de 1% é "low".
-- Sem números concretos no achado, a gravidade é no máximo "med": não se
+- Sem números concretos no achado, a gravidade é no máximo "medium": não se
   chama urgente ao que não se mediu.
 - Na dúvida entre risco e achado, escolhe "insight". Um alarme falso ensina
   a ignorar alarmes.
@@ -168,7 +177,7 @@ async def classificar(pedido: PedidoDeClassificacao) -> Classificacao:
     devolve `insight`/`med`, que é o que o worker gravava antes desta rota
     existir — o pior caso é ficar como estava.
     """
-    de_omissao = Classificacao(type="insight", severity="med", classified=False)
+    de_omissao = Classificacao(type="insight", severity="medium", classified=False)
 
     if not parece_um_achado(pedido.answer):
         log_event("classificar_achado_nao_e_achado", {"titulo": pedido.title[:80]})
@@ -197,6 +206,10 @@ async def classificar(pedido: PedidoDeClassificacao) -> Classificacao:
 
     tipo = str(dados.get("type", "")).lower().strip()
     gravidade = str(dados.get("severity", "")).lower().strip()
+    # O modelo continua a dizer «med» de vez em quando — e o que estava no
+    # prompt ate agora, e ha exemplos disso no mundo. Traduzir aqui vale mais
+    # do que rejeitar e cair no de omissao.
+    gravidade = {"med": "medium", "mid": "medium"}.get(gravidade, gravidade)
     # Um valor fora da lista é um valor inventado. Cair no de omissão é melhor
     # do que gravar "critical" numa coluna que os filtros não conhecem.
     if tipo not in TIPOS or gravidade not in GRAVIDADES:

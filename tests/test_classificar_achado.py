@@ -103,6 +103,10 @@ async def test_aceita_json_embrulhado(monkeypatch):
     )
     out = await classificar(PedidoDeClassificacao(answer="Margem subiu 12%.", title="x"))
     assert out.type == "opportunity"
+    # E o «med» do modelo e traduzido para o que o backend aceita. Escrevi
+    # `med` aqui a 22/08 e todo o achado assim gravado rebentava o detalhe do
+    # agente com um 500 — o enum de la e `low|medium|high|critical`.
+    assert out.severity == "medium"
 
 
 # ─── Nunca rebenta ──────────────────────────────────────────────────────────
@@ -116,7 +120,14 @@ async def test_o_modelo_a_cair_nao_perde_o_achado(monkeypatch):
         "api.routes.classificar_achado._modelo", lambda: _ModeloQueRebenta()
     )
     out = await classificar(PedidoDeClassificacao(answer="As vendas caíram 18%."))
-    assert (out.type, out.severity) == ("insight", "med")
+    assert out.type == "insight"
+    # A gravidade de omissao tem de ser um valor GRAVAVEL, e nao uma palavra
+    # qualquer. Este teste fixava a string `"med"` e por isso ficou vermelho
+    # com a correcao de um 500 que estava em producao — um guarda que se
+    # queixa de uma correcao esta a guardar a coisa errada.
+    from api.routes.classificar_achado import GRAVIDADES
+
+    assert out.severity in GRAVIDADES
     assert out.classified is False
 
 
