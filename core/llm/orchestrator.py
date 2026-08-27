@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.i18n.i18n import (
     detect_language,
+    get_message,
     language_decision,
     thread_language_from_history,
     unsupported_language_message,
@@ -363,20 +364,12 @@ def _extract_table_name_from_question(
 
 def _format_catalog_list_access(tables: List[TableSchema], lang: str) -> str:
     # SECURITY: do not enumerate schema/tables from the orchestrator.
-    if lang == "pt":
-        return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
-    return (
-        "I can't help with that request. Please rephrase your question about your data."
-    )
+    return get_message("CATALOG_REFUSED", lang)
 
 
 def _format_catalog_describe_table(table: TableSchema, lang: str) -> str:
     # SECURITY: do not enumerate columns from the orchestrator.
-    if lang == "pt":
-        return "Não consigo ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados."
-    return (
-        "I can't help with that request. Please rephrase your question about your data."
-    )
+    return get_message("CATALOG_REFUSED", lang)
 
 
 def _format_catalog_capabilities(lang: str) -> str:
@@ -615,12 +608,11 @@ def run_orchestrator(
             if critical_errors:
                 error_msg = critical_errors[0].message
                 if critical_errors[0].suggestion:
-                    if lang.startswith("pt"):
-                        error_msg += f"\n\n💡 Sugestão: {critical_errors[0].suggestion}"
-                    else:
-                        error_msg += (
-                            f"\n\n💡 Suggestion: {critical_errors[0].suggestion}"
-                        )
+                    # O rótulo vinha de um `if pt / else` — e o espanhol
+                    # lia «Suggestion» no meio de uma resposta espanhola.
+                    _rotulo = get_message("SUGGESTION_LABEL", lang)
+                    _dica = critical_errors[0].suggestion
+                    error_msg += "\n\n💡 " + _rotulo + ": " + str(_dica)
 
                 state["answer"] = error_msg
                 state["error"] = critical_errors[0].code
@@ -690,14 +682,7 @@ def run_orchestrator(
         elif catalog_intent == "catalog.describe_table":
             tname = _extract_table_name_from_question(question, agent_config.tables)
             if not tname:
-                if lang.startswith("pt"):
-                    state["answer"] = (
-                        "Qual tabela você quer ver? Ex: `quais colunas tem dentro de [nome_da_tabela]?`"
-                    )
-                else:
-                    state["answer"] = (
-                        "Which table do you want to inspect? Example: `what columns are in [table_name]?`"
-                    )
+                state["answer"] = get_message("WHICH_TABLE", lang)
             else:
                 table_obj = next(
                     (t for t in agent_config.tables if t.logical_name == tname), None
@@ -1134,18 +1119,7 @@ def run_orchestrator(
             if not _is_forced_data and re.search(
                 r"\bOUT_OF_SCOPE\b", _final_line, re.IGNORECASE
             ):
-                if lang == "pt":
-                    state["answer"] = (
-                        "Fui desenvolvido para responder perguntas sobre seus dados de negócio. "
-                        "Essa pergunta não parece estar relacionada aos seus dados. "
-                        "Sinta-se à vontade para perguntar sobre pedidos, clientes, receita, produtos ou outras métricas!"
-                    )
-                else:
-                    state["answer"] = (
-                        "I'm designed to answer questions about your business data. "
-                        "That question doesn't seem related to your data. "
-                        "Feel free to ask me about your orders, customers, revenue, products, or other business metrics!"
-                    )
+                state["answer"] = get_message("OUT_OF_SCOPE", lang)
                 log_event(
                     "orchestrator_out_of_scope",
                     {
@@ -1472,9 +1446,7 @@ def run_orchestrator(
 
         if not chosen_logical:
             state["impossible_reason"] = (
-                "Não encontrei tabelas relevantes para responder sua pergunta."
-                if lang == "pt"
-                else "I couldn't find any relevant tables to answer your question."
+                get_message("NO_RELEVANT_TABLES", lang)
             )
             log_event("orchestrator_choice_impossible", {"question": question})
             return state
@@ -1485,9 +1457,7 @@ def run_orchestrator(
                 r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE
             ).strip()
             _fallback = (
-                "Não tenho dados suficientes para responder esta pergunta."
-                if lang == "pt"
-                else "I don't have enough data to answer this question."
+                get_message("NOT_ENOUGH_DATA", lang)
             )
             state["impossible_reason"] = reason or _fallback
 

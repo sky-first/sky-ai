@@ -7,12 +7,12 @@ import logging
 MESSAGES: Dict[str, Dict[str, str]] = {
     "SECURITY_BLOCKED": {
         "en": "I can't help with that request. Please rephrase your question about your data or contact an administrator.",
-        "pt": "Não posso ajudar com essa solicitação. Por favor, reformule sua pergunta sobre seus dados ou entre em contato com um administrador.",
+        "pt": "Não consigo ajudar com esse pedido. Reformule a pergunta sobre os seus dados, ou fale com um administrador.",
         "es": "No puedo ayudar con esa solicitud. Reformule su pregunta sobre sus datos o hable con un administrador.",
     },
     "PII_BLOCKED": {
         "en": "I cannot process sensitive personal information. Please rephrase your question without including personal data.",
-        "pt": "Não consigo processar informações pessoais sensíveis. Por favor, reformule sua pergunta sem incluir dados pessoais.",
+        "pt": "Não consigo tratar dados pessoais sensíveis. Reformule a pergunta sem os incluir.",
         "es": "No puedo procesar información personal sensible. Reformule su pregunta sin incluir datos personales.",
     },
     # Every call site for this key is an exception handler — the pipeline
@@ -23,18 +23,79 @@ MESSAGES: Dict[str, Dict[str, str]] = {
     # NO_DATA_FOUND / NO_DATA_GENERIC.
     "TECHNICAL_ERROR": {
         "en": "Something went wrong on our side while answering this question — it isn't a problem with your data or your access. The error has been logged. Please try again, and tell your administrator if it keeps happening.",
-        "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é um problema dos teus dados nem do teu acesso. O erro ficou registado. Tenta de novo e avisa o teu administrador se continuar.",
+        "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é problema dos seus dados nem do seu acesso. O erro ficou registado. Tente de novo e avise um administrador se continuar.",
         "es": "Algo falló de nuestro lado al responder a esta pregunta — no es un problema de sus datos ni de su acceso. El error quedó registrado. Inténtelo de nuevo y avise a su administrador si continúa.",
     },
     "NO_DATA_FOUND": {
         "en": "Sorry, I couldn't find any data about {topic}. Please try rephrasing.",
-        "pt": "Desculpe, não encontrei dados sobre {topic}. Tente reformular a pergunta.",
+        "pt": "Não encontrei dados sobre {topic}. Experimente perguntar de outra maneira.",
         "es": "No encontré datos sobre {topic}. Pruebe a reformular la pregunta.",
     },
     "NO_DATA_GENERIC": {
         "en": "Sorry, I couldn't find any data to answer this question. Please try rephrasing.",
-        "pt": "Desculpe, não encontrei dados para responder esta pergunta. Tente reformular.",
+        "pt": "Não encontrei dados para responder a esta pergunta. Experimente perguntar de outra maneira.",
         "es": "No encontré datos para responder a esta pregunta. Pruebe a reformular.",
+    },
+    # ── As que estavam cravadas nos ficheiros ───────────────────────────
+    #
+    # Estavam escritas como `if lang == "pt": ... else: <inglês>`, em quinze
+    # sítios. O espanhol caía sempre no inglês — interface em espanhol,
+    # respostas em inglês, que é pior do que não ter espanhol porque parece
+    # que funciona até se ler a resposta.
+    #
+    # É exactamente o defeito que o `lingua_da_resposta.py` avisa no seu
+    # cabeçalho, e aconteceu à mesma: a REGRA estava centralizada, as
+    # FRASES não.
+    "OUT_OF_SCOPE": {
+        "en": "I answer questions about your business data — orders, customers, revenue, products and the other metrics you have connected. That one falls outside it. What would you like to know about your data?",
+        "pt": "Respondo a perguntas sobre os dados do seu negócio — encomendas, clientes, receita, produtos e as outras métricas que ligou. Essa fica de fora. O que gostaria de saber sobre os seus dados?",
+        "es": "Respondo a preguntas sobre los datos de su negocio — pedidos, clientes, ingresos, productos y las demás métricas que haya conectado. Esa queda fuera. ¿Qué le gustaría saber sobre sus datos?",
+    },
+    "CATALOG_REFUSED": {
+        "en": "I can't help with that request. Please rephrase your question about your data.",
+        "pt": "Não consigo ajudar com esse pedido. Reformule a pergunta sobre os seus dados.",
+        "es": "No puedo ayudar con esa petición. Reformule la pregunta sobre sus datos.",
+    },
+    "WHICH_TABLE": {
+        "en": "Which table do you want to inspect? For example: `what columns are in [table_name]?`",
+        "pt": "Que tabela quer ver? Por exemplo: `que colunas tem a [nome_da_tabela]?`",
+        "es": "¿Qué tabla quiere ver? Por ejemplo: `¿qué columnas tiene [nombre_de_tabla]?`",
+    },
+    "NO_RELEVANT_TABLES": {
+        "en": "I couldn't find any table that answers that. Try naming the metric or the area you mean.",
+        "pt": "Não encontrei nenhuma tabela que responda a isso. Experimente dizer a métrica ou a área que tem em mente.",
+        "es": "No encontré ninguna tabla que responda a eso. Pruebe a decir la métrica o el área que tiene en mente.",
+    },
+    "NOT_ENOUGH_DATA": {
+        "en": "I don't have enough data to answer this question.",
+        "pt": "Não tenho dados suficientes para responder a esta pergunta.",
+        "es": "No tengo datos suficientes para responder a esta pregunta.",
+    },
+    "SUGGESTION_LABEL": {
+        "en": "Suggestion",
+        "pt": "Sugestão",
+        "es": "Sugerencia",
+    },
+    # ── Períodos ────────────────────────────────────────────────────────
+    "PERIOD_FALLBACK": {
+        "en": "No data for **{pedido}**. The most recent period with data is **{usado}** — here is what it shows:",
+        "pt": "Não há dados de **{pedido}**. O período mais recente com dados é **{usado}** — é o que se segue:",
+        "es": "No hay datos de **{pedido}**. El periodo más reciente con datos es **{usado}** — esto es lo que muestra:",
+    },
+    "PERIOD_STALE": {
+        "en": "Your data goes up to **{ate}** (a gap of about {meses} months). There is nothing more recent. Would you like to see the period up to {ate}?",
+        "pt": "Os seus dados vão até **{ate}** (uma lacuna de cerca de {meses} meses). Não há nada mais recente. Quer ver o período até {ate}?",
+        "es": "Sus datos llegan hasta **{ate}** (un hueco de unos {meses} meses). No hay nada más reciente. ¿Quiere ver el periodo hasta {ate}?",
+    },
+    "PERIOD_SOURCE_EMPTY": {
+        "en": "There is no data in this source yet.",
+        "pt": "Esta fonte ainda não tem dados nenhuns.",
+        "es": "Esta fuente todavía no tiene datos.",
+    },
+    "PERIOD_OUT_OF_RANGE": {
+        "en": "No data for that period. The range available is **{de}** to **{ate}**.",
+        "pt": "Não há dados nesse intervalo. O período disponível vai de **{de}** a **{ate}**.",
+        "es": "No hay datos en ese intervalo. El periodo disponible va de **{de}** a **{ate}**.",
     },
 }
 

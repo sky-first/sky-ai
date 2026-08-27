@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, Tuple
 
+from core.i18n.i18n import get_message
+
 # ---------------------------------------------------------------------------
 # Tolerância sobrescrevível por cliente — não constante espalhada no código
 # ---------------------------------------------------------------------------
@@ -359,53 +361,71 @@ def _decidir_periodo_absoluto(
 # ---------------------------------------------------------------------------
 # Mensagens de aviso localizadas
 # ---------------------------------------------------------------------------
+def _formato_da_data(lang: str) -> str:
+    """Como se escreve uma data nesta língua.
+
+    O inglês usa ISO (`2026-05-31`); o português e o espanhol usam
+    dia/mês/ano. Escrever `2026-05-31` numa frase portuguesa lê-se como um
+    número de série, e `05/31/2026` seria pior — trocaria o mês pelo dia.
+    """
+    return "%Y-%m-%d" if lang == "en" else "%d/%m/%Y"
+
+
+def _descricao_do_periodo(p: Periodo, lang: str) -> str:
+    """O nome legível do período — «mai/2026», «May/2026».
+
+    ⚠️ **Não há versão espanhola.** O `Periodo` só carrega `descricao` (PT) e
+    `descricao_en`, e o espanhol fica com a inglesa: «May/2026» dentro de uma
+    frase espanhola. É legível e não engana, mas não é espanhol.
+
+    Acrescentar `descricao_es` é barato — as abreviaturas quase coincidem
+    (ene, feb, mar, abr, may, jun, jul, ago, sep, oct, nov, dic) — mas mexe
+    em todos os sítios que constroem um `Periodo`, e isso é outra mudança.
+    Fica escrito para não se perder.
+    """
+    return p.descricao if lang == "pt" else p.descricao_en
+
+
 def _build_aviso(modo: str, periodo_pedido: Periodo, decisao: dict, lang: str) -> str:
+    """O aviso que explica porque os números não são os do período pedido.
+
+    **Estava escrito como `if lang == "pt": ... else: <inglês>`.** Quem usa a
+    Sky em espanhol via a interface em espanhol e este aviso em inglês — e
+    este aviso é dos mais importantes que existem, porque é o que impede
+    alguém de ler números de Março a pensar que são de Maio.
+
+    As frases vivem agora em `core/i18n/i18n.py`, com as três línguas.
+    """
+    fmt = _formato_da_data(lang)
+
     if modo == "fallback":
         usado = decisao["periodo_usado"]
-        if lang == "pt":
-            return (
-                f"Não há dados de **{periodo_pedido.descricao}**. "
-                f"O período mais recente com dados é **{usado.descricao}** — resultados a seguir:"
-            )
-        return (
-            f"No data found for **{periodo_pedido.descricao_en}**. "
-            f"Showing the most recent available period: **{usado.descricao_en}**."
+        return get_message(
+            "PERIOD_FALLBACK",
+            lang,
+            pedido=_descricao_do_periodo(periodo_pedido, lang),
+            usado=_descricao_do_periodo(usado, lang),
         )
 
     if modo == "lacuna":
         max_d = decisao["max_date"]
-        gap_meses = round(decisao.get("gap_dias", 0) / 30)
-        if lang == "pt":
-            return (
-                f"Seus dados vão até **{max_d.strftime('%d/%m/%Y')}** "
-                f"(lacuna de ~{gap_meses} meses). "
-                f"Não há dados recentes disponíveis. "
-                f"Quer ver o período até {max_d.strftime('%d/%m/%Y')}?"
-            )
-        return (
-            f"Your data goes up to **{max_d.strftime('%Y-%m-%d')}** "
-            f"(~{gap_meses}-month gap). "
-            f"No recent data available. "
-            f"Would you like to see data up to {max_d.strftime('%Y-%m-%d')}?"
+        return get_message(
+            "PERIOD_STALE",
+            lang,
+            ate=max_d.strftime(fmt),
+            meses=round(decisao.get("gap_dias", 0) / 30),
         )
 
     if modo == "sem_dados":
         min_d = decisao.get("min_date")
         max_d = decisao.get("max_date")
         if min_d is None or max_d is None:
-            if lang == "pt":
-                return "Não há dados disponíveis nessa fonte."
-            return "No data available in this data source."
-        if lang == "pt":
-            return (
-                f"Não há dados nesse intervalo. "
-                f"O período disponível é de **{min_d.strftime('%d/%m/%Y')}** "
-                f"a **{max_d.strftime('%d/%m/%Y')}**."
-            )
-        return (
-            f"No data available for that period. "
-            f"Available range: **{min_d.strftime('%Y-%m-%d')}** "
-            f"to **{max_d.strftime('%Y-%m-%d')}**."
+            return get_message("PERIOD_SOURCE_EMPTY", lang)
+        return get_message(
+            "PERIOD_OUT_OF_RANGE",
+            lang,
+            de=min_d.strftime(fmt),
+            ate=max_d.strftime(fmt),
         )
 
     return ""
@@ -494,13 +514,13 @@ def run_periodo_decision(state, agent_config, data_source) -> dict:
         **state,
         "periodo_modo": modo,
         "periodo_coluna": date_col,
-        "periodo_pedido": periodo_pedido.descricao if lang == "pt" else periodo_pedido.descricao_en,
+        "periodo_pedido": _descricao_do_periodo(periodo_pedido, lang),
     }
 
     if modo == "normal":
         return {
             **base,
-            "periodo_usado": periodo_pedido.descricao if lang == "pt" else periodo_pedido.descricao_en,
+            "periodo_usado": _descricao_do_periodo(periodo_pedido, lang),
             "periodo_from": periodo_pedido.inicio.isoformat(),
             "periodo_to": periodo_pedido.fim.isoformat(),
         }
@@ -510,7 +530,7 @@ def run_periodo_decision(state, agent_config, data_source) -> dict:
         aviso = _build_aviso(modo, periodo_pedido, decisao, lang)
         return {
             **base,
-            "periodo_usado": usado.descricao if lang == "pt" else usado.descricao_en,
+            "periodo_usado": _descricao_do_periodo(usado, lang),
             "periodo_from": usado.inicio.isoformat(),
             "periodo_to": usado.fim.isoformat(),
             "periodo_aviso": aviso,

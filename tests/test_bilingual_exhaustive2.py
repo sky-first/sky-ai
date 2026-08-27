@@ -695,7 +695,7 @@ class TestSystemGaps:
         This test documents the gap; fix by using error code instead of string match.
         """
         import pathlib
-        source = pathlib.Path("api/routes/connection_query.py").read_text()
+        source = pathlib.Path("api/routes/connection_query.py").read_text(encoding="utf-8")
         assert "I'm sorry, but I only support questions" in source, \
             "Cache skip hardcoded string was changed — verify the cache logic is still correct."
 
@@ -708,7 +708,7 @@ class TestSystemGaps:
         documents the decision.
         """
         import pathlib
-        source = pathlib.Path("core/llm/orchestrator.py").read_text()
+        source = pathlib.Path("core/llm/orchestrator.py").read_text(encoding="utf-8")
         assert "Question cannot be empty." in source
         assert "No tables are configured for this agent." in source
 
@@ -720,7 +720,7 @@ class TestSystemGaps:
         This test verifies this behaviour is still in place.
         """
         import pathlib
-        source = pathlib.Path("core/llm/specialist.py").read_text()
+        source = pathlib.Path("core/llm/specialist.py").read_text(encoding="utf-8")
         assert "Language: English (always)" in source or \
                "EVEN IF USER SPEAKS ANOTHER LANGUAGE" in source, \
             "Specialist SQL-English enforcement was removed — this may break SQL generation."
@@ -728,13 +728,13 @@ class TestSystemGaps:
     # D6 — unsupported_language_message used in BOTH gatekeepers
     def test_d6_both_query_gatekeepers_use_bilingual_message(self):
         import pathlib
-        source = pathlib.Path("api/routes/connection_query.py").read_text()
+        source = pathlib.Path("api/routes/connection_query.py").read_text(encoding="utf-8")
         assert source.count("unsupported_language_message()") >= 2, \
             "Expected at least 2 uses of unsupported_language_message() in connection_query.py"
 
     def test_d6b_orchestrator_uses_bilingual_message(self):
         import pathlib
-        source = pathlib.Path("core/llm/orchestrator.py").read_text()
+        source = pathlib.Path("core/llm/orchestrator.py").read_text(encoding="utf-8")
         assert "unsupported_language_message()" in source
 
     # D7 — Davinci source: hardcoded "always in English" must be gone
@@ -742,7 +742,7 @@ class TestSystemGaps:
         import pathlib
         source = pathlib.Path(
             "core/agents/davinci_dashboard_agent.py"
-        ).read_text()
+        ).read_text(encoding="utf-8")
         assert "ALWAYS respond in English" not in source
         assert "regardless of the user" not in source.lower()
 
@@ -751,7 +751,7 @@ class TestSystemGaps:
         import pathlib
         source = pathlib.Path(
             "core/agents/apply_davinci_refactor.py"
-        ).read_text()
+        ).read_text(encoding="utf-8")
         assert "Force English only" not in source
 
     # D9 — formatter_prompts: old hardcoded "Answer ONLY in English" must be gone
@@ -759,7 +759,7 @@ class TestSystemGaps:
         import pathlib
         source = pathlib.Path(
             "core/llm/prompts/formatter_prompts.py"
-        ).read_text()
+        ).read_text(encoding="utf-8")
         assert '"1. Answer ONLY in English (Strict Requirement)."' not in source
 
     # D10 — QueryRequest: locale field must be Optional with None default

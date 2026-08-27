@@ -286,7 +286,7 @@ class TestCacheLocaleSymmetryP2:
         import pathlib
         source = pathlib.Path(
             "api/routes/connection_query.py"
-        ).read_text()
+        ).read_text(encoding="utf-8")
         assert "_CACHE_VERSION = 2" in source, (
             "_CACHE_VERSION must be 2 in the lookup path"
         )
@@ -294,7 +294,7 @@ class TestCacheLocaleSymmetryP2:
     def test_cache_version_2_in_store(self):
         """Records written to cache must carry cache_version=2 (temporal_bucket)."""
         import pathlib
-        source = pathlib.Path("api/routes/connection_query.py").read_text()
+        source = pathlib.Path("api/routes/connection_query.py").read_text(encoding="utf-8")
         assert "cache_version=2," in source, (
             "Store must write cache_version=2 on every new record"
         )
@@ -319,7 +319,7 @@ class TestCacheLocaleSymmetryP2:
         filter by locale in the WHERE clause — not in Python post-retrieval.
         """
         import pathlib
-        source = pathlib.Path("api/routes/connection_query.py").read_text()
+        source = pathlib.Path("api/routes/connection_query.py").read_text(encoding="utf-8")
         # Count occurrences of the locale WHERE filter inside lookup SQL strings
         count = source.count("AND locale = :locale")
         assert count >= 3, (
