@@ -1431,28 +1431,38 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
         "pt": (
             "Em que posso ajudá-lo com os seus dados?",
             [
-                ("Desempenho do mês", "Como está o desempenho dos indicadores este mês?"),
-                ("Os maiores", "Quais são os maiores valores?"),
-                ("Ao longo do tempo", "Como é que os dados variam ao longo do tempo?"),
-                ("Por categoria", "Qual é a distribuição por categoria?"),
+                # Perguntas INTEIRAS e auto-suficientes.
+                #
+                # Estas frases são o rótulo dos botões, e o Lucas apanhou-as
+                # numa captura a morrer a meio: «Os maiores» — os maiores
+                # quê? «Ao longo do tempo» — o quê ao longo do tempo? Os
+                # títulos eram etiquetas de categoria e liam-se como
+                # fragmentos.
+                #
+                # Cada uma tem de dizer sozinha o que vai perguntar, porque é
+                # exactamente isso que vai ser perguntado.
+                ("Desempenho do mês", "Como correu este mês em comparação com o mês anterior?"),
+                ("Os maiores", "Quais são os cinco maiores valores nos meus dados, e de quê?"),
+                ("Ao longo do tempo", "O que é que tem subido ou descido ao longo dos últimos meses?"),
+                ("Por categoria", "Como é que os totais se dividem por categoria?"),
             ],
         ),
         "es": (
             "¿En qué puedo ayudarle con sus datos?",
             [
-                ("Rendimiento del mes", "¿Cómo está el rendimiento de los indicadores este mes?"),
-                ("Los mayores", "¿Cuáles son los mayores valores?"),
-                ("A lo largo del tiempo", "¿Cómo varían los datos a lo largo del tiempo?"),
-                ("Por categoría", "¿Cuál es la distribución por categoría?"),
+                ("Rendimiento del mes", "¿Cómo fue este mes en comparación con el anterior?"),
+                ("Los mayores", "¿Cuáles son los cinco mayores valores en mis datos, y de qué?"),
+                ("A lo largo del tiempo", "¿Qué ha subido o bajado en los últimos meses?"),
+                ("Por categoría", "¿Cómo se reparten los totales por categoría?"),
             ],
         ),
         "en": (
             "How can I help you with your data?",
             [
-                ("Monthly performance", "What is the monthly performance of key indicators?"),
-                ("Top results", "What are the top results?"),
-                ("Time-based analysis", "How do the data vary over time?"),
-                ("Category breakdown", "What is the distribution by category?"),
+                ("Monthly performance", "How did this month compare with last month?"),
+                ("Top results", "What are the five largest values in my data, and of what?"),
+                ("Time-based analysis", "What has gone up or down over the last few months?"),
+                ("Category breakdown", "How do the totals split by category?"),
             ],
         ),
     }
