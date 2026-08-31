@@ -45,6 +45,21 @@ class DataSourceFactory:
         )
         ds_type = ds_type.lower()
 
+        # ── Os nomes dos conectores de API ────────────────────────────
+        #
+        # Este ramo esperava `"api"`, mas o que chega é o **id do conector**
+        # — `rest-api`, `graphql`. Nenhuma ligação a uma API chegava cá:
+        # rebentava com *"Unsupported data source type: 'rest-api'"* já com
+        # tudo o resto a funcionar (ligação testada, ponto de acesso
+        # declarado, metadados gravados). Foi o último elo, e só apareceu ao
+        # fazer a pergunta a sério à Open-Meteo.
+        #
+        # Normaliza-se aqui, num sítio só, em vez de espalhar `or` pelo
+        # ramo: quem acrescentar um conector de API amanhã acrescenta-o a
+        # esta lista.
+        if ds_type in ("rest-api", "rest_api", "restapi", "graphql", "http"):
+            ds_type = "api"
+
         if ds_type == "bigquery":
             # Espera em config:
             # {

@@ -420,6 +420,61 @@ async def ingest_from_connection_metadata_cache(
 
         columns = table_info.get("columns", [])
 
+        # ── Uma tabela SEM colunas continua a ser uma tabela ───────────
+        #
+        # `table_metadata` guarda uma linha por COLUNA, e o ciclo abaixo
+        # não corre nenhuma vez quando a lista vem vazia. Resultado: a
+        # tabela era descoberta e desaparecia — `tables_discovered: 1`,
+        # `metadata_rows_inserted: 0`.
+        #
+        # É exactamente o caso de uma API. O conector REST expõe cada ponto
+        # de acesso declarado como uma tabela **sem colunas**, de propósito:
+        # não se sabem até à primeira resposta. Verificado ao ligar a
+        # Open-Meteo: a ligação passava no teste, o endpoint aparecia no
+        # ecrã, e o motor nunca via nada — a pergunta acabava no «este
+        # projeto ainda não tem dados ligados».
+        #
+        # Grava-se uma linha âncora. É ela que põe o nome e a descrição ao
+        # alcance do orquestrador; as colunas chegam quando se souberem.
+        if not columns:
+            table_desc = table_info.get("description") or table_info.get("desc")
+            if not table_desc:
+                # Sem descrição não há como o motor escolher esta e não
+                # outra. O conector REST põe o caminho e o método em
+                # `metadata` — serve de descrição mínima.
+                extra_meta = table_info.get("metadata") or {}
+                if isinstance(extra_meta, dict):
+                    table_desc = extra_meta.get("description") or (
+                        f"{extra_meta.get('method', 'GET')} {extra_meta.get('path', '')}".strip()
+                        or None
+                    )
+            db.add(
+                TableMetadata(
+                    data_connection_id=data_connection.id,
+                    space_id=space.id if space else None,
+                    crew_id=crew_id,
+                    table_name=table_name,
+                    # `column_name` é obrigatório; `*` diz «a tabela toda»
+                    # e não colide com nenhuma coluna a sério.
+                    column_name="*",
+                    data_type="UNKNOWN",
+                    is_nullable=True,
+                    description=table_desc,
+                    extra={
+                        "original_name": original_table_name,
+                        "sem_colunas": True,
+                        **(
+                            {"endpoint": table_info["metadata"]}
+                            if isinstance(table_info.get("metadata"), dict)
+                            else {}
+                        ),
+                    },
+                    created_at=now,
+                )
+            )
+            inserted += 1
+            continue
+
         for col in columns:
             # Handle column structure (dict or string)
             if isinstance(col, dict):
