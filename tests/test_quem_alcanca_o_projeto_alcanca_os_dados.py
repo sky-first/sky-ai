@@ -51,6 +51,67 @@ def _fonte(rel: str) -> str:
     return (RAIZ / rel).read_text(encoding="utf-8")
 
 
+class TestOFiltroSaiuDE_TODOS_OsSitios:
+    """**A primeira passagem tirou-o de UM sítio, e eu dei a fatia por fechada.**
+
+    Tirei o filtro do `core/agents/factory.py`, escrevi o teste abaixo, e
+    parei. A regra estava copiada em mais quatro sítios — e o que estava no
+    caminho quente, o do `/connections/{id}/query` que responde às
+    perguntas, era outro:
+
+        if crew_ids:  AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))
+        else:         AND crew_id IS NULL
+
+    Repare-se no `else`: quem não estivesse em equipa nenhuma via só as
+    linhas com `crew_id` nulo. Isto só apareceu ao pôr o motor a correr e a
+    fazer-lhe uma pergunta a sério.
+
+    Estes casos varrem a fonte inteira, e não um ficheiro de cada vez —
+    porque foi exactamente o «um ficheiro de cada vez» que falhou.
+    """
+
+    #: Onde a regra estava copiada. O `semantic_cache` fica de fora de
+    #: propósito: filtrar a cache por equipa é conservador (um falhanço só
+    #: obriga a recalcular), e alargá-la serviria a resposta guardada de uma
+    #: equipa a outra.
+    FICHEIROS = (
+        "core/agents/factory.py",
+        "api/routes/connection_query.py",
+        "core/rag/brain_searcher.py",
+        "core/rag/multi_layer.py",
+    )
+
+    @staticmethod
+    def _codigo(rel: str) -> str:
+        """A fonte sem comentários — eles explicam a decisão e podem
+        (devem) continuar a falar do filtro que saiu."""
+        linhas = []
+        for l in _fonte(rel).splitlines():
+            nu = l.lstrip()
+            if nu.startswith("#") or nu.startswith("--"):
+                continue
+            linhas.append(l)
+        return chr(10).join(linhas)
+
+    @pytest.mark.parametrize("rel", FICHEIROS)
+    def test_nenhum_filtra_tabelas_por_equipa(self, rel):
+        codigo = self._codigo(rel)
+        assert "crew_id = ANY" not in codigo, f"{rel} volta a filtrar por equipa"
+        assert "TableMetadata.crew_id" not in codigo
+
+    def test_e_o_caso_pior_tambem_desapareceu(self):
+        """`else: AND crew_id IS NULL` — quem não tinha equipa via quase nada."""
+        codigo = self._codigo("api/routes/connection_query.py")
+        i = codigo.find("FROM table_metadata")
+        assert i > -1
+        assert "crew_id IS NULL" not in codigo[i : i + 1200]
+
+    def test_o_projeto_continua_a_delimitar_em_todos(self):
+        """Tirar a equipa não pode abrir os dados de outro projeto."""
+        assert "space_id = :space_id" in _fonte("api/routes/connection_query.py")
+        assert "space_id = ANY(:space_ids)" in _fonte("core/rag/multi_layer.py")
+
+
 class TestSemFiltroPorEquipa:
     def test_a_consulta_das_tabelas_nao_filtra_por_equipa(self):
         """O filtro que fazia as tabelas desaparecerem."""

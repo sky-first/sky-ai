@@ -831,10 +831,10 @@ async def _filter_tables_by_permissions(
                     space_id = CAST(:space_id AS uuid)
                     OR space_id IS NULL
                 )
-                AND (
-                    crew_id IS NULL
-                    OR crew_id = ANY(CAST(:crew_ids AS uuid[]))
-                )
+                -- Sem filtro por equipa: o projeto é a fronteira e a
+                -- equipa é uma etiqueta (decisão de 2026-08-27). Esta era
+                -- a TERCEIRA cópia da mesma regra — as outras duas estão
+                -- no `factory.py` e mais abaixo neste ficheiro.
             """)
 
             result = await db.execute(
@@ -3020,13 +3020,28 @@ async def load_agent_config_from_connection(
     """
     query_params = {"space_id": space_id, "conn_id": connection_id}
 
-    # Adicionar filtro de permissões se crew_ids fornecidos
-    if crew_ids:
-        query_sql += " AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))"
-        query_params["crew_ids"] = crew_ids
-    else:
-        # Se não há crew_ids, mostrar apenas dados públicos (crew_id IS NULL)
-        query_sql += " AND crew_id IS NULL"
+    # ── O filtro por equipa saiu daqui ────────────────────────────────
+    #
+    # Estava assim:
+    #
+    #     if crew_ids:  AND (crew_id IS NULL OR crew_id = ANY(:crew_ids))
+    #     else:         AND crew_id IS NULL
+    #
+    # e este é o caminho do `/connections/{id}/query` — o que responde às
+    # perguntas. Bastava a descoberta escrever um `crew_id` numa linha para
+    # essa tabela desaparecer de quem não estivesse nessa equipa exacta; e
+    # quem não estivesse em equipa nenhuma via só o que tivesse `crew_id`
+    # nulo. Foi metade da causa do «Ainda não há dados ligados aqui» com
+    # cinco ligações à vista.
+    #
+    # **Eu já tinha tirado este filtro — no sítio errado.** Tirei-o do
+    # `core/agents/factory.py` e dei a fatia por fechada, sem procurar as
+    # outras cópias da mesma regra. Esta é a que estava no caminho quente.
+    #
+    # O acesso ao projeto já foi decidido antes de chegar aqui; o `space_id`
+    # acima é a fronteira. A equipa é uma etiqueta (decisão de 2026-08-27) e
+    # um segundo filtro só podia estreitar o que já estava certo.
+    _ = crew_ids  # mantido no contexto para os registos, não filtra
 
     query_sql += " ORDER BY table_name, column_name"
 

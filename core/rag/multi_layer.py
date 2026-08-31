@@ -70,20 +70,28 @@ async def retrieve_schema_rag(
             # Manual serialization for pgvector format
             question_embedding = f"[{','.join(map(str, embedding_list))}]"
 
-            # Hybrid query: Global nodes OR User Space nodes OR User Crew nodes
+            # Duas camadas: o que é global, e o que é DO PROJETO.
+            #
+            # Eram três, e a do meio deixava linhas de fora: o nível do
+            # projeto exigia `crew_id IS NULL`, e o da equipa exigia estar
+            # naquela equipa exacta. Uma linha escrita com um `crew_id`
+            # desaparecia de quem alcança o projeto e não está nessa equipa
+            # — e a resposta saía sem a parte do contexto que a explicava,
+            # sem nada no ecrã a dizer porquê.
+            #
+            # O projeto é a fronteira; a equipa é uma etiqueta (decisão de
+            # 2026-08-27). Quem alcança o projeto vê o contexto do projeto,
+            # tenha ele equipa escrita ou não.
             query = text("""
                 SELECT 
                     text
                 FROM embeddings
                 WHERE (
-                    -- Global Level
+                    -- Global
                     (space_id IS NULL AND crew_id IS NULL)
                     OR
-                    -- Space Level
-                    (space_id = ANY(:space_ids) AND crew_id IS NULL)
-                    OR
-                    -- Crew Level
-                    (space_id = ANY(:space_ids) AND crew_id = ANY(:crew_ids))
+                    -- Do projeto, com ou sem equipa escrita
+                    (space_id = ANY(:space_ids))
                 )
                 ORDER BY embedding <=> CAST(:embedding AS vector)
                 LIMIT :top_k
@@ -97,8 +105,10 @@ async def retrieve_schema_rag(
             )
             space_list = [uuid for uuid in space_list if uuid]
 
-            crew_list = crew_ids or []
-            crew_list = [c for c in crew_list if c]
+            # `crew_ids` já não entra na consulta — ver a nota nela. Fica no
+            # contexto porque quem chama continua a passá-lo e os registos
+            # ainda o querem.
+            _ = crew_ids
 
             # Provide default UUID to prevent ANY() crashes on empty arrays
             empty_uuid = "00000000-0000-0000-0000-000000000000"
@@ -107,7 +117,6 @@ async def retrieve_schema_rag(
                 query,
                 {
                     "space_ids": space_list if space_list else [empty_uuid],
-                    "crew_ids": crew_list if crew_list else [empty_uuid],
                     "embedding": question_embedding,
                     "top_k": top_k,
                 },

@@ -177,9 +177,12 @@ async def _search_context_documents(
                 "(space_id = :space_id OR space_id IS NULL OR visibility = 'public')"
             )
             params["space_id"] = space_id
-        if crew_ids:
-            scope_clauses.append("(crew_id IS NULL OR crew_id = ANY(:crew_ids))")
-            params["crew_ids"] = crew_ids
+        # O filtro por equipa saiu daqui pela mesma razão do
+        # `connection_query.py`: o projeto é a fronteira e a equipa é uma
+        # etiqueta. Aqui doía de outra maneira — um documento de contexto
+        # escrito por alguém de outra equipa desaparecia da procura, e a
+        # resposta saía sem a parte do contexto que a explicava.
+        _ = crew_ids
 
     if kinds:
         scope_clauses.append("kind = ANY(:kinds)")
