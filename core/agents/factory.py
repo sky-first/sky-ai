@@ -98,12 +98,12 @@ def build_agent_config_for_user_space(
     Constrói um AgentConfig a partir de TableMetadata, respeitando:
       - space_id  (modo collaborative — um único space)
       - space_ids (modo personal — todos os spaces do utilizador; sobrepõe-se a space_id)
-      - crew_ids do usuário (permissões)
+      - crew_ids do utilizador (só para os registos — ver a nota do filtro)
       - opcionalmente data_connection_id (se houver mais de uma conexão por Space)
 
     Fluxo:
       1. Busca TableMetadata do(s) space_id(s) (+ connection opcional)
-      2. Filtra por permissão: crew_id IN user_ctx.crew_ids OR crew_id IS NULL
+      2. (já não filtra por equipa — quem alcança o projeto alcança os dados)
       3. Agrupa por (table_name, data_connection_id)
       4. Monta TableSchema para cada grupo
       5. Retorna AgentConfig com lista de tables
@@ -128,17 +128,28 @@ def build_agent_config_for_user_space(
     if data_connection_id:
         q = q.filter(TableMetadata.data_connection_id == data_connection_id)
 
-    # Permissões por crew:
-    # - se uma linha tem crew_id = NULL -> é "global" daquele space (todos que têm acesso ao space)
-    # - se tem crew_id != NULL -> só quem tem esse crew_id pode ver
-    if user_crew_ids:
-        q = q.filter(
-            (TableMetadata.crew_id == None)  # noqa: E711
-            | (TableMetadata.crew_id.in_(user_crew_ids))
-        )
-    else:
-        # usuário sem crews específicos: vê apenas metadados "globais" (crew_id IS NULL)
-        q = q.filter(TableMetadata.crew_id == None)  # noqa: E711
+    # ── Quem alcança o projeto alcança os dados dele ────────────────────
+    #
+    # > *"Se tem acesso ao projeto, tem acesso aos dados. Ainda não
+    # > implementaremos o RBAC que controla o que as pessoas dentro daquele
+    # > projeto podem ver — isso é uma feature que planearei no futuro."*
+    # > — Lucas, 27/08/2026
+    #
+    # **Porque é que isto estava a partir tudo.** O filtro era
+    # `crew_id IS NULL OR crew_id IN (as minhas equipas)`. Bastava a
+    # descoberta escrever um `crew_id` numa linha para essa tabela
+    # desaparecer de quem não estivesse nessa equipa exacta — e a pessoa
+    # ficava com o projeto à frente, as fontes ligadas no ecrã, e a Sky a
+    # dizer que não havia dados.
+    #
+    # O acesso ao projeto já foi decidido antes de chegar aqui: o `space_id`
+    # que entra nesta função é o de um projeto que quem pergunta alcança. Um
+    # segundo filtro por equipa só podia estreitar o que já estava certo.
+    #
+    # **Quando o RBAC por projeto existir**, é aqui que ele volta — e volta
+    # como uma regra escrita e testada, não como um `crew_id` que a
+    # descoberta preenche por acaso.
+    _ = user_crew_ids  # mantido no contexto para os registos, não filtra
 
     rows: List[TableMetadata] = q.all()
 
