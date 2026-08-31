@@ -92,6 +92,30 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Esta fonte ainda não tem dados nenhuns.",
         "es": "Esta fuente todavía no tiene datos.",
     },
+    # ── Sem tabelas: DUAS causas, e confundi-las custou uma demonstração ──
+    #
+    # O servidor respondia «No tables are configured for this agent.» —
+    # inglês cravado, jargão de quem construiu isto, e **mentira** no caso
+    # mais comum.
+    #
+    # O Lucas ligou 5 fontes a um projeto novo e perguntou logo a seguir. A
+    # descoberta dos metadados corre em segundo plano e ainda não tinha
+    # acabado: o servidor não tinha tabelas, respondeu isto, e a app traduziu
+    # para «Ainda não há dados ligados aqui» — com as cinco ligações à vista
+    # no ecrã ao lado.
+    #
+    # As duas situações pedem coisas opostas: numa espera-se um minuto,
+    # noutra liga-se uma fonte.
+    "STILL_READING_SOURCES": {
+        "en": "I'm still reading the data you connected. This usually takes a minute — ask me again shortly.",
+        "pt": "Ainda estou a ler os dados que ligou. Costuma demorar um minuto — pergunte outra vez daqui a pouco.",
+        "es": "Todavía estoy leyendo los datos que conectó. Suele tardar un minuto — pregúnteme de nuevo en breve.",
+    },
+    "NO_SOURCES_CONNECTED": {
+        "en": "There's no data connected to this project yet. Connect a source and I'll answer from it.",
+        "pt": "Este projeto ainda não tem dados ligados. Ligue uma fonte e eu respondo a partir dela.",
+        "es": "Este proyecto todavía no tiene datos conectados. Conecte una fuente y responderé a partir de ella.",
+    },
     "PERIOD_OUT_OF_RANGE": {
         "en": "No data for that period. The range available is **{de}** to **{ate}**.",
         "pt": "Não há dados nesse intervalo. O período disponível vai de **{de}** a **{ate}**.",

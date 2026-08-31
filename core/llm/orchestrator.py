@@ -143,6 +143,32 @@ def _build_role_context(
     return "\n".join(context_parts)
 
 
+
+def _projeto_tem_ligacoes(db, space_id) -> bool:
+    """O projeto tem fontes ligadas, mesmo que ainda sem tabelas lidas?
+
+    É esta pergunta que separa «ainda estou a ler» de «não há nada ligado» —
+    e a diferença entre esperar um minuto e ir ligar uma fonte.
+
+    Em dúvida devolve `False`: mandar alguém esperar por uma leitura que não
+    está a acontecer é pior do que mandá-lo ligar uma fonte que já existe. A
+    segunda engana-se e a pessoa vê logo; a primeira deixa-a à espera.
+    """
+    if not space_id:
+        return False
+    try:
+        from db.models import SpaceConnection
+
+        return (
+            db.query(SpaceConnection)
+            .filter(SpaceConnection.space_id == str(space_id))
+            .first()
+            is not None
+        )
+    except Exception:  # noqa: BLE001 — a resposta não pode depender disto
+        return False
+
+
 def _build_tables_summary(tables: List[TableSchema]) -> str:
     """
     Gera um pequeno resumo dos logical tables pro LLM do orquestrador.
@@ -526,10 +552,28 @@ def run_orchestrator(
         )
         return state
 
-    # 🔍 Garante que o agente tem tabelas configuradas
+    # Sem tabelas — e as DUAS causas dizem coisas opostas.
+    #
+    # Dizia «No tables are configured for this agent.»: inglês cravado, jargão
+    # nosso, e falso no caso mais comum. Quem liga fontes a um projeto novo e
+    # pergunta a seguir apanha isto, porque a descoberta dos metadados corre
+    # em segundo plano e ainda não acabou. A app do telemóvel traduzia para
+    # «Ainda não há dados ligados aqui» — com as ligações à vista no ecrã ao
+    # lado.
+    #
+    # Se o projeto TEM ligações mas ainda não tem tabelas, estamos a ler.
+    # Se não tem ligações nenhumas, é mesmo preciso ligar uma.
     if not agent_config.tables:
-        state["answer"] = "No tables are configured for this agent."
-        log_event("orchestrator_no_tables", {"agent_id": agent_config.id})
+        _chave = (
+            "STILL_READING_SOURCES"
+            if _projeto_tem_ligacoes(db, state.get("space_id"))
+            else "NO_SOURCES_CONNECTED"
+        )
+        state["answer"] = get_message(_chave, lang)
+        log_event(
+            "orchestrator_no_tables",
+            {"agent_id": agent_config.id, "causa": _chave},
+        )
         return state
 
     # ✅ NOVA: Validação prévia da pergunta usando QuestionValidator
