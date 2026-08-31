@@ -84,6 +84,23 @@ class TestAReservaFalaALinguaDeQuemPergunta:
     def test_devolve_o_numero_pedido(self):
         assert len(_modulo()._fallback_bootstrap("pt", 3).suggestions) == 3
 
+    def test_cada_pergunta_e_uma_frase_inteira(self):
+        """**«Os maiores» — os maiores quê?**
+
+        O rótulo dos botões passou a ser a PERGUNTA e não o título, porque
+        os títulos são etiquetas de categoria e liam-se como fragmentos —
+        o Lucas apanhou-o numa captura, com a frase a morrer a meio.
+
+        Uma pergunta que não se percebe sozinha não serve de convite: quem
+        lê não sabe o que vai acontecer se tocar.
+        """
+        for lang in ("pt", "en", "es"):
+            for sg in _modulo()._fallback_bootstrap(lang, 4).suggestions:
+                pergunta = sg.question or ""
+                assert pergunta.endswith("?"), (lang, pergunta)
+                # Uma frase de três palavras é um fragmento, nao uma pergunta.
+                assert len(pergunta.split()) >= 6, (lang, pergunta)
+
     def test_e_o_enchimento_tambem_e_traduzido(self):
         """Pedir mais do que a lista tem enchia com um «Example» inglês."""
         r = _modulo()._fallback_bootstrap("pt", 6)
