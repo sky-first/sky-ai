@@ -105,7 +105,32 @@ MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de me
 
 # ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
 DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
-DISABLE_BOOTSTRAP_EXECUTION = True  # ✅ PAUSADO A PEDIDO DO CLIENTE (Step 547)
+# ── As sugestões do Sherlock ─────────────────────────────────────────
+#
+# **Estiveram desligadas seis meses, cravadas no código.**
+#
+# A linha era `DISABLE_BOOTSTRAP_EXECUTION = True  # PAUSADO A PEDIDO DO
+# CLIENTE (Step 547)`, escrita a 05/02/2026 dentro de um PR sobre a lógica
+# dos dashboards. Ninguém voltou lá. O `/chat/bootstrap` respondia
+# «Bootstrap is paused (Maintenance Mode)» com zero sugestões, e a web caía
+# nas duas genéricas de reserva — «Que dados tenho?» e «Dá-me exemplos».
+#
+# O Lucas pediu exactamente isto de volta, a 31/08:
+#
+# > *"na conexao que fazemos, já gerarmos ali algumas perguntas e respostas
+# > ... ou até mesmo na tela de descobertas apresentarmos um: olha nao
+# > encontramos isso, mas essas outras opcoes parecem também ser
+# > interessantes, quer saber mais sobre 1 2 3 (opcoes como botões) assim
+# > nao matamos a iteração"*
+#
+# Passa a ser uma variável de ambiente, ligada por omissão: uma pausa
+# operacional (custo, latência, um modelo em baixo) resolve-se sem tocar no
+# código nem esperar por uma imagem nova — que foi o que fez esta ficar seis
+# meses ligada ao contrário.
+DISABLE_BOOTSTRAP_EXECUTION = (
+    os.getenv("DISABLE_BOOTSTRAP_EXECUTION", "false").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
 
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
@@ -1394,35 +1419,62 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
     Generic bootstrap suggestions (domain agnostic).
     Used when there isn't enough data for personalized suggestions.
     """
-    greeting = "How can I help you with your data?"
+    # ── A reserva fala a lingua de quem pergunta. ─────────────────────
+    #
+    # O `lang` chegava aqui e era ignorado: com `language=pt` as sugestoes
+    # saiam «Monthly performance», «Top results», «Time-based analysis».
+    #
+    # E esta lista e a que aparece mais vezes, nao menos: e usada sempre que
+    # o modelo nao consegue personalizar — que e o caso de qualquer projeto
+    # acabado de ligar, ou seja, o primeiro ecra de quem chega.
+    _RESERVA = {
+        "pt": (
+            "Em que posso ajudá-lo com os seus dados?",
+            [
+                ("Desempenho do mês", "Como está o desempenho dos indicadores este mês?"),
+                ("Os maiores", "Quais são os maiores valores?"),
+                ("Ao longo do tempo", "Como é que os dados variam ao longo do tempo?"),
+                ("Por categoria", "Qual é a distribuição por categoria?"),
+            ],
+        ),
+        "es": (
+            "¿En qué puedo ayudarle con sus datos?",
+            [
+                ("Rendimiento del mes", "¿Cómo está el rendimiento de los indicadores este mes?"),
+                ("Los mayores", "¿Cuáles son los mayores valores?"),
+                ("A lo largo del tiempo", "¿Cómo varían los datos a lo largo del tiempo?"),
+                ("Por categoría", "¿Cuál es la distribución por categoría?"),
+            ],
+        ),
+        "en": (
+            "How can I help you with your data?",
+            [
+                ("Monthly performance", "What is the monthly performance of key indicators?"),
+                ("Top results", "What are the top results?"),
+                ("Time-based analysis", "How do the data vary over time?"),
+                ("Category breakdown", "What is the distribution by category?"),
+            ],
+        ),
+    }
+    greeting, pares = _RESERVA.get(lang, _RESERVA["en"])
     suggestions: list[ChatBootstrapSuggestion] = [
-        ChatBootstrapSuggestion(
-            title="Monthly performance",
-            kind="question",
-            question="What is the monthly performance of key indicators?",
-        ),
-        ChatBootstrapSuggestion(
-            title="Top results", kind="question", question="What are the top results?"
-        ),
-        ChatBootstrapSuggestion(
-            title="Time-based analysis",
-            kind="question",
-            question="How do the data vary over time?",
-        ),
-        ChatBootstrapSuggestion(
-            title="Category breakdown",
-            kind="question",
-            question="What is the distribution by category?",
-        ),
+        ChatBootstrapSuggestion(title=titulo, kind="question", question=pergunta)
+        for titulo, pergunta in pares
     ]
 
     out = suggestions[:max_suggestions]
     while len(out) < max_suggestions:
+        _EXEMPLO = {
+            "pt": ("Exemplo", "Mostre-me algo interessante nos meus dados."),
+            "es": ("Ejemplo", "Muéstreme algo interesante en mis datos."),
+            "en": ("Example", "Show me something interesting from my data."),
+        }
+        _t, _q = _EXEMPLO.get(lang, _EXEMPLO["en"])
         out.append(
             ChatBootstrapSuggestion(
-                title="Example",
+                title=_t,
                 kind="question",
-                question="Show me something interesting from my data.",
+                question=_q,
             )
         )
     return ChatBootstrapResponse(
