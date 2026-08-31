@@ -127,6 +127,32 @@ DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
 # operacional (custo, latência, um modelo em baixo) resolve-se sem tocar no
 # código nem esperar por uma imagem nova — que foi o que fez esta ficar seis
 # meses ligada ao contrário.
+def _erro_para_quem_pergunta(lang: str, detalhe=None, traceback_texto=None) -> str:
+    """A mensagem que a pessoa le. O detalhe tecnico fica nos registos.
+
+    **Estava a ser colado na resposta.** Quatro sitios faziam
+    ``f"{TECHNICAL_ERROR} | DEBUG: {erro}"``, e dois juntavam-lhe **o
+    traceback inteiro**. O Lucas apanhou o resultado no telemovel:
+
+        Algo correu mal do nosso lado ao responder a esta pergunta — nao e
+        problema dos seus dados nem do seu acesso. O erro ficou registado.
+        Tente de novo e avise um administrador se continuar.
+        | DEBUG:  (status code: 404)
+
+    A frase diz «o erro ficou registado» e logo a seguir despeja-o na mesma.
+    Um codigo de estado nao diz a ninguem o que fazer, e um traceback num
+    balao de chat e uma fuga: mostra caminhos de ficheiros e nomes internos
+    a quem nao tem nada com isso.
+
+    O registo fica com tudo, e com muito mais contexto do que cabe ali.
+    """
+    if detalhe:
+        logger.error("Erro tecnico devolvido ao utilizador: %s", detalhe)
+    if traceback_texto:
+        logger.error("Traceback do erro acima:\n%s", traceback_texto)
+    return get_message("TECHNICAL_ERROR", lang)
+
+
 DISABLE_BOOTSTRAP_EXECUTION = (
     os.getenv("DISABLE_BOOTSTRAP_EXECUTION", "false").strip().lower()
     in {"1", "true", "yes", "on"}
@@ -5586,7 +5612,7 @@ async def _stream_connection_query(
                                     )
 
                                     # Mensagem amigável para erro técnico no streaming
-                                    msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
+                                    msg = _erro_para_quem_pergunta(lang, final_state.get("error"))
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                                     return
@@ -5604,7 +5630,7 @@ async def _stream_connection_query(
                     final_state.get("detected_language"),
                     locale=getattr(body, "locale", None),
                 )
-                msg = f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {final_state.get('error')}"
+                msg = _erro_para_quem_pergunta(lang, final_state.get("error"))
                 # The DEBUG suffix is the only channel reaching an operator
                 # while the observability stack is down. A bare TypeError with
                 # no stack is unactionable, so carry the traceback the failing
@@ -5928,10 +5954,7 @@ async def _stream_connection_query(
 
             error_detail = str(e)
             tb = traceback.format_exc()
-            msg = (
-                f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {error_detail}"
-                f"\nTRACEBACK: {tb[-2000:]}"
-            )
+            msg = _erro_para_quem_pergunta(lang, error_detail, tb)
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
             log_event(
                 "api_query_connection_stream_error",
@@ -5947,10 +5970,7 @@ async def _stream_connection_query(
         import traceback as _traceback
 
         _tb = _traceback.format_exc()
-        msg = (
-            f"{get_message('TECHNICAL_ERROR', lang)} | DEBUG: {str(e)}"
-            f"\nTRACEBACK: {_tb[-2000:]}"
-        )
+        msg = _erro_para_quem_pergunta(lang, str(e), _tb)
         yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
         log_event(
             "api_query_connection_stream_outer_error",
