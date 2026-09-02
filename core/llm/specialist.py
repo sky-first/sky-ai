@@ -101,6 +101,14 @@ def _build_secure_system_prompt(
                 "- YOUR QUERY WILL FAIL if you skip the project/dataset prefix.\n"
             )
 
+        # As mesmas manias da base que o outro ramo desta função recebe. Este
+        # é o caminho dos modelos locais, e produção não passa por aqui — mas
+        # é exactamente assim que dois caminhos se afastam: alguém corrige um,
+        # e o outro fica com o defeito à espera de quem mude de modelo.
+        avisos_locais = details.get("warnings", "")
+        if avisos_locais:
+            content += f"\n### {avisos_locais}"
+
         content += "\n### CRITICAL: Output ONLY the SQL code. No markdown fences. No explanations.\n"
 
         return {"role": "system", "content": content}
@@ -166,15 +174,11 @@ def _build_secure_system_prompt(
             ),
         }
 
-    # BigQuery specific warnings
-    bq_warnings = ""
-    if dialect == Dialect.BIGQUERY:
-        bq_warnings = (
-            "⚠️ BIGQUERY CRITICAL RULES:\n"
-            "- NEVER USE ILIKE. BigQuery does not support ILIKE.\n"
-            "- For case-insensitive search, use WHERE UPPER(col) LIKE '%VALUE%'\n"
-            "- ALWAYS use FULLY QUALIFIED table names (project.dataset.table).\n\n"
-        )
+    # Avisos do dialecto. Viviam aqui, num `if`, só para o BigQuery; passaram
+    # para `get_dialect_specifics` quando o Postgres precisou dos seus — assim
+    # acrescentar as manias de outra base não obriga a mexer no prompt.
+    avisos = details.get("warnings", "")
+    bq_warnings = f"⚠️ {avisos}" if avisos else ""
 
     # SQL Strategy (default)
     id_quote = details.get("identifier_quote", '"')

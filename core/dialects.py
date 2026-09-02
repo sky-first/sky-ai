@@ -39,6 +39,15 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": "`",
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE()",
+                # Estavam cravados no `specialist.py`, num `if` só para o
+                # BigQuery. Vieram para aqui quando o Postgres precisou dos
+                # seus: as manias de cada base pertencem à descrição da base.
+                "warnings": (
+                    "BIGQUERY CRITICAL RULES:\n"
+                    "- NEVER USE ILIKE. BigQuery does not support ILIKE.\n"
+                    "- For case-insensitive search, use WHERE UPPER(col) LIKE '%VALUE%'\n"
+                    "- ALWAYS use FULLY QUALIFIED table names (project.dataset.table).\n\n"
+                ),
             },
         },
         Dialect.POSTGRES: {
@@ -47,6 +56,25 @@ def get_dialect_specifics(dialect: Dialect) -> Dict[str, Any]:
                 "identifier_quote": '"',
                 "string_quote": "'",
                 "date_func": "CURRENT_DATE",
+                # ── ROUND com casas decimais não existe para floats. ────
+                #
+                # No Postgres o `round(x, n)` só está definido para
+                # `numeric`. Aplicado a um `double precision` — que é o que
+                # sai de qualquer divisão ou `AVG()` — a base recusa:
+                #
+                #     function round(double precision, integer) does not exist
+                #
+                # Apanhado a 02/09/2026 pelo teste das 20 perguntas, na
+                # pergunta sobre DAU/MAU. E não é um caso de bordo: um rácio
+                # é uma divisão, e arredondá-lo é o gesto seguinte mais
+                # natural do mundo.
+                "warnings": (
+                    "POSTGRES CRITICAL RULES:\n"
+                    "- ROUND(x, n) only exists for NUMERIC. Any division or "
+                    "AVG() yields DOUBLE PRECISION, and ROUND on it fails with "
+                    "'function round(double precision, integer) does not exist'.\n"
+                    "- ALWAYS cast first: ROUND(expr::numeric, 2)\n\n"
+                ),
             },
         },
         Dialect.MYSQL: {
