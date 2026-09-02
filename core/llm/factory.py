@@ -6,6 +6,7 @@ Suporta alternância entre OpenAI (Cloud) e Ollama (Local).
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Optional
 from config.settings import settings
 from core.llm.providers import OllamaProvider, LLMProvider
@@ -151,39 +152,98 @@ def create_embedding_provider() -> EmbeddingProvider:
     ``EMBEDDING_PROVIDER`` explicitly to mix providers — e.g. keep chat
     on the mantle proxy (``AI_PROVIDER=openai``) while routing
     embeddings to Bedrock direct (``EMBEDDING_PROVIDER=bedrock``).
+
+    ── Uma instância por processo, e não uma por chamada. ───────────────
+
+    O ``LocalEmbeddingProvider`` carrega um modelo ONNX de **~1,5 GB**
+    para dentro do processo, preguiçosamente, no primeiro ``embed()``. E
+    guarda-o em ``self._client`` — por instância. Uma instância nova é um
+    modelo novo em memória.
+
+    Isto era chamado **por pedido**, e mais do que uma vez: só o
+    ``connection_query.py`` chama-o em seis sítios. Cada pergunta podia
+    portanto empilhar vários gigabytes de cópias do mesmo modelo.
+
+    Foi o que matou o ``sky-ai`` em produção duas vezes a 02/09/2026 —
+    ``OOMKilled`` contra um limite de 5 GiB, levando com ele as perguntas
+    em curso. Medido no pod: base 119 MiB, e 1613 MiB depois de criar
+    **um** provedor e embeber uma frase. Ao criar o segundo, o processo
+    morria antes de o terminar.
+
+    E cada construção ia à HuggingFace, o que acabou por esgotar o limite
+    de pedidos do IP do cluster::
+
+        429 Too Many Requests: you have reached your 'api' rate limit
+        We had to rate limit your IP (34.250.237.99)
+
+    A cache é **por configuração**, e não global. Em produção as
+    definições não mudam em execução, portanto dá no mesmo — mas assim
+    mudá-las devolve o provedor certo em vez do primeiro que calhou, que
+    é o que os testes desta fábrica esperam, e com razão: uma cache que
+    ignora a configuração é uma armadilha à espera de quem a mude.
     """
-    provider = (settings.embedding_provider or "").lower()
+    return _provedor_de_embeddings(
+        (settings.embedding_provider or "").lower(),
+        settings.embedding_model_local,
+        settings.embedding_model_ollama,
+        settings.embedding_model_bedrock,
+        settings.bedrock_region,
+        settings.openai_api_key,
+        bool(settings.use_local_models),
+    )
+
+
+@lru_cache(maxsize=8)
+def _provedor_de_embeddings(
+    provider: str,
+    modelo_local: Optional[str],
+    modelo_ollama: Optional[str],
+    modelo_bedrock: Optional[str],
+    regiao_bedrock: Optional[str],
+    chave_openai: Optional[str],
+    modelos_locais_legado: bool,
+) -> EmbeddingProvider:
+    """A construção propriamente dita, memorizada pelos seus argumentos.
+
+    Os argumentos são as definições que decidem o resultado. Passá-los
+    explicitamente — em vez de ler ``settings`` aqui dentro — é o que
+    torna a memorização correcta: duas configurações diferentes dão dois
+    provedores diferentes, e a mesma configuração dá sempre o mesmo.
+    """
     if provider == "local":
         # Em-processo, via ONNX. Não fala com a rede — existe porque a
         # inferência on-demand do Bedrock está bloqueada ao nível da conta
         # e o proxy mantle não serve modelos de embedding.
         from core.rag.embeddings import LocalEmbeddingProvider
 
-        return LocalEmbeddingProvider(model=settings.embedding_model_local)
+        return LocalEmbeddingProvider(model=modelo_local)
     if provider == "bedrock":
         from core.rag.embeddings import BedrockEmbeddingProvider
 
         return BedrockEmbeddingProvider(
-            model=settings.embedding_model_bedrock,
-            region=settings.bedrock_region,
+            model=modelo_bedrock,
+            region=regiao_bedrock,
         )
     if provider == "ollama":
         # Pass the model explicitly. The provider's own default is
         # nomic-embed-text (768 dims); a deployment backing a 1024-dim
         # pgvector column needs mxbai-embed-large, and with no argument
         # here there was no way to ask for it.
-        return OllamaEmbeddingProvider(model=settings.embedding_model_ollama)
+        return OllamaEmbeddingProvider(model=modelo_ollama)
     if provider == "openai":
         from core.rag.embeddings import OpenAIEmbeddingProvider
 
         # Do NOT pass model=settings.embedding_model — that field defaults to
         # a Bedrock model name (amazon.titan-embed-text-v2:0) and causes 404s.
         # OpenAIEmbeddingProvider uses text-embedding-3-large as its own default.
-        return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+        return OpenAIEmbeddingProvider(api_key=chave_openai)
     # Fallback to the legacy use_local_models toggle for setups that
     # haven't migrated to the explicit setting yet.
-    if settings.use_local_models:
+    if modelos_locais_legado:
         return OllamaEmbeddingProvider()
     from core.rag.embeddings import OpenAIEmbeddingProvider
 
-    return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+    # O argumento, não `settings`: ler as definições aqui dentro furava a
+    # memorização — a cache é pelos argumentos, e o que ela não vê não a
+    # invalida.
+    return OpenAIEmbeddingProvider(api_key=chave_openai)
