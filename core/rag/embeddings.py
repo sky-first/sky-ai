@@ -511,24 +511,28 @@ async def create_embeddings_for_table_metadata(
 
 
 def get_embedding_provider() -> EmbeddingProvider:
+    """O mesmo provedor que o resto da aplicação usa. Uma fábrica só.
+
+    ── Havia duas, e discordavam. ───────────────────────────────────────
+
+    Esta não conhecia o modo ``local``: com ``EMBEDDING_PROVIDER=local``,
+    que é o que produção tem, caía no fim e devolvia **Ollama** — outro
+    serviço, outro modelo, e por omissão 768 dimensões contra as 1024 que
+    a coluna ``Vector`` espera.
+
+    Quem chamava esta era a ingestão de ficheiros
+    (``core/ingestion/service.py``). Ninguém deu por isso porque a tabela
+    ``knowledge_file_chunks`` está vazia em produção: o caminho existe e
+    nunca correu a sério. No dia em que corresse, ou rebentava na
+    dimensão, ou — pior — gravava vectores de outro modelo ao lado dos
+    bons, e a pesquisa degradava-se em silêncio.
+
+    Passa a delegar. A escolha do provedor vive em
+    ``core.llm.factory.create_embedding_provider``, que também garante
+    **uma instância por processo** — cada uma carrega ~1,5 GB de modelo,
+    e foi isso que matou o serviço a 02/09/2026.
     """
-    Factory function to return the correct embedding provider based on settings.
+    from core.llm.factory import create_embedding_provider
 
-    Uses ``settings.embedding_provider`` (which may be overridden independently
-    from ``AI_PROVIDER`` via the ``EMBEDDING_PROVIDER`` env var) rather than
-    ``settings.ai_provider`` directly.
-    """
-    from config.settings import settings
+    return create_embedding_provider()
 
-    # settings.embedding_provider is resolved by the model_validator:
-    # it mirrors AI_PROVIDER unless EMBEDDING_PROVIDER is set explicitly.
-    provider_type = (settings.embedding_provider or settings.ai_provider).lower()
-
-    if provider_type == "openai":
-        return OpenAIEmbeddingProvider()
-
-    if provider_type == "bedrock":
-        return BedrockEmbeddingProvider()
-
-    # Default to Ollama
-    return OllamaEmbeddingProvider()
