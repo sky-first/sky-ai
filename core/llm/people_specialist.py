@@ -10,6 +10,7 @@ import logging
 from typing import Any, Dict, List
 from core.llm._brain_prompt import prepend_brain_context
 from core.logging_utils import log_event
+from core.llm.lingua_da_resposta import lingua_de_quem_fala, nome_da_lingua
 
 logger = logging.getLogger("dataassistant")
 
@@ -21,7 +22,7 @@ Answer the user's question using ONLY the data below.
 Be specific about team membership, activity levels, and organizational context.
 Do NOT reveal sensitive personal information — focus on roles and activity patterns.
 
-Respond in the same language as the user's question.
+Answer ONLY in {lingua}. This is not a preference — the reader may not read English.
 
 ## Spaces (Departments)
 {spaces_text}
@@ -97,6 +98,7 @@ def run_people_specialist(
         return state
 
     prompt = SYSTEM_PROMPT.format(
+        lingua=nome_da_lingua(lingua_de_quem_fala(state, question)),
         spaces_text=_format_spaces(spaces),
         crews_text=_format_crews(crews),
         users_text=_format_users(users),

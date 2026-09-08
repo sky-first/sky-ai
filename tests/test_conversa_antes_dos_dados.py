@@ -264,7 +264,7 @@ def test_so_entram_palavras_de_uma_lingua_so():
     depender da ordem do dicionario — que e exactamente o tipo de defeito
     que nao da erro e so se ve no ecra de um cliente.
     """
-    from core.llm.conversa_specialist import _CUMPRIMENTOS_POR_LINGUA
+    from core.llm.lingua_da_resposta import _CUMPRIMENTOS_POR_LINGUA
 
     vistas = {}
     for lang, frases in _CUMPRIMENTOS_POR_LINGUA.items():
@@ -279,11 +279,11 @@ def test_uma_pergunta_a_serio_nao_e_lida_como_cumprimento():
     Aqui nao chega a ser um problema — a intencao ja a mandou para os
     dados — mas a funcao tem de estar certa por si.
     """
-    from core.llm.conversa_specialist import _lingua_do_cumprimento
+    from core.llm.lingua_da_resposta import lingua_do_cumprimento
 
-    assert _lingua_do_cumprimento("obrigado") == "pt"
-    assert _lingua_do_cumprimento("obrigadissimo pelo trabalho") is None
-    assert _lingua_do_cumprimento("") is None
+    assert lingua_do_cumprimento("obrigado") == "pt"
+    assert lingua_do_cumprimento("obrigadissimo pelo trabalho") is None
+    assert lingua_do_cumprimento("") is None
 
 
 def test_uma_frase_em_portugues_recebe_instrucoes_em_portugues():
