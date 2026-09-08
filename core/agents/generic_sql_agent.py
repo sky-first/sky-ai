@@ -961,6 +961,11 @@ def build_generic_sql_graph(
         intent = classify_question_intent(
             question=state.get("question", ""),
             has_data_sources=has_tables,
+            # O modelo so e chamado quando a pergunta nao tem sinal
+            # nenhum de negocio — «qual a capital da Australia» chega la,
+            # «receita por regiao» nunca. E o do orquestrador porque e o
+            # mais barato dos tres, e isto e uma palavra de resposta.
+            llm=llm_orchestrator,
         )
         print(
             f"[INTENT_CLASSIFIER] question='{state.get('question', '')[:60]}' -> intent={intent.value} (has_tables={has_tables})"

@@ -160,7 +160,10 @@ _CONVERSA_PATTERNS = re.compile(
     r"hello|hi|hey|good\s*(morning|afternoon|evening)|"
     r"hola|buenos\s*d[ií]as|buenas\s*(tardes|noches)|"
     # como estas
-    r"tudo\s*(bem|bom)|como\s*(vai|est[aá]s?|vais)|"
+    # «vao» e «estao» faltavam: «Como vao as coisas por ai?» — que E um
+    # cumprimento — ia aos dados. Tem de estar nos dois sitios, aqui e em
+    # `_ABERTURAS_AMBIGUAS`; so num nao chega, e foi o que me aconteceu.
+    r"tudo\s*(bem|bom)|como\s*(vai|est[aá]s?|vais|v[aã]o|est[aã]o)|"
     r"how\s*(are|is\s*it\s*going)|what'?s\s*up|"
     r"qu[eé]\s*tal|c[oó]mo\s*est[aá]s?|"
     # agradecimentos e despedidas
@@ -176,6 +179,49 @@ _CONVERSA_PATTERNS = re.compile(
 #: agradecimento — e um pedido com boas maneiras. Contado em palavras,
 #: porque «obrigado» e «gracias» tem comprimentos diferentes.
 _MAX_PALAVRAS_DE_CONVERSA = 8
+
+
+#: ⚠️ Aberturas que servem para cumprimentar **e** para perguntar.
+#:
+#: «Como está?» e um cumprimento. «Como está a correr o mes?» e uma
+#: pergunta a serio — e o padrao de cumprimento roubava-a, porque casa
+#: com «como esta» e o resto da frase nao tem vocabulario de negocio
+#: nenhum. Encontrei cinco assim, todas a irem parar a conversa:
+#:
+#:     conversa  | Como esta a correr o mes?
+#:     conversa  | Como esta o projeto Alfa?
+#:     conversa  | Como vai o pipeline?
+#:     conversa  | Como esta a equipa?
+#:     conversa  | Tudo bem com o fecho?
+#:
+#: E, com ironia, «Como vao as coisas por ai?» — que E um cumprimento —
+#: ia aos dados.
+#:
+#: «Ola» e «bom dia» nao entram nesta lista: ninguem comeca uma pergunta
+#: de negocio com «ola» sem virgula, e quando comeca a virgula separa-as.
+_ABERTURAS_AMBIGUAS = re.compile(
+    r"^\s*("
+    r"tudo\s*(bem|bom)|"
+    # «vao» faltava aqui e no padrao principal: «Como vao as coisas por
+    # ai?» — que E um cumprimento — ia aos dados. Anterior a isto.
+    r"como\s*(vai|vais|v[aã]o|est[aá]s?|est[aã]o)|"
+    r"qu[eé]\s*tal|c[oó]mo\s*est[aá]s?|c[oó]mo\s*va[ns]?|"
+    r"how\s*(are|is\s*it\s*going)|what'?s\s*up|how'?s\s*it\s*going"
+    r")",
+    re.IGNORECASE,
+)
+
+#: O que pode vir a seguir a uma abertura ambigua sem deixar de ser um
+#: cumprimento. Fora disto, ha um assunto — e um assunto faz da frase uma
+#: pergunta.
+_CAUDA_DE_CUMPRIMENTO = re.compile(
+    r"^[\s,.!?¿¡]*"
+    r"(por\s*(a[ií]|l[aá])|contigo|com\s*voc[eê]s?|voc[eê]s?|tu|you|"
+    r"hoje|ent[aã]o|a[ií]|tudo|as\s*coisas(\s*por\s*a[ií])?|"
+    r"with\s*you|there|today)?"
+    r"[\s,.!?]*$",
+    re.IGNORECASE,
+)
 
 
 def _parece_conversa(q: str) -> bool:
@@ -207,6 +253,21 @@ def _parece_conversa(q: str) -> bool:
         return False
     if len(q.split()) > _MAX_PALAVRAS_DE_CONVERSA:
         return False
+
+    # Uma abertura ambigua so e um cumprimento se nao vier assunto atras.
+    # «Como esta?» sim; «Como esta a correr o mes?» nao.
+    ambigua = _ABERTURAS_AMBIGUAS.match(q)
+    if ambigua:
+        if not _CAUDA_DE_CUMPRIMENTO.match(q[ambigua.end() :]):
+            return False
+        # E se a cauda esta na lista, e cumprimento e acabou — sem passar
+        # pela regra dos zero sinais.
+        #
+        # «Como estas hoje?» morria la: «hoje» conta como sinal de dados.
+        # Mas ali nao ha assunto nenhum, so um adverbio — e a lista de
+        # caudas e fechada e nao tem um unico substantivo de negocio.
+        # Uma frase feita so de abertura e cauda nao tem do que falar.
+        return True
 
     # Zero sinais. Nao «poucos» — zero. Na duvida, a pergunta vai ao
     # motor: uma pergunta de negocio respondida com «ola!» e muito pior
@@ -305,6 +366,43 @@ def classify_question_intent(
     widgets_score = len(_WIDGETS_PATTERNS.findall(q))
     catalog_score = len(_CATALOG_PATTERNS.findall(q))
     data_score = len(_DATA_BOOST_PATTERNS.findall(q))
+
+    # ── Zero sinais: perguntar ao modelo em vez de adivinhar ─────────
+    #
+    # O Lucas, depois de eu ter corrigido «quantos graus fazem hoje em
+    # Lisboa» com uma lista de assuntos escrita a mao:
+    #
+    #     «essa e uma pergunta qualquer, poderia ser qual o nome do
+    #     presidente do Brasil, voce trata como?»
+    #
+    # Tratava mal. Provei-o em producao: so apanhava o que estava na
+    # lista. Presidente do Brasil, capital da Australia, uma piada — tudo
+    # ia ao motor de SQL.
+    #
+    # A causa esta no fundo: o que nao pontua em nada cai no valor por
+    # omissao, que e `data`. Adivinhar por palavras funciona para
+    # reconhecer NEGOCIO — o vocabulario e finito e e nosso. Nao funciona
+    # para reconhecer O MUNDO, que nao e.
+    #
+    # ⚠️ So aqui, e so com zero sinais de tudo. «Receita por regiao» nunca
+    # chega a esta linha; «qual a capital da Australia» chega sempre. Uma
+    # pergunta de negocio nunca gasta a chamada.
+    #
+    # Seguranca em `core/intent/perguntar_ao_modelo.py` e no desenho em
+    # `docs/perguntar-ao-modelo-em-vez-de-adivinhar.md`.
+    if llm is not None and 0 == (
+        data_score
+        + strategy_score
+        + signals_score
+        + relationships_score
+        + people_score
+        + widgets_score
+        + catalog_score
+    ):
+        from core.intent.perguntar_ao_modelo import e_pergunta_sobre_o_mundo
+
+        if e_pergunta_sobre_o_mundo(q, llm):
+            return QuestionIntent.CONVERSA
 
     # Catalog is high-priority if detected
     if catalog_score > 0 and data_score == 0:
