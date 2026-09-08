@@ -32,6 +32,14 @@ class QuestionIntent(str, Enum):
     MIXED = "mixed"  # Needs multiple sources
     CATALOG = "catalog"  # "What tables do I have?"
     DASHBOARD = "dashboard"  # Dashboard generation
+    # Conversa: cumprimentos, agradecimentos, e o que nao tem nada a ver
+    # com os dados de ninguem.
+    #
+    # Nao existia, e por isso «bom dia» — que nao pontua em padrao nenhum
+    # — caia no valor por omissao, que e `data`. Um cumprimento virava
+    # uma tentativa de gerar SQL, falhava, e a pessoa recebia a formula
+    # de erro. Ver `core/llm/conversa_specialist.py`.
+    CONVERSA = "conversa"
 
 
 # ── Fast regex patterns (zero cost) ────────────────────────────
@@ -129,8 +137,106 @@ _CATALOG_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# ── Conversa ─────────────────────────────────────────────────────────
+#
+# Cumprimentos, despedidas, agradecimentos e o «como estás». Nas tres
+# linguas que a app fala, porque quem escreve «bom dia» nao muda de
+# lingua para ser percebido.
+#
+# ⚠️ Deliberadamente **curto**. Estes padroes correm ANTES de tudo o
+# resto e ganham; um padrao largo de mais rouba perguntas de negocio
+# legitimas e manda-as para uma resposta de conversa — que e um defeito
+# muito pior do que o que se esta a corrigir.
+#
+# «Obrigado pelo relatorio de vendas» nao pode virar conversa. Por isso
+# a regra nao e so o padrao: e o padrao **e** a frase ser curta. Ver
+# `_parece_conversa`.
+_CONVERSA_PATTERNS = re.compile(
+    r"^\s*("
+    # cumprimentos
+    r"ol[aá]|oi|bom\s*dia|boa\s*tarde|boa\s*noite|"
+    r"hello|hi|hey|good\s*(morning|afternoon|evening)|"
+    r"hola|buenos\s*d[ií]as|buenas\s*(tardes|noches)|"
+    # como estas
+    r"tudo\s*(bem|bom)|como\s*(vai|est[aá]s?|vais)|"
+    r"how\s*(are|is\s*it\s*going)|what'?s\s*up|"
+    r"qu[eé]\s*tal|c[oó]mo\s*est[aá]s?|"
+    # agradecimentos e despedidas
+    r"obrigad[oa]|valeu|thanks?|thank\s*you|gracias|"
+    r"adeus|at[eé]\s*(logo|j[aá])|bye|good\s*bye|hasta\s*luego|"
+    # testes de microfone — o «1 2 3» do Lucas
+    r"(um|dois|tr[eê]s|one|two|three|uno|dos|tres|\d)(\s*[,.]?\s*(um|dois|tr[eê]s|one|two|three|uno|dos|tres|\d))+"
+    r")\b",
+    re.IGNORECASE,
+)
+
+#: Acima disto, uma frase que comeca por «obrigado» ja nao e um
+#: agradecimento — e um pedido com boas maneiras. Contado em palavras,
+#: porque «obrigado» e «gracias» tem comprimentos diferentes.
+_MAX_PALAVRAS_DE_CONVERSA = 8
+
+
+def _parece_conversa(q: str) -> bool:
+    """Um cumprimento, e nao um pedido educado.
+
+    **Tres condicoes, as tres obrigatorias.** O padrao sozinho nao
+    chegava: «Obrigado, agora mostra-me as vendas do trimestre» comeca
+    por «obrigado», tem oito palavras, e passava — mandar isso para a
+    conversa era trocar um defeito por outro pior.
+
+    Por isso a terceira condicao, que e a que decide: a frase nao pode
+    ter **nenhum** sinal de negocio. Se tem, e uma pergunta com boas
+    maneiras, e vai para o motor como qualquer outra.
+    """
+    if not _CONVERSA_PATTERNS.match(q):
+        return False
+    if len(q.split()) > _MAX_PALAVRAS_DE_CONVERSA:
+        return False
+
+    # Zero sinais. Nao «poucos» — zero. Na duvida, a pergunta vai ao
+    # motor: uma pergunta de negocio respondida com «ola!» e muito pior
+    # do que um «ola» respondido com dados.
+    for padrao in (
+        _DATA_BOOST_PATTERNS,
+        _STRATEGY_PATTERNS,
+        _SIGNALS_PATTERNS,
+        _RELATIONSHIPS_PATTERNS,
+        _PEOPLE_PATTERNS,
+        _WIDGETS_PATTERNS,
+        _CATALOG_PATTERNS,
+    ):
+        if padrao.search(q):
+            return False
+    return True
+
 _DATA_BOOST_PATTERNS = re.compile(
     r"\b("
+    # ── Portugues e espanhol ──────────────────────────────────────
+    #
+    # Estes padroes eram **so em ingles**, num produto cuja interface
+    # esta em portugues. «Show me total revenue» era reconhecida como
+    # pergunta de dados; «Mostra-me a receita total» nao pontuava em
+    # nada e caia no valor por omissao.
+    #
+    # Dava certo por acidente — o valor por omissao TAMBEM e `data` —
+    # mas so por acidente: qualquer regra que dependa da pontuacao (a
+    # da conversa, agora, e o desempate entre intencoes) via zero onde
+    # devia ver um sinal forte.
+    #
+    # Descoberto a corrigir outra coisa: «obrigado, agora mostra-me as
+    # vendas do trimestre» ia parar a conversa, porque «vendas» nao
+    # existia aqui e «sales» existia.
+    r"quant[oa]s?|quanto|"
+    r"receita|faturacao|faturação|vendas|clientes?|encomendas?|pedidos?|"
+    r"fatura|faturas|pagamentos?|"
+    r"m[eé]dia|soma|total|totais|"
+    r"m[eê]s.?passado|este.?m[eê]s|ontem|hoje|trimestre|"
+    r"agrupad[oa]|por.?regi[aã]o|"
+    r"crescimento|abandono|cancelamentos?|"
+    r"ingresos|ventas|facturaci[oó]n|promedio|"
+    r"mes.?pasado|este.?mes|ayer|hoy|trimestre|"
+    r"crecimiento|abandono|cancelaciones|"
+    # ── Ingles ────────────────────────────────────────────────────
     r"how.?many|how.?much|count|total|sum|average|"
     r"select|query|sql|"
     r"revenue|sales|invoice|payment|customers?|orders?|"
@@ -168,6 +274,13 @@ def classify_question_intent(
     q = question.strip()
     if not q:
         return QuestionIntent.DATA
+
+    # Conversa primeiro, e antes de pontuar seja o que for. Um «bom dia»
+    # nao pontua em padrao nenhum e caia no valor por omissao — que e
+    # `data`. Virava uma tentativa de gerar SQL, falhava, e a pessoa
+    # recebia a formula de erro.
+    if _parece_conversa(q):
+        return QuestionIntent.CONVERSA
 
     # Score each intent
     strategy_score = len(_STRATEGY_PATTERNS.findall(q))
