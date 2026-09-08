@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from core.llm._brain_prompt import prepend_brain_context
 from core.logging_utils import log_event
+from core.llm.lingua_da_resposta import lingua_de_quem_fala, nome_da_lingua
 
 logger = logging.getLogger("dataassistant")
 
@@ -28,7 +29,7 @@ If relevant, mention potential business impact.
 
 If the data doesn't contain enough information to answer, say so clearly.
 
-Respond in the same language as the user's question.
+Answer ONLY in {lingua}. This is not a preference — the reader may not read English.
 
 ## Events & Signals Data
 {events_text}
@@ -131,7 +132,10 @@ def run_events_specialist(
 
     # Build prompt
     events_text = _format_events_for_prompt(events)
-    system_prompt = EVENTS_SYSTEM_PROMPT.format(events_text=events_text)
+    system_prompt = EVENTS_SYSTEM_PROMPT.format(
+        events_text=events_text,
+        lingua=nome_da_lingua(lingua_de_quem_fala(state, question)),
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},

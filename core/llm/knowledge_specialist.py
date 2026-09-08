@@ -21,6 +21,7 @@ import logging
 from typing import Any, Dict, List
 
 from core.logging_utils import log_event
+from core.llm.lingua_da_resposta import lingua_de_quem_fala, nome_da_lingua
 
 logger = logging.getLogger("dataassistant")
 
@@ -51,7 +52,7 @@ asks about a term, surface the term + its catalog definition. When
 it asks how things connect, surface the relationship (sources →
 target, type, confidence if any).
 
-Respond in the same language as the user's question.
+Answer ONLY in {lingua}. This is not a preference — the reader may not read English.
 
 ## Knowledge catalog
 {knowledge_block}
@@ -283,7 +284,10 @@ def run_knowledge_specialist(
         return state
 
     knowledge_block = _build_knowledge_block(metrics, glossary, relationships)
-    system_prompt = KNOWLEDGE_SYSTEM_PROMPT.format(knowledge_block=knowledge_block)
+    system_prompt = KNOWLEDGE_SYSTEM_PROMPT.format(
+        knowledge_block=knowledge_block,
+        lingua=nome_da_lingua(lingua_de_quem_fala(state, question)),
+    )
 
     evidence = _build_evidence_chunks(metrics, glossary, relationships, question)
     if evidence:
