@@ -1229,6 +1229,25 @@ def build_generic_sql_graph(
             state=state, llm=dynamic_llm, backend_client=client
         )
 
+    def conversa_specialist_node(state: AgentState) -> AgentState:
+        """Responde de conversa, sem tocar em dados.
+
+        «Bom dia» nao pontuava em padrao nenhum e caia no valor por
+        omissao — que e `data`. Virava uma tentativa de gerar SQL, e a
+        pessoa recebia a formula de erro.
+        """
+        from core.llm.conversa_specialist import run_conversa_specialist
+        from core.llm.factory import create_llm_formatter
+
+        dynamic_llm = (
+            create_llm_formatter(
+                creativity=state.get("creativity"), length=state.get("length")
+            )
+            if state.get("creativity") is not None or state.get("length") is not None
+            else llm_formatter
+        )
+        return run_conversa_specialist(state=state, llm=dynamic_llm)
+
     # ── Multi-agent: Widgets & History Specialist Node ─────
     def widgets_specialist_node(state: AgentState) -> AgentState:
         """Answers about existing dashboards, widgets, past AI insights."""
@@ -1344,6 +1363,7 @@ def build_generic_sql_graph(
     graph.add_node("relationships_specialist", relationships_specialist_node)
     graph.add_node("people_specialist", people_specialist_node)
     graph.add_node("widgets_specialist", widgets_specialist_node)
+    graph.add_node("conversa_specialist", conversa_specialist_node)
     graph.add_node("mixed_planner", mixed_planner_node)
     graph.add_node("mixed_merger", mixed_merger_node)
 
@@ -1361,6 +1381,7 @@ def build_generic_sql_graph(
             "relationships": "relationships_specialist",
             "people": "people_specialist",
             "widgets": "widgets_specialist",
+            "conversa": "conversa_specialist",
             "mixed": "mixed_planner",
         }
         return routing.get(intent, "orchestrator")
@@ -1399,6 +1420,7 @@ def build_generic_sql_graph(
             "relationships_specialist": "relationships_specialist",
             "people_specialist": "people_specialist",
             "widgets_specialist": "widgets_specialist",
+            "conversa_specialist": "conversa_specialist",
             "mixed_planner": "mixed_planner",
             "orchestrator": "orchestrator",
         },
@@ -1413,6 +1435,7 @@ def build_generic_sql_graph(
     graph.add_edge("relationships_specialist", END)
     graph.add_edge("people_specialist", END)
     graph.add_edge("widgets_specialist", END)
+    graph.add_edge("conversa_specialist", END)
 
     # mixed_planner → parallel_specialist (unified executor)
     graph.add_edge("mixed_planner", "parallel_specialist")
