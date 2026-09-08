@@ -16,6 +16,8 @@ import logging
 from enum import Enum
 from typing import Optional
 
+from core.intent.perguntas_sobre_o_mundo import parece_do_mundo
+
 logger = logging.getLogger("dataassistant")
 
 
@@ -188,6 +190,19 @@ def _parece_conversa(q: str) -> bool:
     ter **nenhum** sinal de negocio. Se tem, e uma pergunta com boas
     maneiras, e vai para o motor como qualquer outra.
     """
+    # ── A segunda porta: perguntas sobre o mundo ─────────────────────
+    #
+    # «Quantos graus fazem hoje em Lisboa?» — o exemplo que o Lucas deu —
+    # nao e um cumprimento, tem seis palavras, e traz DOIS sinais de
+    # negocio («quantos», «hoje»). Falhava nas tres condicoes e ia ao
+    # motor de SQL procurar uma tabela de meteorologia. Vi-o em producao.
+    #
+    # Isto ganha ao sinal de negocio, e e a unica coisa que o faz. Os
+    # padroes estao escritos com esse medo — ver o modulo, e sobretudo a
+    # lista de quase-erros nos testes.
+    if parece_do_mundo(q):
+        return True
+
     if not _CONVERSA_PATTERNS.match(q):
         return False
     if len(q.split()) > _MAX_PALAVRAS_DE_CONVERSA:
