@@ -201,3 +201,133 @@ def test_uma_resposta_vazia_tambem_cai_na_reserva():
         {"question": "bom dia", "detected_language": "pt"}, _LlmFalso("   ")
     )
     assert estado["answer"].strip()
+
+
+# ── A lingua da resposta ─────────────────────────────────────────────
+#
+# Apanhado EM PRODUCAO, minutos depois de publicar a primeira versao.
+# Perguntei «Bom dia! Como vai por ai?» e recebi «Good morning! I'm doing
+# well». Em portugues limpo, resposta em ingles — exactamente o defeito
+# que este ficheiro veio corrigir.
+#
+# O estado nao trazia lingua nenhuma: nos caminhos de dados ela e
+# detectada mais acima no grafo, e este no e o primeiro a responder.
+
+
+CUMPRIMENTOS_POR_LINGUA = [
+    # Os curtos — os que o detector se recusa a julgar (< 8 caracteres).
+    ("bom dia", "pt"),
+    ("ola", "pt"),
+    ("olá", "pt"),
+    ("oi", "pt"),
+    ("hola", "es"),
+    ("gracias", "es"),
+    ("hello", "en"),
+    ("hi", "en"),
+    ("thanks", "en"),
+    # E os longos, que ja la chegam pelo detector.
+    ("Bom dia! Como vai por ai?", "pt"),
+    ("Boa tarde, tudo bem?", "pt"),
+    ("Buenos dias, que tal?", "es"),
+    ("Good morning! How are you?", "en"),
+    # E estas nao sao cumprimentos: passam mesmo pelo detector. A
+    # primeira e o exemplo do Lucas — «quantos graus fazem hoje em
+    # Lisboa» — que e conversa e nao dados.
+    ("Como esta o tempo hoje em Lisboa?", "pt"),
+    ("What is the weather like today?", "en"),
+    ("Cuantos grados hace hoy en Madrid?", "es"),
+]
+
+
+@pytest.mark.parametrize("frase,esperada", CUMPRIMENTOS_POR_LINGUA)
+def test_a_lingua_vem_da_frase_quando_o_estado_nao_a_diz(frase, esperada):
+    from core.llm.conversa_specialist import _lingua
+
+    assert _lingua({}, frase) == esperada, (
+        f"{frase!r} ia ser respondida em {_lingua({}, frase)!r}"
+    )
+
+
+def test_o_estado_manda_sobre_a_deteccao():
+    """Quem passa a lingua sabe mais do que um detector."""
+    from core.llm.conversa_specialist import _lingua
+
+    assert _lingua({"detected_language": "pt"}, "Good morning") == "pt"
+    assert _lingua({"locale": "es-ES"}, "Good morning") == "es"
+    assert _lingua({"locale": "pt_BR"}, "Good morning") == "pt"
+
+
+def test_so_entram_palavras_de_uma_lingua_so():
+    """A lista curta so funciona se nao houver palavras repetidas.
+
+    Se «hola» estivesse em PT e em ES, a lingua escolhida passava a
+    depender da ordem do dicionario — que e exactamente o tipo de defeito
+    que nao da erro e so se ve no ecra de um cliente.
+    """
+    from core.llm.conversa_specialist import _CUMPRIMENTOS_POR_LINGUA
+
+    vistas = {}
+    for lang, frases in _CUMPRIMENTOS_POR_LINGUA.items():
+        for f in frases:
+            assert f not in vistas, f"{f!r} esta em {vistas[f]!r} e em {lang!r}"
+            vistas[f] = lang
+
+
+def test_uma_pergunta_a_serio_nao_e_lida_como_cumprimento():
+    """«obrigado, agora mostra-me as vendas» comeca por um cumprimento.
+
+    Aqui nao chega a ser um problema — a intencao ja a mandou para os
+    dados — mas a funcao tem de estar certa por si.
+    """
+    from core.llm.conversa_specialist import _lingua_do_cumprimento
+
+    assert _lingua_do_cumprimento("obrigado") == "pt"
+    assert _lingua_do_cumprimento("obrigadissimo pelo trabalho") is None
+    assert _lingua_do_cumprimento("") is None
+
+
+def test_uma_frase_em_portugues_recebe_instrucoes_em_portugues():
+    """A prova de ponta a ponta do defeito de producao.
+
+    Sem `locale`, sem `detected_language` — como veio do servidor.
+    """
+    from core.llm.conversa_specialist import run_conversa_specialist
+
+    llm = _LlmFalso("ola")
+    run_conversa_specialist({"question": "Bom dia! Como vai por ai?"}, llm)
+
+    assert "Portuguese" in llm.chamadas[0][0]["content"]
+
+
+def test_a_reserva_tambem_sai_na_lingua_certa_sem_locale():
+    """Se o modelo cair num «bom dia», a frase de reserva e portuguesa."""
+    from core.llm.conversa_specialist import run_conversa_specialist
+
+    estado = run_conversa_specialist({"question": "bom dia"}, _LlmFalso(rebenta=True))
+    assert estado["answer"].startswith("Olá"), estado["answer"]
+
+
+def test_a_escolha_nao_depende_do_detector_estar_instalado():
+    """Porque foi assim que este defeito passou pelos testes locais.
+
+    Localmente o `lingua` nao esta instalado e usa-se o detector de
+    reserva; no servidor esta. O teste passava aqui e chumbava la, com o
+    mesmo codigo — e a diferenca nao aparecia em lado nenhum.
+
+    Os cumprimentos curtos nao podem depender de qual dos dois esta a
+    correr: sao decididos antes de qualquer detector ser chamado.
+    """
+    import core.i18n.i18n as i18n
+    from core.llm.conversa_specialist import _lingua
+
+    def _explode(*a, **k):  # pragma: no cover - so para provar o ponto
+        raise AssertionError("nao devia ter chamado o detector")
+
+    original = i18n.resolve_language
+    i18n.resolve_language = _explode
+    try:
+        assert _lingua({}, "bom dia") == "pt"
+        assert _lingua({}, "hola") == "es"
+        assert _lingua({}, "hello") == "en"
+    finally:
+        i18n.resolve_language = original
