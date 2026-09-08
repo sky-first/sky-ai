@@ -1538,8 +1538,22 @@ async def chat_bootstrap(
     from core.i18n.i18n import detect_language
     from uuid import UUID
 
+    # ── O espanhol vinha aqui morrer. ────────────────────────────────
+    #
+    # Esta linha era `if lang not in {"en", "pt"}` — uma segunda copia da
+    # lista de linguas, escrita a mao e com uma a menos. Quem abrisse a
+    # app em espanhol recebia as sugestoes em ingles: sem erro, sem
+    # registo, so na lingua errada.
+    #
+    # O motor ja sabe quais sao (`SUPPORTED_LANGUAGES = {"en","pt","es"}`)
+    # e a app tambem (`LINGUAS`). Havia tres listas e duas concordavam.
+    #
+    # Passa a ler a do motor. Acrescentar uma lingua deixa de exigir que
+    # alguem se lembre deste sitio.
+    from core.i18n.i18n import SUPPORTED_LANGUAGES
+
     lang = (body.language or "en").lower()
-    if lang not in {"en", "pt"}:
+    if lang not in SUPPORTED_LANGUAGES:
         lang = "en"
 
     # ✅ Feature Flag: Pausar Bootstrap se solicitado
@@ -1930,7 +1944,27 @@ async def chat_bootstrap(
         "\n"
         "REQUIRED: Each question must:\n"
         "- Be about BUSINESS PERFORMANCE or METRICS\n"
-        "- Use the actual column names from the schema (but phrase naturally)\n"
+        # ── Ler as colunas, sim. Escreve-las na pergunta, nao. ────────
+        #
+        # Isto dizia «Use the actual column names from the schema (but
+        # phrase naturally)», e o modelo cumpria a primeira metade e
+        # ignorava a segunda. O Lucas apanhou o resultado no telemovel:
+        #
+        #     «Qual e o total de amount das oportunidades agrupado por
+        #      region das contas?»
+        #
+        # Meia frase em portugues e meia em ingles. E a instrucao
+        # contradizia a proibicao tres linhas acima, que ja dizia para
+        # nao fazer perguntas sobre colunas.
+        #
+        # A intencao era: baseia-te nas colunas REAIS para a pergunta ter
+        # resposta. Nao era: cola os nomes delas no meio da frase.
+        "- Be GROUNDED in the real columns, so the question can be answered —\n"
+        "  but NEVER write a raw column or table name in the question text.\n"
+        "  Translate every field into the business word a person would say,\n"
+        "  in the SAME LANGUAGE as the rest of the question.\n"
+        "  BAD:  'Qual e o total de amount agrupado por region?'\n"
+        "  GOOD: 'Qual e o valor total das oportunidades por regiao?'\n"
         "- Return meaningful business insights when executed\n"
         "- Be unique and non-repetitive\n"
         "- Avoid time-based filters that might return no data\n"
@@ -2182,8 +2216,14 @@ async def dashboards_plan(
     Generate a dashboard plan ("Davinci") for the given connection.
     This does not execute queries; it only proposes widgets/questions.
     """
+    # A terceira copia da lista de linguas neste ficheiro. Esta estava
+    # certa; a das sugestoes tinha uma a menos e apagava o espanhol em
+    # silencio. Tres copias, duas a concordar — a que discordava foi a que
+    # chegou ao ecra do Lucas.
+    from core.i18n.i18n import SUPPORTED_LANGUAGES
+
     lang = (body.language or "en").lower()
-    if lang not in {"en", "pt", "es"}:
+    if lang not in SUPPORTED_LANGUAGES:
         lang = "en"
 
     agent_config = None
