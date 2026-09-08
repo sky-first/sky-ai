@@ -201,3 +201,41 @@ def test_uma_resposta_vazia_tambem_cai_na_reserva():
         {"question": "bom dia", "detected_language": "pt"}, _LlmFalso("   ")
     )
     assert estado["answer"].strip()
+
+
+# ── A lingua da resposta ─────────────────────────────────────────────
+#
+# Apanhado EM PRODUCAO, minutos depois de publicar a primeira versao.
+# Perguntei «Bom dia! Como vai por ai?» e recebi «Good morning! I'm doing
+# well». Em portugues limpo, resposta em ingles — exactamente o defeito
+# que este ficheiro veio corrigir.
+#
+# O estado nao trazia lingua nenhuma: nos caminhos de dados ela e
+# detectada mais acima no grafo, e este no e o primeiro a responder.
+
+
+def test_a_lingua_vem_da_frase_quando_o_estado_nao_a_diz():
+    from core.llm.conversa_specialist import _lingua
+
+    assert _lingua({}, "Bom dia! Como vai por ai?") == "pt"
+    assert _lingua({}, "Good morning! How are you?") == "en"
+    assert _lingua({}, "Buenos dias, que tal?") == "es"
+
+
+def test_o_estado_manda_sobre_a_deteccao():
+    """Quem passa a lingua sabe mais do que um detector."""
+    from core.llm.conversa_specialist import _lingua
+
+    assert _lingua({"detected_language": "pt"}, "Good morning") == "pt"
+    assert _lingua({"locale": "es-ES"}, "Good morning") == "es"
+
+
+def test_uma_frase_em_portugues_recebe_instrucoes_em_portugues():
+    """A prova de ponta a ponta do defeito de producao."""
+    from core.llm.conversa_specialist import run_conversa_specialist
+
+    llm = _LlmFalso("ola")
+    run_conversa_specialist({"question": "Bom dia! Como vai por ai?"}, llm)
+
+    assert "Portuguese" in llm.chamadas[0][0]["content"]
+

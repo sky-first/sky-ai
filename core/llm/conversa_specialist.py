@@ -73,6 +73,37 @@ Never mention SQL, tables, columns, schemas, or that you route questions.
 """
 
 
+def _lingua(state: Dict[str, Any], pergunta: str) -> str:
+    """A lingua da resposta, com a propria frase como ultimo recurso.
+
+    ⚠️ **Apanhado em producao, minutos depois de publicar isto.** Fiz a
+    pergunta «Bom dia! Como vai por ai?» e recebi *«Good morning! I'm
+    doing well»*. Em portugues limpo, resposta em ingles.
+
+    A razao: o estado nao trazia `detected_language` nem `locale`, e o
+    valor por omissao era `en`. Nos caminhos de dados a lingua e detectada
+    mais acima no grafo; este no e o primeiro a responder e nao passa por
+    la.
+
+    Uma resposta de conversa na lingua errada e exactamente o defeito que
+    este ficheiro veio corrigir. Por isso, quando o estado nao diz, olha-se
+    para a frase — que e a fonte mais fiavel que existe: foi a pessoa que
+    a escreveu.
+    """
+    do_estado = state.get("detected_language") or state.get("locale")
+    if do_estado:
+        return str(do_estado)[:2]
+
+    try:
+        from core.i18n.i18n import detect_language
+
+        return (detect_language(pergunta) or "en")[:2]
+    except Exception:
+        # Detectar mal e melhor do que rebentar; e o ingles e o que sobra.
+        logger.exception("conversa: nao consegui detectar a lingua de %r", pergunta[:60])
+        return "en"
+
+
 def _nome_da_lingua(lang: str) -> str:
     return {"pt": "Portuguese (Portugal)", "es": "Spanish", "en": "English"}.get(
         (lang or "en")[:2], "English"
@@ -100,7 +131,7 @@ def run_conversa_specialist(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
     quem le os registos a seguir.
     """
     pergunta = (state.get("question") or "").strip()
-    lang = state.get("detected_language") or state.get("locale") or "en"
+    lang = _lingua(state, pergunta)
 
     try:
         resposta = llm.invoke(
