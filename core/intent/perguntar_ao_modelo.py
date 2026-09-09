@@ -93,6 +93,14 @@ current events, geography, history, mathematics, definitions of common
 words, small talk, or a request for a joke or a story. Nothing a company
 database could answer.
 
+A vague question about how something is GOING or PROGRESSING — "how is the
+month going?", "how's the quarter?", "is this better than last week?" — is
+{_EMPRESA}. The person is inside their own company's analytics tool, so an
+unnamed subject is their business, not the world.
+
+A time period on its own (this month, the quarter, last week, today) is not
+a world topic. It is {_EMPRESA}.
+
 Answer with exactly one word: {_EMPRESA} or {_MUNDO}.
 
 If you are not sure, answer {_EMPRESA}. Being wrong towards {_EMPRESA}
