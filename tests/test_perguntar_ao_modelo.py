@@ -318,3 +318,32 @@ def test_e_quando_la_chegam_o_modelo_manda(frase):
     assert classify_question_intent(frase, llm=_Modelo("EMPRESA")) is not (
         QuestionIntent.CONVERSA
     )
+
+
+# ---------------------------------------------------------------------------
+# A regra do «como está a correr o mês?»
+# ---------------------------------------------------------------------------
+def test_o_prompt_diz_que_um_periodo_nao_e_o_mundo():
+    """Apanhado a verificar em produção, DEPOIS do promote.
+
+    «Como está a correr o mês?» passava a regra rápida — a correcção do
+    cumprimento funciona — mas não tem sinal de negócio nenhum, por isso
+    chegava ao modelo. E o modelo respondia **MUNDO**.
+
+    É o pior sentido: uma pergunta a sério sobre o mês da empresa a
+    receber uma resposta de conversa.
+
+    A causa não é o código, é o prompt: sem esta regra, o modelo lê «o
+    mês» como um assunto genérico. Com ela, percebe que quem escreve está
+    dentro da ferramenta da própria empresa.
+
+    Medido contra o modelo real em produção, nas mesmas 12 frases:
+    **2 erros sem a regra, 0 com ela** — e nenhuma pergunta do mundo se
+    perdeu pelo caminho.
+    """
+    baixo = _INSTRUCOES.lower()
+    assert "going or progressing" in baixo
+    assert "time period on its own" in baixo
+    # A conclusão tem de ser EMPRESA, não MUNDO.
+    trecho = _INSTRUCOES[_INSTRUCOES.index("GOING or PROGRESSING") :][:400]
+    assert "EMPRESA" in trecho
