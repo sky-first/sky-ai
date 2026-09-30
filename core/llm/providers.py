@@ -1,6 +1,8 @@
 # core/llm/providers.py
 from __future__ import annotations
 
+import os
+
 from typing import Protocol, List, Dict, Any, AsyncIterator, Iterator
 
 from langchain_openai import ChatOpenAI
@@ -26,6 +28,17 @@ class LLMProvider(Protocol):
         ...
 
 
+#: Quanto tempo se espera por uma resposta do modelo antes de desistir.
+#:
+#: Uma pergunta que demora mais de dois minutos ja falhou do ponto de vista
+#: de quem espera — e o limite do cliente que a app usa. O que se ganha aqui
+#: nao e velocidade: e a diferenca entre um erro legivel e uma app parada.
+#:
+#: Medido: a 28/09 uma pergunta real demorou 76 s e passou; a 29/09 outra
+#: passou dos 120 s e o cliente desistiu sem nunca receber nada.
+_LIMITE_DE_ESPERA = float(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
+
+
 class LangChainChatOpenAIProvider:
     """
     Implementação concreta usando langchain-openai ChatOpenAI.
@@ -42,6 +55,23 @@ class LangChainChatOpenAIProvider:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            # ⚠️ **Sem isto, uma paragem do fornecedor pendurava o pedido.**
+            #
+            # A 29/09 o smoke test de producao estourou aos 120 s numa
+            # pergunta, e o pod nao escreveu UMA linha durante esse tempo: o
+            # `context_bundle_built` as 14:37:15 e depois silencio ate
+            # 14:39:15. No dia anterior, uma pergunta real da app demorou
+            # 76,171 s. Quem esperava nao via erro nenhum — via uma app
+            # parada, e lia isso como avaria do backend.
+            #
+            # O `ChatOpenAI` sem `timeout` herda o valor por omissao do SDK
+            # (600 s) e ainda repete duas vezes: meia hora de silencio no
+            # pior caso. O provedor do Ollama, mesmo ao lado, ja tinha 300 s.
+            #
+            # Isto NAO torna o modelo mais rapido — torna a lentidao
+            # visivel, que e o que falta hoje.
+            timeout=_LIMITE_DE_ESPERA,
+            max_retries=1,
         )
 
     def _convert_messages(self, messages: List[Dict[str, str]]):
