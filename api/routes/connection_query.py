@@ -5580,6 +5580,26 @@ async def _stream_connection_query(
                         # and a "Run produced no output" finding. The downstream
                         # answer/no-sql branch already streams its answer.
                         "full_context",
+                        # ⚠️ **E o mesmo erro outra vez, com o nó que eu
+                        # próprio acrescentei.**
+                        #
+                        # O `conversa_specialist` entrou no grafo a 08/09 e
+                        # nunca foi posto nesta lista. Como o `full_context`
+                        # acima, é terminal e produz o `answer` directamente —
+                        # mas o estado dele era deitado fora, o `final_state`
+                        # ficava `None`, e o ramo lá em baixo respondia:
+                        #
+                        #     {"type": "error", "message": "Erro ao executar agente"}
+                        #
+                        # Ou seja: **todo o «bom dia» em produção dava erro.**
+                        # Apanhado a 30/09 a percorrer a jornada do revisor da
+                        # App Store — a primeira coisa que ele escreveria.
+                        #
+                        # Os registos do sky-ai mostravam sucesso
+                        # (`llm_invoke_success`, 1,1 s) e o cliente recebia
+                        # erro; é isso que torna este defeito difícil de ver
+                        # de um lado só.
+                        "conversa_specialist",
                     ]:
                         final_state = node_state
                         # Enviar progresso e eventos específicos
