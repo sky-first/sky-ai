@@ -181,10 +181,116 @@ para sempre um pico que dura segundos e que não devia estar ali.
 reiniciar, e `kubectl top pod` mostra-o abaixo de 1 GiB durante a corrida.
 Hoje sobe para lá dos 5 GiB e morre.
 
-## 7. Decisão pendente
+## 7. Correcção à recomendação, e a decisão
 
-Está por decidir qual dos caminhos seguir. Este documento existe para
-essa decisão ser tomada com os números à frente, e não com o palpite de
-que «é preciso mais memória» — que foi a primeira reacção, e estava
-errada por duas razões independentes: não cabia nos nós, e não era ali
-que estava o problema.
+> «não sei que decisão tenho que tomar, mas é a mais segura e que não
+>  aconteça mais» — Lucas, 08/10/2026
+
+Com esse critério fui verificar a recomendação da §5 antes de a executar.
+**Está errada.** Fica aqui o que a desmente, porque é mais útil do que
+reescrevê-la.
+
+### A §5 não teria evitado o que aconteceu
+
+A §5 diz que o modelo «só é preciso quando se liga ou refresca uma
+fonte». Não é verdade. O caminho das PERGUNTAS carrega-o, em três sítios
+independentes de `api/routes/connection_query.py`:
+
+| linha | o que faz | é dispensável? |
+|---|---|---|
+| 3446 | **cache semântico**: embute TODA a pergunta com ≥10 caracteres | sim, é uma optimização |
+| 4482 | **RAG**: encontra as tabelas certas por semelhança | **não — é a função** |
+| 5486 | idem, no outro ramo da mesma rota | **não** |
+
+O 4482 e o 5486 são o que faz a IA saber a que tabelas se referem as
+palavras da pessoa. Sem embeddings no caminho do pedido, não há produto.
+
+E o 3446, que **é** dispensável, não se pode desligar: o `CLAUDE.md`
+dizia que o cache semântico era controlado por `ENABLE_INFERENCE_CACHE`,
+e **não é**. Essa definição guarda o LRU em processo do
+`core/llm/cache.py`, que é outro cache. O semântico vive inline na rota e
+corre sempre. (Corrigido no `CLAUDE.md` neste mesmo trabalho.)
+
+Resistir à tentação de lhe pôr uma bandeira agora: com o 4482 e o 5486 a
+carregar o mesmo modelo, desligar o 3446 não tira um único byte do pod —
+só daria a ilusão de uma correcção.
+
+Logo: tirar a indexação do pod **não** devolve o serviço aos 200 MiB, e
+**não** teria impedido a morte durante o teste das 20 perguntas — que foi
+exactamente o que aconteceu. Foram as perguntas que carregaram o modelo,
+não a indexação.
+
+### O mecanismo, que agora encaixa com todos os números
+
+Faltava explicar porque é que 2,5 GiB residentes mataram um limite de
+5 GiB. Encaixa assim:
+
+```
+resources:                      # values-sky-ai-prd-aws.yaml
+  requests: { memory: 3Gi }     <-- a fatia GARANTIDA
+  limits:   { memory: 5Gi }     <-- o tecto
+```
+
+`requests ≠ limits` dá ao pod a classe **Burstable**. Garantido tem
+3 GiB; acima disso usa folga do nó, que **não é dele**. E o nó tem
+5,2 GiB de 6,9 GiB já comprometidos.
+
+Sob pressão de memória, o kubelet desaloja os **Burstable primeiro**. Ou
+seja: provavelmente não bateu no tecto de 5 GiB — foi **desalojado pelo
+nó** por estar a usar emprestado. É consistente com morrer a 2,5 GiB, o
+que o tecto de 5 GiB nunca explicaria.
+
+### E uma coisa que não tem desculpa
+
+```python
+# run_api.py — isto está em PRODUÇÃO
+uvicorn.run("api.main:app", host="0.0.0.0", port=8001, reload=True)
+```
+
+`reload=True` é uma definição de desenvolvimento. Põe um vigilante de
+ficheiros a observar o `/app` todo e um processo supervisor por cima, e
+reinicia o worker a cada alteração que ele ache que viu. Num reinício,
+dois workers podem coexistir por instantes — cada um com o seu modelo.
+
+Não afirmo que foi isto que matou o pod. Afirmo que não devia estar
+ligado, que custa uma linha, e que não tem nenhuma contrapartida.
+
+### A decisão
+
+**Três passos, por ordem de segurança e de custo.**
+
+**1 — Hoje, e reversível (o travão).**
+   `reload=True` fora. E `requests` igual a `limits` no `sky-ai`, para o
+   pod passar a **Guaranteed** e deixar de ser o primeiro a ser
+   desalojado. Zero custo, zero perda de qualidade, zero trabalho.
+
+**2 — A correcção de verdade: um serviço de embeddings.**
+   Um pod pequeno, com o modelo bom (0,917) carregado uma vez, e todos os
+   chamadores — perguntas, agentes, dashboards, indexação — a falar com
+   ele por HTTP. Os 2,5 GiB passam a existir **num sítio só**, com
+   limite próprio e numa máquina escolhida para isso. Os pods de serviço
+   caem para ~300 MiB e voltam a poder escalar.
+   É a única saída que mantém a qualidade, não tem custo recorrente além
+   de um pod, e **acaba com a classe do problema** em vez de a mudar de
+   sítio. Custa trabalho de engenharia.
+
+**3 — O que fica mais barato depois, e não antes.**
+   Com o modelo fora do caminho do pedido, o cache semântico (linha 3446)
+   deixa de ser o que carrega 2,5 GiB para embutir uma pergunta, e passa
+   a ser o que devia ser: uma chamada HTTP de milissegundos.
+
+### O que foi rejeitado, e porquê
+
+| caminho | porque não |
+|---|---|
+| modelo menor (`mxbai`) | 0,549 contra 0,917 na pesquisa PT↔EN. Vendemos a Espanha com equipa portuguesa: essa travessia **é** o produto. Uma regressão que ninguém vê acontecer é a pior de todas |
+| nós maiores (`t3.xlarge`) | duplica a factura do nó todos os meses e **não corrige a causa** — só compra silêncio até à próxima réplica |
+| «subir o limite para 6 GiB» | o nó tem 6,9 GiB e já tem 5,2 comprometidos. Só muda quem morre |
+
+### O que não está provado, e fica dito
+
+O mecanismo do desalojamento é **inferência** a partir da classe
+Burstable e do nó comprometido — não vi o `Evicted` nos eventos do pod. A
+verificação é directa (`kubectl describe pod` depois de uma morte: se diz
+`OOMKilled` foi o tecto, se diz `Evicted` foi o nó) e muda qual metade do
+passo 1 é a que importa, não o passo 2.

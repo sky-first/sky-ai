@@ -143,7 +143,11 @@ Bedrock region: `eu-west-1` (configurable via `BEDROCK_REGION`). Authentication 
 
 ### Semantic Cache
 
-Queries are deduplicated using semantic similarity (crew-isolated). If a semantically equivalent question was asked recently, the cached answer is returned without hitting the LLM. Controlled by `ENABLE_INFERENCE_CACHE`.
+Queries are deduplicated using semantic similarity (crew-isolated). If a semantically equivalent question was asked recently, the cached answer is returned without hitting the LLM.
+
+⚠️ **It is NOT controlled by `ENABLE_INFERENCE_CACHE`** — this file said so, and it was wrong. That setting guards the in-process LRU in `core/llm/cache.py` (a different cache). The semantic cache lives inline in `api/routes/connection_query.py` (~line 3446) and runs **unconditionally**: every question with ≥10 characters is embedded, with no way to turn it off.
+
+That matters beyond tidiness: embedding on the request path loads the ~2.5 GiB local model into the serving pod. See `docs/plano-memoria-da-indexacao.md`.
 
 ### Key Endpoints
 
