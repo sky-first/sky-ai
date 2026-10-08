@@ -41,7 +41,7 @@ from core.rag.semantic_projection import (
     project_to_low_dim,
 )
 from db.models import EmbeddingRecord
-from db.session import AsyncSessionLocal
+from core.tenant_db import tenant_connection_manager
 
 router = APIRouter(prefix="/semantic", tags=["Semantic Map"])
 logger = logging.getLogger(__name__)
@@ -313,7 +313,24 @@ async def post_semantic_map(req: SemanticMapRequest) -> SemanticMapResponse:
     with ACL resolution; we just trust the IDs it sends.
     """
     try:
-        async with AsyncSessionLocal() as db:
+        # ⚠️ A BASE DO CLIENTE, não a da plataforma.
+        #
+        # > «cade aqui no sky universe todo o dado ao rededor desse globo
+        # >  de raio?» — Lucas, 07/10/2026
+        #
+        # Havia 59 embeddings para aquele projecto na base do cliente, e
+        # isto devolvia `count=0`. O `AsyncSessionLocal()` é a ligação
+        # GLOBAL: o `X-Tenant-Slug` chegava, o contexto ficava resolvido,
+        # e a consulta ia à base da plataforma na mesma.
+        #
+        # E não falha — devolve zero linhas, que o ecrã lê, correctamente,
+        # como «não há nada aqui». Foi preciso contar as linhas nas duas
+        # bases para o descobrir.
+        #
+        # É o mesmo erro do `sincronizar_metadados` do semeador (05/10) e
+        # do `BackendClient` (hoje): o caminho novo usa o gestor de
+        # ligações, o caminho esquecido usa a sessão global.
+        async with tenant_connection_manager.async_session_for() as db:
             records = await _load_embeddings(db, req)
     except Exception as exc:
         logger.exception("semantic-map DB query failed")
@@ -474,7 +491,9 @@ async def post_semantic_search(req: SemanticSearchRequest) -> SemanticSearchResp
         limit=2000,
     )
     try:
-        async with AsyncSessionLocal() as db:
+        # A base do cliente, pela mesma razão do `/map` acima. Sem isto a
+        # busca semântica procurava noutra base e não encontrava nunca.
+        async with tenant_connection_manager.async_session_for() as db:
             records = await _load_embeddings(db, map_req)
     except Exception as exc:
         logger.exception("semantic-search DB query failed")
