@@ -260,9 +260,12 @@ ligado, que custa uma linha, e que não tem nenhuma contrapartida.
 **Três passos, por ordem de segurança e de custo.**
 
 **1 — Hoje, e reversível (o travão).**
-   `reload=True` fora. E `requests` igual a `limits` no `sky-ai`, para o
-   pod passar a **Guaranteed** e deixar de ser o primeiro a ser
-   desalojado. Zero custo, zero perda de qualidade, zero trabalho.
+   `reload=True` fora, e o modelo a vir na imagem em vez de ser
+   descarregado do `huggingface.co` a cada arranque. Zero custo, zero
+   perda de qualidade, zero risco.
+   ⚠️ **Nos recursos, não tocar** — ver a medição mais abaixo. A minha
+   primeira versão deste passo propunha `requests` = `limits` e estava
+   errada por três razões; foi revertida antes de sair.
 
 **2 — A correcção de verdade: um serviço de embeddings.**
    Um pod pequeno, com o modelo bom (0,917) carregado uma vez, e todos os
@@ -287,10 +290,78 @@ ligado, que custa uma linha, e que não tem nenhuma contrapartida.
 | nós maiores (`t3.xlarge`) | duplica a factura do nó todos os meses e **não corrige a causa** — só compra silêncio até à próxima réplica |
 | «subir o limite para 6 GiB» | o nó tem 6,9 GiB e já tem 5,2 comprometidos. Só muda quem morre |
 
-### O que não está provado, e fica dito
+### Medido em produção depois de escrever o acima — e muda a conclusão
 
-O mecanismo do desalojamento é **inferência** a partir da classe
-Burstable e do nó comprometido — não vi o `Evicted` nos eventos do pod. A
-verificação é directa (`kubectl describe pod` depois de uma morte: se diz
-`OOMKilled` foi o tecto, se diz `Evicted` foi o nó) e muda qual metade do
-passo 1 é a que importa, não o passo 2.
+Fui medir no pod em vez de confiar na inferência. Três números que
+desmontam parte do que está escrito nesta secção:
+
+```
+memória AGORA, com o modelo JÁ carregado         1566 Mi
+perguntas servidas por este pod                     4
+reinícios / último estado                       0 / vazio
+classe de QoS                                   Burstable
+```
+
+O modelo está carregado — o `TextEmbedding` aparece nos registos — e o
+pod está a **1,5 GiB**, não a 2,5 nem perto dos 5. Os 2,7 GiB do
+documento são o pico **da indexação**, não do serviço.
+
+**Isto derruba a minha própria proposta de `requests` = `limits`,** por
+três razões independentes:
+
+1. **Não daria Guaranteed.** Essa classe exige requests = limits também
+   no **CPU**, e aqui é 500m contra 4000m. Igualar o CPU significaria
+   reservar 4 vCPU num `t3.large` que tem 2 — o pod nunca agendava.
+2. **Baixar o tecto introduzia um risco novo.** De 5Gi para 4Gi é MENOS
+   folga para o pico da indexação (2,7 GiB mais o resto). Trocava uma
+   morte por outra.
+3. **E era desnecessário.** O `request` de 3 GiB **já é o dobro** do uso
+   em repouso. Um pod Burstable que consome MENOS do que o seu request é
+   o último a ser desalojado — a mesma posição de um Guaranteed. A minha
+   hipótese do desalojamento não se aplica ao estado estável.
+
+A alteração foi revertida antes de sair. Fica aqui porque o erro é
+instrutivo: inferi uma classe de QoS a partir de dois números no YAML e
+não fui ver o terceiro, que era o uso real.
+
+### Então o que resta, e onde as duas versões concordam
+
+O pico não é das perguntas em repouso: é da **indexação** (2,7 GiB), que
+empurra o pod acima do seu request e para território emprestado —
+exactamente onde o nó, com 73% da memória e 90% do CPU já pedidos, o
+desaloja.
+
+O que significa que a §5 e esta correcção apontam para **o mesmo sítio**,
+por razões diferentes:
+
+| | o que dizia | estava |
+|---|---|---|
+| §5 | tirar a indexação do pod devolve-o a 200 MiB | **errado no motivo** — as perguntas carregam o modelo em 3 sítios |
+| §5 | o modelo não deve viver no pod que serve | **certo** |
+| eu, acima | é um problema de classe de QoS | **errado** — o request já cobre o uso |
+
+**A decisão não muda: o modelo tem de sair do caminho do pedido.** Um
+serviço de embeddings resolve as duas coisas de uma vez — tira o pico da
+indexação e tira o residente das perguntas.
+
+### E uma coisa que apareceu nos registos, que ninguém tinha visto
+
+```
+HTTP Request: GET https://huggingface.co/api/models/Qdrant/multilingual-e5-large-onnx ...
+```
+
+**O modelo é descarregado da internet a cada arranque do pod.** Em
+produção. Se o `huggingface.co` estiver em baixo, ou mudar o caminho do
+repositório, ou nos limitar o débito, o serviço de IA não arranca — e a
+causa não vai parecer nossa.
+
+Independentemente do serviço de embeddings: o modelo tem de vir **na
+imagem** ou de um volume. É mais barato de fazer do que de explicar.
+
+### O que fica por saber, e já não é possível saber
+
+O pod foi recriado depois das mortes (`restarts: 0`, último estado
+vazio), e os eventos do namespace já expiraram. **Não há como distinguir
+`OOMKilled` de `Evicted` naquelas duas mortes.** Na próxima — se houver —
+a primeira coisa a fazer é `kubectl describe pod` antes de qualquer
+reinício.
