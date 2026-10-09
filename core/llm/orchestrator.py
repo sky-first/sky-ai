@@ -466,6 +466,18 @@ def _detect_confirmation(
         return False, -1
 
 
+#: «Quantos X» em qualquer das linguas da app. So conhecia o ingles, e a
+#: mesma pergunta comportava-se de tres maneiras: em ingles forcava uma
+#: tabela, em portugues e castelhano deixava passar o CLARIFY («Desea
+#: contar los pedidos como aproximacion?»), visto em producao a 09/10.
+_CONTAGEM = re.compile(
+    r"\b(how\s+(many|much)|count\s+of|total\s+(of\s+)?|number\s+of|sum\s+of|"
+    r"quant[oa]s?|n[uú]mero\s+de|total\s+de|"
+    r"cu[aá]nt[oa]s?|cantidad\s+de)\b",
+    re.IGNORECASE,
+)
+
+
 def run_orchestrator(
     state: AgentState,
     agent_config: AgentConfig,
@@ -1096,7 +1108,9 @@ def run_orchestrator(
                 "       'how many X', 'how much X', 'count of X', 'total X', 'sum of X', 'number of X'\n"
                 "      → If ANY table name contains X or is obviously the X table (e.g. 'invoices' → fct_invoices, silver_invoices), pick it and produce SELECT COUNT(*) or SUM(...). Do NOT ask the user whether they want refunds vs paid vs draft — pick the most inclusive table and answer.\n"
                 "   d) If the question is vague but you can attempt an answer with the available data (e.g. 'how are we doing?' → use revenue/orders tables) → select the tables and proceed normally.\n"
-                "   e) If you are uncertain which table is the best match but the question is about business data → pick the closest table and proceed. Do NOT return OUT_OF_SCOPE just because you are unsure.\n\n"
+                "   e) If you are uncertain which table is the best match but the question is about business data → pick the closest table and proceed. Do NOT return OUT_OF_SCOPE just because you are unsure.\n"
+                "   f) If the question is about a business concept that NO table or column records (e.g. 'customers' when orders are anonymous and carry no customer id) → STILL pick the closest table and proceed. The SQL specialist will tell the user what is missing and what is closest. OUT_OF_SCOPE is never the answer for a business concept that is simply absent from the data.\n"
+                "   g) The question may be written in a different language from the table names and from the data values (e.g. a Portuguese question over Spanish data with English column names). Map the MEANING, not the words: 'clientes', 'customers' and 'clients' are the same concept.\n\n"
                 "FINAL OUTPUT FORMAT:\n"
                 "After thinking and using the tools, finish your response with ONLY ONE of:\n"
                 "  - The logical table name(s) separated by commas (e.g. 'table1, table2')\n"
@@ -1192,10 +1206,7 @@ def run_orchestrator(
                 # falls through to table selection. Without this, users
                 # like "how much invoices we have?" get a clarification
                 # prompt instead of an answer.
-                counting_pattern = re.compile(
-                    r"\b(how\s+(many|much)|count\s+of|total\s+(of\s+)?|number\s+of|sum\s+of)\b",
-                    re.IGNORECASE,
-                )
+                counting_pattern = _CONTAGEM
                 if counting_pattern.search(question):
                     log_event(
                         "orchestrator_clarify_overridden_counting",

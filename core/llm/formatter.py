@@ -11,6 +11,7 @@ from core.logging_utils import log_event
 from config.settings import settings
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
 from core.llm.numeros import regras_de_numeros
+from core.llm.conceito_em_falta import conceito_em_falta
 from core.llm.context.builder import build_context_bundle
 
 
@@ -303,6 +304,23 @@ def run_formatter(
                 "error_raw": str(error)[:300],
                 "lang": lang,
             },
+        )
+        return state
+
+    # 1b) Os dados nao tem o que se perguntou: dize-lo, com o mais proximo.
+    # Antes do RAG de proposito — um documento sobre clientes nao responde a
+    # «quantos clientes temos» quando a base nao os regista.
+    _falta = conceito_em_falta(impossible_reason) if not data else None
+    if _falta:
+        falta, proximo = _falta
+        state["answer"] = (
+            get_message("MISSING_CONCEPT", lang, falta=falta, proximo=proximo)
+            if proximo
+            else get_message("MISSING_CONCEPT_NO_NEAREST", lang, falta=falta)
+        )
+        log_event(
+            "formatter_missing_concept",
+            {"agent_id": agent_config.id, "falta": falta[:120], "proximo": (proximo or "")[:120], "lang": lang},
         )
         return state
 
