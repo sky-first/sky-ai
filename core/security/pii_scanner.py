@@ -93,6 +93,140 @@ def scan_text_for_pii(text: str) -> PIIDetectionResult:
     )
 
 
+# ==================== COLUNAS QUE NÃO SÃO DE PESSOAS ====================
+#
+# Visto em produção a 10/10/2026: «Lista las 5 gasolineras con el gasóleo A
+# más barato … para la ruta Badajoz-Madrid» → «I cannot display sensitive
+# personal information in the results.» (em inglês, e falso).
+#
+# O scanner olha para VALORES, sem saber de que coluna vêm. O rótulo de uma
+# gasolineira («Plenoil Mérida»), o município, a estrada ou a província têm a
+# forma de um nome próprio, e um rótulo colado a um preço tem a forma de
+# «Nome Apelido 1,399 €» — o padrão de salário vazado.
+#
+# Marca, localidade, estrada e coordenadas de um ESTABELECIMENTO não
+# identificam ninguém. A coluna diz o que o valor é; o valor sozinho não.
+#
+# ⚠️ A morada (`direccion`, `address`, `morada`) fica DE FORA de propósito:
+# numa tabela de clientes é dado pessoal, e o nome da coluna não distingue
+# uma gasolineira de uma pessoa. As moradas continuam a ser analisadas.
+
+#: Palavras que, num nome de coluna, dizem «isto é um negócio ou um lugar».
+#: Comparadas palavra a palavra (`municipio`, `cod_provincia`, `rotulo`…).
+_PALAVRAS_DE_COLUNA_NAO_PESSOAL = frozenset(
+    {
+        # o negócio
+        "rotulo",
+        "marca",
+        "brand",
+        "empresa",
+        "company",
+        "comercio",
+        "establecimiento",
+        "estabelecimento",
+        "estacion",
+        "posto",
+        "gasolinera",
+        "operador",
+        "operator",
+        "merchant",
+        "tienda",
+        "loja",
+        "store",
+        "fornecedor",
+        "proveedor",
+        "supplier",
+        "vendor",
+        # o lugar
+        "municipio",
+        "municipality",
+        "localidad",
+        "localidade",
+        "ciudad",
+        "cidade",
+        "city",
+        "concelho",
+        "distrito",
+        "district",
+        "provincia",
+        "province",
+        "comunidad",
+        "comunidade",
+        "region",
+        "regiao",
+        "pais",
+        "country",
+        "carretera",
+        "estrada",
+        "road",
+        "rota",
+        "ruta",
+        "route",
+        "origem",
+        "origen",
+        "origin",
+        "destino",
+        "destination",
+        "lat",
+        "lon",
+        "lng",
+        "latitud",
+        "longitud",
+        "latitude",
+        "longitude",
+    }
+)
+
+
+def coluna_nao_pessoal(nome_coluna: Any) -> bool:
+    """O nome da coluna diz que os valores são de um negócio ou de um lugar."""
+    if not isinstance(nome_coluna, str) or not nome_coluna:
+        return False
+    import unicodedata
+
+    normal = unicodedata.normalize("NFKD", nome_coluna)
+    normal = "".join(c for c in normal if not unicodedata.combining(c))
+    # camelCase → camel_case, depois partir em palavras
+    normal = re.sub(r"([a-z])([A-Z])", r"\1_\2", normal).lower()
+    palavras = set(re.split(r"[^a-z0-9]+", normal))
+    return bool(palavras & _PALAVRAS_DE_COLUNA_NAO_PESSOAL)
+
+
+def valores_nao_pessoais(data: Optional[List[Dict[str, Any]]]) -> List[str]:
+    """Os textos que a resposta pode citar e que vêm dessas colunas."""
+    vistos: Set[str] = set()
+    for row in data or []:
+        if not isinstance(row, dict):
+            continue
+        for coluna, valor in row.items():
+            if isinstance(valor, str) and len(valor.strip()) >= 3:
+                if coluna_nao_pessoal(coluna):
+                    vistos.add(valor.strip())
+        if len(vistos) >= 2000:
+            break
+    # Os maiores primeiro: «Plenoil Mérida» antes de «Mérida».
+    return sorted(vistos, key=len, reverse=True)
+
+
+def scan_answer_for_pii(
+    answer: str, data: Optional[List[Dict[str, Any]]] = None
+) -> PIIDetectionResult:
+    """Analisa o texto da resposta sem contar o que veio de colunas de
+    negócio/lugar.
+
+    A resposta cita os dados — «Plenoil Mérida, 1,399 €». Esses nomes saíram
+    de `rotulo`/`municipio`, e não são de pessoas. Tiram-se do texto ANTES de
+    o analisar; tudo o resto (emails, telefones, documentos, nomes que não
+    vieram dessas colunas) continua a ser analisado como antes.
+    """
+    if not answer or not isinstance(answer, str):
+        return PIIDetectionResult(detected=False)
+    texto = answer
+    for valor in valores_nao_pessoais(data):
+        texto = re.sub(re.escape(valor), " · ", texto, flags=re.IGNORECASE)
+    return scan_text_for_pii(texto)
+
+
 def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
     """
     Escaneia dados estruturados (lista de dicionários) procurando por PII.
@@ -122,7 +256,11 @@ def scan_data_for_pii(data: List[Dict[str, Any]]) -> PIIDetectionResult:
         if not isinstance(row, dict):
             continue
 
-        for v in row.values():
+        for coluna, v in row.items():
+            # Marca, município, estrada, coordenadas: não são de pessoas.
+            # Ver `coluna_nao_pessoal`.
+            if coluna_nao_pessoal(coluna):
+                continue
             if isinstance(v, str) and v.strip():
                 # Normalização leve para aumentar taxa de deduplicação
                 unique_values.add(v.strip())

@@ -958,7 +958,14 @@ def build_generic_sql_graph(
             return state
 
         has_tables = len(agent_config.tables) > 0
+        from core.intent.question_intent import termos_do_catalogo
+
         intent = classify_question_intent(
+            # O catálogo desta ligação: uma pergunta que fala de uma tabela
+            # que existe vai aos dados, mesmo que o assunto pareça «do mundo»
+            # (feriados, combustível, trânsito). Comparado localmente — nunca
+            # entra no prompt do modelo.
+            catalog_terms=termos_do_catalogo(agent_config.tables),
             question=state.get("question", ""),
             has_data_sources=has_tables,
             # O modelo so e chamado quando a pergunta nao tem sinal

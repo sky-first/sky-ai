@@ -15,6 +15,14 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Não consigo tratar dados pessoais sensíveis. Reformule a pergunta sem os incluir.",
         "es": "No puedo procesar información personal sensible. Reformule su pregunta sin incluir datos personales.",
     },
+    # A recusa quando a RESPOSTA traria dados pessoais. Estava cravada em
+    # inglês em connection_query.py — um pedido em espanhol recebia
+    # «I cannot display sensitive personal information in the results.»
+    "PII_RESPONSE_BLOCKED": {
+        "en": "I can't show this result because it contains sensitive personal data. Try asking for a summary or a total instead.",
+        "pt": "Não posso mostrar este resultado porque contém dados pessoais sensíveis. Experimente pedir um resumo ou um total.",
+        "es": "No puedo mostrar este resultado porque contiene datos personales sensibles. Pruebe a pedir un resumen o un total.",
+    },
     # Every call site for this key is an exception handler — the pipeline
     # broke. The old copy claimed "no data / outside your Space or Crew's
     # access", which sent everyone investigating permissions and datasets
