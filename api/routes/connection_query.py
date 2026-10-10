@@ -5845,7 +5845,7 @@ async def _stream_connection_query(
             raw_sample = data[:15]
             serialized_sample = _serialize_for_json(raw_sample)
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
-            stats_text = _compute_basic_stats(raw_sample)
+            stats_text = _compute_basic_stats(raw_sample, all_rows=data)
 
             _stream_lang = (
                 lingua_da_resposta(detected_language)
@@ -6413,7 +6413,7 @@ async def validate_sql(
                     sample_json = json.dumps(
                         serialized_sample, ensure_ascii=False, indent=2
                     )
-                    stats_text = _compute_basic_stats(data_sample)
+                    stats_text = _compute_basic_stats(data_sample, all_rows=data)
 
                     # 2. Criar contexto do sistema
                     _expl_lang = (

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, List, Optional
 import json
+import re
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
@@ -118,10 +119,128 @@ def _serialize_for_json(obj: Any) -> Any:
     return obj
 
 
-def _compute_basic_stats(data_sample: List[Dict[str, Any]]) -> str:
+_NUM_RE = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
+
+
+def _as_number(value: Any) -> Optional[float]:
+    """Número, ou texto que é um número (as APIs públicas espanholas mandam
+    preços como ``"1,749"`` — vírgula decimal). Códigos com zero à esquerda
+    (``"06713"``, código postal) não são números."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if value == value else None  # NaN fora
+    if isinstance(value, str):
+        s = value.strip()
+        if not _NUM_RE.match(s):
+            return None
+        digits = s.lstrip("+-")
+        if len(digits) > 1 and digits[0] == "0" and digits[1].isdigit():
+            return None
+        return float(s.replace(",", "."))
+    return None
+
+
+_COORD_NAMES = ("lat", "lon", "lng", "latitude", "longitude", "latitud", "longitud")
+
+
+def _is_id_column(name: str) -> bool:
+    """Colunas sem média que interesse: identificadores (``IDEESS``,
+    ``user_id``, ``orderId``, ``@id``) e coordenadas (``Latitud``,
+    ``Longitud (WGS84)``) — ocupavam os lugares do preço."""
+    raw = str(name).rsplit(".", 1)[-1].lstrip("@")
+    low = raw.lower().replace(" ", "_")
+    if low.split("_(")[0].split("(")[0].strip("_") in _COORD_NAMES:
+        return True
+    return (
+        low in ("id", "version")
+        or low.startswith("id_")
+        or low.endswith("_id")
+        or raw.startswith("ID")
+        or raw.endswith("Id")
+    )
+
+
+def _fmt_num(x: float) -> str:
+    if x == int(x) and abs(x) < 1e15:
+        return str(int(x))
+    return f"{x:.4f}".rstrip("0").rstrip(".")
+
+
+def _full_result_stats(rows: List[Dict[str, Any]], shown: int) -> str:
+    """Aviso de amostra + estatísticas sobre TODAS as linhas (Anexo C, D4).
+
+    O prompt só leva as primeiras ``shown`` linhas. Sem isto, «o mais
+    barato», «quantos» ou «o próximo» sobre 277 postos ou 32 feriados eram
+    respondidos com as 15 primeiras, sem aviso nenhum.
+    """
+    total = len(rows)
+    columns: List[str] = []
+    for row in rows[:50]:
+        if isinstance(row, dict):
+            for key in row:
+                if key not in columns:
+                    columns.append(key)
+
+    lines = [
+        f"SAMPLE NOTICE: the result has {total} rows; the DATA PREVIEW above shows "
+        f"only the first {shown}. Say in the answer that the listed rows are a sample "
+        f"of {total}. For counts, totals, minimums, maximums and averages use ONLY the "
+        f"statistics below, computed over ALL {total} rows — never the preview."
+    ]
+    numeric = 0
+    for col in columns:
+        if numeric >= 8 or _is_id_column(col):
+            continue
+        present = [
+            r.get(col)
+            for r in rows
+            if isinstance(r, dict) and r.get(col) not in (None, "")
+        ]
+        values = [(i, _as_number(v)) for i, v in enumerate(present)]
+        nums = [(i, v) for i, v in values if v is not None]
+        if len(nums) < 2 or len(nums) < 0.8 * len(present):
+            continue
+        numeric += 1
+        vals = [v for _, v in nums]
+        lo = min(nums, key=lambda t: t[1])
+        hi = max(nums, key=lambda t: t[1])
+        lines.append(
+            f"- {col}: count={len(vals)}, min={_fmt_num(min(vals))}, "
+            f"max={_fmt_num(max(vals))}, avg={_fmt_num(sum(vals) / len(vals))}, "
+            f"sum={_fmt_num(sum(vals))}"
+        )
+        if numeric <= 3:
+            # A linha do mínimo e a do máximo: «o mais barato» precisa do
+            # nome do posto, não só do preço.
+            with_col = [
+                r for r in rows if isinstance(r, dict) and r.get(col) not in (None, "")
+            ]
+            for label, (idx, _) in (("min", lo), ("max", hi)):
+                row_txt = json.dumps(
+                    _serialize_for_json(with_col[idx]), ensure_ascii=False, default=str
+                )
+                lines.append(f"  row with {label} {col}: {row_txt[:400]}")
+    return "\n".join(lines)
+
+
+def _compute_basic_stats(
+    data_sample: List[Dict[str, Any]],
+    all_rows: Optional[List[Dict[str, Any]]] = None,
+) -> str:
     """
     Gera um pequeno texto com estatísticas básicas da primeira coluna numérica encontrada.
+
+    Com ``all_rows`` maior do que a amostra, devolve o aviso de amostra e as
+    estatísticas calculadas sobre o resultado inteiro (ver
+    ``_full_result_stats``).
     """
+    if (
+        isinstance(all_rows, list)
+        and data_sample is not None
+        and len(all_rows) > len(data_sample)
+    ):
+        return _full_result_stats(all_rows, len(data_sample))
     if not data_sample:
         return ""
 
@@ -320,7 +439,12 @@ def run_formatter(
         )
         log_event(
             "formatter_missing_concept",
-            {"agent_id": agent_config.id, "falta": falta[:120], "proximo": (proximo or "")[:120], "lang": lang},
+            {
+                "agent_id": agent_config.id,
+                "falta": falta[:120],
+                "proximo": (proximo or "")[:120],
+                "lang": lang,
+            },
         )
         return state
 
@@ -379,7 +503,11 @@ def run_formatter(
     data_sample = data_sample_list
     serialized_sample = _serialize_for_json(data_sample)
     sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
-    stats_text = _compute_basic_stats(data_sample_list)
+    # Estatísticas sobre o resultado INTEIRO (já mascarado) quando a amostra
+    # não o mostra todo.
+    stats_text = _compute_basic_stats(
+        data_sample_list, all_rows=state.get("data") or data
+    )
 
     # Obter orientações de comprimento amigáveis
     length = state.get("length")
