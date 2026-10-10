@@ -53,7 +53,11 @@ celery>=5.3.0
 # --- Data Processing (DuckDB Engine) ---
 pandas>=2.2.0
 duckdb>=0.10.0
-pyarrow>=15.0.0
+# Tecto: o pyarrow 26 (saiu a 09/10/2026) exige NumPy >= 2, e outra
+# dependencia prende o NumPy a 1.26.4. Sem tecto, a CI partia em todos os PRs
+# («pyarrow requires NumPy 2.0») e a proxima imagem ia para producao com um
+# pyarrow que nao importa. O ultimo verde instalou o 25.0.1.
+pyarrow>=15.0.0,<26
 prometheus-fastapi-instrumentator>=6.0.0
 PyJWT==2.8.0
 
