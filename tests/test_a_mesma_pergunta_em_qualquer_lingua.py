@@ -189,3 +189,10 @@ def test_o_especialista_responde_sem_chamar_o_modelo():
         cfg, _Fonte(), _ModeloQueNaoPodeSerChamado(),
     )
     assert st["impossible_reason"] == "MISSING datos de clientes | NEAREST el número de pedidos"
+
+
+@pytest.mark.parametrize("tabela", ["accounts", "subscriptions", "signups", "users"])
+def test_num_saas_o_cliente_tem_outros_nomes(tabela):
+    """Falso positivo visto a 10/10: o CAC recusado num esquema de SaaS."""
+    t = TableSchema(logical_name=tabela, physical_name=f"finance.{tabela}")
+    assert conceito_ausente("what is our CAC per new customer?", [_ORDERS, t], "en") is None
