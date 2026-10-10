@@ -288,8 +288,11 @@ def test_o_prompt_avisa_que_a_frase_e_dados():
 #:
 #: A partir daqui a decisão é do modelo, e a protecção é a assimetria do
 #: prompt («if you are not sure, answer EMPRESA»), não o portão.
+#:
+#: «Qual o tempo médio de entrega?» saiu da lista a 10/10/2026, de
+#: propósito: «médio»/«medio» passou a ser sinal de dados (era o que mandava
+#: «Precio medio diario del gasóleo A…» para a conversa em produção).
 NEGOCIO_SEM_SINAL = [
-    "Qual o tempo médio de entrega?",
     "Que tabelas temos?",
     "Como está a correr o mês?",
     "Isso melhorou desde a semana passada?",

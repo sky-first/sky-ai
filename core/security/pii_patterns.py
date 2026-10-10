@@ -395,9 +395,17 @@ BANK_ACCOUNT_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
         PIIType.BANK_ACCOUNT,
     ),
     # SWIFT/BIC: ABCDGB2L
+    #
+    # ⚠️ WARN, não BLOCK. Sem palavra-chave, este padrão é «qualquer
+    # palavra de 8 ou 11 letras em maiúsculas»: ESTACION, SERVICIO,
+    # PETRONOR, EXTREMADURA. Os dados públicos (MITECO, DGT) vêm em
+    # maiúsculas, e por isso a lista das gasolineiras mais baratas da rota
+    # Badajoz–Madrid era recusada como «dados pessoais sensíveis»
+    # (produção, 10/10/2026). E um BIC identifica um BANCO, não uma pessoa.
+    # O BIC com contexto («BIC: …», «SWIFT …») continua BLOCK, mais abaixo.
     (
         re.compile(r"\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?\b"),
-        PIISeverity.BLOCK,
+        PIISeverity.WARN,
         PIIType.BANK_ACCOUNT,
     ),
     # Conta bancária brasileira: 12345-6
@@ -1025,8 +1033,9 @@ CONTEXTUAL_PII_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Nome + Endereço
     (
         re.compile(
-            r"[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+\d+\s+(street|st|road|rd|avenue|rua|calle|rue|strasse)",
-            re.IGNORECASE,
+            # Sem re.IGNORECASE: com ele, «[A-Z][a-z]+» casava com QUALQUER
+            # palavra. Só a palavra da morada ignora maiúsculas.
+            r"[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+\d+\s+(?i:street|st|road|rd|avenue|rua|calle|rue|strasse)\b",
         ),
         PIISeverity.BLOCK,
         PIIType.NAME,
@@ -1035,8 +1044,14 @@ CONTEXTUAL_PII_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
     # Ex: "John Doe - $50,000", "Maria Silva: R$ 5.000,00"
     (
         re.compile(
-            r"[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+.*[\$€£]|[\$€£].*[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+",
-            re.IGNORECASE,
+            # ⚠️ Era «duas palavras, QUALQUER coisa, um símbolo de moeda»,
+            # com re.IGNORECASE — «[A-Z][a-z]+» casava com qualquer palavra e
+            # «.*» atravessava a frase. «El precio medio fue 1,45 €» era
+            # BLOCK: qualquer resposta com euros passava por «salário
+            # vazado». Agora: Nome Apelido com maiúsculas, colado ao valor.
+            r"[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+[\s:\-–,]{0,4}(?:R?\$|€|£)\s?\d"
+            r"|[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+[\s:\-–,]{0,4}\d[\d.,]{0,15}\s?(?:€|£|\$)"
+            r"|(?:R?\$|€|£)\s?\d[\d.,]{0,15}[\s:\-–,]{0,4}[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+\s+[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇÄÖÜÑ][a-záéíóúàèìòùâêîôûãõçäöüñ]+",
         ),
         PIISeverity.BLOCK,
         PIIType.FINANCIAL,

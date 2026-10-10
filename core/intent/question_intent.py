@@ -154,7 +154,9 @@ _CATALOG_PATTERNS = re.compile(
 # a regra nao e so o padrao: e o padrao **e** a frase ser curta. Ver
 # `_parece_conversa`.
 _CONVERSA_PATTERNS = re.compile(
-    r"^\s*("
+    # «¿Cómo estás?» — em espanhol a frase abre com «¿» ou «¡», e sem isto
+    # nenhum cumprimento espanhol escrito como deve ser era reconhecido.
+    r"^\s*[¿¡]?\s*("
     # cumprimentos
     r"ol[aá]|oi|bom\s*dia|boa\s*tarde|boa\s*noite|"
     r"hello|hi|hey|good\s*(morning|afternoon|evening)|"
@@ -200,7 +202,7 @@ _MAX_PALAVRAS_DE_CONVERSA = 8
 #: «Ola» e «bom dia» nao entram nesta lista: ninguem comeca uma pergunta
 #: de negocio com «ola» sem virgula, e quando comeca a virgula separa-as.
 _ABERTURAS_AMBIGUAS = re.compile(
-    r"^\s*("
+    r"^\s*[¿¡]?\s*("
     r"tudo\s*(bem|bom)|"
     # «vao» faltava aqui e no padrao principal: «Como vao as coisas por
     # ai?» — que E um cumprimento — ia aos dados. Anterior a isto.
@@ -312,6 +314,22 @@ _DATA_BOOST_PATTERNS = re.compile(
     r"ingresos|ventas|facturaci[oó]n|promedio|"
     r"mes.?pasado|este.?mes|ayer|hoy|trimestre|"
     r"crecimiento|abandono|cancelaciones|"
+    # ── Verbos e agregacoes que faltavam (10/10/2026) ──────────────
+    #
+    # «¿Cuántas incidencias de tráfico hay ahora en la A-5?» e «Precio
+    # medio diario del gasóleo A…» nao pontuavam em NADA: «cuántas» so
+    # existia em portugues («quantas») e «medio», «precio», «más barato»
+    # nao existiam. Com zero sinais, a pergunta ia ao classificador do
+    # modelo, que via «festivos nacionales» ou «ahora» e respondia MUNDO
+    # — e a pessoa recebia conversa em vez dos dados que tinha ligados.
+    r"cu[aá]nt[oa]s?|cu[aá]nto|"
+    r"precios?|pre[cç]os?|"
+    r"medi[oa]|m[ií]nim[oa]s?|m[aá]xim[oa]s?|m[ée]dio|"
+    r"m[aá]s\s+barat[oa]s?|m[aá]s\s+car[oa]s?|mais\s+barat[oa]s?|mais\s+car[oa]s?|"
+    r"lista|listar|liste|enumera|mu[eé]strame|muestra|mostra|"
+    r"[uú]ltim[oa]s\s+\d+|pr[oó]xim[oa]s\s+\d+|"
+    r"diari[oa]s?|di[aá]ri[oa]s?|semanal|"
+    r"ranking|"
     # ── Ingles ────────────────────────────────────────────────────
     r"how.?many|how.?much|count|total|sum|average|"
     r"select|query|sql|"
@@ -331,10 +349,127 @@ _DATA_BOOST_PATTERNS = re.compile(
 )
 
 
+# ── O catálogo da ligação também é um sinal ─────────────────────────
+#
+# Visto em produção a 10/10/2026, na ligação «Operaciones» (14 tabelas,
+# entre elas `festivos`, `gasoleo_historico_diario`, `incidencias_trafico`,
+# `gasolineras_rota`). Quatro perguntas foram parar à conversa:
+#
+#     «Qué festivos nacionales hay en los próximos 30 días…»
+#     «Precio medio diario del gasóleo A … según gasoleo_historico_diario»
+#     «¿Cuántas incidencias de tráfico hay ahora en la A-5?»
+#     «¿Cuál es la gasolinera más barata de gasóleo A a menos de 3 km…?»
+#
+# A segunda NOMEIA a tabela. O classificador não sabia que tabelas havia:
+# decidia só por vocabulário genérico de negócio, e o que não pontuava ia ao
+# modelo — que via «festivos nacionales» ou «ahora» e respondia «mundo».
+#
+# Feriados, preços de combustível e trânsito SÃO assuntos do mundo — até ao
+# dia em que a empresa os liga como dados. A partir daí, quem decide é o
+# catálogo, não o assunto.
+#
+# ⚠️ O catálogo nunca entra no prompt do classificador do modelo (ver
+# `perguntar_ao_modelo.py`, regra 1). É comparado aqui, localmente.
+
+#: Palavras de esquema e de ligação que aparecem em quase todas as tabelas
+#: e em quase todas as frases. Já normalizadas (sem acentos, minúsculas,
+#: sem plural). Tokens com menos de 5 letras nunca contam.
+_PALAVRAS_GENERICAS = frozenset(
+    {
+        "table", "tabla", "tabela", "dados", "datos", "fecha", "nombre",
+        "valor", "value", "estado", "status", "fonte", "source", "linha",
+        "linea", "descricao", "descripcion", "description", "created",
+        "updated", "criado", "creado", "actualizado", "atualizado",
+        "actualizacion", "atualizacao", "codigo", "chave", "clave", "inicio",
+        "start", "primeiro", "primero", "ultimo", "ultima", "numero",
+        "number", "quando", "cuando", "sobre", "entre", "desde", "hasta",
+        "todos", "todas", "about", "their", "there", "which", "where",
+        "segun", "segundo", "outro", "otro", "other", "cada", "texto",
+        "string", "integer", "boolean", "timestamp", "registo", "registro",
+        "record", "quais", "cuale", "cual", "actual", "atual", "current",
+        "total", "count", "media", "average", "identificador", "identifier",
+        "usado", "usada", "mostrar", "porque", "because",
+    }
+)
+
+
+def _normalizar(texto: str) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", texto or "")
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return t.lower()
+
+
+def _raiz(token: str) -> str:
+    """Plural fora, para «gasolinera» casar com «gasolineras»."""
+    if len(token) > 5 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 4 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
+def _tokens(texto: str, minimo: int) -> set:
+    return {
+        _raiz(t)
+        for t in re.findall(r"[a-z0-9]+", _normalizar(texto))
+        if len(t) >= minimo and not t.isdigit()
+    } - _PALAVRAS_GENERICAS
+
+
+def termos_do_catalogo(tables) -> frozenset:
+    """O que, no catálogo da ligação, identifica um assunto.
+
+    Aceita os `TableSchema` do agente ou dicts com `logical_name`/`name`,
+    `description` e `columns`. Devolve:
+
+    * o nome inteiro de cada tabela (``gasoleo_historico_diario``) — quem
+      escreve o nome da tabela está a pedir essa tabela;
+    * as palavras dos nomes das tabelas e das colunas (``festivo``,
+      ``incidencia``, ``gasolinera``, ``precio``…), com 5+ letras;
+    * as palavras das descrições das tabelas, com 6+ letras (as descrições
+      são prosa — mais ruído, por isso a fasquia é mais alta).
+    """
+    termos: set = set()
+    for t in tables or []:
+        get = (lambda k, _t=t: _t.get(k)) if isinstance(t, dict) else (
+            lambda k, _t=t: getattr(_t, k, None)
+        )
+        for chave in ("logical_name", "name", "table_name", "physical_name"):
+            nome = get(chave)
+            if not nome:
+                continue
+            nome = str(nome).split(".")[-1].strip('"`[]')
+            termos.add(_normalizar(nome))
+            termos |= _tokens(nome, 5)
+        descricao = get("description")
+        if descricao:
+            termos |= _tokens(str(descricao), 6)
+        for col in get("columns") or []:
+            nome_col = col.get("name") if isinstance(col, dict) else getattr(col, "name", None)
+            if nome_col:
+                termos |= _tokens(str(nome_col), 5)
+    return frozenset(x for x in termos if x)
+
+
+def toca_no_catalogo(question: str, catalog_terms) -> bool:
+    """A pergunta fala de alguma coisa que esta ligação tem."""
+    if not question or not catalog_terms:
+        return False
+    normal = _normalizar(question)
+    # Nome inteiro da tabela, com sublinhados: casa como substring.
+    for termo in catalog_terms:
+        if "_" in termo and termo in normal:
+            return True
+    return bool(_tokens(question, 5) & set(catalog_terms))
+
+
 def classify_question_intent(
     question: str,
     has_data_sources: bool = True,
     llm=None,
+    catalog_terms=None,
 ) -> QuestionIntent:
     """
     Classify a user question into the appropriate specialist intent.
@@ -355,7 +490,12 @@ def classify_question_intent(
     # nao pontua em padrao nenhum e caia no valor por omissao — que e
     # `data`. Virava uma tentativa de gerar SQL, falhava, e a pessoa
     # recebia a formula de erro.
-    if _parece_conversa(q):
+    #
+    # Excepto quando a pergunta fala do que a ligação TEM. «Festivos
+    # nacionales» ou «el tiempo en Madrid» são conversa numa base de
+    # vendas e dados numa base que tem `festivos` ou `tempo_cidades`.
+    no_catalogo = toca_no_catalogo(q, catalog_terms)
+    if not no_catalogo and _parece_conversa(q):
         return QuestionIntent.CONVERSA
 
     # Score each intent
@@ -366,6 +506,12 @@ def classify_question_intent(
     widgets_score = len(_WIDGETS_PATTERNS.findall(q))
     catalog_score = len(_CATALOG_PATTERNS.findall(q))
     data_score = len(_DATA_BOOST_PATTERNS.findall(q))
+    # Uma pergunta sobre uma tabela que existe é uma pergunta de dados,
+    # mesmo sem nenhum verbo de negócio. Conta como sinal — e por isso
+    # nunca chega ao classificador do modelo, que não vê o catálogo e
+    # chamava «mundo» a feriados, combustíveis e trânsito.
+    if no_catalogo:
+        data_score += 1
 
     # ── Zero sinais: perguntar ao modelo em vez de adivinhar ─────────
     #

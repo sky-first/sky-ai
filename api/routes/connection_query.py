@@ -167,6 +167,30 @@ DASHBOARD_PLAN_CACHE_TTL_MINUTES = (
 )
 DASHBOARD_PLAN_MAX_CACHE_SIZE = 50  # Menor que bootstrap (planos são maiores)
 
+
+def _lingua_da_recusa(body) -> str:
+    """A língua de uma recusa: a do pedido, nunca o inglês por omissão.
+
+    As recusas usavam `detect_language(pergunta)` — ignorava o `locale` que o
+    pedido traz e devolvia códigos que o dicionário não tem. E a recusa de
+    PII na resposta nem isso: estava cravada em inglês. Em produção, a
+    10/10/2026, um pedido com `locale=es` recebeu «I cannot display sensitive
+    personal information in the results.»
+
+    Mesma regra que a resposta normal (`resolve_language`): locale do
+    pedido primeiro, depois a pergunta. Devolve sempre en, pt ou es.
+    """
+    from core.i18n.i18n import resolve_language
+
+    try:
+        return resolve_language(
+            getattr(body, "question", "") or "",
+            locale=getattr(body, "locale", None),
+        )
+    except Exception:
+        return "en"
+
+
 # ============================================================================
 # Cache para estatísticas de tabelas (separado do cache de bootstrap)
 # ============================================================================
@@ -3842,10 +3866,10 @@ async def _query_connection_inner(
     if security_report.is_blocked:
         # Mensagens amigáveis por tipo de bloqueio
         if security_report.blocked_by == "PII_SCANNER":
-            message = get_message("PII_BLOCKED", lang)
+            message = get_message("PII_BLOCKED", _lingua_da_recusa(body))
             error_code = "pii_prompt_blocked"
         else:
-            message = get_message("SECURITY_BLOCKED", lang)
+            message = get_message("SECURITY_BLOCKED", _lingua_da_recusa(body))
             error_code = "security_blocked"
 
         # Auditoria legada (mantém compatibilidade com dashboards existentes)
@@ -4970,15 +4994,19 @@ async def _query_connection_inner(
 
     # ✅ CAMADA 4: Detecção de PII na resposta
     from core.security.pii_scanner import (
-        scan_text_for_pii,
+        scan_answer_for_pii,
         scan_data_for_pii,
         should_allow_pii_exception,  # Usar nova função unificada
     )
 
-    pii_response_text_result = scan_text_for_pii(answer) if answer else None
     # IMPORTANTE: Escanear dados originais ANTES de filtrar para verificação de contexto agregado
     # Usar dados completos (até 100 linhas) para detecção PII, mas apenas primeiras 15 para resposta
     data_for_pii_scan = data[:100] if isinstance(data, list) else []
+    # O texto é analisado SEM o que veio de colunas de negócio/lugar (rótulo,
+    # município, estrada…): «Plenoil Mérida 1,399 €» não é um salário vazado.
+    pii_response_text_result = (
+        scan_answer_for_pii(answer, data_for_pii_scan) if answer else None
+    )
     pii_response_data_result = (
         scan_data_for_pii(data_for_pii_scan) if data_for_pii_scan else None
     )
@@ -5056,7 +5084,8 @@ async def _query_connection_inner(
 
         if not allow_pii_in_text:
             # Substituir resposta por mensagem genérica
-            answer = "I cannot display sensitive personal information in the results."
+            # Na língua do pedido — estava cravado em inglês.
+            answer = get_message("PII_RESPONSE_BLOCKED", _lingua_da_recusa(body))
             pii_blocked = True
 
     if (
@@ -5355,10 +5384,10 @@ async def _stream_connection_query(
         if security_report.is_blocked:
             # Mensagens amigáveis por tipo de bloqueio
             if security_report.blocked_by == "PII_SCANNER":
-                message = get_message("PII_BLOCKED", lang)
+                message = get_message("PII_BLOCKED", _lingua_da_recusa(body))
                 error_code = "pii_prompt_blocked"
             else:
-                message = get_message("SECURITY_BLOCKED", lang)
+                message = get_message("SECURITY_BLOCKED", _lingua_da_recusa(body))
                 error_code = "security_blocked"
 
             # Auditoria legada para streaming

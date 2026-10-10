@@ -112,6 +112,66 @@ async def _get_last_metadata_update(
         return None
 
 
+async def _ligacao_existe_nesta_base(db, connection_id: str) -> Optional[bool]:
+    """A ligação existe na base para onde este pedido aponta?
+
+    ``None`` quando não se consegue saber — e aí não se trava nada.
+    """
+    try:
+        return (
+            await db.execute(
+                text(
+                    "SELECT 1 FROM data_connections "
+                    "WHERE CAST(id AS text) = :cid LIMIT 1"
+                ),
+                {"cid": str(connection_id)},
+            )
+        ).first() is not None
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return None
+
+
+async def _invalidar_cache_semantico(db, connection_id: str) -> int:
+    """Apaga as respostas guardadas para esta ligação.
+
+    Visto em produção a 10/10/2026: a ligação «Operaciones» passou de 2 para
+    14 tabelas, a descoberta correu, e o `/query` continuou a responder em
+    0,0 s com respostas de ANTES das tabelas novas — vinham do
+    `semantic_cache`, que nada limpava. Uma pergunta feita antes («não tenho
+    dados de combustível») ficava certa para sempre.
+
+    Uma descoberta bem-sucedida muda o que a ligação sabe responder; as
+    respostas guardadas deixam de valer. Nunca rebenta: uma falha aqui não
+    pode desfazer a descoberta que acabou de correr.
+    """
+    try:
+        resultado = await db.execute(
+            text("DELETE FROM semantic_cache WHERE CAST(connection_id AS text) = :cid"),
+            {"cid": str(connection_id)},
+        )
+        await db.commit()
+        apagadas = int(getattr(resultado, "rowcount", 0) or 0)
+        log_event(
+            "semantic_cache_invalidated_on_discover",
+            {"connection_id": connection_id, "rows": apagadas},
+        )
+        return apagadas
+    except Exception as e:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        log_event(
+            "semantic_cache_invalidate_error",
+            {"connection_id": connection_id, "error": str(e)[:300]},
+        )
+        return 0
+
+
 async def _discover_tables_sync(db: AsyncSession, connection_id: str) -> dict:
     """
     Discovery is a no-op here: catalog is owned by the backend and already stored in DB.
@@ -248,6 +308,52 @@ async def discover_tables(
                 except Exception:
                     pass
 
+        # ── A ligação tem de existir na base DESTE pedido ───────────────
+        #
+        # Visto em produção a 10/10/2026: TODAS as descobertas em segundo
+        # plano davam `discover_auto_embed_error … DataConnection <id> not
+        # found`, depois de o pedido ter respondido 200 «scheduled».
+        #
+        # Não era o contextvar a perder-se na tarefa de fundo (essa parte
+        # funciona e tem teste). Eram os pedidos que chegavam SEM
+        # `X-Tenant-Slug`: os semeadores do backend (`demo_sectorial`,
+        # `seed_demo_connections`, `sync_demo_metadata`) chamam o
+        # `sync_connection` fora de um pedido HTTP, com uma sessão aberta à
+        # mão na base do cliente mas sem o cliente no contexto — e o
+        # `cabecalhos_do_cliente()` do backend devolve {} nesse caso. Sem
+        # cabeçalho, o sky-ai abre a base da PLATAFORMA, onde a ligação não
+        # existe.
+        #
+        # O sky-ai não pode adivinhar o cliente pelo id: as ligações de
+        # demonstração têm o MESMO id em vários clientes (uuid5 — a
+        # «Operaciones» existe em `skyfirstlabs` e em `sandbox`). Por isso
+        # recusa-se à porta, com 404 e o porquê, em vez de dizer «scheduled»
+        # e falhar em silêncio depois da resposta.
+        existe = await _ligacao_existe_nesta_base(db, connection_id)
+        if existe is False:
+            from core.tenant_context import current_tenant, multi_tenant_enabled
+
+            _ctx = current_tenant()
+            log_event(
+                "discover_connection_not_in_this_db",
+                {
+                    "connection_id": connection_id,
+                    "space_id": space_id,
+                    "tenant": _ctx.slug,
+                    "tenant_is_default": _ctx.is_default,
+                    "multi_tenant_enabled": multi_tenant_enabled(),
+                    "run_in_background": run_in_background,
+                },
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Connection {connection_id} not found in the database for "
+                    f"tenant '{_ctx.slug}'. Callers outside an HTTP request "
+                    "(jobs, scripts, workers) must send X-Tenant-Slug."
+                ),
+            )
+
         # `space_id` is required by the backend contract, but catalog is keyed by connection_id.
         if run_in_background:
             # Capture the tenant resolved for THIS request. The tenant
@@ -309,6 +415,9 @@ async def discover_tables(
                                     space_id=space_id,
                                     embedding_provider=embedding_provider,
                                 )
+                                # O catálogo mudou: as respostas guardadas
+                                # deixam de valer. Ver `_invalidar_cache_semantico`.
+                                await _invalidar_cache_semantico(bg_db, connection_id)
                                 # Item 32: strategic onboarding — suggest OKRs when brain is empty
                                 if space_id:
                                     try:
@@ -422,6 +531,11 @@ async def discover_tables(
                     embedding_provider=embedding_provider,
                 )
 
+                # O catálogo mudou: as respostas guardadas deixam de valer.
+                result["semantic_cache_invalidated"] = await _invalidar_cache_semantico(
+                    db, connection_id
+                )
+
                 result["embeddings_created"] = created
                 result["metadata_rows_inserted"] = inserted
                 result["temporal_enrichment_count"] = enriched_count
@@ -491,6 +605,10 @@ async def discover_tables(
                 result["embedding_error"] = str(e)[:200]
 
         return result
+    except HTTPException:
+        # O 404 de «ligação fora desta base» tem de chegar ao chamador como
+        # 404 — não como o 500 genérico de baixo.
+        raise
     except Exception as e:
         # Log technical details internally
         logger.error(
