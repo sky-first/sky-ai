@@ -216,3 +216,61 @@ def test_um_hf_home_configurado_nao_e_pisado(monkeypatch, tmp_path):
     )
     LocalEmbeddingProvider(model="m", cache_dir=str(tmp_path))._ensure_client()
     assert os.environ["HF_HOME"] == "/configurado"
+
+
+def test_o_modelo_carrega_de_uma_pasta_sem_symlinks(monkeypatch, tmp_path):
+    """onnxruntime 1.31 recusa pesos externos que são symlinks para blobs/
+    («External data path escapes model directory») — produção, 10/10."""
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    descarregado = {}
+
+    def snapshot_download(repo_id, local_dir):
+        descarregado.update(repo=repo_id, pasta=local_dir)
+        return local_dir
+
+    class _TextEmbedding:
+        @staticmethod
+        def _list_supported_models():
+            return [
+                types.SimpleNamespace(
+                    model="m", sources=types.SimpleNamespace(hf="qdrant/m-onnx")
+                )
+            ]
+
+        def __init__(self, model_name, cache_dir, specific_model_path=None):
+            descarregado["usado"] = specific_model_path
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=_TextEmbedding)
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        types.SimpleNamespace(snapshot_download=snapshot_download),
+    )
+    LocalEmbeddingProvider(model="m", cache_dir=str(tmp_path))._ensure_client()
+    assert descarregado["repo"] == "qdrant/m-onnx"
+    assert descarregado["usado"] == os.path.join(
+        str(tmp_path), "materializado", "qdrant__m-onnx"
+    )
+
+
+def test_se_a_materializacao_falhar_cai_no_caminho_antigo(monkeypatch, tmp_path):
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    visto = {}
+
+    class _TextEmbedding:
+        @staticmethod
+        def _list_supported_models():
+            raise RuntimeError("sem rede")
+
+        def __init__(self, model_name, cache_dir, **kw):
+            visto["kw"] = kw
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=_TextEmbedding)
+    )
+    LocalEmbeddingProvider(model="m", cache_dir=str(tmp_path))._ensure_client()
+    assert visto["kw"] == {}
