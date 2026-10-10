@@ -195,7 +195,12 @@ def build_formatter_prompt(
             "    section below says which separators to write those same digits with,\n"
             "    and the two never conflict: moving a separator is not converting.\n"
             "    If a value already represents a percentage (e.g. a column meaning a percent),\n"
-            "    append '%' WITHOUT changing the digits (0.75 → '0.75%', never '75%').\n\n"
+            "    append '%' WITHOUT changing the digits (0.75 → '0.75%', never '75%').\n"
+            # «El usuario ha facturado un total de…» (10/10/2026): o modelo
+            # falava SOBRE a pessoa e não COM ela.
+            "11. Talk TO the person who asked, in the second person ('You invoiced…',\n"
+            "    'Ha facturado…', 'Faturou…'). NEVER call them 'the user', 'el usuario'\n"
+            "    or 'o utilizador'.\n\n"
             f"{regras_dos_numeros}"
             "\n"
             f"{user_prefs_block}"

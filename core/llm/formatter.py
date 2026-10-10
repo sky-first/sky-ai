@@ -11,8 +11,8 @@ from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
 from config.settings import settings
 from core.llm.prompts.formatter_prompts import build_formatter_prompt
-from core.llm.numeros import regras_de_numeros
-from core.llm.conceito_em_falta import conceito_em_falta
+from core.llm.numeros import corrigir_resposta, regras_de_numeros
+from core.llm.conceito_em_falta import conceito_em_falta, traduzir_conceito
 from core.llm.context.builder import build_context_bundle
 
 
@@ -76,31 +76,204 @@ def _mask_result_columns(
     return masked
 
 
+#: Palavras que abrem ou fecham uma pergunta e não são o assunto dela.
+#: Comparadas sem acentos. Visto em produção (10/10): «¿Cuántos clientes
+#: tengo?» virava «No encontré datos sobre cuántos clientes tengo» e
+#: «¿Quantos clientes eu tenho?» virava «…sobre clientes tenho».
+_PALAVRAS_DE_PERGUNTA = {
+    # pt
+    "qual",
+    "quais",
+    "como",
+    "quem",
+    "onde",
+    "quando",
+    "quanto",
+    "quanta",
+    "quantos",
+    "quantas",
+    "que",
+    "o",
+    "a",
+    "os",
+    "as",
+    "um",
+    "uma",
+    "uns",
+    "umas",
+    "de",
+    "do",
+    "da",
+    "dos",
+    "das",
+    "sobre",
+    "pelo",
+    "pela",
+    "pelos",
+    "pelas",
+    "no",
+    "na",
+    "nos",
+    "nas",
+    "eu",
+    "nos",
+    "tenho",
+    "temos",
+    "tem",
+    "ha",
+    "existem",
+    "existe",
+    "mostra",
+    "mostre",
+    "me",
+    "diga",
+    "diz",
+    "liste",
+    "lista",
+    "busque",
+    "traz",
+    "traga",
+    "encontre",
+    "por",
+    "foi",
+    "foram",
+    "sao",
+    "e",
+    "meus",
+    "minhas",
+    "meu",
+    "minha",
+    "nossos",
+    "nossas",
+    # es
+    "cual",
+    "cuales",
+    "cuanto",
+    "cuanta",
+    "cuantos",
+    "cuantas",
+    "quien",
+    "donde",
+    "cuando",
+    "el",
+    "la",
+    "los",
+    "las",
+    "un",
+    "unos",
+    "unas",
+    "del",
+    "yo",
+    "nosotros",
+    "tengo",
+    "tenemos",
+    "tiene",
+    "tienen",
+    "hay",
+    "existen",
+    "muestra",
+    "muestrame",
+    "dime",
+    "mis",
+    "mi",
+    "nuestros",
+    "nuestras",
+    "son",
+    "es",
+    "fue",
+    "fueron",
+    "he",
+    "hemos",
+    # en
+    "show",
+    "list",
+    "find",
+    "search",
+    "tell",
+    "what",
+    "how",
+    "many",
+    "much",
+    "where",
+    "when",
+    "which",
+    "who",
+    "why",
+    "can",
+    "could",
+    "you",
+    "the",
+    "an",
+    "on",
+    "of",
+    "in",
+    "at",
+    "for",
+    "to",
+    "with",
+    "by",
+    "from",
+    "about",
+    "i",
+    "we",
+    "do",
+    "does",
+    "have",
+    "has",
+    "there",
+    "are",
+    "is",
+    "my",
+    "our",
+}
+
+
+def _sem_acentos(p: str) -> str:
+    import unicodedata
+
+    return "".join(
+        c for c in unicodedata.normalize("NFD", p) if unicodedata.category(c) != "Mn"
+    )
+
+
 def _extract_topic(question: str) -> str:
+    """O assunto da pergunta, como substantivo limpo, para «não encontrei
+    dados sobre {topic}».
+
+    Tira as palavras de pergunta, pronomes e verbos de posse do início E do
+    fim — «¿Cuántos clientes tengo?» → «clientes». Se nada sobrar, devolve
+    vazio e quem chama usa a mensagem genérica.
     """
-    Tenta extrair o tópico principal da pergunta para mensagens de 'dados não encontrados'.
-    """
-    import re
-
-    # Remove palavras comuns de pergunta
-    patterns = [
-        r"^(qual|quais|como|quem|onde|quando|quanto|quantos|por que|me mostra|me mostre|mostre-me|mostre|mostra|me diga|diga|liste|busque|traz|traga|encontre)\s+",
-        r"^(show|list|find|search|tell|what|how|where|when|which|who|why|can you|could you)\s+",
-        r"^(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|sobre|pelo|pela|pelas|pelos|no|na|nos|nas)\s+",
-        r"^(about|the|a|an|on|of|in|at|for|to|with|by|from)\s+",
-    ]
-
-    q = question
-    for p in patterns:
-        q = re.sub(p, "", q, flags=re.IGNORECASE)
-
-    q = q.strip()
-
-    # Pega as primeiras 3-4 palavras se for longo
+    q = re.sub(r"[¿¡?!.,;:«»\"']", " ", question or "")
     words = q.split()
+    while words and _sem_acentos(words[0].lower()) in _PALAVRAS_DE_PERGUNTA:
+        words.pop(0)
+    while words and _sem_acentos(words[-1].lower()) in _PALAVRAS_DE_PERGUNTA:
+        words.pop()
     if len(words) > 4:
         return " ".join(words[:4]) + "..."
-    return q or "este assunto"
+    return " ".join(words)
+
+
+def mensagem_sem_dados(
+    question: str, impossible_reason: Optional[str], lang: str
+) -> str:
+    """A resposta quando não há dados — a mesma na escrita, no streaming e na voz.
+
+    Se o especialista (ou `conceito_ausente`) disse o que falta, diz-se isso,
+    com o mais próximo, na língua da resposta. Senão, «não encontrei dados
+    sobre <assunto>», com o assunto limpo, ou a genérica.
+    """
+    falta = conceito_em_falta(impossible_reason)
+    if falta:
+        o_que, proximo = traduzir_conceito(falta[0], falta[1], lang)
+        if proximo:
+            return get_message("MISSING_CONCEPT", lang, falta=o_que, proximo=proximo)
+        return get_message("MISSING_CONCEPT_NO_NEAREST", lang, falta=o_que)
+    topic = _extract_topic(question)
+    if not topic:
+        return get_message("NO_DATA_GENERIC", lang)
+    return get_message("NO_DATA_FOUND", lang, topic=topic)
 
 
 def _serialize_for_json(obj: Any) -> Any:
@@ -432,11 +605,7 @@ def run_formatter(
     _falta = conceito_em_falta(impossible_reason) if not data else None
     if _falta:
         falta, proximo = _falta
-        state["answer"] = (
-            get_message("MISSING_CONCEPT", lang, falta=falta, proximo=proximo)
-            if proximo
-            else get_message("MISSING_CONCEPT_NO_NEAREST", lang, falta=falta)
-        )
+        state["answer"] = mensagem_sem_dados(question, impossible_reason, lang)
         log_event(
             "formatter_missing_concept",
             {
@@ -465,7 +634,7 @@ def run_formatter(
     elif impossible_reason and not data:
         # Tenta ser amigável quando não entende/não encontra dados e NÃO TEM RAG
         topic = _extract_topic(question)
-        state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
+        state["answer"] = mensagem_sem_dados(question, None, lang)
 
         log_event(
             "formatter_impossible_success",
@@ -481,7 +650,7 @@ def run_formatter(
     # 3) Sem dados e sem impossible_reason e NÃO TEM RAG -> resposta simples
     if not data and not retrieval_context:
         topic = _extract_topic(question)
-        state["answer"] = get_message("NO_DATA_FOUND", lang, topic=topic)
+        state["answer"] = mensagem_sem_dados(question, None, lang)
         log_event(
             "formatter_no_data",
             {
@@ -593,6 +762,16 @@ def run_formatter(
         answer = "\n".join(answer_lines).strip()
 
     answer = answer.strip() or "No explanation available."
+
+    # O modelo nem sempre segue as regras dos números nem fala com quem
+    # pergunta («El usuario ha facturado un total de 6 153 185,72.», 10/10).
+    # A correcção determinística vê o resultado e sabe o que é dinheiro.
+    try:
+        answer = corrigir_resposta(
+            answer, lang, state.get("data") or data, state.get("currency")
+        )
+    except Exception as _e:  # nunca partir uma resposta por causa disto
+        log_event("formatter_correcao_falhou", {"error": str(_e)[:300]})
 
     # FOLLOW-UP SUGGESTIONS: disabled by product decision — the chat shows only
     # the answer, with no appended "Suggested Follow-up" questions. Kept as an

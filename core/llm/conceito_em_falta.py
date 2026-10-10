@@ -176,3 +176,31 @@ def conceito_ausente(pergunta: str, tabelas, lingua: Optional[str]) -> Optional[
                 return f"MISSING {falta} | NEAREST {frases[lingua]}"
         return f"MISSING {falta}"
     return None
+
+
+def traduzir_conceito(
+    falta: str, proximo: Optional[str], lingua: Optional[str]
+) -> Tuple[str, Optional[str]]:
+    """As frases conhecidas, na língua da resposta.
+
+    `conceito_ausente` escreve na língua detectada na pergunta; a resposta
+    sai na língua do utilizador. Uma pergunta em português com preferência
+    castelhana dava «Los datos … no registran dados de clientes» — duas
+    línguas na mesma frase. As frases que vêm do modelo ficam como vieram.
+    """
+    lingua = (lingua or "en").split("-")[0].lower()
+    if lingua not in ("pt", "es", "en"):
+        lingua = "en"
+
+    def _traduz(frase: Optional[str], tabelas) -> Optional[str]:
+        if not frase:
+            return frase
+        chave = frase.strip().lower()
+        for frases in tabelas:
+            if chave in (f.lower() for f in frases.values()):
+                return frases[lingua]
+        return frase
+
+    falta_t = _traduz(falta, [c["falta"] for c in _CONCEITOS.values()])
+    proximo_t = _traduz(proximo, [f for _, f in _O_MAIS_PROXIMO])
+    return falta_t or falta, proximo_t
