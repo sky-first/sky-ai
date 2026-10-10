@@ -12,7 +12,7 @@ from core.llm.providers import LLMProvider
 from core.sql.validator import ensure_safe_select
 from core.sql.validator_advanced import AdvancedSQLValidator
 from core.logging_utils import log_event
-from core.llm.conceito_em_falta import _honestidade_e_lingua, conceito_em_falta
+from core.llm.conceito_em_falta import _honestidade_e_lingua, conceito_ausente, conceito_em_falta
 
 # Import security config functions
 from core.security.security_config import (
@@ -637,6 +637,26 @@ def run_specialist(
             },
         )
         return state
+
+    # ── O conceito que o esquema não tem, decidido SEM o modelo ──────
+    # Ver `conceito_ausente`: o modelo de produção ignorava a regra e
+    # contava encomendas como clientes. Todas as tabelas AUTORIZADAS, e não
+    # só a escolhida — dizer «falta» porque o orquestrador escolheu mal era
+    # trocar um erro por outro. Os agentes autónomos ficam de fora: o
+    # pedido deles é largo de propósito.
+    if not state.get("multi_source_subquery") and (state.get("agent_mode") or "") not in (
+        "scan", "sql", "context", "datasource",
+    ):
+        _razao = conceito_ausente(question, agent_config.tables, state.get("detected_language"))
+        if _razao:
+            state["impossible_reason"] = _razao
+            state["sql"] = None
+            state["data"] = []
+            log_event(
+                "specialist_conceito_ausente",
+                {"agent_id": agent_config.id, "question": question[:200], "razao": _razao[:200]},
+            )
+            return state
 
     # Verificar se há múltiplas tabelas (modo JOIN)
     chosen_tables_logical = state.get("chosen_tables")
