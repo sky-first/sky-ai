@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List, Sequence, Optional
+import logging
 import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,8 @@ from sqlalchemy import select
 from db.models import TableMetadata, EmbeddingRecord
 from core.logging_utils import log_event
 from core.rag.embedding_cache import get_cached_embedding, set_cached_embedding
+
+logger = logging.getLogger(__name__)
 
 # ThreadPool para operações de embedding
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -183,13 +186,59 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             # Tem de ser ANTES do import: o huggingface_hub lê isto uma vez.
             if self._cache_dir:
                 os.environ.setdefault("HF_HOME", os.path.join(self._cache_dir, "hf"))
+                # A cache de pedaços do xet duplicava o modelo: com 2,2 GB de
+                # modelo e 4 GiB de emptyDir, o pod seria despejado.
+                os.environ.setdefault("HF_XET_CHUNK_CACHE_SIZE_BYTES", "0")
             from fastembed import TextEmbedding
 
             self._client = TextEmbedding(
                 model_name=self.model,
                 cache_dir=self._cache_dir,
+                **self._modelo_em_ficheiros_reais(TextEmbedding),
             )
         return self._client
+
+    def _modelo_em_ficheiros_reais(self, TextEmbedding) -> dict:
+        """Descarrega o modelo para uma pasta SEM symlinks e devolve-a.
+
+        ── O segundo defeito, escondido pelo primeiro (10/10) ──────────
+
+        Corrigida a descarga, o modelo chegou — e o ONNX Runtime 1.31
+        recusou-o: «External data path escapes model directory». A cache
+        do huggingface_hub guarda os ficheiros como symlinks para `blobs/`,
+        e o `model.onnx_data` (os pesos, fora do `.onnx`) resolve para fora
+        da pasta do modelo. O RAG continuava a falhar em todas as perguntas.
+
+        `snapshot_download(local_dir=...)` escreve ficheiros reais. Provado
+        num pod com a imagem de produção: 0 symlinks, 1024 dimensões, 2,2 GB.
+        Se algo falhar aqui, cai no caminho antigo — nunca pior do que era.
+        """
+        if not self._cache_dir:
+            return {}
+        try:
+            from huggingface_hub import snapshot_download
+
+            desc = next(
+                (
+                    m
+                    for m in TextEmbedding._list_supported_models()
+                    if m.model == self.model
+                ),
+                None,
+            )
+            repo = getattr(getattr(desc, "sources", None), "hf", None)
+            if not repo:
+                return {}
+            destino = os.path.join(
+                self._cache_dir, "materializado", repo.replace("/", "__")
+            )
+            snapshot_download(repo_id=repo, local_dir=destino)
+            return {"specific_model_path": destino}
+        except Exception:  # noqa: BLE001 — o caminho antigo continua a existir
+            logger.warning(
+                "embeddings: não consegui materializar o modelo", exc_info=True
+            )
+            return {}
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         if not texts:
