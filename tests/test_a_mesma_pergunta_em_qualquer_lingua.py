@@ -113,3 +113,79 @@ def test_nao_vai_ao_rag_quando_o_conceito_nao_existe():
     um documento sobre clientes nao conta os clientes que a base nao tem."""
     r = _formatar("MISSING datos de clientes | NEAREST el número de pedidos", "es")
     assert "pedidos" in r
+
+
+# ── A verificação que não depende do modelo ─────────────────────────
+#
+# Provado num pod com os modelos de produção (10/10): o qwen3-coder-30b
+# ignorava a regra do prompt e contava encomendas como clientes.
+
+from core.agents.generic_sql_agent import AgentConfig, TableSchema  # noqa: E402
+from core.llm.conceito_em_falta import conceito_ausente  # noqa: E402
+
+_ORDERS = TableSchema(
+    logical_name="orders",
+    physical_name="service.orders",
+    description="Pedidos de las tiendas",
+    columns=[{"name": "id"}, {"name": "store_id", "description": "Tienda"}, {"name": "total"}],
+)
+
+
+@pytest.mark.parametrize(
+    "pergunta,lingua,esperado",
+    [
+        ("quantos clientes nós temos", "pt", "MISSING dados de clientes | NEAREST o número de encomendas"),
+        ("cuántos clientes tenemos", "es", "MISSING datos de clientes | NEAREST el número de pedidos"),
+        ("how much clients do we have?", "en", "MISSING customer data | NEAREST the number of orders"),
+        ("faturação por cliente", "pt", "MISSING dados de clientes | NEAREST o número de encomendas"),
+    ],
+)
+def test_sem_coluna_de_cliente_a_resposta_ja_se_sabe(pergunta, lingua, esperado):
+    assert conceito_ausente(pergunta, [_ORDERS], lingua) == esperado
+
+
+def test_com_coluna_de_cliente_o_sql_decide():
+    com = TableSchema(logical_name="orders", physical_name="s.orders",
+                      columns=[{"name": "id"}, {"name": "customer_id"}])
+    assert conceito_ausente("quantos clientes temos", [com], "pt") is None
+
+
+def test_uma_tabela_de_clientes_noutro_sitio_tambem_conta():
+    """Todas as autorizadas, não só a escolhida pelo orquestrador."""
+    clientes = TableSchema(logical_name="clientes", physical_name="crm.clientes")
+    assert conceito_ausente("quantos clientes temos", [_ORDERS, clientes], "pt") is None
+
+
+@pytest.mark.parametrize(
+    "pergunta",
+    ["quanto faturámos no total?", "quantos pedidos foram de entrega?", "qual a loja que mais vende?"],
+)
+def test_o_que_nao_fala_de_conceitos_ausentes_nao_e_tocado(pergunta):
+    assert conceito_ausente(pergunta, [_ORDERS], "pt") is None
+
+
+def test_funcionarios_e_fornecedores_tambem():
+    assert conceito_ausente("quantos funcionários temos?", [_ORDERS], "pt").startswith("MISSING dados de funcionários")
+    assert conceito_ausente("¿cuántos proveedores hay?", [_ORDERS], "es").startswith("MISSING datos de proveedores")
+    turnos = TableSchema(logical_name="staff_shifts", physical_name="restaurant.staff_shifts")
+    assert conceito_ausente("how many employees do we have?", [_ORDERS, turnos], "en") is None
+
+
+def test_o_especialista_responde_sem_chamar_o_modelo():
+    from core.llm.specialist import run_specialist
+
+    class _ModeloQueNaoPodeSerChamado:
+        def invoke(self, *_a, **_k):
+            raise AssertionError("o modelo não devia ter sido chamado")
+
+    class _Fonte:
+        def run_query(self, sql):
+            raise AssertionError("nenhum SQL devia ter corrido")
+
+    cfg = AgentConfig(id="t", name="t", tables=[_ORDERS])
+    st = run_specialist(
+        {"question": "cuántos clientes tenemos", "detected_language": "es",
+         "chosen_table": "orders", "chosen_table_physical": "service.orders"},
+        cfg, _Fonte(), _ModeloQueNaoPodeSerChamado(),
+    )
+    assert st["impossible_reason"] == "MISSING datos de clientes | NEAREST el número de pedidos"
