@@ -8,6 +8,7 @@ branch picks the right *class*, which is the behaviour PR
 """
 
 from __future__ import annotations
+import os
 
 import sys
 import types
@@ -137,9 +138,7 @@ def test_local_default_model_is_1024_dims():
     from core.rag.embeddings import LocalEmbeddingProvider
     from fastembed import TextEmbedding
 
-    dims = {
-        m["model"]: m.get("dim") for m in TextEmbedding.list_supported_models()
-    }
+    dims = {m["model"]: m.get("dim") for m in TextEmbedding.list_supported_models()}
     assert dims[LocalEmbeddingProvider._DEFAULT_MODEL] == 1024
 
 
@@ -180,3 +179,40 @@ def test_ollama_model_setting_reads_the_env_alias(monkeypatch):
 
     monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
     assert Settings().embedding_model_ollama == "mxbai-embed-large"
+
+
+def test_a_descarga_do_modelo_grava_na_cache_e_nao_na_home(monkeypatch, tmp_path):
+    """O disco do pod é só de leitura: o huggingface_hub (xet) gravava em
+    ~/.cache/huggingface, a descarga morria e o RAG falhava em silêncio
+    em todas as perguntas (produção, 10/10)."""
+    import sys
+    import types
+
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    monkeypatch.delenv("HF_HOME", raising=False)
+    visto = {}
+
+    class _TextEmbedding:
+        def __init__(self, model_name, cache_dir):
+            visto["hf_home"] = os.environ.get("HF_HOME")
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=_TextEmbedding)
+    )
+    LocalEmbeddingProvider(model="m", cache_dir=str(tmp_path))._ensure_client()
+    assert visto["hf_home"] == os.path.join(str(tmp_path), "hf")
+
+
+def test_um_hf_home_configurado_nao_e_pisado(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from core.rag.embeddings import LocalEmbeddingProvider
+
+    monkeypatch.setenv("HF_HOME", "/configurado")
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=lambda **k: None)
+    )
+    LocalEmbeddingProvider(model="m", cache_dir=str(tmp_path))._ensure_client()
+    assert os.environ["HF_HOME"] == "/configurado"

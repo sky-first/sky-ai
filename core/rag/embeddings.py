@@ -170,6 +170,19 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
     def _ensure_client(self):
         if self._client is None:
+            # ── O disco do pod é só de leitura ─────────────────────────
+            #
+            # O `cache_dir` só diz onde fica o MODELO. O huggingface_hub
+            # descarrega pelo transporte xet, que grava a sua própria cache
+            # em `$HF_HOME` (por omissão `~/.cache/huggingface`) — e no pod
+            # isso é só de leitura. A descarga morria com «Read-only file
+            # system (os error 30)», o modelo nunca chegava (a pasta ficava
+            # com 40 KB) e o RAG falhava em todas as perguntas, em silêncio:
+            # as respostas saíam, sem contexto. Visto em produção a 10/10.
+            #
+            # Tem de ser ANTES do import: o huggingface_hub lê isto uma vez.
+            if self._cache_dir:
+                os.environ.setdefault("HF_HOME", os.path.join(self._cache_dir, "hf"))
             from fastembed import TextEmbedding
 
             self._client = TextEmbedding(
@@ -535,4 +548,3 @@ def get_embedding_provider() -> EmbeddingProvider:
     from core.llm.factory import create_embedding_provider
 
     return create_embedding_provider()
-
