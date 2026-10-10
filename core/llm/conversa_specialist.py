@@ -58,6 +58,9 @@ thank-you, or a general question that has nothing to do with their data.
 
 Reply in AT MOST two short sentences, in {lingua}.
 
+Right now it is {agora}. Use it whenever they ask the date, the day of the
+week or the time — you DO know these.
+
 Rules:
 - Be warm and natural. This is a pause in the conversation, not a report.
 - If they asked something you genuinely cannot know — today's weather, a
@@ -78,6 +81,7 @@ from core.llm.lingua_da_resposta import (  # noqa: E402
     nome_da_lingua,
 )
 
+
 def _reserva(lang: str) -> str:
     """A resposta quando o modelo nao responde.
 
@@ -88,7 +92,31 @@ def _reserva(lang: str) -> str:
         "pt": "Olá! Estou aqui. Quer que veja alguma coisa nos seus dados?",
         "es": "¡Hola! Aquí estoy. ¿Quiere que mire algo en sus datos?",
         "en": "Hello! I'm here. Want me to look something up in your data?",
-    }.get((lang or "en")[:2], "Hello! I'm here. Want me to look something up in your data?")
+    }.get(
+        (lang or "en")[:2],
+        "Hello! I'm here. Want me to look something up in your data?",
+    )
+
+
+#: O fuso de cada língua, quando o pedido não traz o da pessoa.
+_FUSO_DA_LINGUA = {"pt": "Europe/Lisbon", "es": "Europe/Madrid"}
+
+
+def agora_para(lang: str, fuso: str | None = None) -> str:
+    """«Saturday 2026-10-10 15:20 (Europe/Madrid)».
+
+    > «pergunto que dia é hoje. E ele não tem essa informação… isso é muito
+    >  prejudicial» — Lucas, 10/10/2026
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    nome = fuso or _FUSO_DA_LINGUA.get((lang or "")[:2], "UTC")
+    try:
+        zona = ZoneInfo(nome)
+    except Exception:  # noqa: BLE001 — um fuso inválido não parte a conversa
+        nome, zona = "UTC", ZoneInfo("UTC")
+    return datetime.now(zona).strftime("%A %Y-%m-%d %H:%M") + f" ({nome})"
 
 
 def run_conversa_specialist(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
@@ -106,7 +134,10 @@ def run_conversa_specialist(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
             [
                 {
                     "role": "system",
-                    "content": _INSTRUCOES.format(lingua=nome_da_lingua(lang)),
+                    "content": _INSTRUCOES.format(
+                        lingua=nome_da_lingua(lang),
+                        agora=agora_para(lang, state.get("timezone")),
+                    ),
                 },
                 {"role": "user", "content": pergunta},
             ]
