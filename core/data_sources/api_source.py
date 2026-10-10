@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
 import httpx
+from core.data_sources.api_payload import (
+    parse_records,
+    records_path_for,
+    redact,
+    resolve_auth,
+)
 from core.data_sources.base import BaseDataSource, DataSourceConfig
 from core.dialects import Dialect
 from core.logging_utils import log_event
@@ -20,13 +26,17 @@ class APISource:
 
         # Extrair configurações extras
         extra = config.extra or {}
+        self.extra = extra
         self.base_url = extra.get("base_url")
-        self.api_key = extra.get("api_key")
-        self.headers = extra.get("headers", {})
 
-        # Injetar API Key se existir
-        if self.api_key:
-            self.headers["Authorization"] = f"Bearer {self.api_key}"
+        # Autenticação: `api_key`/`headers` (legado), `auth` (contrato do
+        # backend) e os campos que a web grava (`auth_type`/`auth_header`/
+        # `auth_value`). Antes só os dois primeiros eram lidos — a chave
+        # escrita na web nunca chegava ao pedido (Anexo C, D1).
+        # A chave entra aqui, no pedido; o LLM nunca a vê.
+        self.headers, self.auth_params, self.basic_auth, self._secrets = resolve_auth(
+            extra
+        )
 
     def run_query(self, query: str | Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -65,8 +75,13 @@ class APISource:
 
         try:
             method = request_spec.get("method", "GET").upper()
-            endpoint = request_spec.get("endpoint", "")
+            # O especialista aceita `endpoint` ou `path`; aqui só se lia
+            # `endpoint` e um `path` ia parar à raiz da API.
+            endpoint = request_spec.get("endpoint") or request_spec.get("path") or ""
             params = request_spec.get("params")
+            if self.auth_params:
+                # A chave da ligação ganha a qualquer valor que o LLM ponha.
+                params = {**(params or {}), **self.auth_params}
             body = request_spec.get("body")
 
             # Construir URL final
@@ -80,6 +95,7 @@ class APISource:
                     method=method,
                     url=url,
                     headers=self.headers,
+                    auth=self.basic_auth,
                     params=params,
                     json=body,
                 )
@@ -89,40 +105,15 @@ class APISource:
                 if response.status_code == 204:
                     return []
 
-                data = response.json()
-
                 # === NORMALIZAÇÃO DE RESULTADO ===
                 # Contrato: Deve retornar List[Dict]
-
-                normalized_data: List[Dict[str, Any]] = []
-
-                if isinstance(data, list):
-                    normalized_data = data
-                elif isinstance(data, dict):
-                    # Heurística para APIs paginadas ou envelopadas
-                    # Procura chaves comuns de listas
-                    candidates = [
-                        "data",
-                        "items",
-                        "results",
-                        "records",
-                        "users",
-                        "orders",
-                    ]
-                    found_list = False
-
-                    for key in candidates:
-                        if key in data and isinstance(data[key], list):
-                            normalized_data = data[key]
-                            found_list = True
-                            break
-
-                    if not found_list:
-                        # Se não achou lista, retorna o próprio dict como único item
-                        normalized_data = [data]
-                else:
-                    # Primitivo ou null
-                    normalized_data = [{"value": data}]
+                # JSON, XML e CSV viram linhas; a lista principal é encontrada
+                # sozinha ou indicada por `records_path` (Anexo C, D3).
+                normalized_data: List[Dict[str, Any]] = parse_records(
+                    response.content,
+                    response.headers.get("content-type", ""),
+                    records_path_for(self.extra, endpoint),
+                )
 
                 log_event(
                     "datasource_api_query_success",
@@ -138,9 +129,12 @@ class APISource:
                 "datasource_api_query_error",
                 {
                     "datasource": self.label,
-                    "error": str(e)[:500],
+                    "error": redact(e, self._secrets)[:500],
                 },
             )
+            if self._secrets and any(sec in str(e) for sec in self._secrets):
+                # O httpx põe o URL (com a chave na query) na mensagem.
+                raise RuntimeError(redact(e, self._secrets)) from None
             raise
 
     def run_query_arrow(self, query: str) -> Any:

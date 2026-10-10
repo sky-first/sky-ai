@@ -242,7 +242,9 @@ def build_formatter_prompt(
                 "Explain the main insight(s) from this data. The result may be aggregated "
                 "or limited to the top rows — describe ONLY what these rows show; do not "
                 "infer the full distribution, the variation of the underlying rows, or the "
-                f"absence of other values. Answer ONLY in {_lang_name}."
+                "absence of other values. If a SAMPLE NOTICE is present, the preview is "
+                "partial: take counts, totals and extremes from its full-result statistics "
+                f"and say the listed rows are a sample. Answer ONLY in {_lang_name}."
             ),
         }
 

@@ -438,16 +438,26 @@ async def ingest_from_connection_metadata_cache(
         # alcance do orquestrador; as colunas chegam quando se souberem.
         if not columns:
             table_desc = table_info.get("description") or table_info.get("desc")
-            if not table_desc:
-                # Sem descrição não há como o motor escolher esta e não
-                # outra. O conector REST põe o caminho e o método em
-                # `metadata` — serve de descrição mínima.
-                extra_meta = table_info.get("metadata") or {}
-                if isinstance(extra_meta, dict):
-                    table_desc = extra_meta.get("description") or (
-                        f"{extra_meta.get('method', 'GET')} {extra_meta.get('path', '')}".strip()
-                        or None
+            # O conector REST põe o caminho e o método em `metadata`. Sem
+            # descrição, servem de descrição mínima. COM descrição, o caminho
+            # perdia-se: ia só para `extra.endpoint`, que ninguém lê, e o
+            # especialista tinha de adivinhar o URL a partir do nome
+            # (Anexo C, D2). Junta-se sempre, salvo se a descrição já o tiver.
+            extra_meta = table_info.get("metadata") or {}
+            if isinstance(extra_meta, dict):
+                table_desc = table_desc or extra_meta.get("description")
+                path = str(extra_meta.get("path") or "").strip()
+                endpoint_txt = (
+                    f"{str(extra_meta.get('method') or 'GET').upper()} {path}".strip()
+                )
+                if path and (not table_desc or path not in table_desc):
+                    table_desc = (
+                        f"{table_desc} (endpoint: {endpoint_txt})"
+                        if table_desc
+                        else endpoint_txt
                     )
+                elif not table_desc and endpoint_txt:
+                    table_desc = endpoint_txt or None
             db.add(
                 TableMetadata(
                     data_connection_id=data_connection.id,

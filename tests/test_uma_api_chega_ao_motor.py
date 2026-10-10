@@ -33,6 +33,7 @@ No fim, o `APISource` devolveu, ao vivo:
 Nada disto aparecia a ler código. Apareceu a pôr o motor de pé e a
 perguntar-lhe.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -68,7 +69,7 @@ class TestUmaTabelaSemColunasContinuaAExistir:
         """`table_metadata` exige `column_name`; `*` diz «a tabela toda»."""
         fonte = inspect.getsource(db_metadata.ingest_from_connection_metadata_cache)
         i = fonte.index("if not columns:")
-        bloco = fonte[i : i + 1800]
+        bloco = fonte[i : i + 2600]
         assert 'column_name="*"' in bloco
         assert "inserted += 1" in bloco
         assert "continue" in bloco
@@ -78,8 +79,8 @@ class TestUmaTabelaSemColunasContinuaAExistir:
         outra. `GET /forecast` é pouco, e é muito melhor do que nada."""
         fonte = inspect.getsource(db_metadata.ingest_from_connection_metadata_cache)
         i = fonte.index("if not columns:")
-        bloco = fonte[i : i + 1800]
-        assert "extra_meta.get(\"description\")" in bloco
+        bloco = fonte[i : i + 2600]
+        assert 'extra_meta.get("description")' in bloco
         assert "method" in bloco and "path" in bloco
 
     def test_e_marca_a_linha_como_sem_colunas(self):
@@ -122,4 +123,5 @@ class TestAApiResponde:
             )
         )
         assert len(linhas) == 1
-        assert "temperature_2m" in linhas[0].get("current", {})
+        # Achatado um nível: `current.temperature_2m` (Anexo C, D3).
+        assert "current.temperature_2m" in linhas[0]

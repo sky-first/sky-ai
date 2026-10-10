@@ -351,7 +351,7 @@ async def _stream_agent_query(
             data_sample = data[:15]
             serialized_sample = _serialize_for_json(data_sample)
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
-            stats_text = _compute_basic_stats(data_sample)
+            stats_text = _compute_basic_stats(data_sample, all_rows=data)
 
             system_msg = {
                 "role": "system",
