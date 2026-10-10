@@ -71,6 +71,22 @@ class TenantConnectionManager:
             return AsyncSessionLocal()
         return pool.async_maker()
 
+    def async_session_or_none(
+        self, ctx: Optional[TenantContext] = None
+    ) -> Optional[AsyncSession]:
+        """Like :meth:`async_session_for`, but **without** the fallback.
+
+        Returns None when ``ctx`` has a dedicated DB whose engine cannot be
+        built. For writes of tenant-owned data (the audit trail) falling
+        back to the platform DB would put one customer's questions and SQL
+        in the shared database — the caller must wait/retry instead.
+        """
+        ctx = ctx or current_tenant()
+        pool = self._maybe_pool(ctx)
+        if pool is None:
+            return None
+        return pool.async_maker()
+
     def sync_session_for(self, ctx: Optional[TenantContext] = None):
         """Return a fresh sync session bound to ``ctx``'s database.
 
@@ -176,9 +192,7 @@ class TenantConnectionManager:
                         "NOT NULL DEFAULT 'en'"
                     )
                 )
-            logger.info(
-                "ai_tenant_schema_ensured", extra={"slug": ctx.slug}
-            )
+            logger.info("ai_tenant_schema_ensured", extra={"slug": ctx.slug})
         except Exception as exc:  # noqa: BLE001 — never break engine build
             logger.warning(
                 "ai_tenant_schema_ensure_failed",
