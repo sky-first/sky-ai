@@ -12,6 +12,7 @@ from core.llm.providers import LLMProvider
 from core.sql.validator import ensure_safe_select
 from core.sql.validator_advanced import AdvancedSQLValidator
 from core.logging_utils import log_event
+from core.llm.conceito_em_falta import _honestidade_e_lingua, conceito_em_falta
 
 # Import security config functions
 from core.security.security_config import (
@@ -1020,6 +1021,13 @@ def run_specialist(
         "- Do not guess the capitalization of data values. Normalize both sides.\n"
     )
 
+    # Honestidade sobre o que os dados NAO tem. Visto em producao a 09/10:
+    # «cuantos clientes tenemos?» sobre encomendas anonimas deu
+    # COUNT(DISTINCT id) FROM orders AS customer_count — 158.340 encomendas
+    # apresentadas como clientes. Uma resposta errada com ar de certa e o
+    # pior resultado possivel num produto que vende respostas sobre dados.
+    honesty_guidance = _honestidade_e_lingua(state)
+
     if use_multiple_tables:
         system_msg = _build_secure_system_prompt(
             physical_names=physical_names,
@@ -1067,6 +1075,7 @@ def run_specialist(
         + financial_guidance
         + aggregation_fanout_guidance
         + string_comparison_guidance
+        + honesty_guidance
     )
 
     # 🔹 CONTEXTO DE HISTÓRICO CONVERSACIONAL
@@ -1157,9 +1166,15 @@ def run_specialist(
     )
 
     # 🔄 RETRY ON IMPOSSIBLE: try once with a simplified approach hint
+    # «Os dados nao tem isto» e uma resposta, nao um falhanco: insistir
+    # («NEVER respond IMPOSSIBLE») era exactamente o que empurrava o modelo
+    # a contar encomendas e chamar-lhes clientes.
+    _falta_de_verdade = conceito_em_falta(
+        re.sub(r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE)
+    ) and not state.get("multi_source_subquery")
     if re.match(
         r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE
-    ) and not state.get("_specialist_retry_done"):
+    ) and not state.get("_specialist_retry_done") and not _falta_de_verdade:
         state["_specialist_retry_done"] = True
         agent_mode = (state.get("agent_mode") or "").lower()
         # For autonomous agent modes the question is always broad by design —

@@ -26,6 +26,18 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é problema dos seus dados nem do seu acesso. O erro ficou registado. Tente de novo e avise um administrador se continuar.",
         "es": "Algo falló de nuestro lado al responder a esta pregunta — no es un problema de sus datos ni de su acceso. El error quedó registrado. Inténtelo de nuevo y avise a su administrador si continúa.",
     },
+    # O que a pessoa perguntou nao existe nos dados — dito com franqueza e
+    # com uma alternativa, nunca inventado. Ver core/llm/conceito_em_falta.py.
+    "MISSING_CONCEPT": {
+        "en": "The data I can see doesn't record {falta}. The closest I can give you is {proximo} — would you like that?",
+        "pt": "Os dados a que tenho acesso não registam {falta}. O mais próximo que lhe posso dar é {proximo} — quer que o calcule?",
+        "es": "Los datos a los que tengo acceso no registran {falta}. Lo más parecido que le puedo dar es {proximo}. ¿Quiere que lo calcule?",
+    },
+    "MISSING_CONCEPT_NO_NEAREST": {
+        "en": "The data I can see doesn't record {falta}, so I can't answer that without inventing a number.",
+        "pt": "Os dados a que tenho acesso não registam {falta}, por isso não consigo responder sem inventar um número.",
+        "es": "Los datos a los que tengo acceso no registran {falta}, así que no puedo responder sin inventar una cifra.",
+    },
     "NO_DATA_FOUND": {
         "en": "Sorry, I couldn't find any data about {topic}. Please try rephrasing.",
         "pt": "Não encontrei dados sobre {topic}. Experimente perguntar de outra maneira.",
