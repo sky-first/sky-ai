@@ -5513,8 +5513,9 @@ async def _stream_connection_query(
                 _serialize_for_json,
                 _compute_basic_stats,
                 _stream_llm,
-                _extract_topic,
+                mensagem_sem_dados,
             )
+            from core.llm.numeros import CorrecaoEmFluxo, regras_de_numeros
 
             state = _build_streaming_agent_state(body, crew_ids, retrieval_context)
 
@@ -5720,8 +5721,12 @@ async def _stream_connection_query(
                     final_state.get("detected_language"),
                     locale=getattr(body, "locale", None),
                 )
-                topic = _extract_topic(body.question)
-                msg = get_message("NO_DATA_FOUND", lang, topic=topic)
+                # «Os dados não têm clientes» é uma resposta, não um «não
+                # encontrei». Antes ia tudo para NO_DATA_FOUND com a pergunta
+                # colada: «No encontré datos sobre cuántos clientes tengo».
+                msg = mensagem_sem_dados(
+                    body.question, final_state.get("impossible_reason"), lang
+                )
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -5790,8 +5795,7 @@ async def _stream_connection_query(
                     final_state.get("detected_language"),
                     locale=getattr(body, "locale", None),
                 )
-                topic = _extract_topic(body.question)
-                msg = get_message("NO_DATA_FOUND", lang, topic=topic)
+                msg = mensagem_sem_dados(body.question, None, lang)
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -5851,10 +5855,22 @@ async def _stream_connection_query(
                 lingua_da_resposta(detected_language)
             )
             _stream_lang_name = nome_da_lingua(_stream_lang)
-            _insufficient_msg = (
-                "Dados insuficientes para responder esta pergunta."
-                if _stream_lang == "pt"
-                else "Insufficient data to answer this question."
+            _insufficient_msg = {
+                "pt": "Não há dados suficientes para responder a esta pergunta.",
+                "es": "No hay datos suficientes para responder a esta pregunta.",
+            }.get(_stream_lang, "Insufficient data to answer this question.")
+            # As regras dos números iam só para o caminho escrito; aqui o
+            # modelo copiava o formato neutro do Postgres («6 153 185,72»,
+            # sem euro). E a correcção determinística vai por cima — ver
+            # CorrecaoEmFluxo.
+            _regras_numeros = regras_de_numeros(
+                _stream_lang,
+                colunas=(
+                    list(data[0].keys())
+                    if data and isinstance(data[0], dict)
+                    else []
+                ),
+                moeda_pedida=final_state.get("currency"),
             )
 
             system_msg = {
@@ -5879,9 +5895,13 @@ async def _stream_connection_query(
                     "  more may exist beyond what was returned.\n"
                     "- Invent statistics (min/max/average/trends/variation) not literally\n"
                     "  present in the provided results.\n"
-                    "- Rescale, multiply, divide or convert any numeric value. Report every\n"
-                    "  number EXACTLY as it appears (0.75 is 0.75, NOT 75%). If a value is\n"
-                    "  already a percentage, append '%' without changing the digits.\n\n"
+                    "- Rescale, multiply, divide or convert any numeric value. The DIGITS\n"
+                    "  are exactly those in the results (0.75 is 0.75, NOT 75%); only the\n"
+                    "  separators follow the NUMBER FORMATTING rules below. If a value is\n"
+                    "  already a percentage, append '%' without changing the digits.\n"
+                    "- Refer to the person asking in the third person ('the user', 'el\n"
+                    "  usuario', 'o utilizador'). Talk TO them, in the second person:\n"
+                    "  'You invoiced…', 'Ha facturado…', 'Faturou…'.\n\n"
                     "YOU MUST:\n"
                     "- Only use the data provided in the results\n"
                     f"- Answer ONLY in {_stream_lang_name} - THIS IS A STRICT REQUIREMENT\n"
@@ -5889,6 +5909,7 @@ async def _stream_connection_query(
                     "- Keep the answer concise and objective (maximum 4 sentences)\n\n"
                     f"CRITICAL LANGUAGE REQUIREMENT:\n"
                     f"- You MUST answer in {_stream_lang_name}, matching the user's language.\n"
+                    f"{_regras_numeros}"
                 ),
             }
 
@@ -5909,11 +5930,20 @@ async def _stream_connection_query(
             }
 
             # Stream do LLM formatter
+            # Cada pedaço passa pela correcção dos números e da pessoa antes
+            # de sair: o protocolo não tem «substituir», e a voz lê estes
+            # mesmos pedaços — o que se envia tem de já ir certo.
             accumulated_answer = ""
+            _correcao = CorrecaoEmFluxo(_stream_lang, data, final_state.get("currency"))
             try:
                 for chunk in _stream_llm(llm_formatter, system_msg, user_msg):
-                    accumulated_answer += chunk
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                    pronto = _correcao.receber(chunk)
+                    if pronto:
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': pronto})}\n\n"
+                resto = _correcao.terminar()
+                if resto:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': resto})}\n\n"
+                accumulated_answer = _correcao.texto
             except Exception as e:
                 # Fallback se streaming falhar
                 fallback = "Error formatting the response with the AI. Data was queried successfully, but I could not generate a summary."
