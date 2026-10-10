@@ -105,7 +105,16 @@ def conceito_em_falta(razao: Optional[str]) -> Optional[Tuple[str, Optional[str]
 _CONCEITOS = {
     "clientes": {
         "pergunta": r"\b(clientes?|customers?|clients?|consumidor(?:es)?)\b",
-        "esquema": ("customer", "client", "cliente", "consumer", "buyer", "comprador"),
+        # Num SaaS o cliente chama-se conta, assinante ou subscrição — e
+        # recusar «quanto custa adquirir um cliente?» a um esquema com
+        # `accounts` e `subscriptions` foi o falso positivo visto a 10/10.
+        # Na dúvida, deixa-se o SQL decidir: recusar uma pergunta que tinha
+        # resposta é pior do que deixar passar uma que não tem.
+        "esquema": (
+            "customer", "client", "cliente", "consumer", "buyer", "comprador",
+            "account", "conta", "cuenta", "subscri", "assinante", "suscriptor",
+            "signup", "member", "user", "usuario", "utilizador",
+        ),
         "falta": {"pt": "dados de clientes", "es": "datos de clientes", "en": "customer data"},
     },
     "funcionarios": {
