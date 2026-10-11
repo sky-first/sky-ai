@@ -12,6 +12,27 @@ from core.llm.context.models import ContextBundle
 from core.llm.context.serializers import serialize_for_prompt
 from core.llm.lingua_da_resposta import lingua_da_resposta, nome_da_lingua
 
+# A consulta CORREU e devolveu 0 linhas — é uma resposta válida («No hay lotes
+# a punto de caducar en los próximos 7 días»), não uma recusa. 11/10/2026 o
+# modelo respondeu «Lo siento, pero no puedo proporcionar esa lista», que soa
+# a falta de acesso. Usada na escrita (build_formatter_prompt) e no streaming.
+REGRA_ZERO_LINHAS = (
+    "ZERO ROWS: the query ran correctly and returned NO rows. That IS the answer, "
+    "not an error. State plainly, in the terms of the question, that nothing "
+    "matched (e.g. 'No hay lotes a punto de caducar en los próximos 7 días.' / "
+    "'Não há faturas vencidas.' / 'There are no overdue invoices.').\n"
+    "NEVER use refusal or apology phrasing: do not write 'I cannot', \"I can't\", "
+    "'I am unable', 'sorry', 'no puedo', 'lo siento', 'lamentablemente', "
+    "'não posso', 'lamento'. Do not suggest a permission, access or "
+    "data-availability problem, and do not ask the user to rephrase. This "
+    "overrides any instruction to say the data is insufficient."
+)
+
+
+def sql_executado(sql: Optional[str]) -> bool:
+    return bool(sql) and str(sql).strip().upper() not in ("N/A", "NONE")
+
+
 # Maps the tone IDs emitted by the frontend Settings → AI Customization UI
 # (see sky-poc-frontend settings/ai-preferences.tsx `toneOptions`) to concrete
 # voice instructions for the formatter LLM.
@@ -239,6 +260,7 @@ def build_formatter_prompt(
                 "IMPORTANT: No data was found in the SQL database, BUT you MUST check the [BUSINESS CONTEXT & STRATEGIC PILLARS] section above. "
                 "If the answer to the question is contained in those strategic pillars or business context chunks, "
                 "PROVIDE THE ANSWER directly based on that information. Do not apologize for the lack of SQL data if the RAG context has the answer."
+                + (f"\n\n{REGRA_ZERO_LINHAS}" if sql_executado(sql) else "")
             ),
         }
     else:

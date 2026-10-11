@@ -10,7 +10,10 @@ from core.llm.providers import LLMProvider
 from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
 from config.settings import settings
-from core.llm.prompts.formatter_prompts import build_formatter_prompt
+from core.llm.prompts.formatter_prompts import (
+    build_formatter_prompt,
+    sql_executado,
+)
 from core.llm.numeros import corrigir_resposta, regras_de_numeros
 from core.llm.conceito_em_falta import conceito_em_falta, traduzir_conceito
 from core.llm.context.builder import build_context_bundle
@@ -274,6 +277,31 @@ def mensagem_sem_dados(
     if not topic:
         return get_message("NO_DATA_GENERIC", lang)
     return get_message("NO_DATA_FOUND", lang, topic=topic)
+
+
+_CONJUNCAO = {"es": " y ", "pt": " e ", "en": " and "}
+
+
+def mensagem_sem_resultados(sql: Optional[str], lang: str) -> Optional[str]:
+    """0 linhas com filtros de TEXTO por literal: «no hay resultados para
+    origem = BADAJOZ y destino = MADRID» — o caso em que um literal errado é
+    plausível (depois da tentativa de correcção no especialista).
+
+    Devolve None quando o SQL não tem filtros desses (só datas, números…):
+    aí «0 linhas» é a resposta certa e quem a redige é o modelo, com a regra
+    REGRA_ZERO_LINHAS («No hay lotes a punto de caducar en los próximos 7
+    días» lê-se bem no fio de um agente; uma frase fixa lê-se como sistema).
+    A mesma decisão na escrita e no streaming."""
+    try:
+        from core.sql.correcao_de_literais import descrever_filtros
+
+        pares = descrever_filtros(sql)
+    except Exception:
+        pares = []
+    if not pares:
+        return None
+    filtro = _CONJUNCAO.get(lang, " and ").join(f"{c} = {v}" for c, v in pares)
+    return get_message("NO_ROWS_FOR_FILTER", lang, filtro=filtro)
 
 
 def _serialize_for_json(obj: Any) -> Any:
@@ -617,6 +645,27 @@ def run_formatter(
         )
         return state
 
+    # 1c) A consulta CORREU, não devolveu nada e filtrava texto por literal:
+    # diz-se o filtro que não encontrou nada. Antes caía no LLM com o RAG e
+    # saía «Lo siento, pero no puedo proporcionar esa lista» (11/10/2026).
+    # Sem filtros de texto, segue para o LLM com a regra das 0 linhas.
+    _sem_resultados = (
+        mensagem_sem_resultados(state.get("sql"), lang)
+        if not data and state.get("sql") and not impossible_reason
+        else None
+    )
+    if _sem_resultados:
+        state["answer"] = _sem_resultados
+        log_event(
+            "formatter_zero_rows",
+            {
+                "agent_id": agent_config.id,
+                "question": question[:200],
+                "lang": lang,
+            },
+        )
+        return state
+
     # 2) Caso o especialista tenha marcado como IMPOSSIBLE ou não houver dados,
     # mas temos contexto de recuperação (RAG), usamos o LLM para tentar responder.
     retrieval_context = state.get("retrieval_context") or []
@@ -647,8 +696,11 @@ def run_formatter(
         )
         return state
 
-    # 3) Sem dados e sem impossible_reason e NÃO TEM RAG -> resposta simples
-    if not data and not retrieval_context:
+    # 3) Sem dados e sem impossible_reason e NÃO TEM RAG -> resposta simples.
+    # Excepto quando houve SQL executado: «0 linhas» é a resposta e o modelo
+    # redige-a nos termos da pergunta (REGRA_ZERO_LINHAS), em vez de «no
+    # encontré datos… pruebe a reformular».
+    if not data and not retrieval_context and not sql_executado(state.get("sql")):
         topic = _extract_topic(question)
         state["answer"] = mensagem_sem_dados(question, None, lang)
         log_event(

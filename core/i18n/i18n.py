@@ -51,6 +51,15 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Não encontrei dados sobre {topic}. Experimente perguntar de outra maneira.",
         "es": "No encontré datos sobre {topic}. Pruebe a reformular la pregunta.",
     },
+    # A consulta CORREU e devolveu 0 linhas. Não é recusa nem falta de acesso
+    # — 11/10/2026 o formatador respondeu «Lo siento, pero no puedo
+    # proporcionar esa lista» a um filtro sem correspondência, o que soa a
+    # problema de permissões. Diz-se o filtro que não encontrou nada.
+    "NO_ROWS_FOR_FILTER": {
+        "en": "There are no results for {filtro}: the query ran, but no record matches that filter.",
+        "pt": "Não há resultados para {filtro}: a consulta correu, mas nenhum registo cumpre esse filtro.",
+        "es": "No hay resultados para {filtro}: la consulta se ejecutó, pero ningún registro cumple ese filtro.",
+    },
     "NO_DATA_GENERIC": {
         "en": "Sorry, I couldn't find any data to answer this question. Please try rephrasing.",
         "pt": "Não encontrei dados para responder a esta pergunta. Experimente perguntar de outra maneira.",

@@ -3703,93 +3703,6 @@ async def query_connection(
     return response
 
 
-# Cache of profiled categorical values, keyed by "connection|physical|column".
-# A value of None marks a column already checked and found high-cardinality, so
-# it is never re-queried. Values rarely change, so a process-level cache is
-# enough here; the canonical home for this is discover-time enrichment.
-_SAMPLE_VALUES_CACHE: Dict[str, Optional[List[str]]] = {}
-_SAMPLE_VALUES_MAX_DISTINCT = 25  # only surface low-cardinality columns
-_SAMPLE_VALUES_MAX_COLUMNS = 40  # safety cap on profiling work per request
-
-
-def _is_text_column(col_type: str) -> bool:
-    """True for string-like column types across dialects (BigQuery STRING,
-    Postgres varchar/text, etc.)."""
-    t = (col_type or "").upper()
-    return any(k in t for k in ("STR", "CHAR", "TEXT", "VARCHAR", "ENUM"))
-
-
-def _fetch_distinct_values(
-    data_source: Any, physical: str, column: str
-) -> Optional[List[str]]:
-    """Return distinct non-null values for a column, or None when it is
-    high-cardinality (more than the threshold) or unreadable. Source-agnostic:
-    runs a bounded SELECT DISTINCT through the DataSource."""
-    limit = _SAMPLE_VALUES_MAX_DISTINCT + 1
-    sql = (
-        f"SELECT DISTINCT {column} AS v FROM {physical} "
-        f"WHERE {column} IS NOT NULL LIMIT {limit}"
-    )
-    try:
-        rows = data_source.run_query(sql) or []
-    except Exception as exc:
-        log_event(
-            "sample_values_profile_error",
-            {"physical": physical, "column": column, "error": str(exc)[:160]},
-        )
-        return None
-    values = [
-        str(r.get("v"))
-        for r in rows
-        if isinstance(r, dict) and r.get("v") is not None
-    ]
-    # Too many distinct → not a categorical column; don't surface it.
-    if not values or len(values) > _SAMPLE_VALUES_MAX_DISTINCT:
-        return None
-    return values
-
-
-def _enrich_tables_with_sample_values(
-    tables: list, data_source: Any, connection_id: str
-) -> None:
-    """Attach the real value domain of low-cardinality text columns to each
-    column dict as ``sample_values``, so the schema shown to the LLM lists the
-    actual values (e.g. status in {Paid, Pending, Overdue}). This stops the
-    model from inventing logic for a value it cannot see (e.g. deriving
-    "overdue" from dates instead of using the status column).
-
-    Best-effort and cached per (connection, table, column); high-cardinality
-    columns are remembered as skipped. Any failure leaves the column
-    unannotated and never breaks the query path.
-    """
-    profiled = 0
-    for table in tables or []:
-        physical = getattr(table, "physical_name", None)
-        if not physical:
-            continue
-        for col in getattr(table, "columns", None) or []:
-            if not isinstance(col, dict):
-                continue
-            name = col.get("name")
-            if not name or col.get("sample_values") is not None:
-                continue
-            if not _is_text_column(col.get("type") or col.get("data_type") or ""):
-                continue
-            key = f"{connection_id}|{physical}|{name}"
-            if key in _SAMPLE_VALUES_CACHE:
-                cached = _SAMPLE_VALUES_CACHE[key]
-                if cached:
-                    col["sample_values"] = cached
-                continue
-            if profiled >= _SAMPLE_VALUES_MAX_COLUMNS:
-                continue
-            profiled += 1
-            values = _fetch_distinct_values(data_source, physical, name)
-            _SAMPLE_VALUES_CACHE[key] = values
-            if values:
-                col["sample_values"] = values
-
-
 async def _query_connection_inner(
     connection_id: str,
     body: QueryRequest,
@@ -4320,16 +4233,13 @@ async def _query_connection_inner(
         error_detail = f"Erro ao criar DataSource: {str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=error_detail)
 
-    # Surface the real value domain of low-cardinality text columns (status,
-    # category, method, ...) so the specialist maps business terms to actual
-    # column values instead of inventing logic (e.g. date heuristics). Cached,
-    # best-effort — never blocks the query.
-    try:
-        _enrich_tables_with_sample_values(
-            agent_config.tables, data_source, connection_id
-        )
-    except Exception as _exc:
-        logger.warning("sample-value enrichment skipped: %s", _exc)
+    # Os valores reais das colunas de texto categóricas já NÃO são lidos aqui.
+    # Aqui corria sobre TODAS as tabelas da ligação, antes do orquestrador, com
+    # um tecto de 40 colunas por pedido: as tabelas que vinham depois na ordem
+    # do catálogo (gasolineras_rota, 11/10) ficavam sem valores e o modelo
+    # escrevia 'BAJAZOZ'. O streaming nem passava por aqui. Agora é o
+    # especialista que anota as tabelas ESCOLHIDAS, em todos os caminhos —
+    # ver core/sql/valores_de_coluna.py.
 
     # For scan mode: build multi-source dispatch_map so the full_context_agent
     # can query any of the user's connections, not just the primary one.
@@ -5837,6 +5747,64 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
 
+            # SQL executado com 0 linhas E filtros de texto por literal:
+            # «não há resultados para <filtro>», determinístico e igual ao da
+            # escrita (run_formatter). Sem filtros de texto (datas, números),
+            # segue para o modelo com a REGRA_ZERO_LINHAS (mais abaixo).
+            _msg_zero = None
+            if not final_state.get("data") and final_state.get("sql"):
+                from core.llm.formatter import mensagem_sem_resultados
+
+                _lang_zero = _ensure_language(
+                    body.question,
+                    final_state.get("detected_language"),
+                    locale=getattr(body, "locale", None),
+                )
+                _msg_zero = mensagem_sem_resultados(final_state.get("sql"), _lang_zero)
+            if _msg_zero:
+                lang = _lang_zero
+                msg = _msg_zero
+                yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
+                meta = {
+                    "detected_language": lang,
+                    "chosen_table": final_state.get("chosen_table"),
+                    "chosen_datasets": final_state.get("chosen_tables"),
+                    "sql": final_state.get("sql"),
+                    "title": final_state.get("generated_title"),
+                    "num_rows": 0,
+                    "error": None,
+                }
+                yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': []})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                # Fica no histórico, como as outras respostas com SQL: o
+                # seguimento («¿y para Lisboa?») precisa do filtro anterior.
+                try:
+                    await db.rollback()
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id, role="user", content=body.question
+                        )
+                    )
+                    db.add(
+                        ChatHistory(
+                            thread_id=thread_id,
+                            role="assistant",
+                            content=msg,
+                            extra={
+                                "sql": final_state.get("sql"),
+                                "generated_title": final_state.get("generated_title"),
+                            },
+                        )
+                    )
+                    await db.commit()
+                except Exception as _e:
+                    logger.error(f"Error saving stream chat history (0 rows): {_e}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                return
+
             # Agora fazer streaming da resposta do formatter
             yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
 
@@ -5960,6 +5928,13 @@ async def _stream_connection_query(
                     f"Answer in {_stream_lang_name}."
                 ),
             }
+            if not data:
+                # 0 linhas sem filtro de texto (ex.: «lotes a punto de caducar»):
+                # a resposta é «não há …», nos termos da pergunta — nunca uma
+                # recusa nem o «no hay datos suficientes» do sistema.
+                from core.llm.prompts.formatter_prompts import REGRA_ZERO_LINHAS
+
+                user_msg["content"] += f"\n\n{REGRA_ZERO_LINHAS}"
 
             # Stream do LLM formatter
             # Cada pedaço passa pela correcção dos números e da pessoa antes
