@@ -5747,18 +5747,23 @@ async def _stream_connection_query(
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
 
-            # SQL executado com 0 linhas: «não há resultados para <filtro>»,
-            # determinístico e igual ao da escrita (run_formatter). Deixado ao
-            # LLM saía «no puedo proporcionar esa lista», que soa a recusa.
+            # SQL executado com 0 linhas E filtros de texto por literal:
+            # «não há resultados para <filtro>», determinístico e igual ao da
+            # escrita (run_formatter). Sem filtros de texto (datas, números),
+            # segue para o modelo com a REGRA_ZERO_LINHAS (mais abaixo).
+            _msg_zero = None
             if not final_state.get("data") and final_state.get("sql"):
                 from core.llm.formatter import mensagem_sem_resultados
 
-                lang = _ensure_language(
+                _lang_zero = _ensure_language(
                     body.question,
                     final_state.get("detected_language"),
                     locale=getattr(body, "locale", None),
                 )
-                msg = mensagem_sem_resultados(final_state.get("sql"), lang)
+                _msg_zero = mensagem_sem_resultados(final_state.get("sql"), _lang_zero)
+            if _msg_zero:
+                lang = _lang_zero
+                msg = _msg_zero
                 yield f"data: {json.dumps({'type': 'chunk', 'content': msg})}\n\n"
                 meta = {
                     "detected_language": lang,
@@ -5923,6 +5928,13 @@ async def _stream_connection_query(
                     f"Answer in {_stream_lang_name}."
                 ),
             }
+            if not data:
+                # 0 linhas sem filtro de texto (ex.: «lotes a punto de caducar»):
+                # a resposta é «não há …», nos termos da pergunta — nunca uma
+                # recusa nem o «no hay datos suficientes» do sistema.
+                from core.llm.prompts.formatter_prompts import REGRA_ZERO_LINHAS
+
+                user_msg["content"] += f"\n\n{REGRA_ZERO_LINHAS}"
 
             # Stream do LLM formatter
             # Cada pedaço passa pela correcção dos números e da pessoa antes

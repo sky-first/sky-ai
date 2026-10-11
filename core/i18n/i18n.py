@@ -60,11 +60,6 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Não há resultados para {filtro}: a consulta correu, mas nenhum registo cumpre esse filtro.",
         "es": "No hay resultados para {filtro}: la consulta se ejecutó, pero ningún registro cumple ese filtro.",
     },
-    "NO_ROWS_GENERIC": {
-        "en": "There are no results: the query ran, but no record matches what was asked.",
-        "pt": "Não há resultados: a consulta correu, mas nenhum registo cumpre o que foi pedido.",
-        "es": "No hay resultados: la consulta se ejecutó, pero ningún registro cumple lo que se pidió.",
-    },
     "NO_DATA_GENERIC": {
         "en": "Sorry, I couldn't find any data to answer this question. Please try rephrasing.",
         "pt": "Não encontrei dados para responder a esta pergunta. Experimente perguntar de outra maneira.",

@@ -419,21 +419,85 @@ def test_zero_linhas_diz_que_nada_cumpre_o_filtro(lang, pergunta, comeco, conjun
         assert recusa not in r
 
 
+# Sem filtro de texto, «0 linhas» é a resposta certa (agentes de monitorização:
+# «lotes a punto de caducar» com caduca < now() + 7 dias). Fica o modelo a
+# redigir, nos termos da pergunta — mas proibido de soar a recusa.
+
+RESPOSTA_DO_MODELO = "No hay lotes a punto de caducar en los próximos 7 días."
+
+
+class _ModeloQueRedige:
+    def __init__(self):
+        self.mensagens = []
+
+    def invoke(self, mensagens, *_a, **_k):
+        self.mensagens.append(mensagens)
+        return SimpleNamespace(content=RESPOSTA_DO_MODELO)
+
+
 @pytest.mark.parametrize(
-    "lang, comeco",
+    "sql",
     [
-        ("es", "No hay resultados"),
-        ("pt", "Não há resultados"),
-        ("en", "There are no results"),
+        # Só datas.
+        "SELECT lote, caduca FROM ops.lotes WHERE caduca < now() + interval '7 days'",
+        # Data como texto entre aspas: continua a não ser filtro de texto.
+        "SELECT lote FROM ops.lotes WHERE caduca = '2026-10-18'",
+        # Só números.
+        "SELECT SUM(precio_gasoleo_a) FROM ops.gasolineras_precio WHERE precio_gasoleo_a > 9",
     ],
 )
-def test_zero_linhas_sem_filtro_de_texto(lang, comeco):
-    r = _formatar(
-        lang,
-        "SELECT SUM(precio_gasoleo_a) FROM ops.gasolineras_precio WHERE precio_gasoleo_a > 9",
-        "x",
+@pytest.mark.parametrize("com_rag", [True, False])
+def test_zero_linhas_sem_filtro_de_texto_vai_ao_modelo_com_a_regra(sql, com_rag):
+    from core.llm.formatter import run_formatter
+
+    modelo = _ModeloQueRedige()
+    state = {
+        "question": "¿Qué lotes están a punto de caducar?",
+        "data": [],
+        "sql": sql,
+        "detected_language": "es",
+        "retrieval_context": ["lotes: caducidad por lote"] if com_rag else [],
+    }
+    cfg = AgentConfig(id="t", name="t", tables=[])
+    r = run_formatter(state, cfg, llm=modelo)["answer"]
+
+    assert len(modelo.mensagens) == 1, "0 linhas sem filtro de texto vai ao modelo"
+    assert r.startswith("No hay lotes a punto de caducar")
+    prompt = "\n".join(m["content"] for m in modelo.mensagens[0])
+    assert "ZERO ROWS" in prompt
+    for proibida in ("I cannot", "no puedo", "lo siento", "não posso"):
+        assert proibida in prompt  # listadas como proibidas
+
+
+def test_o_streaming_usa_a_mesma_regra_e_a_mesma_decisao():
+    import inspect
+
+    import api.routes.connection_query as cq
+
+    fonte = inspect.getsource(cq)
+    assert "REGRA_ZERO_LINHAS" in fonte
+    assert "mensagem_sem_resultados" in fonte
+
+
+def test_mensagem_deterministica_so_com_filtro_de_texto():
+    from core.llm.formatter import mensagem_sem_resultados
+
+    assert mensagem_sem_resultados(SQL_SEM_LINHAS, "es").startswith(
+        "No hay resultados para origem = BADAJOZ"
     )
-    assert r.startswith(comeco)
+    assert (
+        mensagem_sem_resultados(
+            "SELECT lote FROM ops.lotes WHERE caduca < now() + interval '7 days'",
+            "es",
+        )
+        is None
+    )
+
+
+def test_no_rows_generic_ja_nao_existe():
+    from core.i18n.i18n import MESSAGES
+
+    assert "NO_ROWS_GENERIC" not in MESSAGES
 
 
 def test_descrever_filtros_le_igualdade_in_e_like():

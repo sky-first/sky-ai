@@ -409,6 +409,15 @@ def corrigir_literais(
 # ── Para a resposta «não há resultados» ───────────────────────────────
 
 
+_NAO_E_TEXTO = re.compile(
+    r"[-+]?\d+([.,]\d+)?"  # número
+    r"|\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?([+-]\d{2}(:?\d{2})?|Z)?"
+    r"|\d{1,2}/\d{1,2}/\d{2,4}"
+    r"|(true|false|t|f)",
+    re.IGNORECASE,
+)
+
+
 def descrever_filtros(
     sql: Optional[str], dialecto: str = "postgres"
 ) -> List[Tuple[str, str]]:
@@ -439,6 +448,10 @@ def descrever_filtros(
             if not isinstance(col, exp.Column):
                 continue
             valor = dir_.this.strip("%").strip()
+            # '2026-10-01' ou '42' entre aspas não são filtros de texto: uma
+            # data ou um número sem linhas não é gralha plausível.
+            if _NAO_E_TEXTO.fullmatch(valor):
+                continue
             if valor and (col.name, valor) not in pares:
                 pares.append((col.name, valor))
     return pares[:4]
