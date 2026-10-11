@@ -13,6 +13,8 @@ Relacionamentos são filtrados por permissão antes de chegarem ao prompt da IA.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 
@@ -189,6 +191,17 @@ def detect_relationships(
                                 )
                             )
 
+    # ── 3b. Chaves que a heurística *_id não via ─────────────────────────────
+    # `gasolineras_rota.id_estacion` → `gasolineras_precio.id_estacion`
+    # (dados públicos, 11/10/2026): prefixo `id_` à castelhana, sem FK
+    # declarada no Postgres e sem PK no metadado que chega aqui. A ligação
+    # não existia para ninguém — e o especialista, só com a tabela de rota,
+    # respondia «no dispongo de la información» a «gasolineras con el gasóleo
+    # más barato en gasolineras_rota».
+    inferred += _relacoes_por_descricao_e_chave_partilhada(
+        tables, explicit_pairs, inferred
+    )
+
     # ── 4. Remover duplicatas em inferred e combinar ─────────────────────────
     seen: Set[Tuple[str, str, str, str]] = set()
     unique_inferred: List[TableRelationship] = []
@@ -199,6 +212,218 @@ def detect_relationships(
             unique_inferred.append(rel)
 
     return explicit + unique_inferred
+
+
+def _nome_e_descricao(col) -> Tuple[str, str]:
+    if isinstance(col, dict):
+        return str(col.get("name") or ""), str(col.get("description") or "")
+    return str(getattr(col, "name", "") or ""), str(
+        getattr(col, "description", "") or ""
+    )
+
+
+#: «FK gasolineras_precio.id_estacion», «= ops.routes.origin»: uma referência
+#: `tabela.coluna` (com esquema opcional) escrita no comentário da coluna.
+_REFERENCIA = re.compile(r"\b(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b")
+
+
+def _palavras_do_nome(nome: str) -> Set[str]:
+    return set(re.split(r"[^a-z0-9]+", (nome or "").lower())) - {""}
+
+
+def _relacoes_por_descricao_e_chave_partilhada(
+    tables: List[TableSchema],
+    explicit_pairs: Set[Tuple[str, str]],
+    ja_inferidas: List[TableRelationship],
+) -> List[TableRelationship]:
+    """Duas fontes de ligação que o resto deste módulo não lia.
+
+    1. O comentário da coluna diz para onde aponta: «FK tabela.coluna» ou
+       «= esquema.tabela.coluna». Só conta se a tabela e a coluna existem.
+    2. Uma coluna-chave (com «id» no nome, mas não só «id») com o MESMO nome
+       em exactamente duas tabelas: `id_estacion`, `route_id`. Mais de duas
+       já é um nome genérico, não uma ligação.
+    """
+    por_nome: Dict[str, TableSchema] = {t.logical_name: t for t in tables}
+    colunas: Dict[str, Set[str]] = {
+        t.logical_name: {_nome_e_descricao(c)[0] for c in (t.columns or [])}
+        for t in tables
+    }
+    vistos: Set[Tuple[str, str]] = set(explicit_pairs)
+    for r in ja_inferidas:
+        vistos.add((r.from_table, r.to_table))
+        vistos.add((r.to_table, r.from_table))
+
+    novas: List[TableRelationship] = []
+
+    def juntar(a: str, ca: str, b: str, cb: str) -> None:
+        if a == b or (a, b) in vistos:
+            return
+        vistos.add((a, b))
+        vistos.add((b, a))
+        novas.append(
+            TableRelationship(
+                from_table=a,
+                from_column=ca,
+                to_table=b,
+                to_column=cb,
+                confidence="inferred",
+            )
+        )
+
+    # 1. Referências no comentário.
+    for t in tables:
+        for col in t.columns or []:
+            nome, descricao = _nome_e_descricao(col)
+            if not nome or not descricao:
+                continue
+            for m in _REFERENCIA.finditer(descricao):
+                alvo, coluna_alvo = m.group(1), m.group(2)
+                if alvo in por_nome and coluna_alvo in colunas.get(alvo, set()):
+                    juntar(t.logical_name, nome, alvo, coluna_alvo)
+
+    # 2. A mesma chave em exactamente duas tabelas.
+    onde: Dict[str, List[str]] = {}
+    for t in tables:
+        for c in colunas[t.logical_name]:
+            p = _palavras_do_nome(c)
+            if "id" in p and len(p) > 1:
+                onde.setdefault(c, []).append(t.logical_name)
+    for c, donos in onde.items():
+        if len(donos) == 2:
+            juntar(donos[0], c, donos[1], c)
+
+    return novas
+
+
+def tabelas_vizinhas_que_a_pergunta_pede(
+    pergunta: str,
+    escolhidas: List[str],
+    tables: List[TableSchema],
+    relationships: List[TableRelationship],
+    maximo: int = 2,
+) -> List[str]:
+    """As tabelas ligadas às escolhidas que têm o que a pergunta pede.
+
+    O orquestrador escolhe a tabela que a pessoa nomeia. Em «las 5
+    gasolineras con el gasóleo A más barato en la tabla gasolineras_rota»
+    escolhe só `gasolineras_rota` — que tem a rota e o posto, mas não o
+    preço; o preço está em `gasolineras_precio`, ligada por `id_estacion`.
+    O especialista só vê as colunas das tabelas escolhidas, não encontra
+    nenhum gasóleo e recusa.
+
+    Regra: uma tabela a UM salto (por uma relação conhecida) entra quando
+    uma palavra da pergunta está nas colunas DELA e em nenhuma coluna das
+    escolhidas. Determinístico, sem chamar o modelo, e no máximo `maximo`.
+    """
+    if not escolhidas or not relationships:
+        return []
+
+    def normalizar(s: str) -> str:
+        s = unicodedata.normalize("NFKD", (s or "").lower())
+        return "".join(ch for ch in s if not unicodedata.combining(ch))
+
+    def raiz(p: str) -> str:
+        return p[:-1] if len(p) > 4 and p.endswith("s") else p
+
+    def palavras(s: str) -> Set[str]:
+        return {
+            raiz(p)
+            for p in re.split(r"[^a-z0-9]+", normalizar(s))
+            if len(p) >= 4 and p not in _PALAVRAS_GENERICAS
+        }
+
+    por_nome = {t.logical_name: t for t in tables}
+
+    def palavras_das_colunas(nome_tabela: str) -> Set[str]:
+        t = por_nome.get(nome_tabela)
+        if not t:
+            return set()
+        out: Set[str] = set()
+        for c in t.columns or []:
+            out |= palavras(_nome_e_descricao(c)[0])
+        return out
+
+    da_pergunta = palavras(pergunta)
+    ja_cobertas: Set[str] = set()
+    for e in escolhidas:
+        ja_cobertas |= palavras_das_colunas(e)
+    pedidas = da_pergunta - ja_cobertas
+    if not pedidas:
+        return []
+
+    escolhidas_set = set(escolhidas)
+    novas: List[str] = []
+    for rel in relationships:
+        for de, para in (
+            (rel.from_table, rel.to_table),
+            (rel.to_table, rel.from_table),
+        ):
+            if de not in escolhidas_set or para in escolhidas_set or para in novas:
+                continue
+            if pedidas & palavras_das_colunas(para):
+                novas.append(para)
+                if len(novas) >= maximo:
+                    return novas
+    return novas
+
+
+#: Palavras que estão em colunas de quase todas as tabelas e em quase todas
+#: as frases: não dizem que tabela a pergunta pede.
+_PALAVRAS_GENERICAS = {
+    "data",
+    "date",
+    "fecha",
+    "nome",
+    "name",
+    "nombre",
+    "estado",
+    "status",
+    "tipo",
+    "type",
+    "valor",
+    "value",
+    "fonte",
+    "source",
+    "nota",
+    "note",
+    "descricao",
+    "descripcion",
+    "description",
+    "codigo",
+    "code",
+    "total",
+    "tabla",
+    "tabela",
+    "table",
+    "lista",
+    "para",
+    "with",
+    "from",
+    "como",
+    "cual",
+    "cuales",
+    "qual",
+    "quais",
+    "what",
+    "which",
+    "todos",
+    "todas",
+    "desde",
+    "hasta",
+    "entre",
+    "sobre",
+    "segun",
+    "this",
+    "that",
+    "esta",
+    "este",
+    "actualizado",
+    "updated",
+    "created",
+    "criado",
+    "calculado",
+}
 
 
 def _infer_target_table_from_fk(

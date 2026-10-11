@@ -126,7 +126,30 @@ PALAVRAS_DE_DINHEIRO = {
     "gmv",
     "aov",
     "pvp",
+    # A moeda no nome é o sinal mais claro de todos (`cost_eur`,
+    # `gasoleo_eur_l` — dados públicos, 11/10).
+    "eur",
+    "euro",
+    "euros",
 }
+
+#: Palavras de um nome de coluna que dizem «por litro». Só contam numa
+#: coluna de dinheiro: `gasoleo_eur_l` é um preço por litro, `fuel_liters`
+#: é uma quantidade.
+PALAVRAS_DE_LITRO = {"l", "lt", "litro", "litros", "litre", "litres", "liter", "liters"}
+
+
+def e_preco_por_litro(nome_da_coluna: str) -> bool:
+    """Se a coluna guarda um preço por litro — e só então a resposta diz «€/l».
+
+    Decide-se pelo NOME, como o resto deste ficheiro: `media` de
+    `gasoleo_historico_diario` também é €/l (diz o comentário da coluna), mas
+    o nome não o diz e a correcção não o adivinha — fica «1,90 €».
+    """
+    return e_dinheiro(nome_da_coluna) and bool(
+        _palavras(nome_da_coluna) & PALAVRAS_DE_LITRO
+    )
+
 
 #: E as que NUNCA sao, mesmo ao lado de uma das de cima. `revenue_count` e uma
 #: contagem; `price_id` e um identificador. Ganham a lista anterior.
@@ -304,19 +327,34 @@ def regras_de_numeros(
 
 # ── A correcção depois do modelo ─────────────────────────────────────────
 
-_ESPACOS = "    "
+_ESPACOS = " \u00a0\u202f\u2009"
+
+#: O espaço que o modelo põe entre o número e a moeda. Qualquer um destes
+#: (espaço normal, inseparável, inseparável estreito, fino): o gpt-oss escreve
+#: «1,90\u202f€» à francesa, e um marcador que a expressão não reconhecia
+#: ficava DEPOIS do «€» que a correcção acrescentava — «1,90 € €» (11/10).
+_ESP = f"[{_ESPACOS}]"
+#: Um ou mais marcadores de moeda seguidos: «€», «EUR», «euro(s)». Engolidos
+#: TODOS de uma vez — a correcção reescreve um só.
+_MOEDA = r"(?:€|EUR\b|euros?\b)"
 
 #: Um número escrito: agrupado (com espaço, ponto ou vírgula) ou corrido, com
 #: decimais opcionais, e o marcador de moeda que o modelo lhe tenha colado.
 #: Não pode estar agarrado a uma palavra, a uma data (``2026-08-01``), a uma
 #: hora (``12:30``) nem a outro número.
 _NUMERO = re.compile(
-    r"(?P<pre>(?:€|\bEUR)[  ]?)?"
+    rf"(?P<pre>(?:(?:€|\bEUR){_ESP}?)+)?"
     r"(?<![\w.,\-/:])"
-    r"(?P<n>\d{1,3}(?:[    .,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
+    rf"(?P<n>\d{{1,3}}(?:[{_ESPACOS}.,]\d{{3}})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
     r"(?![\w\-/:]|[.,]\d)"
-    r"(?P<pos>[  ]?(?:€|EUR\b|euros?\b))?",
+    rf"(?P<pos>(?:{_ESP}?{_MOEDA})+)?",
     re.IGNORECASE,
+)
+
+#: A rede final: dois marcadores de moeda seguidos nunca são o que se quer
+#: dizer («1,90 € €», «1,90 EUR €», «€ €1,90»). Fica um «€».
+_MOEDA_REPETIDA = re.compile(
+    rf"€(?:{_ESP}*{_MOEDA})+|(?:EUR\b|euros?\b){_ESP}*€", re.IGNORECASE
 )
 
 _PERCENTAGEM = re.compile(r"^\s?%")
@@ -367,6 +405,27 @@ def valores_do_resultado(
         else:
             outros += vals
     return dinheiro, outros
+
+
+def valores_por_litro(
+    linhas: Optional[Sequence[Dict[str, Any]]],
+) -> List[float]:
+    """Os valores (e média/mínimo/máximo) das colunas de preço por litro."""
+    out: List[float] = []
+    if not linhas or not isinstance(linhas[0], dict):
+        return out
+    for c in list(linhas[0].keys()):
+        if not e_preco_por_litro(c):
+            continue
+        vals = [
+            v
+            for v in (_numero(r.get(c)) for r in linhas if isinstance(r, dict))
+            if v is not None
+        ]
+        out += vals
+        if len(vals) > 1:
+            out += [sum(vals) / len(vals), min(vals), max(vals)]
+    return out
 
 
 def _leituras(token: str) -> List[float]:
@@ -438,8 +497,41 @@ _SUJEITO_EN = [
 ]
 
 
+#: «Usted puede observar que el precio medio… es de 1,90 €» (11/10/2026): o
+#: modelo anuncia o facto em vez de o dizer. Corta-se o anúncio no início de
+#: uma frase e a frase começa pelo facto: «El precio medio… es de 1,90 €».
+_ANUNCIO = re.compile(
+    _INICIO + r"(?:"
+    # es
+    r"(?:como\s+)?(?:usted\s+)?puede\s+(?:observar|ver|notar|apreciar|comprobar)\s*,\s*"
+    r"|(?:usted\s+)?puede\s+(?:observar|ver|notar|apreciar|comprobar)\s+que\s+"
+    r"|se\s+puede\s+(?:observar|ver|apreciar|comprobar)\s+que\s+"
+    r"|podemos\s+(?:observar|ver|notar|apreciar)\s+que\s+"
+    # pt
+    r"|(?:como\s+)?(?:voc[eê]\s+|o\s+senhor\s+)?pode\s+(?:observar|ver|notar|verificar|constatar)\s*,\s*"
+    r"|(?:voc[eê]\s+|o\s+senhor\s+)?pode\s+(?:observar|ver|notar|verificar|constatar)\s+que\s+"
+    r"|pode-se\s+(?:observar|ver|notar|verificar|constatar)\s+que\s+"
+    r"|[ée]\s+poss[ií]vel\s+(?:observar|ver|notar|verificar|constatar)\s+que\s+"
+    r"|podemos\s+(?:observar|ver|notar|verificar|constatar)\s+que\s+"
+    # en
+    r"|as\s+you\s+can\s+see\s*,\s*"
+    r"|(?:you|we)\s+can\s+(?:see|observe|notice)\s+that\s+"
+    r"|it\s+can\s+be\s+(?:seen|observed)\s+that\s+"
+    r")(?=\w)(\w)",
+    re.IGNORECASE,
+)
+
+
+def sem_anuncio(texto: str) -> str:
+    """Tira «Usted puede observar que» / «Pode observar que» / «You can see
+    that» do início das frases; a frase passa a começar pelo facto."""
+    return _ANUNCIO.sub(lambda m: m.group(1) + m.group(2).upper(), texto)
+
+
 def falar_com_quem_pergunta(texto: str) -> str:
-    """Troca «El usuario ha facturado» por «Ha facturado» (e o mesmo em pt/en)."""
+    """Troca «El usuario ha facturado» por «Ha facturado» (e o mesmo em pt/en)
+    e corta o anúncio («Usted puede observar que…») antes do facto."""
+    texto = sem_anuncio(texto)
     texto = _SUJEITO_ES_PT.sub(
         lambda m: m.group(1) + m.group(2)[:1].upper() + m.group(2)[1:], texto
     )
@@ -461,6 +553,20 @@ def corrigir_numeros(
     dinheiro, outros = valores_do_resultado(linhas)
     moeda = (moeda_pedida or MOEDA_POR_LINGUA.get(lingua, "EUR")).upper()
     simbolo = SIMBOLO.get(moeda, moeda)
+    por_litro = valores_por_litro(linhas)
+
+    def dinheiro_de(v: float, m: "re.Match[str]") -> str:
+        escrito = formatar_valor(v, lingua, True, simbolo)
+        # «1,90 €/l» só quando a COLUNA o diz e o modelo não escreveu já a
+        # unidade. Decide-se pelo carácter logo a seguir: pontuação ou fim
+        # acrescentam «/l»; um espaço ou «/» deixam como está («1,90 € por
+        # litro», «1,90 €/l»). O streaming nunca corta logo a seguir a um
+        # número com moeda, por isso decide o mesmo que o texto inteiro.
+        if lingua in ("pt", "es") and any(_igual(v, x) for x in por_litro):
+            seguinte = texto[m.end() : m.end() + 1]
+            if seguinte == "" or seguinte in ".,;:!?)":
+                escrito += "/l"
+        return escrito
 
     def trocar(m: "re.Match[str]") -> str:
         token = m.group("n")
@@ -474,7 +580,7 @@ def corrigir_numeros(
         for r in leituras:
             for v in dinheiro:
                 if _igual(r, v):
-                    return formatar_valor(v, lingua, True, simbolo)
+                    return dinheiro_de(v, m)
         for r in leituras:
             for v in outros:
                 if _igual(r, v):
@@ -494,7 +600,7 @@ def corrigir_numeros(
             return formatar_valor(r, lingua, True, simbolo)
         return m.group(0)
 
-    return _NUMERO.sub(trocar, texto)
+    return _MOEDA_REPETIDA.sub("€", _NUMERO.sub(trocar, texto))
 
 
 def corrigir_resposta(
@@ -514,8 +620,9 @@ def corrigir_resposta(
 #: O fim do texto que ainda pode ser metade de um número («6 153») ou de um
 #: marcador de moeda («6.153,72 eu…»). Fica retido até chegar o resto.
 _CAUDA_INCERTA = re.compile(r"[\d.,€" + _ESPACOS + r"EeUuRrOoSs]*$")
-#: Uma frase com menos do que isto ainda pode ser «El usuario ha…».
-_INICIO_DE_FRASE = 28
+#: Uma frase com menos do que isto ainda pode ser «El usuario ha…» ou
+#: «Como usted puede observar, …» (o anúncio mais comprido tem 33).
+_INICIO_DE_FRASE = 40
 
 
 class CorrecaoEmFluxo:
