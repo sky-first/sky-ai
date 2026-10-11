@@ -24,7 +24,11 @@ from core.rag.context_retrieval import (
 )
 from core.rag.embeddings import EmbeddingProvider
 from core.llm.providers import LLMProvider
-from core.sql.relationships import detect_relationships, find_join_path
+from core.sql.relationships import (
+    detect_relationships,
+    find_join_path,
+    tabelas_vizinhas_que_a_pergunta_pede,
+)
 from config.settings import settings
 
 # ==================== ROLE-BASED REASONING ====================
@@ -206,6 +210,39 @@ def _find_by_label(tables: List[TableSchema], label: str):
     """Resolve a chosen label back to its TableSchema (label is unique even
     when two connections share a logical_name)."""
     return next((t for t in tables if _label(t) == label), None)
+
+
+def _completar_com_vizinhas(
+    question: str,
+    chosen_labels: List[str],
+    tables: List[TableSchema],
+    relationships,
+) -> List[str]:
+    """Junta às escolhidas as tabelas ligadas que têm o que a pergunta pede.
+
+    Ver `tabelas_vizinhas_que_a_pergunta_pede`. As relações falam em
+    logical_name e a escolha em rótulos (iguais salvo colisão entre
+    ligações) — traduz-se nos dois sentidos.
+    """
+    if not chosen_labels:
+        return chosen_labels
+    logico_de = {_label(t): t.logical_name for t in tables}
+    rotulo_de = {t.logical_name: _label(t) for t in tables}
+    escolhidas = [logico_de.get(r, r) for r in chosen_labels]
+    try:
+        novas = tabelas_vizinhas_que_a_pergunta_pede(
+            question, escolhidas, tables, relationships or []
+        )
+    except Exception as e:  # nunca pode partir a escolha
+        log_event("orchestrator_vizinhas_error", {"error": str(e)[:300]})
+        return chosen_labels
+    if not novas:
+        return chosen_labels
+    log_event(
+        "orchestrator_vizinhas_adicionadas",
+        {"question": question[:200], "escolhidas": escolhidas, "adicionadas": novas},
+    )
+    return list(chosen_labels) + [rotulo_de.get(n, n) for n in novas]
 
 
 def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
@@ -1334,6 +1371,9 @@ def run_orchestrator(
     if len(agent_config.tables) > 1:
         # Tentar extrair múltiplas tabelas primeiro
         chosen_logicals = _extract_multiple_table_choices(raw, agent_config.tables)
+        chosen_logicals = _completar_com_vizinhas(
+            question, chosen_logicals, agent_config.tables, relationships
+        )
 
         # Se encontrou múltiplas tabelas, tentar usar modo JOIN
         if len(chosen_logicals) > 1:

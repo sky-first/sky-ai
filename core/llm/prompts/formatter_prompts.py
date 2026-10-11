@@ -200,7 +200,12 @@ def build_formatter_prompt(
             # falava SOBRE a pessoa e não COM ela.
             "11. Talk TO the person who asked, in the second person ('You invoiced…',\n"
             "    'Ha facturado…', 'Faturou…'). NEVER call them 'the user', 'el usuario'\n"
-            "    or 'o utilizador'.\n\n"
+            "    or 'o utilizador'.\n"
+            # «Usted puede observar que el precio medio… es de 1,90 €» (11/10).
+            "12. Start with the FACT itself: 'El precio medio diario… fue de 1,90 €.'\n"
+            "    NEVER open with an announcement such as 'Usted puede observar que',\n"
+            "    'Puede ver que', 'Pode observar que', 'You can see that', 'As you can\n"
+            "    see,'.\n\n"
             f"{regras_dos_numeros}"
             "\n"
             f"{user_prefs_block}"
