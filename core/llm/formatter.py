@@ -276,6 +276,25 @@ def mensagem_sem_dados(
     return get_message("NO_DATA_FOUND", lang, topic=topic)
 
 
+_CONJUNCAO = {"es": " y ", "pt": " e ", "en": " and "}
+
+
+def mensagem_sem_resultados(sql: Optional[str], lang: str) -> str:
+    """A consulta correu e devolveu 0 linhas: «no hay resultados para
+    origem = BADAJOZ y destino = MADRID». Nunca soa a recusa nem a falta de
+    acesso. A mesma na escrita e no streaming."""
+    try:
+        from core.sql.correcao_de_literais import descrever_filtros
+
+        pares = descrever_filtros(sql)
+    except Exception:
+        pares = []
+    if not pares:
+        return get_message("NO_ROWS_GENERIC", lang)
+    filtro = _CONJUNCAO.get(lang, " and ").join(f"{c} = {v}" for c, v in pares)
+    return get_message("NO_ROWS_FOR_FILTER", lang, filtro=filtro)
+
+
 def _serialize_for_json(obj: Any) -> Any:
     """Converte objetos não-serializáveis (date, datetime, decimal) para strings/floats."""
     from datetime import date, datetime
@@ -612,6 +631,21 @@ def run_formatter(
                 "agent_id": agent_config.id,
                 "falta": falta[:120],
                 "proximo": (proximo or "")[:120],
+                "lang": lang,
+            },
+        )
+        return state
+
+    # 1c) A consulta CORREU e não devolveu nada: é um resultado, não uma
+    # recusa. Antes caía no LLM com o contexto RAG e saía «Lo siento, pero no
+    # puedo proporcionar esa lista» (11/10/2026) — parece falta de acesso.
+    if not data and state.get("sql") and not impossible_reason:
+        state["answer"] = mensagem_sem_resultados(state.get("sql"), lang)
+        log_event(
+            "formatter_zero_rows",
+            {
+                "agent_id": agent_config.id,
+                "question": question[:200],
                 "lang": lang,
             },
         )

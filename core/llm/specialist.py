@@ -326,7 +326,7 @@ def _build_schema_text(
             # model filters on existing values instead of inventing them.
             values_str = ""
             if col_samples:
-                values_str = " — allowed values: {" + ", ".join(
+                values_str = " — allowed values (copy exactly): {" + ", ".join(
                     str(v) for v in col_samples
                 ) + "}"
             desc_str = f" – {col_description}" if col_description else ""
@@ -528,6 +528,112 @@ def _extract_title_from_sql(sql_text: str) -> Tuple[Optional[str], str]:
 
 
 # ==================== SPECIALIST NODE ====================
+
+
+def _e_fonte_nosql(data_source: Any, agent_config: AgentConfig) -> bool:
+    dialecto = getattr(data_source, "dialect", None) or getattr(
+        agent_config, "dialect", Dialect.POSTGRES
+    )
+    if isinstance(dialecto, str):
+        try:
+            dialecto = Dialect(dialecto.lower())
+        except ValueError:
+            return False
+    try:
+        return get_dialect_specifics(dialecto).get("type") == "nosql"
+    except Exception:
+        return False
+
+
+def _anotar_valores_das_escolhidas(
+    tabelas: List[TableSchema], data_source: BaseDataSource, agent_config: AgentConfig
+) -> None:
+    """Valores reais das colunas de texto categóricas de TODAS as tabelas
+    escolhidas, no esquema que o modelo lê (ver ``core/sql/valores_de_coluna``).
+    Nunca parte o pedido."""
+    if _e_fonte_nosql(data_source, agent_config):
+        return
+    try:
+        from core.sql.valores_de_coluna import anotar_valores
+
+        anotadas = anotar_valores([t for t in tabelas if t is not None], data_source)
+        log_event(
+            "specialist_value_hints",
+            {
+                "agent_id": agent_config.id,
+                "tables": [getattr(t, "physical_name", None) for t in tabelas if t],
+                "columns": sorted(anotadas.keys())[:40],
+            },
+        )
+    except Exception as exc:
+        log_event("specialist_value_hints_error", {"error": str(exc)[:200]})
+
+
+def _tem_filtros_de_linha(security_config: Optional[SecurityConfig]) -> bool:
+    tabelas = getattr(security_config, "tables", None) or {}
+    for cfg in tabelas.values():
+        filtro = (
+            cfg.get("row_filter") if isinstance(cfg, dict) else getattr(cfg, "row_filter", None)
+        )
+        if filtro:
+            return True
+    return False
+
+
+def _contar_linhas(rows: Any) -> int:
+    if hasattr(rows, "num_rows"):
+        return int(rows.num_rows)
+    try:
+        return len(rows or [])
+    except TypeError:
+        return 0
+
+
+def _tentar_corrigir_literais(
+    state: AgentState,
+    sql: str,
+    tabelas: List[TableSchema],
+    data_source: BaseDataSource,
+    dialecto: str,
+    agent_id: str,
+) -> Optional[Tuple[str, Any, List[Dict[str, str]]]]:
+    """0 linhas: troca o literal com gralha pelo valor real e corre UMA vez.
+
+    Devolve (sql, linhas, trocas) quando a correcção trouxe linhas; None caso
+    contrário (fica o resultado original, genuinamente vazio).
+    """
+    if state.get("_literal_fix_done"):
+        return None
+    state["_literal_fix_done"] = True
+    try:
+        from core.sql.correcao_de_literais import corrigir_literais
+
+        correccao = corrigir_literais(sql, dialecto, tabelas, data_source)
+    except Exception as exc:
+        log_event("literal_fix_error", {"agent_id": agent_id, "error": str(exc)[:200]})
+        return None
+    if correccao is None:
+        log_event("literal_fix_none", {"agent_id": agent_id})
+        return None
+    try:
+        if hasattr(data_source, "run_query_arrow"):
+            linhas = data_source.run_query_arrow(correccao.sql)
+        else:
+            linhas = data_source.run_query(correccao.sql)
+    except Exception as exc:
+        log_event(
+            "literal_fix_rerun_error",
+            {"agent_id": agent_id, "error": str(exc)[:200], "trocas": correccao.trocas},
+        )
+        return None
+    n = _contar_linhas(linhas)
+    log_event(
+        "literal_fix_applied" if n else "literal_fix_still_empty",
+        {"agent_id": agent_id, "trocas": correccao.trocas, "num_rows": n},
+    )
+    if not n:
+        return None
+    return correccao.sql, linhas, correccao.trocas
 
 
 def run_specialist(
@@ -758,6 +864,7 @@ def run_specialist(
             )
             return state
 
+        _anotar_valores_das_escolhidas(tables, data_source, agent_config)
         schema_text = _build_multiple_schemas_text(
             tables, join_relationships, security_config
         )
@@ -809,6 +916,7 @@ def run_specialist(
             )
             return state
 
+        _anotar_valores_das_escolhidas([table], data_source, agent_config)
         schema_text = _build_schema_text(table, security_config)
         primary_table = table
 
@@ -1039,6 +1147,10 @@ def run_specialist(
         "- GOOD: WHERE UPPER(status) = 'PAID'\n"
         "- Example: WHERE UPPER(name) LIKE '%JOHN%'\n"
         "- Do not guess the capitalization of data values. Normalize both sides.\n"
+        "- When a column lists 'allowed values', the filter value MUST be COPIED "
+        "character for character from that list (pick the entry that matches the "
+        "user's words, e.g. a city or status). Never retype it from the question. "
+        "If you wrap the column in UPPER(), write the copied value in uppercase.\n"
     )
 
     # Honestidade sobre o que os dados NAO tem. Visto em producao a 09/10:
@@ -1740,6 +1852,34 @@ def run_specialist(
             state["error"] = f"Error executing query: {db_error[:500]}"
             state["sql"] = str(final_query)
             return state
+
+    # 🩹 0 linhas por um literal com gralha («BAJAZOZ»): compara cada filtro de
+    # texto com os valores reais da coluna e, se houver UM candidato claro,
+    # corrige e corre outra vez — uma vez. Não com filtros de linha (RLS): os
+    # valores viriam de linhas que a pessoa não pode ver.
+    if (
+        not is_nosql
+        and isinstance(final_query, str)
+        and _contar_linhas(rows) == 0
+        and not _tem_filtros_de_linha(security_config)
+    ):
+        _tabelas_da_consulta = (
+            [t for t in tables if t is not None] if use_multiple_tables else [table]
+        )
+        # O especialista pode juntar uma tabela autorizada que não foi escolhida.
+        _ja = {id(t) for t in _tabelas_da_consulta}
+        _tabelas_da_consulta += [t for t in effective_tables if id(t) not in _ja]
+        _corr = _tentar_corrigir_literais(
+            state,
+            final_query,
+            _tabelas_da_consulta,
+            data_source,
+            current_dialect.value,
+            agent_config.id,
+        )
+        if _corr is not None:
+            final_query, rows, _trocas = _corr
+            state["literal_corrections"] = _trocas
 
     # Sucesso: preenche state com sql + dados
     if is_nosql:

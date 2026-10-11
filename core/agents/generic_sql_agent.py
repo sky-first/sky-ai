@@ -95,6 +95,9 @@ class AgentState(TypedDict, total=False):
 
     # Common fields
     sql: Optional[str]
+    # Literais de texto corrigidos pela rede das 0 linhas
+    # (core/sql/correcao_de_literais.py): [{table, column, from, to}].
+    literal_corrections: Optional[List[Dict[str, str]]]
     generated_title: Optional[str]  # Novo: título gerado pelo specialist
     data: Optional[List[Dict[str, Any]]]
     impossible_reason: Optional[str]
