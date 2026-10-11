@@ -31,6 +31,12 @@ from core.sql.valores_de_coluna import e_coluna_de_texto, valores_distintos
 # em sete letras); a margem exige que o segundo melhor fique bem atrás.
 LIMIAR = 0.7
 MARGEM = 0.2
+# Segundo degrau: um literal mais estragado passa se o segundo candidato
+# ficar MUITO atrás. Em produção (11/10) o modelo escreveu «BAJAZO»: 0,615
+# contra BADAJOZ e 0,333 contra o seguinte (LISBOA) — inequívoco, mas
+# abaixo do 0,7, e a resposta foi «no hay resultados».
+LIMIAR_COM_FOLGA = 0.6
+MARGEM_COM_FOLGA = 0.25
 MIN_LETRAS = 4
 # Domínio lido por coluna. Acima disto o domínio está incompleto e uma
 # «melhor correspondência» não prova nada.
@@ -82,15 +88,17 @@ def melhor_candidato(literal: str, valores: Sequence[str]) -> Optional[str]:
         key=lambda p: p[0],
         reverse=True,
     )
-    if not pontuados or pontuados[0][0] < LIMIAR:
+    if not pontuados or pontuados[0][0] < LIMIAR_COM_FOLGA:
         return None
     melhor, valor = pontuados[0]
+    segundo = 0.0
     if len(pontuados) > 1:
         segundo, outro = pontuados[1]
         if normalizar(outro) == normalizar(valor) and outro != valor:
             return None  # «Mérida» e «MERIDA»: não há forma de escolher
-        if melhor - segundo < MARGEM:
-            return None
+    margem_exigida = MARGEM if melhor >= LIMIAR else MARGEM_COM_FOLGA
+    if melhor - segundo < margem_exigida:
+        return None
     return valor
 
 

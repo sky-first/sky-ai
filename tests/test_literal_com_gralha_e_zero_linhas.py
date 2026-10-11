@@ -510,3 +510,33 @@ def test_descrever_filtros_le_igualdade_in_e_like():
         ("destino", "MADRID"),
         ("rotulo", "repsol"),
     ]
+
+
+# ── Segundo degrau: literal mais estragado, mas inequívoco ──────────────
+#
+# Produção, 11/10/2026: o modelo escreveu «BAJAZO» (0,615 contra BADAJOZ,
+# 0,333 contra LISBOA) e a resposta foi «no hay resultados».
+
+CIDADES = ["BADAJOZ", "MADRID", "LISBOA", "PORTO", "SEVILLA", "MÉRIDA"]
+
+
+def test_bajazo_e_corrigido_quando_o_segundo_fica_muito_atras():
+    from core.sql.correcao_de_literais import melhor_candidato
+
+    assert melhor_candidato("BAJAZO", CIDADES) == "BADAJOZ"
+
+
+def test_abaixo_de_0_7_sem_folga_nao_se_reescreve():
+    from core.sql.correcao_de_literais import melhor_candidato, semelhanca
+
+    valores = ["MARTA", "MARIA"]
+    literal = "MARGA"
+    pontos = sorted((semelhanca(literal, v) for v in valores), reverse=True)
+    assert pontos[0] - pontos[1] < 0.25
+    assert melhor_candidato(literal, valores) is None
+
+
+def test_literal_sem_parecenca_continua_intocado():
+    from core.sql.correcao_de_literais import melhor_candidato
+
+    assert melhor_candidato("VALENCIA", CIDADES) is None
