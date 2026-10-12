@@ -47,8 +47,16 @@ def _precio():
         description="Postos de combustível de Espanha (MITECO), preço actual.",
         data_connection_id=LIGACAO,
         columns=[
-            {"name": "id_estacion", "type": "integer", "description": "IDEESS do MITECO"},
-            {"name": "rotulo", "type": "text", "description": "Marca / rótulo do posto"},
+            {
+                "name": "id_estacion",
+                "type": "integer",
+                "description": "IDEESS do MITECO",
+            },
+            {
+                "name": "rotulo",
+                "type": "text",
+                "description": "Marca / rótulo do posto",
+            },
             {"name": "direccion", "type": "text", "description": None},
             {"name": "cp", "type": "text", "description": "Código postal"},
             {"name": "localidad", "type": "text", "description": None},
@@ -400,7 +408,9 @@ class TestLatencia:
         # E o prompt leva os mesmos valores.
         for modelo in (m1, m2):
             origem = next(
-                l for l in _prompt(modelo).splitlines() if l.strip().startswith("- origem")
+                l
+                for l in _prompt(modelo).splitlines()
+                if l.strip().startswith("- origem")
             )
             assert "LISBOA" in origem
 
@@ -468,7 +478,10 @@ class TestLatencia:
         valores_de_coluna.anotar_valores([rota, precio], fonte)
         antes = len(fonte.distintos)
         c = corrigir_literais(
-            SQL_DO_MODELO.replace("'LISBOA'", "'LISBOAA'"), "postgres", [rota, precio], fonte
+            SQL_DO_MODELO.replace("'LISBOA'", "'LISBOAA'"),
+            "postgres",
+            [rota, precio],
+            fonte,
         )
         assert c is not None and "'LISBOA'" in c.sql
         assert len(fonte.distintos) == antes  # domínio completo já lido
@@ -542,7 +555,9 @@ class TestUnidades:
             ["duracion"], None, {"duracion": "Duración del servicio en segundos"}
         ) == {"duracion": "s"}
         # «€/l» na descrição é preço, não litros.
-        assert unidades_do_resultado(["media"], None, {"media": "Média diária, €/l"}) == {}
+        assert (
+            unidades_do_resultado(["media"], None, {"media": "Média diária, €/l"}) == {}
+        )
 
     def test_descricoes_das_tabelas_do_agente(self):
         t = TableSchema(

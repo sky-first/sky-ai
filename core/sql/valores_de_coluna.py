@@ -305,7 +305,9 @@ def valores_em_cache(
 ) -> List[str]:
     """Como ``valores_distintos``, mas lê e grava a cache partilhada (a mesma
     da amostragem). Erros sobem e NÃO ficam em cache."""
-    chave = chave_da_coluna(_chave_da_ligacao(tabela, data_source, None), fisica, coluna)
+    chave = chave_da_coluna(
+        _chave_da_ligacao(tabela, data_source, None), fisica, coluna
+    )
     achado = _da_cache([chave], limite)
     if chave in achado:
         return achado[chave]

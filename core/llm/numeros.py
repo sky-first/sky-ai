@@ -347,9 +347,7 @@ def _unidades_pelo_sql(
             return {}
     if arvore is None:
         return {}
-    conhecidas: Dict[str, Optional[str]] = {
-        k.lower(): v for k, v in unidade_de.items()
-    }
+    conhecidas: Dict[str, Optional[str]] = {k.lower(): v for k, v in unidade_de.items()}
     herdadas: Dict[str, str] = {}
     aliases = list(arvore.find_all(exp.Alias))
     # O que muda a unidade: rácios, produtos, contagens, partes de datas.
@@ -843,6 +841,7 @@ def corrigir_numeros(
         ):
             return None
         return achadas.pop()
+
     moeda = (moeda_pedida or MOEDA_POR_LINGUA.get(lingua, "EUR")).upper()
     simbolo = SIMBOLO.get(moeda, moeda)
     por_litro = valores_por_litro(linhas)
