@@ -842,6 +842,7 @@ def run_specialist(
         ]
     )
 
+    _tabelas_dos_literais: list = []
     if use_multiple_tables:
         # Modo JOIN: múltiplas tabelas
         tables = [
@@ -880,6 +881,7 @@ def run_specialist(
             return state
 
         _anotar_valores_das_escolhidas(tables, data_source, agent_config, question)
+        _tabelas_dos_literais = list(tables)
         schema_text = _build_multiple_schemas_text(
             tables, join_relationships, security_config
         )
@@ -932,8 +934,24 @@ def run_specialist(
             return state
 
         _anotar_valores_das_escolhidas([table], data_source, agent_config, question)
+        _tabelas_dos_literais = [table]
         schema_text = _build_schema_text(table, security_config)
         primary_table = table
+
+    # Os valores que a pergunta nomeia, logo a seguir à pergunta (ver
+    # core/sql/valores_de_coluna.bloco_de_literais — «BAJAZOZ», 12/10).
+    literais_block = ""
+    try:
+        from core.sql.valores_de_coluna import bloco_de_literais
+
+        literais_block = bloco_de_literais(_tabelas_dos_literais, question)
+        if literais_block:
+            log_event(
+                "specialist_question_literals",
+                {"agent_id": agent_config.id, "block": literais_block[:500]},
+            )
+    except Exception as exc:  # nunca partir o pedido
+        log_event("specialist_question_literals_error", {"error": str(exc)[:200]})
 
     # 🔹 DATA PREVIEW (NEW): Inject sample rows to teach the model real values
     data_preview_block = ""
@@ -1161,7 +1179,11 @@ def run_specialist(
     # Robust string comparison
     string_comparison_guidance = (
         "\n\nCRITICAL: ROBUST STRING FILTERS:\n"
-        "- ALWAYS use UPPER() for string comparisons to avoid case-sensitivity issues.\n"
+        # «ALWAYS use UPPER()» fazia o modelo passar «Badajoz» para
+        # maiúsculas à mão — e escrevia 'BAJAZOZ' com a lista certa à frente
+        # (12/10). Com valores conhecidos, copia-se e compara-se directamente.
+        "- For a column WITHOUT an 'allowed values' list, use UPPER() on both "
+        "sides to avoid case-sensitivity issues.\n"
         "- The database might store 'PAID', 'Paid', or 'paid'.\n"
         "- BAD: WHERE status = 'paid' (Misses 'PAID')\n"
         "- GOOD: WHERE UPPER(status) = 'PAID'\n"
@@ -1170,7 +1192,8 @@ def run_specialist(
         "- When a column lists 'allowed values', the filter value MUST be COPIED "
         "character for character from that list (pick the entry that matches the "
         "user's words, e.g. a city or status). Never retype it from the question. "
-        "If you wrap the column in UPPER(), write the copied value in uppercase.\n"
+        "Compare that column DIRECTLY with the copied value: WHERE origem = "
+        "'BADAJOZ' — never UPPER(origem) = <the user's word retyped in capitals>.\n"
     )
 
     # Honestidade sobre o que os dados NAO tem. Visto em producao a 09/10:
@@ -1250,6 +1273,7 @@ def run_specialist(
         "content": (
             f"{sql_mode_override}"
             f"User question:\n{question}\n\n"
+            f"{literais_block}"
             f"Table schema(s):\n{schema_text}\n"
             f"{data_preview_block}"
             f"{history_block}"

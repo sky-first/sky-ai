@@ -15,6 +15,7 @@ from core.llm.prompts.formatter_prompts import (
     sql_executado,
 )
 from core.llm.nomes import regras_de_nomes
+from core.llm.completude import corrigir_completude, regras_do_resultado
 from core.llm.numeros import (
     corrigir_resposta,
     descricoes_das_colunas,
@@ -794,7 +795,9 @@ def run_formatter(
             moeda_pedida=state.get("currency"),
             unidades=_unidades,
         )
-        + regras_de_nomes(),
+        + regras_de_nomes()
+        # Completo ou amostra, e onde estão os nomes (12/10/2026).
+        + regras_do_resultado(state.get("data") or data, len(data_sample_list)),
     )
 
     try:
@@ -854,6 +857,16 @@ def run_formatter(
         )
     except Exception as _e:  # nunca partir uma resposta por causa disto
         log_event("formatter_correcao_falhou", {"error": str(_e)[:300]})
+
+    # Nem «no se pueden proporcionar los nombres» com os nomes nas linhas,
+    # nem «en la muestra» num resultado completo (12/10/2026).
+    try:
+        _todas = state.get("data") or data or []
+        answer = corrigir_completude(
+            answer, _todas, completo=len(_todas) <= len(data_sample_list)
+        )
+    except Exception as _e:  # nunca partir uma resposta por causa disto
+        log_event("formatter_completude_falhou", {"error": str(_e)[:300]})
 
     # FOLLOW-UP SUGGESTIONS: disabled by product decision — the chat shows only
     # the answer, with no appended "Suggested Follow-up" questions. Kept as an

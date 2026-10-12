@@ -105,6 +105,8 @@ MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de me
 
 # ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
 DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
+
+
 # ── As sugestões do Sherlock ─────────────────────────────────────────
 #
 # **Estiveram desligadas seis meses, cravadas no código.**
@@ -153,10 +155,9 @@ def _erro_para_quem_pergunta(lang: str, detalhe=None, traceback_texto=None) -> s
     return get_message("TECHNICAL_ERROR", lang)
 
 
-DISABLE_BOOTSTRAP_EXECUTION = (
-    os.getenv("DISABLE_BOOTSTRAP_EXECUTION", "false").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
+DISABLE_BOOTSTRAP_EXECUTION = os.getenv(
+    "DISABLE_BOOTSTRAP_EXECUTION", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
@@ -1491,18 +1492,36 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
                 #
                 # Cada uma tem de dizer sozinha o que vai perguntar, porque é
                 # exactamente isso que vai ser perguntado.
-                ("Desempenho do mês", "Como correu este mês em comparação com o mês anterior?"),
-                ("Os maiores", "Quais são os cinco maiores valores nos meus dados, e de quê?"),
-                ("Ao longo do tempo", "O que é que tem subido ou descido ao longo dos últimos meses?"),
+                (
+                    "Desempenho do mês",
+                    "Como correu este mês em comparação com o mês anterior?",
+                ),
+                (
+                    "Os maiores",
+                    "Quais são os cinco maiores valores nos meus dados, e de quê?",
+                ),
+                (
+                    "Ao longo do tempo",
+                    "O que é que tem subido ou descido ao longo dos últimos meses?",
+                ),
                 ("Por categoria", "Como é que os totais se dividem por categoria?"),
             ],
         ),
         "es": (
             "¿En qué puedo ayudarle con sus datos?",
             [
-                ("Rendimiento del mes", "¿Cómo fue este mes en comparación con el anterior?"),
-                ("Los mayores", "¿Cuáles son los cinco mayores valores en mis datos, y de qué?"),
-                ("A lo largo del tiempo", "¿Qué ha subido o bajado en los últimos meses?"),
+                (
+                    "Rendimiento del mes",
+                    "¿Cómo fue este mes en comparación con el anterior?",
+                ),
+                (
+                    "Los mayores",
+                    "¿Cuáles son los cinco mayores valores en mis datos, y de qué?",
+                ),
+                (
+                    "A lo largo del tiempo",
+                    "¿Qué ha subido o bajado en los últimos meses?",
+                ),
                 ("Por categoría", "¿Cómo se reparten los totales por categoría?"),
             ],
         ),
@@ -1510,8 +1529,14 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
             "How can I help you with your data?",
             [
                 ("Monthly performance", "How did this month compare with last month?"),
-                ("Top results", "What are the five largest values in my data, and of what?"),
-                ("Time-based analysis", "What has gone up or down over the last few months?"),
+                (
+                    "Top results",
+                    "What are the five largest values in my data, and of what?",
+                ),
+                (
+                    "Time-based analysis",
+                    "What has gone up or down over the last few months?",
+                ),
                 ("Category breakdown", "How do the totals split by category?"),
             ],
         ),
@@ -3361,6 +3386,21 @@ async def load_agent_config_from_connection(
     return agent
 
 
+#: Versão das respostas guardadas na cache semântica. A procura e a escrita
+#: usam ESTA constante; uma linha de outra versão nunca é servida.
+#:
+#: Sobe sempre que muda a maneira de ESCREVER a resposta (formatador,
+#: correcções determinísticas), e não só a chave. 12/10/2026: depois do
+#: deploy de #282 — que passou a escrever «36,81 s» — a pergunta de agente
+#: «Onde é que se pode melhorar…?» continuou a receber «uma diferença de
+#: 36,81», sem unidade: ``semantic_cache_hit`` com similaridade 1,0, a
+#: resposta escrita pelo código ANTERIOR. Uma cache que sobrevive ao deploy
+#: que corrige a resposta esconde a correcção.
+#:
+#: 2 → chave com temporal_bucket. 3 → unidades, rótulos, completude (12/10).
+VERSAO_DA_CACHE_SEMANTICA = 3
+
+
 def resolve_temporal_bucket(question: str) -> str:
     """
     Resolves relative temporal expressions in the question to an absolute period string.
@@ -3454,9 +3494,11 @@ async def query_connection(
     body: QueryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
-    from latency_timing import new_trace
+    from latency_timing import new_trace, registar_tempo, fechar_pedido
+    import time as _tempo
 
     new_trace(body.thread_id if body.thread_id else None)
+    _t_cache = _tempo.perf_counter()
     # ✅ SEMANTIC CACHE LAYER (Lookup)
     query_embedding = None
     try:
@@ -3504,7 +3546,7 @@ async def query_connection(
                 locale=getattr(body, "locale", None),
             )
             _temporal_bucket = resolve_temporal_bucket(body.question or "")
-            _CACHE_VERSION = 2  # bump when key schema changes; old rows keep 0
+            _CACHE_VERSION = VERSAO_DA_CACHE_SEMANTICA
 
             if active_cache_crew:
                 # Collaborative: match records cached for this specific crew.
@@ -3614,6 +3656,13 @@ async def query_connection(
                 cached_response.recommended_widget_type = _infer_widget_type(
                     cached_response.data_sample, body.response_format
                 )
+                registar_tempo(
+                    "semantic_cache_timing",
+                    (_tempo.perf_counter() - _t_cache) * 1000,
+                    etapa="semantic_cache",
+                    hit=True,
+                )
+                fechar_pedido(connection_id=connection_id, cache_hit=True)
                 return cached_response
     except Exception as sc_err:
         from core.logging_utils import log_event
@@ -3634,8 +3683,20 @@ async def query_connection(
         except Exception:
             pass
 
+    registar_tempo(
+        "semantic_cache_timing",
+        (_tempo.perf_counter() - _t_cache) * 1000,
+        etapa="semantic_cache",
+        hit=False,
+    )
+
     # ✅ EXECUTE INNER LLM PIPELINE
-    response = await _query_connection_inner(connection_id, body, db)
+    try:
+        response = await _query_connection_inner(connection_id, body, db)
+    except Exception:
+        fechar_pedido(connection_id=connection_id, cache_hit=False, ok=False)
+        raise
+    _t_store = _tempo.perf_counter()
 
     # ✅ SEMANTIC CACHE LAYER (Store) — always stores raw data_sample (no format transform yet)
     try:
@@ -3671,7 +3732,7 @@ async def query_connection(
                     embedding=query_embedding,
                     response_json=response.model_dump(mode="json"),
                     locale=_store_locale,
-                    cache_version=2,
+                    cache_version=VERSAO_DA_CACHE_SEMANTICA,
                     temporal_bucket=_temporal_bucket,
                 )
                 db.add(cache_record)
@@ -3692,6 +3753,12 @@ async def query_connection(
         except Exception:
             pass
 
+    registar_tempo(
+        "semantic_cache_store_timing",
+        (_tempo.perf_counter() - _t_store) * 1000,
+        etapa="semantic_cache_store",
+    )
+
     # Last-mile: apply format transform + infer widget type (runs for both cache miss and pipeline)
     response.data_sample = _transform_data_for_format(
         response.data_sample, body.response_format
@@ -3700,6 +3767,12 @@ async def query_connection(
         response.data_sample, body.response_format
     )
 
+    fechar_pedido(
+        connection_id=connection_id,
+        cache_hit=False,
+        num_rows=getattr(response.meta, "num_rows", None) if response.meta else None,
+        error=getattr(response.meta, "error", None) if response.meta else None,
+    )
     return response
 
 
@@ -3760,7 +3833,10 @@ async def _query_connection_inner(
     # Criar provider LLM para avaliação de segurança
     llm_provider = create_llm_orchestrator()
 
+    from latency_timing import registar_tempo as _registar_tempo
+
     # Avaliação consolidada: PII + Injection + Escalation + Auditoria
+    _t_etapa = time.perf_counter()
     security_report = await AuditManager.evaluate_prompt(
         question=body.question,
         user_id=body.user_id,
@@ -3768,12 +3844,24 @@ async def _query_connection_inner(
         thread_id=body.thread_id,
         llm_provider=llm_provider,
     )
+    _registar_tempo(
+        "security_timing", (time.perf_counter() - _t_etapa) * 1000, etapa="security"
+    )
 
-    # Detectar idioma para validação
+    # Detectar idioma para validação. A frio, o detector das 75 línguas
+    # carrega os modelos aqui (34 s a 12/10, com o laço de eventos parado) —
+    # o arranque aquece-o (core/aquecimento.py); isto mede o que sobrar.
+    _t_etapa = time.perf_counter()
     try:
         lang = detect_language(body.question or "")
     except:
         lang = "en"
+    _registar_tempo(
+        "language_detection_timing",
+        (time.perf_counter() - _t_etapa) * 1000,
+        etapa="language_detection",
+    )
+    _t_config = time.perf_counter()
 
     # Se houver bloqueio, interromper e retornar erro padronizado com mensagem amigável
     if security_report.is_blocked:
@@ -4282,8 +4370,7 @@ async def _query_connection_inner(
     # every table is queried against the primary connection only.
     if dispatch_map is None:
         table_conn_ids = {
-            str(getattr(t, "data_connection_id", "") or "")
-            for t in agent_config.tables
+            str(getattr(t, "data_connection_id", "") or "") for t in agent_config.tables
         }
         table_conn_ids.discard("")
         if len(table_conn_ids) > 1:
@@ -4435,6 +4522,10 @@ async def _query_connection_inner(
     # Personal isolation: is_personal + user_id garantem que o RAG só
     # devolve embeddings que pertencem ao caller quando em Personal, e
     # exclui Personal de terceiros quando em Space/Crew.
+    _registar_tempo(
+        "config_timing", (time.perf_counter() - _t_config) * 1000, etapa="config"
+    )
+    _t_etapa = time.perf_counter()
     retrieval_context: list[str] = []
     knowledge_citations: list = []
     try:
@@ -4466,6 +4557,13 @@ async def _query_connection_inner(
         # Se RAG falhar, continua sem contexto
         retrieval_context = []
         knowledge_citations = []
+    _registar_tempo(
+        "rag_timing",
+        (time.perf_counter() - _t_etapa) * 1000,
+        etapa="rag",
+        chunks=len(retrieval_context or []),
+    )
+    _t_etapa = time.perf_counter()
 
     # ==================== MEMORY: LOADING CHAT HISTORY ====================
     # Initialize thread_id if missing (e.g. for anonymous/new interactions)
@@ -4530,6 +4628,12 @@ async def _query_connection_inner(
         locale=getattr(body, "locale", None),
         permissions=getattr(body, "permissions", None) or [],
         # security_config removed (not in UserContext schema)
+    )
+
+    _registar_tempo(
+        "chat_history_timing",
+        (time.perf_counter() - _t_etapa) * 1000,
+        etapa="chat_history",
     )
 
     # 🏃 EXECUÇÃO: Roda o agente (graph) DE FORMA SÍNCRONA (em thread separada para não bloquear loop)
@@ -5379,7 +5483,9 @@ async def _stream_connection_query(
                 space_ids=getattr(body, "space_ids", None) or None,
             )
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            # O texto da excepção fica nos registos, não no ecrã (CodeQL).
+            _msg = _erro_para_quem_pergunta(lang, f"load_agent_config: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': _msg})}\n\n"
             return
 
         # Criar DataSource
@@ -5415,7 +5521,8 @@ async def _stream_connection_query(
         try:
             data_source = DataSourceFactory.build_from_dataconnection(data_conn)
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Erro ao criar DataSource: {str(e)}'})}\n\n"
+            _msg = _erro_para_quem_pergunta(lang, f"DataSource: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': _msg})}\n\n"
             return
 
         # LLMs
@@ -5618,7 +5725,9 @@ async def _stream_connection_query(
                                     )
 
                                     # Mensagem amigável para erro técnico no streaming
-                                    msg = _erro_para_quem_pergunta(lang, final_state.get("error"))
+                                    msg = _erro_para_quem_pergunta(
+                                        lang, final_state.get("error")
+                                    )
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                                     return
@@ -5854,9 +5963,7 @@ async def _stream_connection_query(
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
             stats_text = _compute_basic_stats(raw_sample, all_rows=data)
 
-            _stream_lang = (
-                lingua_da_resposta(detected_language)
-            )
+            _stream_lang = lingua_da_resposta(detected_language)
             _stream_lang_name = nome_da_lingua(_stream_lang)
             _insufficient_msg = {
                 "pt": "Não há dados suficientes para responder a esta pergunta.",
@@ -5883,12 +5990,24 @@ async def _stream_connection_query(
             except Exception as _e:
                 log_event("stream_unidades_falhou", {"error": str(_e)[:300]})
                 _descricoes_stream, _unidades_stream = {}, {}
-            _regras_numeros = regras_de_numeros(
-                _stream_lang,
-                colunas=_colunas_stream,
-                moeda_pedida=final_state.get("currency"),
-                unidades=_unidades_stream,
-            ) + regras_de_nomes()
+            _regras_numeros = (
+                regras_de_numeros(
+                    _stream_lang,
+                    colunas=_colunas_stream,
+                    moeda_pedida=final_state.get("currency"),
+                    unidades=_unidades_stream,
+                )
+                + regras_de_nomes()
+            )
+            # Completo ou amostra, e onde estão os nomes — o mesmo bloco do
+            # caminho escrito (12/10/2026, core/llm/completude.py).
+            try:
+                from core.llm.completude import regras_do_resultado
+
+                _regras_numeros += regras_do_resultado(data, len(raw_sample))
+            except Exception as _e:
+                log_event("stream_completude_falhou", {"error": str(_e)[:300]})
+            _parcial = len(data) > len(raw_sample)
 
             system_msg = {
                 "role": "system",
@@ -5937,10 +6056,20 @@ async def _stream_connection_query(
                 "role": "user",
                 "content": (
                     f"User question:\n{question}\n\n"
-                    f"Total rows returned (not all shown): {len(data)}\n"
-                    f"{stats_text}\n\n"
-                    "Sample of the data (up to 15 rows, JSON):\n"
-                    f"{sample_json}\n\n"
+                    # «Sample of the data» e «not all shown» também para 5
+                    # linhas completas: o modelo escrevia «en la muestra».
+                    + (
+                        f"Total rows returned (not all shown): {len(data)}\n"
+                        if _parcial
+                        else f"Total rows returned: {len(data)} (all shown below)\n"
+                    )
+                    + f"{stats_text}\n\n"
+                    + (
+                        "Sample of the data (first 15 rows, JSON):\n"
+                        if _parcial
+                        else "Result rows (complete, JSON):\n"
+                    )
+                    + f"{sample_json}\n\n"
                     "Explain the main insight(s) from this data in a concise way. The "
                     "result may be aggregated or limited to a few rows — describe ONLY "
                     "what these rows show; do not infer the full distribution, the "
@@ -6106,6 +6235,22 @@ async def _stream_connection_query(
         )
 
 
+async def _com_tempos_do_pedido(gerador, connection_id: str, thread_id=None):
+    """O mesmo ``query_total_timing`` do caminho não-streaming, à volta do
+    gerador SSE: o pedido começa no primeiro pedaço e fecha quando o
+    gerador acaba (bem, mal, ou com o cliente a desligar)."""
+    from latency_timing import new_trace, fechar_pedido
+
+    new_trace(thread_id or None)
+    ok = False
+    try:
+        async for pedaco in gerador:
+            yield pedaco
+        ok = True
+    finally:
+        fechar_pedido(connection_id=connection_id, stream=True, ok=ok)
+
+
 @router.post("/{connection_id}/query/stream")
 async def query_connection_stream(
     connection_id: str,
@@ -6130,7 +6275,11 @@ async def query_connection_stream(
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
     return StreamingResponse(
-        _stream_connection_query(connection_id, body, db),
+        _com_tempos_do_pedido(
+            _stream_connection_query(connection_id, body, db),
+            connection_id,
+            body.thread_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

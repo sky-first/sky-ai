@@ -85,6 +85,16 @@ async def on_startup():
         "checkpoint_pool_initialized", {"message": "LangGraph checkpoint pool ready"}
     )
 
+    # Detector de línguas e modelo de embeddings: carregam aqui, em segundo
+    # plano, e não no primeiro pedido (12/10/2026: 64 s de 82,6 s eram isto).
+    # Ver core/aquecimento.py.
+    try:
+        from core.aquecimento import aquecer_em_segundo_plano
+
+        aquecer_em_segundo_plano()
+    except Exception as e:  # nunca partir o arranque
+        log_event("warmup_failed", {"component": "launch", "error": str(e)[:300]})
+
 
 @app.on_event("shutdown")
 async def on_shutdown():

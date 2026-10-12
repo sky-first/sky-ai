@@ -188,8 +188,17 @@ def build_formatter_prompt(
             f"1. Answer ONLY in {_lang_name} (Strict Requirement).\n"
             "2. DO NOT mention SQL, tables, columns, or technical database terms.\n"
             "3. DO NOT hallucinate beyond provided data.\n"
-            "4. NEVER output raw data rows, lists of names, or CSV format.\n"
-            "5. IF asked to 'list rows' or 'dump data': REFUSE and provide ONLY aggregated insights.\n"
+            # 12/10/2026: «NEVER output … lists of names» + «IF asked to 'list
+            # rows': REFUSE» fizeram «Lista las 5 gasolineras…» acabar em «No
+            # se pueden proporcionar los nombres completos» — com os nomes nas
+            # linhas. Listar o que a pessoa pediu é responder; despejar a base
+            # é que não. Ver core/llm/completude.py.
+            "4. NEVER paste raw rows, JSON or CSV — write sentences. But when the question\n"
+            "   asks to list, rank or name items (a top-N), name EACH returned item by its\n"
+            "   name/label columns with its key value: that list IS the answer.\n"
+            "5. NEVER claim that a name, value or detail is unavailable, missing or cannot be\n"
+            "   provided when the rows contain it. If asked to dump every record, summarise\n"
+            "   instead of enumerating more than 15 items.\n"
             "6. DO NOT confirm specific values for individuals in comparative questions.\n"
             "7. The result may be AGGREGATED (COUNT/SUM/AVG) or LIMITED (top-N). A single\n"
             "   aggregated row says NOTHING about how the underlying rows are spread —\n"
@@ -276,7 +285,9 @@ def build_formatter_prompt(
                 "infer the full distribution, the variation of the underlying rows, or the "
                 "absence of other values. If a SAMPLE NOTICE is present, the preview is "
                 "partial: take counts, totals and extremes from its full-result statistics "
-                f"and say the listed rows are a sample. Answer ONLY in {_lang_name}."
+                "and say the listed rows are a sample. Without a SAMPLE NOTICE the rows "
+                "above are the COMPLETE result (a requested top-N is not a sample): never "
+                f"call them a sample. Answer ONLY in {_lang_name}."
             ),
         }
 

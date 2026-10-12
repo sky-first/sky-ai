@@ -206,6 +206,132 @@ def _label(t) -> str:
     return getattr(t, "display_name", None) or t.logical_name
 
 
+class _RespostaFixa:
+    """Imita a resposta do modelo (``.content``) para o extractor de tabelas."""
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+#: Palavras que, antes de um nome, dizem «isto é o nome de uma tabela».
+_PALAVRA_TABELA = r"(?:tabla|tabela|table|tablas|tabelas|tables|dataset|vista|view)"
+
+
+def _sem_acentos(texto: str) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", texto or "")
+    return "".join(c for c in t if not unicodedata.combining(c)).lower()
+
+
+def tabela_nomeada_na_pergunta(
+    question: str, tables: List[TableSchema]
+) -> Optional[TableSchema]:
+    """A tabela que a pergunta NOMEIA, quando nomeia exactamente uma.
+
+    12/10/2026, produção: «Lista las 5 gasolineras con el gasóleo A más barato
+    en la tabla gasolineras_rota para la ruta Badajoz-Madrid». A pessoa disse
+    a tabela; o orquestrador ReAct gastou ainda duas chamadas ao gpt-oss
+    (12,3 s) para chegar à mesma escolha. Um nome dito pela pessoa não se
+    adivinha — usa-se.
+
+    Conta como nomeada uma tabela cujo nome lógico, rótulo ou nome físico
+    (com ou sem esquema) aparece na pergunta como palavra inteira E tem cara
+    de identificador (``_``, ``.`` ou algarismos) ou vem a seguir a «tabla /
+    tabela / table». «gasolineras» solto não é um nome de tabela; é o
+    assunto. Duas tabelas nomeadas → None (decide o modelo, como antes).
+    As vizinhas que a pergunta pede (o preço de ``gasolineras_precio``) são
+    acrescentadas depois, pelo mesmo caminho de sempre.
+    """
+    if not question or not tables:
+        return None
+    q = _sem_acentos(question)
+    achadas: Dict[int, TableSchema] = {}
+    for t in tables:
+        nomes = set()
+        for n in (
+            getattr(t, "logical_name", None),
+            getattr(t, "display_name", None),
+            getattr(t, "physical_name", None),
+        ):
+            if n:
+                n = _sem_acentos(str(n)).strip().strip('"`')
+                nomes.add(n)
+                if "." in n:
+                    nomes.add(n.rsplit(".", 1)[-1])
+        for n in nomes:
+            if len(n) < 3:
+                continue
+            identificador = bool(re.search(r"[_.\d]", n))
+            padrao = re.escape(n)
+            if not identificador:
+                padrao = _PALAVRA_TABELA + r"\s+[`\"'«]?" + padrao
+            if re.search(r"(?<![\w.])" + padrao + r"(?![\w])", q):
+                achadas[id(t)] = t
+                break
+    if len(achadas) != 1:
+        return None
+    return next(iter(achadas.values()))
+
+
+try:
+    from langchain_core.callbacks import BaseCallbackHandler as _BaseCallback
+except Exception:  # pragma: no cover — langchain_core vem sempre com o langgraph
+    _BaseCallback = object
+
+
+class _TemposDoReAct(_BaseCallback):
+    """Callback do LangChain: cada chamada do agente ReAct ao modelo passa a
+    escrever ``llm_call_timing`` (o ReAct fala com o ``_chat`` directamente,
+    por baixo do fornecedor, e por isso nenhuma das suas chamadas era medida)."""
+
+    run_inline = True
+    raise_error = False
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+        self._inicio: Dict[Any, float] = {}
+
+    def _comecar(self, run_id) -> None:
+        import time
+
+        self._inicio[run_id] = time.perf_counter()
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        self._comecar(run_id)
+
+    def on_llm_start(self, serialized, prompts, *, run_id, **kwargs):
+        self._comecar(run_id)
+
+    def _acabar(self, run_id, ok: bool) -> None:
+        import time
+
+        t0 = self._inicio.pop(run_id, None)
+        if t0 is None:
+            return
+        try:
+            from latency_timing import registar_tempo
+
+            registar_tempo(
+                "llm_call_timing",
+                (time.perf_counter() - t0) * 1000,
+                detalhe="llm:core.llm.orchestrator.react",
+                model=self.model,
+                caller="core.llm.orchestrator.react",
+                mode="react",
+                ok=ok,
+            )
+        except Exception:
+            pass
+
+    def on_llm_end(self, response, *, run_id, **kwargs):
+        self._acabar(run_id, True)
+
+    def on_llm_error(self, error, *, run_id, **kwargs):
+        self._acabar(run_id, False)
+
+
+
 def _find_by_label(tables: List[TableSchema], label: str):
     """Resolve a chosen label back to its TableSchema (label is unique even
     when two connections share a logical_name)."""
@@ -1103,7 +1229,20 @@ def run_orchestrator(
     chat_model = getattr(llm, "_chat", None)
     use_agentic_rag = chat_model is not None and hasattr(chat_model, "bind_tools")
 
-    if use_agentic_rag:
+    # A pessoa nomeou a tabela: não se pergunta ao modelo qual é.
+    _nomeada = tabela_nomeada_na_pergunta(question, agent_config.tables)
+    if _nomeada is not None:
+        raw = _RespostaFixa(_label(_nomeada))
+        state["plan"] = f"Table named in the question: {_label(_nomeada)}"
+        log_event(
+            "orchestrator_named_table",
+            {
+                "agent_id": agent_config.id,
+                "table": _label(_nomeada),
+                "skipped_llm": True,
+            },
+        )
+    elif use_agentic_rag:
         try:
             from langgraph.prebuilt import create_react_agent
             from core.llm.tools import ToolFactory
@@ -1187,9 +1326,15 @@ def run_orchestrator(
             react_agent = create_react_agent(
                 chat_model, tools=tools, state_modifier=agentic_system_msg
             )
+            _modelo = getattr(chat_model, "model_name", None) or getattr(
+                chat_model, "model_id", None
+            ) or getattr(chat_model, "model", "unknown")
             result = react_agent.invoke(
                 {"messages": [HumanMessage(content=user_prompt)]},
-                config={"recursion_limit": 10},
+                config={
+                    "recursion_limit": 10,
+                    "callbacks": [_TemposDoReAct(str(_modelo))],
+                },
             )
             final_msg_content = result["messages"][-1].content
 

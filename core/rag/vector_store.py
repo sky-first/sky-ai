@@ -401,8 +401,19 @@ def search_embeddings(
 
         return results
 
-    # Busca vetorial com pgvector
-    query_vec = embedding_provider.embed([query_text])[0]
+    # Busca vetorial com pgvector.
+    #
+    # Pela cache, como o caminho assíncrono (``embed_async``). 12/10/2026: o
+    # vector da pergunta já estava no Redis (o handler tinha-o calculado), mas
+    # este caminho chamava ``embed`` cru — e foi ele que, no primeiro pedido
+    # depois do deploy, descarregou e carregou o modelo de embeddings (29,7 s)
+    # dentro do orquestrador, só para recalcular um vector que já existia.
+    _embed = (
+        embedding_provider.embed_with_cache
+        if isinstance(embedding_provider, EmbeddingProvider)
+        else embedding_provider.embed
+    )
+    query_vec = _embed([query_text])[0]
 
     try:
         query_obj = _build_embedding_base_query(
