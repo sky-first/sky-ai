@@ -5454,7 +5454,13 @@ async def _stream_connection_query(
                 _stream_llm,
                 mensagem_sem_dados,
             )
-            from core.llm.numeros import CorrecaoEmFluxo, regras_de_numeros
+            from core.llm.nomes import regras_de_nomes
+            from core.llm.numeros import (
+                CorrecaoEmFluxo,
+                descricoes_das_colunas,
+                regras_de_numeros,
+                unidades_do_resultado,
+            )
 
             state = _build_streaming_agent_state(body, crew_ids, retrieval_context)
 
@@ -5860,15 +5866,29 @@ async def _stream_connection_query(
             # modelo copiava o formato neutro do Postgres («6 153 185,72»,
             # sem euro). E a correcção determinística vai por cima — ver
             # CorrecaoEmFluxo.
+            _colunas_stream = (
+                list(data[0].keys()) if data and isinstance(data[0], dict) else []
+            )
+            # Unidades (nome, linhagem do SQL, descrição) — as mesmas no prompt
+            # e na correcção determinística (12/10/2026).
+            try:
+                _descricoes_stream = descricoes_das_colunas(
+                    getattr(agent_config, "tables", None),
+                    list(final_state.get("chosen_tables") or [])
+                    + [final_state.get("chosen_table")],
+                )
+                _unidades_stream = unidades_do_resultado(
+                    _colunas_stream, final_state.get("sql"), _descricoes_stream
+                )
+            except Exception as _e:
+                log_event("stream_unidades_falhou", {"error": str(_e)[:300]})
+                _descricoes_stream, _unidades_stream = {}, {}
             _regras_numeros = regras_de_numeros(
                 _stream_lang,
-                colunas=(
-                    list(data[0].keys())
-                    if data and isinstance(data[0], dict)
-                    else []
-                ),
+                colunas=_colunas_stream,
                 moeda_pedida=final_state.get("currency"),
-            )
+                unidades=_unidades_stream,
+            ) + regras_de_nomes()
 
             system_msg = {
                 "role": "system",
@@ -5941,7 +5961,14 @@ async def _stream_connection_query(
             # de sair: o protocolo não tem «substituir», e a voz lê estes
             # mesmos pedaços — o que se envia tem de já ir certo.
             accumulated_answer = ""
-            _correcao = CorrecaoEmFluxo(_stream_lang, data, final_state.get("currency"))
+            _correcao = CorrecaoEmFluxo(
+                _stream_lang,
+                data,
+                final_state.get("currency"),
+                sql=final_state.get("sql"),
+                descricoes=_descricoes_stream,
+                pergunta=question,
+            )
             try:
                 for chunk in _stream_llm(llm_formatter, system_msg, user_msg):
                     pronto = _correcao.receber(chunk)

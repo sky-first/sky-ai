@@ -9,6 +9,7 @@ from config.settings import settings
 from core.agents.generic_sql_agent import AgentState, AgentConfig, TableSchema
 from core.data_sources.base import BaseDataSource
 from core.llm.providers import LLMProvider
+from core.sql.rotulos import marca_de_rotulo
 from core.sql.validator import ensure_safe_select
 from core.sql.validator_advanced import AdvancedSQLValidator
 from core.logging_utils import log_event
@@ -321,6 +322,11 @@ def _build_schema_text(
                 extra.append("PK")
             if col_is_fk:
                 extra.append("FK")
+            # A coluna que dá o NOME da coisa (e a que diz onde): o modelo
+            # escolhe-a junto com o id — «la de id 16440» não diz que posto é.
+            _marca = marca_de_rotulo(col_name, col_type)
+            if _marca:
+                extra.append(_marca)
             extras_str = f" [{' | '.join(extra)}]" if extra else ""
             # Show the column's real value domain when it is categorical, so the
             # model filters on existing values instead of inventing them.
@@ -546,7 +552,10 @@ def _e_fonte_nosql(data_source: Any, agent_config: AgentConfig) -> bool:
 
 
 def _anotar_valores_das_escolhidas(
-    tabelas: List[TableSchema], data_source: BaseDataSource, agent_config: AgentConfig
+    tabelas: List[TableSchema],
+    data_source: BaseDataSource,
+    agent_config: AgentConfig,
+    pergunta: Optional[str] = None,
 ) -> None:
     """Valores reais das colunas de texto categóricas de TODAS as tabelas
     escolhidas, no esquema que o modelo lê (ver ``core/sql/valores_de_coluna``).
@@ -554,15 +563,21 @@ def _anotar_valores_das_escolhidas(
     if _e_fonte_nosql(data_source, agent_config):
         return
     try:
+        import time as _time
+
         from core.sql.valores_de_coluna import anotar_valores
 
-        anotadas = anotar_valores([t for t in tabelas if t is not None], data_source)
+        _t0 = _time.monotonic()
+        anotadas = anotar_valores(
+            [t for t in tabelas if t is not None], data_source, pergunta=pergunta
+        )
         log_event(
             "specialist_value_hints",
             {
                 "agent_id": agent_config.id,
                 "tables": [getattr(t, "physical_name", None) for t in tabelas if t],
                 "columns": sorted(anotadas.keys())[:40],
+                "ms": round((_time.monotonic() - _t0) * 1000),
             },
         )
     except Exception as exc:
@@ -864,7 +879,7 @@ def run_specialist(
             )
             return state
 
-        _anotar_valores_das_escolhidas(tables, data_source, agent_config)
+        _anotar_valores_das_escolhidas(tables, data_source, agent_config, question)
         schema_text = _build_multiple_schemas_text(
             tables, join_relationships, security_config
         )
@@ -916,7 +931,7 @@ def run_specialist(
             )
             return state
 
-        _anotar_valores_das_escolhidas([table], data_source, agent_config)
+        _anotar_valores_das_escolhidas([table], data_source, agent_config, question)
         schema_text = _build_schema_text(table, security_config)
         primary_table = table
 
@@ -1076,6 +1091,11 @@ def run_specialist(
     column_guidance = (
         "- For status or category columns, prefer using columns containing human-readable labels "
         "(e.g., suffixes like '_name', '_desc', '_label', '_clean', '_pt') instead of IDs.\n"
+        "- ENTITY NAMES: when the answer points at specific entities (a station, a "
+        "customer, a product, a store…), SELECT the column(s) marked [LABEL] of that "
+        "entity (its name/brand) and the ones marked [LABEL: place] (where it is), "
+        "together with any id. An id ALONE never names an entity: nobody knows what "
+        "'16440' is. If the label lives in another chosen table, JOIN it.\n"
     )
 
     temporal_filter_guidance = (
@@ -1260,7 +1280,11 @@ def run_specialist(
     is_nosql = dialect_info.get("type") == "nosql"
 
     try:
+        import time as _time
+
+        _t_llm = _time.monotonic()
         raw = llm.invoke([system_msg, user_msg])
+        _ms_llm = round((_time.monotonic() - _t_llm) * 1000)
     except Exception as e:
         state["error"] = "Error calling the SQL specialist LLM."
         log_event(
@@ -1289,6 +1313,9 @@ def run_specialist(
             "agent_id": agent_config.id,
             "response_preview": content_clean[:500],
             "response_length": len(content_clean),
+            "ms": _ms_llm,
+            "prompt_chars": len(system_msg.get("content") or "")
+            + len(user_msg.get("content") or ""),
             "starts_with_impossible": bool(
                 re.match(r"^\s*IMPOSSIBLE", content_clean, flags=re.IGNORECASE)
             ),

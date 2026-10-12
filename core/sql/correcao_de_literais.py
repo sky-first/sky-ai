@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.logging_utils import log_event
-from core.sql.valores_de_coluna import e_coluna_de_texto, valores_distintos
+from core.sql.valores_de_coluna import e_coluna_de_texto, valores_em_cache
 
 # Limiar e margem do «candidato claro». BAJAZOZ→BADAJOZ dá 0,71 (duas trocas
 # em sete letras); a margem exige que o segundo melhor fique bem atrás.
@@ -357,6 +357,11 @@ def corrigir_literais(
     filtros = ler_filtros(sql, dialecto, tabelas)
     if not filtros:
         return None
+    por_fisica = {
+        str(t.physical_name).lower(): t
+        for t in tabelas
+        if getattr(t, "physical_name", None)
+    }
 
     dominios: Dict[Tuple[str, str], Optional[List[str]]] = {}
     novos: Dict[str, Optional[str]] = {}  # texto_sql → novo literal (None = conflito)
@@ -368,7 +373,15 @@ def corrigir_literais(
             if len(dominios) >= MAX_COLUNAS:
                 continue
             try:
-                vals = valores_distintos(data_source, f.tabela, f.coluna, MAX_DOMINIO)
+                # A mesma cache da amostragem: um domínio que a amostragem já
+                # leu inteiro (≤25 valores) não volta à base (12/10/2026).
+                vals = valores_em_cache(
+                    data_source,
+                    f.tabela,
+                    f.coluna,
+                    MAX_DOMINIO,
+                    tabela=por_fisica.get(f.tabela.lower()),
+                )
             except Exception as exc:
                 log_event(
                     "literal_fix_domain_error",
