@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Any, Optional
 import logging
+import re
 
 MESSAGES: Dict[str, Dict[str, str]] = {
     "SECURITY_BLOCKED": {
@@ -145,6 +146,31 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Este projeto ainda não tem dados ligados. Ligue uma fonte e eu respondo a partir dela.",
         "es": "Este proyecto todavía no tiene datos conectados. Conecte una fuente y responderé a partir de ella.",
     },
+    # ── O que se mostra ENQUANTO a Sky trabalha ─────────────────────
+    #
+    # Estavam cravadas no stream em português do Brasil («Analisando
+    # pergunta...», «Executando query...», «Gerando resposta...») e
+    # chegavam assim a uma app em castelhano (Android, 12/10/2026).
+    #
+    # Estas frases são INTERFACE, não resposta: seguem a língua da app
+    # (`ui_locale`), nunca o «Sky responde en». Por isso o evento leva
+    # também a `key` — a app e o backend traduzem pela chave e a frase
+    # daqui é só o recurso para quem não a conhece.
+    "PROGRESS_ANALYZING": {
+        "en": "Analysing the question…",
+        "pt": "A analisar a pergunta…",
+        "es": "Analizando la pregunta…",
+    },
+    "PROGRESS_RUNNING_QUERY": {
+        "en": "Querying the data…",
+        "pt": "A consultar os dados…",
+        "es": "Consultando los datos…",
+    },
+    "PROGRESS_GENERATING_ANSWER": {
+        "en": "Writing the answer…",
+        "pt": "A escrever a resposta…",
+        "es": "Redactando la respuesta…",
+    },
     "PERIOD_OUT_OF_RANGE": {
         "en": "No data for that period. The range available is **{de}** to **{ate}**.",
         "pt": "Não há dados nesse intervalo. O período disponível vai de **{de}** a **{ate}**.",
@@ -167,6 +193,37 @@ def get_message(key: str, lang: str = "en", **kwargs: Any) -> str:
             return msg
 
     return msg
+
+
+#: A etapa do grafo -> a chave estável do evento de progresso.
+#:
+#: A `key` é o contrato com os clientes (app e backend traduzem por ela);
+#: o `stage` continua a ir, como sempre foi.
+PROGRESS_KEYS: Dict[str, str] = {
+    "orchestrator": "analyzing_question",
+    "specialist": "running_query",
+    "formatter": "generating_answer",
+}
+
+_PROGRESS_MESSAGE_KEYS: Dict[str, str] = {
+    "analyzing_question": "PROGRESS_ANALYZING",
+    "running_query": "PROGRESS_RUNNING_QUERY",
+    "generating_answer": "PROGRESS_GENERATING_ANSWER",
+}
+
+
+def progress_event(stage: str, ui_locale: Optional[str] = None) -> Dict[str, str]:
+    """O evento `progress` do stream, com a frase na língua da INTERFACE.
+
+    ``ui_locale`` é a língua da app de quem pergunta — não a da resposta.
+    Sem ele a frase sai em inglês: é só o recurso, porque quem consome
+    (backend, app) traduz pela ``key``.
+    """
+    key = PROGRESS_KEYS.get(stage, stage)
+    lang = _normalize_lang_code(ui_locale or "") or "en"
+    chave = _PROGRESS_MESSAGE_KEYS.get(key)
+    message = get_message(chave, lang) if chave else ""
+    return {"type": "progress", "stage": stage, "key": key, "message": message}
 
 
 logger = logging.getLogger("dataassistant.i18n")
@@ -341,6 +398,240 @@ def _detect_lingua_da_resposta(text: str) -> str:
         return "en"
 
 
+#: A confiança a partir da qual a PERGUNTA decide sozinha a língua,
+#: mesmo contra a língua já estabelecida na conversa.
+#:
+#: Medido: «cuál ha sido mi facturación» dá ES 0,98; «what was my
+#: revenue» EN 0,89; «e o mês passado?» PT 0,998. O português com
+#: jargão inglês empata a três à volta de 0,35 — fica abaixo, e aí
+#: manda a conversa.
+_CONFIANCA_DA_PERGUNTA = 0.75
+
+# Palavras e sinais que só existem numa das duas línguas irmãs.
+#
+# São o desempate quando o detector não tem certeza — perguntas curtas
+# («ventas de este mes» dava PT 0,39 contra ES 0,55) — e o detector
+# inteiro quando o `lingua` não está instalado. Ficam de fora as que
+# existem nas duas («de», «que», «como», «este», «clientes»).
+_MARCAS_ES = frozenset(
+    {
+        "cuál",
+        "cuáles",
+        "cuánto",
+        "cuánta",
+        "cuántos",
+        "cuántas",
+        "qué",
+        "dónde",
+        "cómo",
+        "cuándo",
+        "facturación",
+        "también",
+        "año",
+        "años",
+        "ventas",
+        "ingresos",
+        "sido",
+        "muéstrame",
+        "dame",
+        "dime",
+        "tengo",
+        "tenemos",
+        "hay",
+        "el",
+        "los",
+        "las",
+        "del",
+        "mi",
+        "mis",
+        "y",
+        "ayer",
+        "hoy",
+        "mejor",
+        "mejores",
+        "pasado",
+        "nuestro",
+        "nuestra",
+        "pedidos",
+        "ese",
+        "esa",
+    }
+)
+_MARCAS_PT = frozenset(
+    {
+        "não",
+        "você",
+        "qual",
+        "quais",
+        "quanto",
+        "quantos",
+        "quantas",
+        "foi",
+        "meu",
+        "minha",
+        "meus",
+        "minhas",
+        "faturação",
+        "faturamento",
+        "vendas",
+        "receita",
+        "dos",
+        "das",
+        "está",
+        "estão",
+        "há",
+        "mês",
+        "ontem",
+        "hoje",
+        "passado",
+        "encomendas",
+        "nosso",
+        "nossa",
+        "último",
+        "última",
+        "esse",
+        "essa",
+        "diz",
+        "mostra",
+    }
+)
+
+
+# Palavras de ligação que o inglês não tem. Duas ou mais numa frase que o
+# detector julga inglesa querem dizer português ou castelhano carregado de
+# jargão («me mostra o breakdown do gross profit por business unit»).
+# Ficam de fora as que o inglês também usa («a», «no», «do», «me»).
+_LIGACAO_IBERICA = frozenset(
+    {
+        "por",
+        "da",
+        "de",
+        "dos",
+        "das",
+        "na",
+        "o",
+        "os",
+        "que",
+        "el",
+        "los",
+        "las",
+        "del",
+        "para",
+        "com",
+        "con",
+        "em",
+        "en",
+        "um",
+        "uma",
+        "una",
+        "qual",
+        "quais",
+        "mostra",
+        "muestra",
+        "foi",
+        "fue",
+        "este",
+        "esta",
+        "esse",
+        "essa",
+        "ese",
+        "esa",
+        "mes",
+        "mês",
+        "ano",
+        "año",
+        "y",
+        "mi",
+    }
+)
+
+
+def _parece_iberica(text: str) -> bool:
+    palavras = re.findall(r"\w+", (text or "").lower())
+    # Uma marca forte («mostra», «vendas», «ventas») vale por duas: é
+    # uma palavra que o inglês não tem e que não aparece por acaso.
+    pontos = 0
+    for p in palavras:
+        if len(p) >= 4 and (p in _MARCAS_PT or p in _MARCAS_ES):
+            pontos += 2
+        elif p in _LIGACAO_IBERICA:
+            pontos += 1
+    return pontos >= 2
+
+
+def _lingua_pelas_marcas(text: str) -> Optional[str]:
+    """ES ou PT pelas marcas que só uma das duas tem; ``None`` se empatar."""
+    baixo = (text or "").lower()
+    es = pt = 0
+    if any(c in baixo for c in "¿¡ñ"):
+        es += 2
+    if any(c in baixo for c in "ãõç"):
+        pt += 2
+    for palavra in re.findall(r"\w+", baixo):
+        if palavra in _MARCAS_ES:
+            es += 1
+        if palavra in _MARCAS_PT:
+            pt += 1
+    if es > pt:
+        return "es"
+    if pt > es:
+        return "pt"
+    return None
+
+
+def deteccao_confiante(text: str) -> Optional[str]:
+    """A língua da pergunta quando o próprio texto chega para a decidir.
+
+    ``None`` quando é curta ou ambígua demais — e aí quem chama recorre à
+    língua da conversa. É o que separa «sim» (segue a conversa) de
+    «cuál ha sido mi facturación» (é castelhano, diga a conversa o que
+    disser).
+
+    ⚠️ Apanhado em produção a 12/10/2026: com «Sky responde en = Sigue su
+    pregunta», uma pergunta em castelhano foi respondida em português. O
+    stream guarda o histórico por utilizador e ligação (não por conversa),
+    e a primeira pergunta longa desse histórico era portuguesa — a língua
+    «pegajosa» da conversa ganhava SEMPRE à pergunta. Pegajosa só deve ser
+    para o que a pergunta não decide sozinha.
+    """
+    t = (text or "").strip()
+    if len(t) < _MIN_TEXT_LENGTH:
+        return None
+
+    # Uma língua que não falamos (francês, alemão…) não se disfarça de
+    # uma das nossas: o detector de três escolheria à força.
+    if detect_language(t) not in SUPPORTED_LANGUAGES:
+        return None
+
+    marcada = _lingua_pelas_marcas(t)
+    try:
+        if _LINGUA_AVAILABLE and _DETECTOR_RESPOSTA is not None:
+            valores = _DETECTOR_RESPOSTA.compute_language_confidence_values(t)
+            if valores:
+                codigo = _lingua_lang_code(valores[0].language)
+                if (
+                    valores[0].value >= _CONFIANCA_DA_PERGUNTA
+                    and codigo in SUPPORTED_LANGUAGES
+                ):
+                    # Confiante numa irmã mas com as marcas da outra é um
+                    # empate disfarçado: decidem as marcas.
+                    if marcada and codigo in ("es", "pt") and marcada != codigo:
+                        return marcada
+                    # «Inglês» com ligações ibéricas é jargão numa frase
+                    # portuguesa ou castelhana: decide a irmã mais provável.
+                    if codigo == "en" and _parece_iberica(t):
+                        if marcada:
+                            return marcada
+                        for v in valores[1:]:
+                            irma = _lingua_lang_code(v.language)
+                            if irma in ("pt", "es"):
+                                return irma
+                    return codigo
+    except Exception:
+        pass
+    return marcada
+
+
 def _normalize_lang_code(code: str) -> str:
     """
     Normalises a BCP-47 / locale code to its base language subtag.
@@ -375,10 +666,19 @@ def resolve_language(
     gatekeeper can spot unsupported languages), this function ALWAYS returns a
     supported code, because its job is to pick the language we answer in.
     """
-    for signal in (locale, thread_language):
-        norm = _normalize_lang_code(signal or "")
-        if norm in SUPPORTED_LANGUAGES:
-            return norm
+    norm = _normalize_lang_code(locale or "")
+    if norm in SUPPORTED_LANGUAGES:
+        return norm
+
+    # Sem língua fixada («segue a sua pergunta»): uma pergunta que diz
+    # claramente a sua língua ganha à língua da conversa.
+    confiante = deteccao_confiante(question or "")
+    if confiante:
+        return confiante
+
+    norm = _normalize_lang_code(thread_language or "")
+    if norm in SUPPORTED_LANGUAGES:
+        return norm
 
     # O detector da resposta: devolve sempre EN, PT ou ES, e aguenta jargão.
     detected = _detect_lingua_da_resposta(question or "")
@@ -428,10 +728,19 @@ def language_decision(
     low-confidence text, so reaching an unsupported code here means the detector
     was confident enough to trust the rejection.
     """
-    for signal in (locale, thread_language):
-        norm = _normalize_lang_code(signal or "")
-        if norm in SUPPORTED_LANGUAGES:
-            return False, norm
+    norm = _normalize_lang_code(locale or "")
+    if norm in SUPPORTED_LANGUAGES:
+        return False, norm
+
+    # A pergunta que diz claramente a sua língua ganha à da conversa —
+    # ver `deteccao_confiante`.
+    confiante = deteccao_confiante(question or "")
+    if confiante:
+        return False, confiante
+
+    norm = _normalize_lang_code(thread_language or "")
+    if norm in SUPPORTED_LANGUAGES:
+        return False, norm
 
     # Step 1 — gatekeeper: use the all-language detector to check if the
     # question is *confidently* in an unsupported language (FR/ES/DE…).

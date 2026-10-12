@@ -20,6 +20,7 @@ from core.llm.factory import (
 from core.rag.context_retrieval import build_retrieval_context_for_question
 from core.auth.service import resolve_crew_ids_for_context
 from core.logging_utils import log_event
+from core.i18n.i18n import progress_event
 from db.session import get_db
 from db.base import SyncSessionLocal
 
@@ -287,7 +288,7 @@ async def _stream_agent_query(
                         final_state = node_state
                         # Enviar progresso e eventos específicos
                         if node_name == "orchestrator":
-                            yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Analisando pergunta...'})}\n\n"
+                            yield f"data: {json.dumps(progress_event('orchestrator', getattr(body, 'ui_locale', None)))}\n\n"
 
                             # Enviar evento quando datasets são escolhidos
                             chosen_table = node_state.get("chosen_table")
@@ -301,7 +302,7 @@ async def _stream_agent_query(
                                 yield f"data: {json.dumps({'type': 'datasets_selected', 'datasets': chosen_datasets})}\n\n"
 
                         elif node_name == "specialist":
-                            yield f"data: {json.dumps({'type': 'progress', 'stage': 'specialist', 'message': 'Executando query...'})}\n\n"
+                            yield f"data: {json.dumps(progress_event('specialist', getattr(body, 'ui_locale', None)))}\n\n"
 
                             # Enviar evento quando SQL é gerado
                             sql = node_state.get("sql")
@@ -341,7 +342,7 @@ async def _stream_agent_query(
                 return
 
             # Agora fazer streaming da resposta do formatter
-            yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
+            yield f"data: {json.dumps(progress_event('formatter', getattr(body, 'ui_locale', None)))}\n\n"
 
             question = final_state.get("question") or ""
             data = final_state.get("data") or []

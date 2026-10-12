@@ -117,11 +117,12 @@ class TestResolveLanguage:
         assert resolve_language("hi", locale="en-US") == "en"
 
     def test_unsupported_locale_falls_through(self):
-        # "fr" is not supported → should fall through to thread/detect
-        result = resolve_language(
+        # "fr" is not supported → falls through to question/thread/detect.
+        # A pergunta clara decide; a conversa só decide o ambíguo.
+        assert resolve_language(
             "what were the sales?", locale="fr", thread_language="pt"
-        )
-        assert result == "pt"
+        ) == "en"
+        assert resolve_language("sim", locale="fr", thread_language="pt") == "pt"
 
     # --- thread wins when no locale ---
     def test_thread_pt_keeps_short_followup_in_pt(self):

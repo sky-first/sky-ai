@@ -501,6 +501,14 @@ def _ensure_language(
     ``detected_language`` is passed as the thread language: it is the language
     already established in the conversation, so short follow-ups stay sticky.
     """
+    # ``detected_language`` chega aqui JÁ DECIDIDO pelo orquestrador, com a
+    # regra inteira (locale → pergunta clara → conversa). Voltar a detectar
+    # a pergunta deixava-a ganhar a essa decisão — e a pergunta que o
+    # formatador vê pode já não ser a da pessoa (recontextualizada).
+    if not (locale or "").strip():
+        _ja = (detected_language or "").strip().lower()[:2]
+        if _ja in ("en", "pt", "es"):
+            return _ja
     try:
         return resolve_language(
             question or "",

@@ -38,6 +38,13 @@ class QueryRequest(BaseModel):
         default=None,
         description="User/platform language preference (e.g. 'en', 'pt', 'pt-BR'). When provided and supported, it takes priority over statistical language detection. When omitted, the response language is detected from the conversation.",
     )
+    # A língua da INTERFACE de quem pergunta — só para as frases de estado
+    # do stream («A analisar a pergunta…»). Não mexe na língua da resposta,
+    # que é o `locale` acima (ou a da pergunta, quando ele não vem).
+    ui_locale: Optional[str] = Field(
+        default=None,
+        description="Language of the asker's app UI ('en' | 'pt' | 'es'). Only used for progress/status texts, never for the answer.",
+    )
     # AI Behavior Configuration
     instructions: Optional[str] = Field(
         default=None, description="General instructions on how the AI should behave."

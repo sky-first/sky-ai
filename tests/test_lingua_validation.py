@@ -84,9 +84,12 @@ def test_pure_en_with_locale_pt(q):
 
 @pytest.mark.parametrize("q", PURE_EN)
 def test_pure_en_with_thread_pt(q):
-    # Thread PT → answer must be PT regardless of question language
+    # Regra do Lucas (12/10/2026): sem língua fixada, a resposta SEGUE A
+    # PERGUNTA. Uma pergunta claramente inglesa numa conversa portuguesa
+    # responde-se em inglês; a conversa só decide o que a pergunta não
+    # decide sozinha («sim», «ok», jargão empatado).
     blocked, lang = language_decision(q, thread_language="pt")
-    assert blocked is False and lang == "pt"
+    assert blocked is False and lang == "en"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,9 +146,10 @@ def test_pure_pt_with_locale_en(q):
 
 @pytest.mark.parametrize("q", PURE_PT)
 def test_pure_pt_with_thread_en(q):
-    # Thread EN → answer must be EN
+    # Pergunta claramente portuguesa numa conversa inglesa → português
+    # (segue a pergunta — regra de 12/10/2026).
     blocked, lang = language_decision(q, thread_language="en")
-    assert blocked is False and lang == "en"
+    assert blocked is False and lang == "pt"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -571,18 +575,19 @@ def test_resolve_always_returns_supported_language():
 #    Expected: locale wins > thread wins > detection.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_en_question_in_pt_thread_stays_pt_by_thread():
-    # No locale, thread=PT, user asks in EN → thread wins → PT
+def test_en_question_in_pt_thread_follows_the_question():
+    # No locale, thread=PT, user asks clearly in EN → the question wins → EN.
+    # (Era «thread wins»; mudou com a regra «segue a sua pergunta», 12/10/2026.)
     blocked, lang = language_decision(
         "what were the sales last month?", thread_language="pt"
     )
-    assert blocked is False and lang == "pt"
+    assert blocked is False and lang == "en"
 
-def test_pt_question_in_en_thread_stays_en_by_thread():
+def test_pt_question_in_en_thread_follows_the_question():
     blocked, lang = language_decision(
         "quais foram as vendas do mês passado?", thread_language="en"
     )
-    assert blocked is False and lang == "en"
+    assert blocked is False and lang == "pt"
 
 def test_locale_pt_en_question_mid_thread_en():
     # locale=PT + EN thread + EN question → locale wins → PT
