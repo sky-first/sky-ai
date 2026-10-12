@@ -105,6 +105,8 @@ MAX_CACHE_SIZE = 100  # Limitar tamanho do cache para evitar uso excessivo de me
 
 # ✅ Cache reativado para respostas rápidas (varia a cada 30 segundos)
 DISABLE_BOOTSTRAP_CACHE = False  # Cache habilitado para melhor performance
+
+
 # ── As sugestões do Sherlock ─────────────────────────────────────────
 #
 # **Estiveram desligadas seis meses, cravadas no código.**
@@ -153,10 +155,9 @@ def _erro_para_quem_pergunta(lang: str, detalhe=None, traceback_texto=None) -> s
     return get_message("TECHNICAL_ERROR", lang)
 
 
-DISABLE_BOOTSTRAP_EXECUTION = (
-    os.getenv("DISABLE_BOOTSTRAP_EXECUTION", "false").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
+DISABLE_BOOTSTRAP_EXECUTION = os.getenv(
+    "DISABLE_BOOTSTRAP_EXECUTION", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 # ============================================================================
 # Cache para dashboard plans (Davinci) (em memória, pode migrar para Redis depois)
@@ -1491,18 +1492,36 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
                 #
                 # Cada uma tem de dizer sozinha o que vai perguntar, porque é
                 # exactamente isso que vai ser perguntado.
-                ("Desempenho do mês", "Como correu este mês em comparação com o mês anterior?"),
-                ("Os maiores", "Quais são os cinco maiores valores nos meus dados, e de quê?"),
-                ("Ao longo do tempo", "O que é que tem subido ou descido ao longo dos últimos meses?"),
+                (
+                    "Desempenho do mês",
+                    "Como correu este mês em comparação com o mês anterior?",
+                ),
+                (
+                    "Os maiores",
+                    "Quais são os cinco maiores valores nos meus dados, e de quê?",
+                ),
+                (
+                    "Ao longo do tempo",
+                    "O que é que tem subido ou descido ao longo dos últimos meses?",
+                ),
                 ("Por categoria", "Como é que os totais se dividem por categoria?"),
             ],
         ),
         "es": (
             "¿En qué puedo ayudarle con sus datos?",
             [
-                ("Rendimiento del mes", "¿Cómo fue este mes en comparación con el anterior?"),
-                ("Los mayores", "¿Cuáles son los cinco mayores valores en mis datos, y de qué?"),
-                ("A lo largo del tiempo", "¿Qué ha subido o bajado en los últimos meses?"),
+                (
+                    "Rendimiento del mes",
+                    "¿Cómo fue este mes en comparación con el anterior?",
+                ),
+                (
+                    "Los mayores",
+                    "¿Cuáles son los cinco mayores valores en mis datos, y de qué?",
+                ),
+                (
+                    "A lo largo del tiempo",
+                    "¿Qué ha subido o bajado en los últimos meses?",
+                ),
                 ("Por categoría", "¿Cómo se reparten los totales por categoría?"),
             ],
         ),
@@ -1510,8 +1529,14 @@ def _fallback_bootstrap(lang: str, max_suggestions: int) -> ChatBootstrapRespons
             "How can I help you with your data?",
             [
                 ("Monthly performance", "How did this month compare with last month?"),
-                ("Top results", "What are the five largest values in my data, and of what?"),
-                ("Time-based analysis", "What has gone up or down over the last few months?"),
+                (
+                    "Top results",
+                    "What are the five largest values in my data, and of what?",
+                ),
+                (
+                    "Time-based analysis",
+                    "What has gone up or down over the last few months?",
+                ),
                 ("Category breakdown", "How do the totals split by category?"),
             ],
         ),
@@ -4345,8 +4370,7 @@ async def _query_connection_inner(
     # every table is queried against the primary connection only.
     if dispatch_map is None:
         table_conn_ids = {
-            str(getattr(t, "data_connection_id", "") or "")
-            for t in agent_config.tables
+            str(getattr(t, "data_connection_id", "") or "") for t in agent_config.tables
         }
         table_conn_ids.discard("")
         if len(table_conn_ids) > 1:
@@ -5459,7 +5483,9 @@ async def _stream_connection_query(
                 space_ids=getattr(body, "space_ids", None) or None,
             )
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            # O texto da excepção fica nos registos, não no ecrã (CodeQL).
+            _msg = _erro_para_quem_pergunta(lang, f"load_agent_config: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': _msg})}\n\n"
             return
 
         # Criar DataSource
@@ -5495,7 +5521,8 @@ async def _stream_connection_query(
         try:
             data_source = DataSourceFactory.build_from_dataconnection(data_conn)
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Erro ao criar DataSource: {str(e)}'})}\n\n"
+            _msg = _erro_para_quem_pergunta(lang, f"DataSource: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': _msg})}\n\n"
             return
 
         # LLMs
@@ -5698,7 +5725,9 @@ async def _stream_connection_query(
                                     )
 
                                     # Mensagem amigável para erro técnico no streaming
-                                    msg = _erro_para_quem_pergunta(lang, final_state.get("error"))
+                                    msg = _erro_para_quem_pergunta(
+                                        lang, final_state.get("error")
+                                    )
                                     yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
                                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                                     return
@@ -5934,9 +5963,7 @@ async def _stream_connection_query(
             sample_json = json.dumps(serialized_sample, ensure_ascii=False, indent=2)
             stats_text = _compute_basic_stats(raw_sample, all_rows=data)
 
-            _stream_lang = (
-                lingua_da_resposta(detected_language)
-            )
+            _stream_lang = lingua_da_resposta(detected_language)
             _stream_lang_name = nome_da_lingua(_stream_lang)
             _insufficient_msg = {
                 "pt": "Não há dados suficientes para responder a esta pergunta.",
@@ -5963,12 +5990,15 @@ async def _stream_connection_query(
             except Exception as _e:
                 log_event("stream_unidades_falhou", {"error": str(_e)[:300]})
                 _descricoes_stream, _unidades_stream = {}, {}
-            _regras_numeros = regras_de_numeros(
-                _stream_lang,
-                colunas=_colunas_stream,
-                moeda_pedida=final_state.get("currency"),
-                unidades=_unidades_stream,
-            ) + regras_de_nomes()
+            _regras_numeros = (
+                regras_de_numeros(
+                    _stream_lang,
+                    colunas=_colunas_stream,
+                    moeda_pedida=final_state.get("currency"),
+                    unidades=_unidades_stream,
+                )
+                + regras_de_nomes()
+            )
             # Completo ou amostra, e onde estão os nomes — o mesmo bloco do
             # caminho escrito (12/10/2026, core/llm/completude.py).
             try:
