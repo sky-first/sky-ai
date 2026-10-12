@@ -14,7 +14,13 @@ from core.llm.prompts.formatter_prompts import (
     build_formatter_prompt,
     sql_executado,
 )
-from core.llm.numeros import corrigir_resposta, regras_de_numeros
+from core.llm.nomes import regras_de_nomes
+from core.llm.numeros import (
+    corrigir_resposta,
+    descricoes_das_colunas,
+    regras_de_numeros,
+    unidades_do_resultado,
+)
 from core.llm.conceito_em_falta import conceito_em_falta, traduzir_conceito
 from core.llm.context.builder import build_context_bundle
 
@@ -745,6 +751,23 @@ def run_formatter(
                 "- You can provide a MORE DETAILED answer (up to 8 sentences).\n"
             )
 
+    # Unidades das colunas (nome, linhagem do SQL, descrição): «36,81» de
+    # service_sec é «36,81 s» (12/10/2026).
+    _colunas_resultado = (
+        list(data[0].keys()) if data and isinstance(data[0], dict) else []
+    )
+    try:
+        _descricoes = descricoes_das_colunas(
+            getattr(agent_config, "tables", None),
+            list(state.get("chosen_tables") or []) + [state.get("chosen_table")],
+        )
+        _unidades = unidades_do_resultado(
+            _colunas_resultado, state.get("sql"), _descricoes
+        )
+    except Exception as _e:  # nunca partir uma resposta por causa disto
+        log_event("formatter_unidades_falhou", {"error": str(_e)[:300]})
+        _unidades = {}
+
     # 🏗️ BUILD PROMPTS (Unified Logic)
     # This replaces the dual legacy blocks (OpenAI/Local) with a single source of truth.
     system_msg, user_msg = build_formatter_prompt(
@@ -767,9 +790,11 @@ def run_formatter(
         # sabe — «quantas faturas» tem «fatura» e e uma contagem.
         regras_dos_numeros=regras_de_numeros(
             lang,
-            colunas=list(data[0].keys()) if data and isinstance(data[0], dict) else [],
+            colunas=_colunas_resultado,
             moeda_pedida=state.get("currency"),
-        ),
+            unidades=_unidades,
+        )
+        + regras_de_nomes(),
     )
 
     try:
@@ -820,7 +845,12 @@ def run_formatter(
     # A correcção determinística vê o resultado e sabe o que é dinheiro.
     try:
         answer = corrigir_resposta(
-            answer, lang, state.get("data") or data, state.get("currency")
+            answer,
+            lang,
+            state.get("data") or data,
+            state.get("currency"),
+            pergunta=question,
+            unidades=_unidades,
         )
     except Exception as _e:  # nunca partir uma resposta por causa disto
         log_event("formatter_correcao_falhou", {"error": str(_e)[:300]})

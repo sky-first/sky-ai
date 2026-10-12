@@ -262,10 +262,193 @@ def moeda_provavel(
     return MOEDA_POR_LINGUA.get(lingua, "EUR")
 
 
+# ── Unidades (12/10/2026) ────────────────────────────────────────────────
+#
+# Na análise «context» de um agente lia-se: «La mayor diferencia … está en el
+# canal drive, con una diferencia de 36,81; aproximar el peor a la media
+# generaría un ganho de 36,81». 36,81 quê? A coluna era ``service_sec``:
+# segundos. Um número sem unidade obriga quem lê a adivinhar — e o backend,
+# que sintetiza a partir destas respostas, copia o número nu.
+#
+# A unidade vem da COLUNA, como a moeda: pelo nome (``*_sec``, ``*_min``,
+# ``dist_km``, ``*_pct``…), pela descrição quando o nome não diz
+# («Duración en segundos») e pela linhagem do SQL — ``MAX(avg_service_sec) -
+# AVG(avg_service_sec) AS diferencia`` continua a ser segundos. Divisões,
+# multiplicações e contagens mudam a unidade: aí não se herda nada.
+
+#: (palavras do nome da coluna, unidade). A primeira que casar ganha.
+UNIDADES_POR_NOME: List[Tuple[set, str]] = [
+    ({"ms", "millis", "milliseconds", "milisegundos", "milissegundos"}, "ms"),
+    ({"sec", "secs", "second", "seconds", "segundo", "segundos", "seg", "segs"}, "s"),
+    ({"min", "mins", "minute", "minutes", "minuto", "minutos"}, "min"),
+    ({"hours", "hrs", "horas"}, "h"),
+    ({"km", "kms", "kilometros", "quilometros", "kilometers", "kilometres"}, "km"),
+    ({"pct", "percent", "percentage", "porcentaje", "percentagem", "pcnt"}, "%"),
+    ({"kg", "kgs", "kilos", "kilogramos", "quilos"}, "kg"),
+    ({"litros", "liters", "litres", "lts"}, "l"),
+    ({"units", "unidades", "uds"}, "un"),
+]
+
+#: Na descrição (quando o nome não diz nada).
+_UNIDADE_NA_DESCRICAO: List[Tuple["re.Pattern[str]", str]] = [
+    (re.compile(r"\bmil[ie]?s+egundos?\b|\bmilliseconds?\b", re.I), "ms"),
+    (re.compile(r"\bsegundos?\b|\bseconds?\b|\bsecs?\b", re.I), "s"),
+    (re.compile(r"\bminutos?\b|\bminutes?\b|\bmins?\b", re.I), "min"),
+    (re.compile(r"\bhoras\b|\bhours\b", re.I), "h"),
+    (re.compile(r"\bkm\b|\bk[iu]l[oó]metros?\b|\bquil[oó]metros?\b", re.I), "km"),
+    (re.compile(r"%|\bpercentagem\b|\bporcentaje\b|\bpercent(age)?\b", re.I), "%"),
+    (re.compile(r"\blitros?\b|\blit(er|re)s?\b", re.I), "l"),
+]
+
+_PALAVRA_UNIDADES = {"pt": "unidades", "es": "unidades", "en": "units"}
+
+
+def unidade_do_nome(nome: str) -> Optional[str]:
+    """A unidade que o NOME da coluna diz, ou None. Dinheiro e
+    identificadores não têm unidade aqui (o dinheiro tem a sua regra)."""
+    p = _palavras(nome)
+    if not p or e_dinheiro(nome) or _e_identificador(nome):
+        return None
+    for palavras, unidade in UNIDADES_POR_NOME:
+        if p & palavras:
+            return unidade
+    return None
+
+
+def unidade_da_descricao(descricao: Optional[str]) -> Optional[str]:
+    d = descricao or ""
+    # «€/l», «EUR por litro»: é um preço, não uma quantidade.
+    if not d or re.search(r"€|\beur\b|\beuros?\b", d, re.I):
+        return None
+    for padrao, unidade in _UNIDADE_NA_DESCRICAO:
+        if padrao.search(d):
+            return unidade
+    return None
+
+
+def _unidades_pelo_sql(
+    sql: Optional[str], unidade_de: Dict[str, Optional[str]]
+) -> Dict[str, str]:
+    """Aliases do SQL que herdam a unidade das colunas de onde vêm."""
+    if not sql:
+        return {}
+    try:
+        import sqlglot
+        from sqlglot import exp
+
+        arvore = sqlglot.parse_one(sql, read="postgres")
+    except Exception:
+        try:
+            import sqlglot
+            from sqlglot import exp
+
+            arvore = sqlglot.parse_one(sql)
+        except Exception:
+            return {}
+    if arvore is None:
+        return {}
+    conhecidas: Dict[str, Optional[str]] = {
+        k.lower(): v for k, v in unidade_de.items()
+    }
+    herdadas: Dict[str, str] = {}
+    aliases = list(arvore.find_all(exp.Alias))
+    # O que muda a unidade: rácios, produtos, contagens, partes de datas.
+    mudam = tuple(
+        t
+        for t in (
+            getattr(exp, n, None) for n in ("Div", "IntDiv", "Mul", "Count", "Extract")
+        )
+        if t is not None
+    )
+    for _ in range(3):  # aliases de CTE usados mais acima
+        mudou = False
+        for a in aliases:
+            nome = (a.alias or "").lower()
+            if not nome or nome in herdadas:
+                continue
+            corpo = a.this
+            if any(isinstance(n, mudam) for n in corpo.walk()):
+                continue
+            fontes = {c.name.lower() for c in corpo.find_all(exp.Column)}
+            unidades = {
+                conhecidas.get(f) or unidade_do_nome(f) or herdadas.get(f)
+                for f in fontes
+            } - {None}
+            if len(unidades) == 1:
+                herdadas[nome] = unidades.pop()
+                mudou = True
+        if not mudou:
+            break
+    return herdadas
+
+
+def unidades_do_resultado(
+    colunas: Optional[Iterable[str]],
+    sql: Optional[str] = None,
+    descricoes: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """``{coluna do resultado: unidade}`` — pelo nome, pela linhagem do SQL
+    e pela descrição, por esta ordem."""
+    descricoes = {str(k).lower(): v for k, v in (descricoes or {}).items()}
+    unidade_de: Dict[str, Optional[str]] = {}
+    for nome, desc in descricoes.items():
+        if not e_dinheiro(nome) and not _e_identificador(nome):
+            unidade_de[nome] = unidade_do_nome(nome) or unidade_da_descricao(desc)
+    pelo_sql = _unidades_pelo_sql(sql, unidade_de)
+    out: Dict[str, str] = {}
+    for c in colunas or []:
+        if e_dinheiro(c) or _e_identificador(c):
+            continue
+        u = (
+            unidade_do_nome(c)
+            or pelo_sql.get(str(c).lower())
+            or unidade_da_descricao(descricoes.get(str(c).lower()))
+        )
+        if u:
+            out[c] = u
+    return out
+
+
+def descricoes_das_colunas(
+    tabelas: Optional[Iterable[Any]], escolhidas: Optional[Iterable[str]] = None
+) -> Dict[str, str]:
+    """``{coluna: descrição}`` das tabelas do agente — as escolhidas primeiro
+    (o mesmo nome noutra tabela não pode ganhar a uma das escolhidas)."""
+    escolhidas_set = {str(e).lower() for e in (escolhidas or []) if e}
+
+    def escolhida(t: Any) -> bool:
+        nomes = {
+            str(getattr(t, a, "") or "").lower()
+            for a in ("logical_name", "physical_name", "display_name")
+        }
+        return bool(nomes & escolhidas_set)
+
+    ordenadas = sorted(list(tabelas or []), key=lambda t: 0 if escolhida(t) else 1)
+    out: Dict[str, str] = {}
+    for t in ordenadas:
+        for c in getattr(t, "columns", None) or []:
+            nome = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
+            desc = (
+                c.get("description")
+                if isinstance(c, dict)
+                else getattr(c, "description", None)
+            )
+            if nome and desc and str(nome).lower() not in out:
+                out[str(nome).lower()] = str(desc)
+    return out
+
+
+def escrever_unidade(unidade: str, lingua: str) -> str:
+    if unidade == "un":
+        return _PALAVRA_UNIDADES.get(lingua, "units")
+    return unidade
+
+
 def regras_de_numeros(
     lingua: str,
     colunas: Optional[Iterable[str]] = None,
     moeda_pedida: Optional[str] = None,
+    unidades: Optional[Dict[str, str]] = None,
 ) -> str:
     """O bloco que entra no prompt do formatador.
 
@@ -321,6 +504,16 @@ def regras_de_numeros(
             "- No monetary column was detected in this result. Do NOT attach a",
             "  currency symbol to any number.",
         ]
+
+    linhas += [
+        "- UNITS: every number that measures something carries its unit (s, min,",
+        "  h, km, l, %, units), taken from the column it comes from — and so do",
+        "  differences, averages and totals of that column. A bare '36,81' is wrong.",
+    ]
+    for coluna, unidade in list((unidades or {}).items())[:12]:
+        escrita = escrever_unidade(unidade, lingua)
+        exemplo_u = "36,81" if lingua in ("pt", "es") else "36.81"
+        linhas.append(f"  * {coluna} is in {escrita}: write «{exemplo_u} {escrita}»")
 
     return "\n".join(linhas) + "\n"
 
@@ -426,6 +619,87 @@ def valores_por_litro(
         if len(vals) > 1:
             out += [sum(vals) / len(vals), min(vals), max(vals)]
     return out
+
+
+def valores_com_unidade(
+    linhas: Optional[Sequence[Dict[str, Any]]],
+    unidades: Optional[Dict[str, str]],
+) -> Tuple[List[Tuple[float, str]], List[float]]:
+    """([(valor, unidade)], [valores sem unidade]) do resultado.
+
+    Cada coluna com unidade dá os seus valores e os que o modelo costuma
+    escrever a partir deles: soma, média, mínimo, máximo e as diferenças
+    máximo−mínimo, máximo−média e média−mínimo («la mayor diferencia…»,
+    «aproximar el peor a la media…»). Uma percentagem guardada como fracção
+    (todos os valores ≤ 1) não leva «%»: 0,75 não é 0,75 %.
+    """
+    com: List[Tuple[float, str]] = []
+    sem: List[float] = []
+    if not linhas or not isinstance(linhas[0], dict):
+        return com, sem
+    for c in list(linhas[0].keys()):
+        if _e_identificador(c) or e_dinheiro(c):
+            continue
+        vals = [
+            v
+            for v in (_numero(r.get(c)) for r in linhas if isinstance(r, dict))
+            if v is not None
+        ]
+        if not vals:
+            continue
+        u = (unidades or {}).get(c)
+        if u == "%" and max(abs(v) for v in vals) <= 1:
+            u = None
+        if not u:
+            sem += vals
+            continue
+        derivados = list(vals)
+        if len(vals) > 1:
+            media = sum(vals) / len(vals)
+            mx, mn = max(vals), min(vals)
+            derivados += [sum(vals), media, mn, mx, mx - mn, mx - media, media - mn]
+        com += [(v, u) for v in derivados]
+    return com, sem
+
+
+#: Palavras que, escritas logo a seguir ao número, já são a unidade.
+_JA_TEM_UNIDADE = re.compile(
+    r"^[" + _ESPACOS + r"]*(?:%|/|"
+    r"(?:s|seg|segs|segundos?|seconds?|secs?|ms|milisegundos?|milliseconds?"
+    r"|min|mins|minutos?|minutes?|h|hrs?|horas?|hours?"
+    r"|km|kms|k[iu]l[oó]metros?|quil[oó]metros?|kilomet(?:er|re)s?"
+    r"|l|lt|lts|litros?|lit(?:er|re)s?|kg|kgs|kilos?|quilos?"
+    r"|unidades?|units?|uds?|por\s+ciento|percent|€|eur|euros?)\b)",
+    re.IGNORECASE,
+)
+
+#: Palavras que podem vir a seguir a «36,81 s» sem a unidade estar a mais
+#: («… de 36,81 s en el canal drive»). Um substantivo a seguir («las 5
+#: gasolineras») quer dizer que o número conta outra coisa: não se mexe.
+_DEPOIS_DA_UNIDADE = {
+    "en", "y", "e", "o", "u", "de", "del", "da", "do", "das", "dos", "con",
+    "com", "sin", "sem", "para", "por", "que", "frente", "contra", "respecto",
+    "comparado", "comparada", "versus", "vs", "mas", "más", "menos", "mientras",
+    "enquanto", "pero", "and", "or", "in", "on", "at", "for", "with", "of",
+    "than", "while", "but", "a", "al", "ao", "la", "el", "los", "las", "the",
+    "lo", "le", "les", "se", "is", "es", "é", "son", "sao", "são", "are",
+}  # fmt: skip
+
+
+def _sufixo_de_unidade(texto: str, fim: int, unidade: str, lingua: str) -> str:
+    """« s» se a unidade cabe logo a seguir ao número; "" se já lá está ou
+    se o que vem a seguir mostra que o número é outra coisa."""
+    resto = texto[fim:]
+    if _JA_TEM_UNIDADE.match(resto):
+        return ""
+    # «36,81 %» em pt/es (com espaço, como manda a norma); «36.81%» em inglês.
+    sep = "" if unidade == "%" and lingua == "en" else " "
+    if resto == "" or resto[0] in ".,;:!?)":
+        return sep + escrever_unidade(unidade, lingua)
+    m = re.match(r"^[" + _ESPACOS + r"]+([^\W\d_]+)\b", resto)
+    if m and m.group(1).lower() in _DEPOIS_DA_UNIDADE:
+        return sep + escrever_unidade(unidade, lingua)
+    return ""
 
 
 def _leituras(token: str) -> List[float]:
@@ -545,12 +819,30 @@ def corrigir_numeros(
     lingua: str,
     linhas: Optional[Sequence[Dict[str, Any]]] = None,
     moeda_pedida: Optional[str] = None,
+    unidades: Optional[Dict[str, str]] = None,
 ) -> str:
-    """Reescreve os números da resposta no formato de quem lê. Ver o topo."""
+    """Reescreve os números da resposta no formato de quem lê. Ver o topo.
+
+    ``unidades`` (``{coluna: unidade}``, ver ``unidades_do_resultado``): um
+    número que é valor (ou soma/média/diferença) de uma coluna com unidade
+    leva-a — «36,81» de ``service_sec`` sai «36,81 s»."""
     if not texto:
         return texto
     lingua = (lingua or "en").split("-")[0].lower()
     dinheiro, outros = valores_do_resultado(linhas)
+    com_unidade, sem_unidade = valores_com_unidade(linhas, unidades)
+
+    def unidade_de(r: float) -> Optional[str]:
+        achadas = {u for v, u in com_unidade if _igual(r, v)}
+        if len(achadas) != 1:
+            return None
+        # Também é valor de uma coluna sem unidade (uma contagem com o mesmo
+        # número, por exemplo): ambíguo, não se acrescenta nada.
+        if any(_igual(r, v) for v in sem_unidade) or any(
+            _igual(r, v) for v in dinheiro
+        ):
+            return None
+        return achadas.pop()
     moeda = (moeda_pedida or MOEDA_POR_LINGUA.get(lingua, "EUR")).upper()
     simbolo = SIMBOLO.get(moeda, moeda)
     por_litro = valores_por_litro(linhas)
@@ -581,6 +873,13 @@ def corrigir_numeros(
             for v in dinheiro:
                 if _igual(r, v):
                     return dinheiro_de(v, m)
+        if not tem_moeda and com_unidade:
+            for r in leituras:
+                u = unidade_de(r)
+                if u:
+                    return formatar_valor(r, lingua) + _sufixo_de_unidade(
+                        texto, m.end(), u, lingua
+                    )
         for r in leituras:
             for v in outros:
                 if _igual(r, v):
@@ -608,13 +907,27 @@ def corrigir_resposta(
     lingua: str,
     linhas: Optional[Sequence[Dict[str, Any]]] = None,
     moeda_pedida: Optional[str] = None,
+    sql: Optional[str] = None,
+    descricoes: Optional[Dict[str, str]] = None,
+    pergunta: Optional[str] = None,
+    unidades: Optional[Dict[str, str]] = None,
 ) -> str:
-    """A resposta final: números à maneira de quem lê, e na segunda pessoa."""
+    """A resposta final: na segunda pessoa, entidades pelo nome e não pelo
+    id, nomes próprios copiados dos dados, e números à maneira de quem lê,
+    com moeda e unidade."""
     if not texto:
         return texto
-    return corrigir_numeros(
-        falar_com_quem_pergunta(texto), lingua, linhas, moeda_pedida
-    )
+    from core.llm.nomes import corrigir_nomes, nomear_ids
+
+    if unidades is None:
+        colunas = (
+            list(linhas[0].keys()) if linhas and isinstance(linhas[0], dict) else []
+        )
+        unidades = unidades_do_resultado(colunas, sql, descricoes)
+    texto = falar_com_quem_pergunta(texto)
+    texto = nomear_ids(texto, linhas)
+    texto = corrigir_nomes(texto, linhas, pergunta)
+    return corrigir_numeros(texto, lingua, linhas, moeda_pedida, unidades)
 
 
 #: O fim do texto que ainda pode ser metade de um número («6 153») ou de um
@@ -623,6 +936,23 @@ _CAUDA_INCERTA = re.compile(r"[\d.,€" + _ESPACOS + r"EeUuRrOoSs]*$")
 #: Uma frase com menos do que isto ainda pode ser «El usuario ha…» ou
 #: «Como usted puede observar, …» (o anúncio mais comprido tem 33).
 _INICIO_DE_FRASE = 40
+
+#: Caudas retidas no streaming (ver ``CorrecaoEmFluxo._corte``).
+_RETER = [
+    # uma palavra ainda a meio
+    re.compile(r"(?<![\w'-])[^\W\d_][\w'-]*$"),
+    # «con el id 16», «(ID: », «id» — vai ser trocado pelo rótulo
+    re.compile(
+        r"(?:\b(?:con|com|with)\s+(?:(?:el|la|o|a|the)\s+)?)?[  ]?\(?\s*"
+        r"\b(?:id|ideess|identificador|identifier)\s*"
+        r"(?:n\.?\s*[ºo°]\.?\s*|#|:|=)?\s*\d*$",
+        re.IGNORECASE,
+    ),
+    # «con», «con el» — pode vir «id» a seguir
+    re.compile(r"\b(?:con|com|with)(?:\s+(?:el|la|o|a|the))?\s*$", re.IGNORECASE),
+    # número + palavra a seguir ainda incompleta (decide a unidade)
+    re.compile(rf"(?<![\w.,])\d[\d.,{_ESPACOS}]*[{_ESPACOS}]+[^\W\d_]*$"),
+]
 
 
 class CorrecaoEmFluxo:
@@ -634,16 +964,35 @@ class CorrecaoEmFluxo:
     """
 
     def __init__(
-        self, lingua: str, linhas=None, moeda_pedida: Optional[str] = None
+        self,
+        lingua: str,
+        linhas=None,
+        moeda_pedida: Optional[str] = None,
+        sql: Optional[str] = None,
+        descricoes: Optional[Dict[str, str]] = None,
+        pergunta: Optional[str] = None,
     ) -> None:
         self.lingua = lingua
         self.linhas = linhas
         self.moeda_pedida = moeda_pedida
+        self.pergunta = pergunta
+        colunas = (
+            list(linhas[0].keys()) if linhas and isinstance(linhas[0], dict) else []
+        )
+        # Calculadas uma vez: o SQL não muda a meio da resposta.
+        self.unidades = unidades_do_resultado(colunas, sql, descricoes)
         self.bruto = ""
         self.enviado = ""
 
     def _processar(self, texto: str) -> str:
-        return corrigir_resposta(texto, self.lingua, self.linhas, self.moeda_pedida)
+        return corrigir_resposta(
+            texto,
+            self.lingua,
+            self.linhas,
+            self.moeda_pedida,
+            pergunta=self.pergunta,
+            unidades=self.unidades,
+        )
 
     def _corte(self) -> int:
         corte = len(self.bruto) - len(_CAUDA_INCERTA.search(self.bruto).group(0))
@@ -652,6 +1001,21 @@ class CorrecaoEmFluxo:
             inicio = m.end()
         if len(self.bruto) - inicio < _INICIO_DE_FRASE:
             corte = min(corte, inicio)
+        # O que ainda pode mudar com o pedaço seguinte: uma palavra a meio
+        # (um nome por corrigir), «id 1644…» (vai ser o rótulo) e a palavra
+        # depois de um número (decide se leva unidade).
+        for padrao in _RETER:
+            m = padrao.search(self.bruto)
+            if m:
+                corte = min(corte, m.start())
+        # Nunca cortar a meio de uma palavra («Mostole|s.»): a palavra
+        # cortada parecia outro nome e era «corrigida».
+        while (
+            0 < corte < len(self.bruto)
+            and self.bruto[corte - 1].isalpha()
+            and self.bruto[corte].isalpha()
+        ):
+            corte -= 1
         return corte
 
     def _emitir(self, processado: str) -> str:
