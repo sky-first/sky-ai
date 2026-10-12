@@ -81,6 +81,7 @@ from core.i18n.i18n import (
     detect_language,
     get_message,
     language_decision,
+    progress_event,
     unsupported_language_message,
 )
 from core.security.rate_limiter_redis import _rate_limiter
@@ -5550,7 +5551,7 @@ async def _stream_connection_query(
                         final_state = node_state
                         # Enviar progresso e eventos específicos
                         if node_name == "orchestrator":
-                            yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Analisando pergunta...'})}\n\n"
+                            yield f"data: {json.dumps(progress_event('orchestrator', getattr(body, 'ui_locale', None)))}\n\n"
 
                             # Enviar evento quando datasets são escolhidos
                             chosen_table = node_state.get("chosen_table")
@@ -5564,7 +5565,7 @@ async def _stream_connection_query(
                                 yield f"data: {json.dumps({'type': 'datasets_selected', 'datasets': chosen_datasets})}\n\n"
 
                         elif node_name == "specialist":
-                            yield f"data: {json.dumps({'type': 'progress', 'stage': 'specialist', 'message': 'Executando query...'})}\n\n"
+                            yield f"data: {json.dumps(progress_event('specialist', getattr(body, 'ui_locale', None)))}\n\n"
 
                             # Enviar evento quando SQL é gerado
                             sql = node_state.get("sql")
@@ -5693,7 +5694,7 @@ async def _stream_connection_query(
                 pre_answer = final_state["answer"]
                 pre_title = final_state.get("generated_title") or body.question[:50]
                 pre_lang = final_state.get("detected_language") or "en"
-                yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
+                yield f"data: {json.dumps(progress_event('formatter', getattr(body, 'ui_locale', None)))}\n\n"
                 yield f"data: {json.dumps({'type': 'chunk', 'content': pre_answer})}\n\n"
                 pre_meta = {
                     "detected_language": pre_lang,
@@ -5812,7 +5813,7 @@ async def _stream_connection_query(
                 return
 
             # Agora fazer streaming da resposta do formatter
-            yield f"data: {json.dumps({'type': 'progress', 'stage': 'formatter', 'message': 'Gerando resposta...'})}\n\n"
+            yield f"data: {json.dumps(progress_event('formatter', getattr(body, 'ui_locale', None)))}\n\n"
 
             question = final_state.get("question") or ""
             data = final_state.get("data") or []
