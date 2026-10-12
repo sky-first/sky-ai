@@ -280,24 +280,30 @@ class TestCacheLocaleSymmetryP2:
 
     # ── cache_version isolation ───────────────────────────────────────────────
 
-    def test_cache_version_2_constant_in_lookup(self):
-        """_CACHE_VERSION used in lookup must be 2 (temporal_bucket bumped key)."""
-        # We verify this by checking the source code contains the constant
+    def test_cache_version_constant_in_lookup(self):
+        """The lookup filters by the shared VERSAO_DA_CACHE_SEMANTICA, which is
+        at least 3: 2 added temporal_bucket, 3 retired answers written before
+        the 12/10/2026 answer fixes (units, labels, completeness)."""
         import pathlib
+        from api.routes.connection_query import VERSAO_DA_CACHE_SEMANTICA
+
         source = pathlib.Path(
             "api/routes/connection_query.py"
         ).read_text(encoding="utf-8")
-        assert "_CACHE_VERSION = 2" in source, (
-            "_CACHE_VERSION must be 2 in the lookup path"
+        assert VERSAO_DA_CACHE_SEMANTICA >= 3
+        assert "_CACHE_VERSION = VERSAO_DA_CACHE_SEMANTICA" in source, (
+            "the lookup must use the shared constant"
         )
 
-    def test_cache_version_2_in_store(self):
-        """Records written to cache must carry cache_version=2 (temporal_bucket)."""
+    def test_cache_version_in_store(self):
+        """Records written to cache carry the SAME version the lookup filters
+        by — a store/lookup mismatch would be an eternal miss."""
         import pathlib
         source = pathlib.Path("api/routes/connection_query.py").read_text(encoding="utf-8")
-        assert "cache_version=2," in source, (
-            "Store must write cache_version=2 on every new record"
+        assert "cache_version=VERSAO_DA_CACHE_SEMANTICA," in source, (
+            "Store must write the shared version on every new record"
         )
+        assert "cache_version=2," not in source
 
     def test_locale_column_exists_in_model(self):
         """SemanticCacheRecord must have a locale column."""

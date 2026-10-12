@@ -491,3 +491,95 @@ def limpar_cache() -> None:
         _CACHE.clear()
     for k in estatisticas:
         estatisticas[k] = 0
+
+
+# ── Os valores que a pergunta nomeia ─────────────────────────────────────
+#
+# Produção, 12/10/2026 (depois de #282): os valores de ``origem`` estavam no
+# esquema — «allowed values (copy exactly): {BADAJOZ, LISBOA, …}» — e o qwen
+# escreveu outra vez ``UPPER(gr.origem) = 'BAJAZOZ'``. Dois motivos:
+#
+# * a lista vive a meio de um prompt de 15 364 caracteres, longe da pergunta,
+#   e o modelo copia o que está perto: «Badajoz», da pergunta;
+# * a regra «ALWAYS use UPPER()» manda-o pôr o valor em maiúsculas — e ao
+#   passar «Badajoz» para maiúsculas à mão, escreve-o de novo (e erra).
+#
+# A correcção de literais apanhava-o depois (uma consulta a mais, 0 linhas
+# primeiro). Agora o par «coluna = 'VALOR EXACTO'» é encontrado aqui, sem
+# modelo, e vai logo a seguir à pergunta: o modelo só tem de o copiar.
+
+#: Palavras soltas tão comuns que nunca valem como valor nomeado.
+_VALORES_VAZIOS = {
+    "para", "entre", "desde", "hasta", "todos", "todas", "otros", "outros",
+    "other", "otro", "outro", "none", "null", "true", "false", "total",
+}  # fmt: skip
+
+
+def _norm_tokens(texto: str) -> List[str]:
+    return _palavras(texto)
+
+
+def literais_da_pergunta(
+    tabelas: Iterable[Any],
+    pergunta: Optional[str],
+    maximo: int = 12,
+) -> List[Tuple[str, str, str]]:
+    """``[(tabela física, coluna, valor exacto)]`` — os valores anotados
+    (``sample_values``) que a pergunta nomeia, comparados sem acentos nem
+    maiúsculas e palavra a palavra («Badajoz-Madrid» nomeia BADAJOZ e
+    MADRID; «gasóleo A» nomeia «Gasóleo A»)."""
+    q = _norm_tokens(pergunta or "")
+    if not q:
+        return []
+    texto_q = " " + " ".join(q) + " "
+    out: List[Tuple[str, str, str]] = []
+    vistos: set = set()
+    for tabela in tabelas or []:
+        if tabela is None:
+            continue
+        fisica = getattr(tabela, "physical_name", None) or ""
+        for col in getattr(tabela, "columns", None) or []:
+            valores = (
+                col.get("sample_values")
+                if isinstance(col, dict)
+                else getattr(col, "sample_values", None)
+            )
+            if not valores:
+                continue
+            nome = _nome(col)
+            for v in valores:
+                if not isinstance(v, str):
+                    continue
+                tv = _norm_tokens(v)
+                if not tv or all(t.isdigit() for t in tv):
+                    continue
+                junto = " ".join(tv)
+                if len(tv) == 1 and (len(junto) < 4 or junto in _VALORES_VAZIOS):
+                    continue
+                if f" {junto} " not in texto_q:
+                    continue
+                chave = (fisica, nome, v)
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                out.append(chave)
+                if len(out) >= maximo:
+                    return out
+    return out
+
+
+def bloco_de_literais(tabelas: Iterable[Any], pergunta: Optional[str]) -> str:
+    """O bloco do prompt do especialista (em inglês, como o resto)."""
+    achados = literais_da_pergunta(tabelas, pergunta)
+    if not achados:
+        return ""
+    linhas = [
+        "VALUES IN THE DATA THAT MATCH THE QUESTION — to filter on them, COPY "
+        "the quoted literal exactly (character for character) and compare the "
+        "column directly, without UPPER()/LOWER() and without retyping it:"
+    ]
+    for fisica, coluna, valor in achados:
+        literal = valor.replace("'", "''")
+        alvo = f"{fisica}.{coluna}" if fisica else coluna
+        linhas.append(f"- {alvo} = '{literal}'")
+    return "\n".join(linhas) + "\n\n"

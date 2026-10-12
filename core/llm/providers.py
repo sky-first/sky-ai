@@ -39,6 +39,62 @@ class LLMProvider(Protocol):
 _LIMITE_DE_ESPERA = float(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
 
+class _Cronometro:
+    """Mede UMA chamada ao modelo e escreve ``llm_call_timing``.
+
+    12/10/2026: dos 82,6 s de «Lista las 5 gasolineras…» só a chamada do
+    especialista dizia quanto tinha demorado. Toda a chamada a um fornecedor
+    passa por aqui — invoke e stream, sucesso e erro — com o modelo, quem a
+    fez (módulo.função), o tamanho do prompt e o tempo.
+    """
+
+    def __init__(self, model: str, messages: Any, modo: str = "invoke") -> None:
+        self.model = model
+        self.modo = modo
+        try:
+            self.prompt_chars = sum(
+                len(str(m.get("content") or "")) if isinstance(m, dict) else len(str(m))
+                for m in (messages or [])
+            )
+        except Exception:
+            self.prompt_chars = None
+        try:
+            from latency_timing import quem_chamou
+
+            self.caller = quem_chamou()
+        except Exception:
+            self.caller = "?"
+        self.ok = False
+        self._t0 = 0.0
+
+    def __enter__(self) -> "_Cronometro":
+        import time
+
+        self._t0 = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, *exc) -> bool:
+        import time
+
+        ms = (time.perf_counter() - self._t0) * 1000
+        try:
+            from latency_timing import registar_tempo
+
+            registar_tempo(
+                "llm_call_timing",
+                ms,
+                detalhe=f"llm:{self.caller}",
+                model=self.model,
+                caller=self.caller,
+                mode=self.modo,
+                prompt_chars=self.prompt_chars,
+                ok=exc_type is None,
+            )
+        except Exception:
+            pass
+        return False
+
+
 class LangChainChatOpenAIProvider:
     """
     Implementação concreta usando langchain-openai ChatOpenAI.
@@ -97,7 +153,9 @@ class LangChainChatOpenAIProvider:
         lc_msgs = self._convert_messages(messages)
         try:
             from latency_timing import timed_span
-            with timed_span("llm_call", node="openai"):
+            with timed_span("llm_call", node="openai"), _Cronometro(
+                getattr(self._chat, "model_name", "unknown"), messages
+            ):
                 resp = self._chat.invoke(lc_msgs)
             log_event(
                 "llm_invoke_success",
@@ -125,9 +183,12 @@ class LangChainChatOpenAIProvider:
         """
         lc_msgs = self._convert_messages(messages)
         try:
-            for chunk in self._chat.stream(lc_msgs):
-                if hasattr(chunk, "content") and chunk.content:
-                    yield chunk.content
+            with _Cronometro(
+                getattr(self._chat, "model_name", "unknown"), messages, "stream"
+            ):
+                for chunk in self._chat.stream(lc_msgs):
+                    if hasattr(chunk, "content") and chunk.content:
+                        yield chunk.content
             log_event(
                 "llm_stream_success",
                 {
@@ -223,7 +284,9 @@ class BedrockChatProvider:
         lc_msgs = self._convert_messages(messages)
         try:
             from latency_timing import timed_span
-            with timed_span("llm_call", node="bedrock"):
+            with timed_span("llm_call", node="bedrock"), _Cronometro(
+                self.base_model_id, messages
+            ):
                 resp = self._chat.invoke(lc_msgs)
             log_event(
                 "bedrock_invoke_success",
@@ -244,18 +307,19 @@ class BedrockChatProvider:
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         lc_msgs = self._convert_messages(messages)
         try:
-            for chunk in self._chat.stream(lc_msgs):
-                if hasattr(chunk, "content") and chunk.content:
-                    # ChatBedrockConverse may emit content as a list of
-                    # content blocks (text + tool calls). Normalise to a
-                    # plain string so the contract matches the other
-                    # providers.
-                    if isinstance(chunk.content, str):
-                        yield chunk.content
-                    elif isinstance(chunk.content, list):
-                        for block in chunk.content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                yield block.get("text", "")
+            with _Cronometro(self.base_model_id, messages, "stream"):
+                for chunk in self._chat.stream(lc_msgs):
+                    if hasattr(chunk, "content") and chunk.content:
+                        # ChatBedrockConverse may emit content as a list of
+                        # content blocks (text + tool calls). Normalise to a
+                        # plain string so the contract matches the other
+                        # providers.
+                        if isinstance(chunk.content, str):
+                            yield chunk.content
+                        elif isinstance(chunk.content, list):
+                            for block in chunk.content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    yield block.get("text", "")
             log_event(
                 "bedrock_stream_success",
                 {"model": self.model_name, "num_messages": len(messages)},
@@ -347,7 +411,9 @@ class OllamaProvider:
         try:
             # Invoke ChatOllama directly (it handles prompting)
             from latency_timing import timed_span
-            with timed_span("llm_call", node="ollama"):
+            with timed_span("llm_call", node="ollama"), _Cronometro(
+                self.model_name, messages
+            ):
                 resp = self._chat.invoke(lc_msgs)
 
             # Wrapper para manter contrato .content
@@ -383,9 +449,10 @@ class OllamaProvider:
         lc_msgs = self._convert_messages(messages)
 
         try:
-            for chunk in self._chat.stream(lc_msgs):
-                if chunk.content:
-                    yield chunk.content
+            with _Cronometro(self.model_name, messages, "stream"):
+                for chunk in self._chat.stream(lc_msgs):
+                    if chunk.content:
+                        yield chunk.content
 
             log_event(
                 "ollama_stream_success",

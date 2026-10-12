@@ -5,6 +5,7 @@ from typing import List, Sequence, Optional
 import logging
 import os
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -22,6 +23,26 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 
 # ========= PROVIDER GEN ÉRICO =========
+
+
+def _registar_embedding(provider, ms: float, calculados: int, da_cache: int, ok: bool) -> None:
+    """``embedding_timing``: quanto custou calcular os vectores que não
+    estavam na cache (a carga do modelo, se houve, vem à parte em
+    ``embedding_model_load_timing``)."""
+    try:
+        from latency_timing import registar_tempo
+
+        registar_tempo(
+            "embedding_timing",
+            ms,
+            detalhe="embedding",
+            provider=type(provider).__name__,
+            texts=calculados,
+            cache_hits=da_cache,
+            ok=ok,
+        )
+    except Exception:
+        pass
 
 
 class EmbeddingProvider:
@@ -62,13 +83,23 @@ class EmbeddingProvider:
         # ── Fase 2: chamar API apenas para textos sem cache ────────────────
         if uncached_indices:
             uncached_texts = [texts_list[i] for i in uncached_indices]
+            import time as _time
+
+            _t0 = _time.perf_counter()
+            _ok = False
             try:
                 vectors = self.embed(uncached_texts)
+                _ok = True
             except Exception:
                 # Se a API falhar, tenta retornar o que temos do cache
                 # (textos sem cache ficam como None → serão vetores vazios)
                 vectors = [[] for _ in uncached_texts]
                 raise
+            finally:
+                _registar_embedding(
+                    self, (_time.perf_counter() - _t0) * 1000, len(uncached_texts),
+                    len(texts_list) - len(uncached_texts), _ok,
+                )
 
             # ── Fase 3: armazenar no cache e preencher resultados ──────────
             for idx, vector in zip(uncached_indices, vectors):
@@ -171,7 +202,37 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         # instante. O primeiro embed() paga o custo, os seguintes não.
         self._client = None
 
+    #: Uma carga de cada vez, no processo inteiro: o aquecimento no arranque
+    #: e um pedido que chegue a meio não podem carregar o modelo (2,2 GB)
+    #: duas vezes — o pod tem 5 GiB e morre (OOMKilled, 02/09).
+    _CARGA = threading.Lock()
+
     def _ensure_client(self):
+        if self._client is not None:
+            return self._client
+        with self._CARGA:
+            if self._client is None:
+                import time as _time
+
+                _t0 = _time.perf_counter()
+                try:
+                    self._carregar()
+                finally:
+                    try:
+                        from latency_timing import registar_tempo
+
+                        registar_tempo(
+                            "embedding_model_load_timing",
+                            (_time.perf_counter() - _t0) * 1000,
+                            detalhe="embedding_model_load",
+                            model=self.model,
+                            ok=self._client is not None,
+                        )
+                    except Exception:
+                        pass
+        return self._client
+
+    def _carregar(self) -> None:
         if self._client is None:
             # ── O disco do pod é só de leitura ─────────────────────────
             #
@@ -196,7 +257,6 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 cache_dir=self._cache_dir,
                 **self._modelo_em_ficheiros_reais(TextEmbedding),
             )
-        return self._client
 
     def _modelo_em_ficheiros_reais(self, TextEmbedding) -> dict:
         """Descarrega o modelo para uma pasta SEM symlinks e devolve-a.
