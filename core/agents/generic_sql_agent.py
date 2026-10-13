@@ -89,6 +89,12 @@ class AgentState(TypedDict, total=False):
     is_multi_source: bool
     plan: Optional[str]  # Natural language plan from orchestrator
     partial_results: List[Dict[str, Any]]  # Results from parallel executions
+    # Fatias que não trouxeram dados: [{table, reason}] (core/llm/merger.py).
+    # Sem isto o merger não sabia o que faltava e inventava a tabela.
+    failed_slices: Optional[List[Dict[str, Any]]]
+    # Junção impossível com causa conhecida: {kind, failed, ok}. O formatter
+    # diz que fontes faltaram em vez do «Algo falló» genérico.
+    merge_failure: Optional[Dict[str, Any]]
 
     # Common fields
     sql: Optional[str]
@@ -468,120 +474,39 @@ def build_generic_sql_graph(
                                 orch_result.get("is_multi_source")
                                 and len(tbl_names) > 1
                             ):
-                                from core.llm.merger import run_merger as _run_merger
+                                from core.llm.merger import (
+                                    executar_fatias_por_tabela,
+                                    run_merger as _run_merger,
+                                )
 
-                                partial_results = []
-                                tbl_futures: Dict[Any, str] = {}
-                                with concurrent.futures.ThreadPoolExecutor(
-                                    max_workers=min(len(tbl_names), 4)
-                                ) as tbl_ex:
-                                    for tbl_name in tbl_names:
-                                        tbl_obj = next(
-                                            (
-                                                t
-                                                for t in agent_config.tables
-                                                if (t.display_name or t.logical_name)
-                                                == tbl_name
-                                            ),
-                                            None,
-                                        )
-                                        if not tbl_obj:
-                                            continue
-                                        conn_id = str(
-                                            getattr(tbl_obj, "data_connection_id", "")
-                                        )
-                                        src = (dispatch_map or {}).get(
-                                            conn_id
-                                        ) or data_source
-                                        thr = dict(orch_result)
-                                        tbl_physical = getattr(
-                                            tbl_obj, "physical_name", tbl_name
-                                        )
-                                        thr["chosen_table"] = tbl_name
-                                        thr["chosen_table_physical"] = tbl_physical
-                                        thr["chosen_tables"] = None
-                                        # Scope this sub-query to its single table.
-                                        # run_specialist isolates the schema via the
-                                        # *plural* chosen_tables_physical; leaving it
-                                        # empty would expose every connection's tables
-                                        # and let the LLM emit cross-source SQL that
-                                        # fails against this single data source.
-                                        thr["chosen_tables_physical"] = [tbl_physical]
-                                        # Extract this source's slice instead of
-                                        # refusing the whole multi-source question;
-                                        # the merger combines the slices downstream.
-                                        thr["multi_source_subquery"] = True
-                                        tbl_futures[
-                                            tbl_ex.submit(
-                                                _run_sql,
-                                                thr,
-                                                agent_config,
-                                                src,
-                                                spec_llm,
-                                            )
-                                        ] = tbl_name
-                                    for fut in concurrent.futures.as_completed(
-                                        tbl_futures
-                                    ):
-                                        tbl_name = tbl_futures[fut]
-                                        try:
-                                            r = fut.result()
-                                            if r.get("data"):
-                                                partial_results.append(
-                                                    {
-                                                        "table": tbl_name,
-                                                        "data": r["data"],
-                                                        "sql": r.get("sql"),
-                                                        "metadata": {
-                                                            "source": "unknown",
-                                                            "title": r.get(
-                                                                "generated_title"
-                                                            ),
-                                                            "dialect": "unknown",
-                                                        },
-                                                    }
-                                                )
-                                        except Exception as tbl_exc:
-                                            log_event(
-                                                "mixed_data_sub_table_error",
-                                                {
-                                                    "table": tbl_name,
-                                                    "error": str(tbl_exc),
-                                                },
-                                            )
-
-                                if len(partial_results) >= 2:
-                                    merged = _run_merger(
-                                        {
-                                            **orch_result,
-                                            "partial_results": partial_results,
-                                        },
+                                partial_results, failed_slices = (
+                                    executar_fatias_por_tabela(
+                                        orch_result,
                                         agent_config,
-                                        orch_llm,
+                                        tbl_names,
+                                        dispatch_map,
+                                        data_source,
+                                        spec_llm,
+                                        _run_sql,
+                                        max_workers=4,
                                     )
-                                    result = _run_fmt(
-                                        state=merged,
-                                        agent_config=agent_config,
-                                        llm=dynamic_llm,
-                                    )
-                                elif partial_results:
-                                    r = partial_results[0]
-                                    result = _run_fmt(
-                                        state={
-                                            **orch_result,
-                                            "data": r["data"],
-                                            "sql": r.get("sql"),
-                                        },
-                                        agent_config=agent_config,
-                                        llm=dynamic_llm,
-                                    )
-                                else:
-                                    result = {
-                                        "answer": "No data found across the queried connections.",
-                                        "data": [],
-                                        "sql": None,
-                                        "error": "no_data",
-                                    }
+                                )
+                                # 0, 1 ou 2+ fatias: o merger decide (passa a
+                                # única directa, junta 2+, ou diz o que falhou).
+                                merged = _run_merger(
+                                    {
+                                        **orch_result,
+                                        "partial_results": partial_results,
+                                        "failed_slices": failed_slices,
+                                    },
+                                    agent_config,
+                                    orch_llm,
+                                )
+                                result = _run_fmt(
+                                    state=merged,
+                                    agent_config=agent_config,
+                                    llm=dynamic_llm,
+                                )
                             else:
                                 sql_result = _run_sql(
                                     state=orch_result,
@@ -707,83 +632,21 @@ def build_generic_sql_graph(
                 else llm_specialist
             )
 
-            tasks = []
-            for tbl_name in chosen_tables:
-                tbl_obj = next(
-                    (
-                        t
-                        for t in agent_config.tables
-                        if (t.display_name or t.logical_name) == tbl_name
-                    ),
-                    None,
-                )
-                tbl_physical = tbl_obj.physical_name if tbl_obj else None
-                thread_state = state.copy()
-                thread_state["chosen_table"] = tbl_name
-                thread_state["chosen_table_physical"] = tbl_physical
-                thread_state["chosen_tables"] = None
-                # Isolate this sub-query to its single table: run_specialist hides
-                # every other table (including the other sources') by filtering on
-                # the *plural* chosen_tables_physical. Leaving it unset would expose
-                # all sources and let the LLM emit cross-source SQL that fails.
-                thread_state["chosen_tables_physical"] = (
-                    [tbl_physical] if tbl_physical else None
-                )
-                thread_state["join_relationships"] = None
-                # One slice of a multi-source question: the merger (DuckDB)
-                # combines the per-source results downstream, so the specialist
-                # must extract this source's contribution instead of refusing.
-                thread_state["multi_source_subquery"] = True
-                # Route each sub-query to its own data source; fall back to the
-                # primary when the table is not in the dispatch_map.
-                conn_id = str(getattr(tbl_obj, "data_connection_id", "") or "")
-                src = (dispatch_map or {}).get(conn_id) or data_source
-                tasks.append({"state": thread_state, "table": tbl_obj, "src": src})
+            # Uma fatia por tabela, cada uma na sua ligação; o merger (DuckDB)
+            # junta-as a seguir. Ver core/llm/merger.executar_fatias_por_tabela.
+            from core.llm.merger import executar_fatias_por_tabela
 
-            results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_task = {}
-                for task in tasks:
-                    future = executor.submit(
-                        run_specialist,
-                        task["state"],
-                        agent_config,
-                        task["src"],
-                        dynamic_llm,
-                    )
-                    future_to_task[future] = task
-
-                for future in concurrent.futures.as_completed(future_to_task):
-                    try:
-                        res_state = future.result()
-                        log_event(
-                            "multi_source_subquery_result",
-                            {
-                                "table": res_state.get("chosen_table"),
-                                "has_data": bool(res_state.get("data")),
-                                "rows": len(res_state.get("data") or []),
-                                "sql": (res_state.get("sql") or "")[:200],
-                                "error": res_state.get("error"),
-                                "impossible_reason": res_state.get("impossible_reason"),
-                            },
-                        )
-                        if res_state.get("data"):
-                            results.append(
-                                {
-                                    "table": res_state.get("chosen_table"),
-                                    "data": res_state.get("data"),
-                                    "sql": res_state.get("sql"),
-                                    "metadata": {
-                                        "source": "unknown",
-                                        "title": res_state.get("generated_title"),
-                                        "dialect": "unknown",
-                                    },
-                                }
-                            )
-                    except Exception as e:
-                        log_event("parallel_specialist_error", {"error": str(e)})
-
+            results, failed_slices = executar_fatias_por_tabela(
+                state,
+                agent_config,
+                chosen_tables,
+                dispatch_map,
+                data_source,
+                dynamic_llm,
+                run_specialist,
+            )
             state["partial_results"] = results
+            state["failed_slices"] = failed_slices
             return state
 
     def merger_node(state: AgentState) -> AgentState:

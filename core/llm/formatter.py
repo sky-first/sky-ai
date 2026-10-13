@@ -548,6 +548,11 @@ def _stream_llm(llm: LLMProvider, system_msg: dict, user_msg: dict):
         raise
 
 
+def _lista_de_tabelas(nomes) -> str:
+    """«orders», «stores» — os nomes das tabelas para a mensagem."""
+    return ", ".join(f"«{n}»" for n in (nomes or []) if n) or "?"
+
+
 def run_formatter(
     state: AgentState,
     agent_config: AgentConfig,
@@ -625,6 +630,35 @@ def run_formatter(
     # Garante idioma base
     lang = _ensure_language(question, detected_language)
     state["detected_language"] = lang
+
+    # 0) Pergunta multi-fonte cuja junção não foi possível, com causa
+    # conhecida (core/llm/merger.py): diz-se que fontes faltaram ou que a
+    # combinação falhou — não o TECHNICAL_ERROR genérico (13/10/2026).
+    merge_failure = state.get("merge_failure")
+    if merge_failure and not data:
+        if merge_failure.get("kind") == "merge_failed":
+            state["answer"] = get_message(
+                "MULTI_SOURCE_MERGE_FAILED",
+                lang,
+                usadas=_lista_de_tabelas(merge_failure.get("ok")),
+            )
+        else:
+            state["answer"] = get_message(
+                "MULTI_SOURCE_NO_SLICES",
+                lang,
+                faltam=_lista_de_tabelas(merge_failure.get("failed")),
+            )
+        log_event(
+            "formatter_multi_source_failure",
+            {
+                "agent_id": agent_config.id,
+                "kind": merge_failure.get("kind"),
+                "failed": merge_failure.get("failed"),
+                "ok": merge_failure.get("ok"),
+                "lang": lang,
+            },
+        )
+        return state
 
     # 1) Se houve erro técnico (SQL, conexão, etc.) -> passa amigável
     if error:
@@ -886,6 +920,21 @@ def run_formatter(
     periodo_aviso = state.get("periodo_aviso")
     if periodo_aviso and state.get("periodo_modo") == "fallback":
         answer = f"{periodo_aviso}\n\n{answer}"
+
+    # Multi-fonte com fatias em falta: a resposta usa só o que veio, e
+    # di-lo — nunca em silêncio (core/llm/merger.py).
+    failed_slices = state.get("failed_slices") or []
+    if failed_slices and data:
+        usadas = [r.get("table") for r in (state.get("partial_results") or [])]
+        answer = (
+            get_message(
+                "MULTI_SOURCE_PARTIAL",
+                lang,
+                faltam=_lista_de_tabelas([f.get("table") for f in failed_slices]),
+                usadas=_lista_de_tabelas(usadas) if usadas else "?",
+            )
+            + f"\n\n{answer}"
+        )
 
     state["answer"] = answer
     state["last_suggestions"] = followup_suggestions

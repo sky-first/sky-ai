@@ -651,6 +651,53 @@ def _tentar_corrigir_literais(
     return correccao.sql, linhas, correccao.trocas
 
 
+def _tabela_proibida(sql_text: str, forbidden_tables) -> Optional[str]:
+    """A primeira tabela proibida que o SQL menciona, ou ``None``.
+
+    Fronteiras de identificador para não confundir ``users`` com
+    ``users_enriched`` (caracteres de identificador: a-z, 0-9, _, $).
+    """
+    sql_check = (sql_text or "").lower()
+    for bad_table in forbidden_tables:
+        pattern = rf"(?:^|[^a-z0-9_$]){re.escape(bad_table.lower())}(?:[^a-z0-9_$]|$)"
+        if re.search(pattern, sql_check):
+            return bad_table
+    return None
+
+
+def _bloco_da_fatia(state: Dict[str, Any], physical_names: List[str]) -> str:
+    """Instrução para UMA fatia de uma pergunta multi-fonte (vazio fora disso)."""
+    if not state.get("multi_source_subquery"):
+        return ""
+    irmas = state.get("multi_source_sibling_tables") or []
+    outras = (
+        f"The other part(s) of the question come from: {', '.join(irmas)}. "
+        "They live in OTHER data sources and are fetched by separate queries.\n"
+        if irmas
+        else ""
+    )
+    return (
+        "MULTI-SOURCE SLICE (mandatory rules):\n"
+        "This query is ONE slice of a question that spans several data sources. "
+        f"It may ONLY read: {', '.join(physical_names)}.\n"
+        f"{outras}"
+        "- NEVER JOIN, subquery or mention any other table: it would be blocked.\n"
+        "- Return this table's contribution so a later step can join it with the "
+        "others: include the key columns that link it to them (ids such as "
+        "store_id / product_id, and names when this table has them), plus the "
+        "metric(s) aggregated by those keys.\n"
+        "- Do not compute metrics this table cannot provide (e.g. do not count "
+        "orders in a table of stores): the other slices bring them.\n"
+        "- A time period in the question (last month, this year) applies to the "
+        "table that RECORDS the events (orders, sales, items) — never to a date "
+        "column of a table that only DESCRIBES entities (stores, products, "
+        "customers: opening date, creation date). If this table only describes "
+        "entities, return ALL of them, unfiltered, with their keys and names.\n"
+        "- Do not LIMIT to a top-N here: the ranking needs the other slices "
+        "first.\n\n"
+    )
+
+
 def run_specialist(
     state: AgentState,
     agent_config: AgentConfig,
@@ -1272,12 +1319,19 @@ def run_specialist(
             "Use this history to understand the user's intent if the current question is a follow-up.\n"
         )
 
+    # 🧩 MULTI-SOURCE SLICE: esta corrida é UMA fatia de uma pergunta que
+    # cruza várias ligações. Sem isto o modelo via a pergunta inteira e
+    # juntava a tabela da outra fatia (produção 13/10/2026: a fatia `stores`
+    # escreveu JOIN service.orders → guardrail → fatia perdida).
+    slice_block = _bloco_da_fatia(state, physical_names)
+
     # Construct user message
     user_msg = {
         "role": "user",
         "content": (
             f"{sql_mode_override}"
             f"User question:\n{question}\n\n"
+            f"{slice_block}"
             f"{literais_block}"
             f"Table schema(s):\n{schema_text}\n"
             f"{data_preview_block}"
@@ -1481,36 +1535,87 @@ def run_specialist(
     # Check if the generated SQL uses unauthorized tables from the FULL dataset.
     # This is the ultimate safety net against model hallucinations.
     if not is_nosql and "impossible" not in content_clean.lower() and chosen_physical:
-        sql_check = content_clean.lower()
         allowed_lower = set(p.lower() for p in physical_names)
-
         # Identify forbidden tables: any table in the full dataset NOT in our allowed list
         forbidden_tables = [
             p for p in all_physical_names if p.lower() not in allowed_lower
         ]
+        bad_table = _tabela_proibida(content_clean, forbidden_tables)
 
-        for bad_table in forbidden_tables:
-            bad_table_lower = bad_table.lower()
-
-            # ✅ FIX: Use regex with identifier boundaries to avoid partial matches (e.g. 'users' in 'users_enriched')
-            # Identifier chars: a-z, 0-9, _, $
-            pattern = rf"(?:^|[^a-z0-9_$]){re.escape(bad_table_lower)}(?:[^a-z0-9_$]|$)"
-
-            if re.search(pattern, sql_check):
+        # Numa fatia multi-fonte o bloqueio é quase sempre o modelo a juntar a
+        # tabela da OUTRA fatia. Uma nova tentativa, com o erro como feedback,
+        # antes de desistir — desistir perde a fatia inteira (13/10/2026).
+        if (
+            bad_table
+            and state.get("multi_source_subquery")
+            and not state.get("_specialist_guardrail_retry_done")
+        ):
+            state["_specialist_guardrail_retry_done"] = True
+            log_event(
+                "specialist_guardrail_retry",
+                {
+                    "agent_id": agent_config.id,
+                    "blocked_table": bad_table,
+                    "allowed": list(allowed_lower),
+                },
+            )
+            feedback = {
+                "role": "user",
+                "content": (
+                    f"That query was BLOCKED: it references the table {bad_table}, "
+                    "which this query is not allowed to use. It belongs to another "
+                    "data source and is fetched by a separate query; a later step "
+                    "joins the results.\n"
+                    f"Rewrite the query using ONLY: {', '.join(physical_names)}. "
+                    "No JOIN or subquery on any other table. Keep the key columns "
+                    "(ids, names) that link this table to the others, plus the "
+                    "metric aggregated by those keys.\n"
+                    "Respond with the SQL ONLY, starting with '-- TITLE: <short title>'."
+                ),
+            }
+            try:
+                retry_raw = llm.invoke(
+                    [
+                        system_msg,
+                        user_msg,
+                        {"role": "assistant", "content": content_clean},
+                        feedback,
+                    ]
+                )
+                retry_content = (
+                    getattr(retry_raw, "content", None) or str(retry_raw)
+                ).strip()
+                if retry_content and not re.match(
+                    r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE
+                ):
+                    content_clean = retry_content
+                    # O SQL é extraído de `raw` mais abaixo.
+                    raw = retry_raw
+                    bad_table = _tabela_proibida(content_clean, forbidden_tables)
+                    if not bad_table:
+                        log_event(
+                            "specialist_guardrail_retry_success",
+                            {"agent_id": agent_config.id},
+                        )
+            except Exception as exc:
                 log_event(
-                    "specialist_guardrail_blocked",
-                    {
-                        "reason": f"Unauthorized table detected: {bad_table}",
-                        "allowed": list(allowed_lower),
-                        "pattern": pattern,
-                    },
+                    "specialist_guardrail_retry_error", {"error": str(exc)[:300]}
                 )
-                state["impossible_reason"] = (
-                    f"Security Guardrail: Attempted to access unauthorized data table ({bad_table})."
-                )
-                # Wipe SQL to be safe
-                state["sql"] = None
-                return state
+
+        if bad_table:
+            log_event(
+                "specialist_guardrail_blocked",
+                {
+                    "reason": f"Unauthorized table detected: {bad_table}",
+                    "allowed": list(allowed_lower),
+                },
+            )
+            state["impossible_reason"] = (
+                f"Security Guardrail: Attempted to access unauthorized data table ({bad_table})."
+            )
+            # Wipe SQL to be safe
+            state["sql"] = None
+            return state
 
     # =========================================================================
     # 🌟 ARCHITECTURAL BRANCHING: SQL vs NoSQL
