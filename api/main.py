@@ -24,6 +24,7 @@ from api.routes import (
 )  # noqa: E402
 from api.routes import semantic_map, space_seed  # noqa: E402
 from api.routes import scan_schedule  # noqa: E402
+from api.routes import reexecutar_sql  # noqa: E402
 from core.logging_utils import log_event
 
 app = FastAPI(
@@ -50,6 +51,7 @@ except ImportError:
 @app.on_event("startup")
 async def on_startup():
     from latency_timing import setup_file_logging
+
     # readOnlyRootFilesystem: true no container — só /tmp é gravável.
     # Caminho relativo criava o arquivo na raiz do app (read-only) → crash no boot.
     setup_file_logging("/tmp/latency.log")
@@ -155,6 +157,9 @@ async def debug_db():
 # IMPORTANTE: connection_query deve vir ANTES de connection_discover e data_ingestion
 # para evitar conflitos de roteamento (todos usam prefix="/connections")
 app.include_router(connection_query.router)
+# Dados ao vivo (13/10/2026): o «ver a fonte», os widgets e os achados
+# voltam a correr o SQL guardado em vez de guardarem as linhas do cliente.
+app.include_router(reexecutar_sql.router)
 app.include_router(connection_discover.router)
 app.include_router(data_ingestion.router)
 
