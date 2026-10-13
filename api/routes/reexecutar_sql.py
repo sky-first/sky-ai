@@ -58,10 +58,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging_utils import log_event
+from core.security.security_config import SecurityConfig
 from db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -90,7 +92,10 @@ class PedidoDeReexecucao(BaseModel):
     tabelas_autorizadas: Dict[str, List[str]] = Field(default_factory=dict)
     #: As outras ligações do âmbito da pergunta original (multi-fonte).
     connection_ids: Optional[List[str]] = None
-    security_config: Optional[Dict[str, Any]] = None
+    #: A mesma regra da pergunta original (RLS, colunas). Tipada como no
+    #: `/query`: chegava como dict e o `inject_row_filters_in_sql` lê
+    #: `.tables` — todas as reexecuções com regra davam 500 (13/10/2026).
+    security_config: Optional[SecurityConfig] = None
     max_rows: int = Field(200, ge=1, le=MAX_LINHAS)
 
 
