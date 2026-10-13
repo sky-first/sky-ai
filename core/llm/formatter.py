@@ -17,10 +17,10 @@ from core.llm.prompts.formatter_prompts import (
 from core.llm.nomes import regras_de_nomes
 from core.llm.completude import corrigir_completude, regras_do_resultado
 from core.llm.numeros import (
+    analisar_colunas,
     corrigir_resposta,
     descricoes_das_colunas,
     regras_de_numeros,
-    unidades_do_resultado,
 )
 from core.llm.conceito_em_falta import conceito_em_falta, traduzir_conceito
 from core.llm.context.builder import build_context_bundle
@@ -795,7 +795,10 @@ def run_formatter(
             )
 
     # Unidades das colunas (nome, linhagem do SQL, descrição): «36,81» de
-    # service_sec é «36,81 s» (12/10/2026).
+    # service_sec é «36,81 s» (12/10/2026). E que colunas são dinheiro —
+    # pelo nome, pela unidade da métrica do espaço («(unit: s)», nas
+    # instruções), pela descrição e pelo SQL: ``SUM(quantity) AS
+    # total_quantity`` não é dinheiro (13/10/2026).
     _colunas_resultado = (
         list(data[0].keys()) if data and isinstance(data[0], dict) else []
     )
@@ -804,12 +807,15 @@ def run_formatter(
             getattr(agent_config, "tables", None),
             list(state.get("chosen_tables") or []) + [state.get("chosen_table")],
         )
-        _unidades = unidades_do_resultado(
-            _colunas_resultado, state.get("sql"), _descricoes
+        _dinheiro, _nao_dinheiro, _unidades = analisar_colunas(
+            _colunas_resultado,
+            state.get("sql"),
+            _descricoes,
+            state.get("instructions"),
         )
     except Exception as _e:  # nunca partir uma resposta por causa disto
         log_event("formatter_unidades_falhou", {"error": str(_e)[:300]})
-        _unidades = {}
+        _dinheiro, _nao_dinheiro, _unidades = None, None, {}
 
     # 🏗️ BUILD PROMPTS (Unified Logic)
     # This replaces the dual legacy blocks (OpenAI/Local) with a single source of truth.
@@ -836,6 +842,7 @@ def run_formatter(
             colunas=_colunas_resultado,
             moeda_pedida=state.get("currency"),
             unidades=_unidades,
+            dinheiro=_dinheiro,
         )
         + regras_de_nomes()
         # Completo ou amostra, e onde estão os nomes (12/10/2026).
@@ -896,6 +903,8 @@ def run_formatter(
             state.get("currency"),
             pergunta=question,
             unidades=_unidades,
+            colunas_dinheiro=_dinheiro,
+            colunas_nao_dinheiro=_nao_dinheiro,
         )
     except Exception as _e:  # nunca partir uma resposta por causa disto
         log_event("formatter_correcao_falhou", {"error": str(_e)[:300]})

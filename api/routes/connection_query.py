@@ -5607,9 +5607,9 @@ async def _stream_connection_query(
             from core.llm.nomes import regras_de_nomes
             from core.llm.numeros import (
                 CorrecaoEmFluxo,
+                analisar_colunas,
                 descricoes_das_colunas,
                 regras_de_numeros,
-                unidades_do_resultado,
             )
 
             state = _build_streaming_agent_state(body, crew_ids, retrieval_context)
@@ -6027,18 +6027,25 @@ async def _stream_connection_query(
                     list(final_state.get("chosen_tables") or [])
                     + [final_state.get("chosen_table")],
                 )
-                _unidades_stream = unidades_do_resultado(
-                    _colunas_stream, final_state.get("sql"), _descricoes_stream
+                # E que colunas são dinheiro — a mesma decisão do caminho
+                # escrito (13/10/2026: «2.508,00 € unidades»).
+                _dinheiro_stream, _, _unidades_stream = analisar_colunas(
+                    _colunas_stream,
+                    final_state.get("sql"),
+                    _descricoes_stream,
+                    final_state.get("instructions"),
                 )
             except Exception as _e:
                 log_event("stream_unidades_falhou", {"error": str(_e)[:300]})
                 _descricoes_stream, _unidades_stream = {}, {}
+                _dinheiro_stream = None
             _regras_numeros = (
                 regras_de_numeros(
                     _stream_lang,
                     colunas=_colunas_stream,
                     moeda_pedida=final_state.get("currency"),
                     unidades=_unidades_stream,
+                    dinheiro=_dinheiro_stream,
                 )
                 + regras_de_nomes()
             )
@@ -6140,6 +6147,7 @@ async def _stream_connection_query(
                 sql=final_state.get("sql"),
                 descricoes=_descricoes_stream,
                 pergunta=question,
+                instrucoes=final_state.get("instructions"),
             )
             try:
                 for chunk in _stream_llm(llm_formatter, system_msg, user_msg):
