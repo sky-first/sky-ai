@@ -3504,8 +3504,13 @@ async def query_connection(
     query_embedding = None
     try:
         from core.llm.factory import create_embedding_provider
+        from core.privacidade import cache_semantico as _cache_privado
         from db.models import SemanticCacheRecord
         from sqlalchemy import text
+
+        # Prazo da cache: uma linha mais velha do que isto nunca é servida
+        # e é apagada na escrita (core/privacidade/cache_semantico.py).
+        _cache_cutoff = _cache_privado.limite_de_validade()
 
         # Só fazemos cache para requisições de resposta ou dashboard gerado,
         # desconsiderando vazamentos se houver comandos curtos muito vagos.
@@ -3563,6 +3568,7 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND created_at >= :cache_cutoff
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3577,6 +3583,7 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "cache_cutoff": _cache_cutoff,
                     },
                 )
             elif is_personal_cache and cache_user_id:
@@ -3591,6 +3598,7 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND created_at >= :cache_cutoff
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3604,6 +3612,7 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "cache_cutoff": _cache_cutoff,
                     },
                 )
             else:
@@ -3618,6 +3627,7 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND created_at >= :cache_cutoff
                     AND (1 - (embedding <=> :query_emb)) >= 0.95
                     ORDER BY similarity DESC
                     LIMIT 1
@@ -3631,6 +3641,7 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "cache_cutoff": _cache_cutoff,
                     },
                 )
 
@@ -3649,22 +3660,42 @@ async def query_connection(
                         "crew_id": active_cache_crew,  # for audit
                     },
                 )
-                cached_response = QueryResponse.model_validate(cached_json)
-                # Last-mile: apply format transform + infer widget type from raw cached data
-                cached_response.data_sample = _transform_data_for_format(
-                    cached_response.data_sample, body.response_format
+                # A cache NÃO guarda linhas do cliente: o que lá estiver
+                # (linhas antigas, gravadas antes desta regra) é ignorado.
+                # Se a resposta original tinha linhas, voltam a vir da fonte
+                # do cliente, correndo o SQL guardado.
+                cached_response = QueryResponse.model_validate(
+                    _cache_privado.sem_linhas(cached_json)
                 )
-                cached_response.recommended_widget_type = _infer_widget_type(
-                    cached_response.data_sample, body.response_format
-                )
-                registar_tempo(
-                    "semantic_cache_timing",
-                    (_tempo.perf_counter() - _t_cache) * 1000,
-                    etapa="semantic_cache",
-                    hit=True,
-                )
-                fechar_pedido(connection_id=connection_id, cache_hit=True)
-                return cached_response
+                linhas_repostas: Optional[list] = []
+                if _cache_privado.precisa_de_linhas(cached_json):
+                    linhas_repostas = await _cache_privado.repor_linhas(
+                        db, connection_id, cached_response.meta.sql
+                    )
+                if linhas_repostas is None:
+                    # Sem as linhas não se serve a resposta (o gráfico ou a
+                    # tabela ficariam vazios): segue como falha de cache.
+                    log_event(
+                        "semantic_cache_hit_discarded",
+                        {"connection_id": connection_id, "reason": "rerun_failed"},
+                    )
+                else:
+                    cached_response.data_sample = linhas_repostas
+                    # Last-mile: apply format transform + infer widget type
+                    cached_response.data_sample = _transform_data_for_format(
+                        cached_response.data_sample, body.response_format
+                    )
+                    cached_response.recommended_widget_type = _infer_widget_type(
+                        cached_response.data_sample, body.response_format
+                    )
+                    registar_tempo(
+                        "semantic_cache_timing",
+                        (_tempo.perf_counter() - _t_cache) * 1000,
+                        etapa="semantic_cache",
+                        hit=True,
+                    )
+                    fechar_pedido(connection_id=connection_id, cache_hit=True)
+                    return cached_response
     except Exception as sc_err:
         from core.logging_utils import log_event
 
@@ -3699,7 +3730,8 @@ async def query_connection(
         raise
     _t_store = _tempo.perf_counter()
 
-    # ✅ SEMANTIC CACHE LAYER (Store) — always stores raw data_sample (no format transform yet)
+    # ✅ SEMANTIC CACHE LAYER (Store) — resposta + SQL + metadados; NUNCA as
+    # linhas do cliente (core/privacidade/cache_semantico.py).
     try:
         if (
             query_embedding
@@ -3731,12 +3763,22 @@ async def query_connection(
                     user_id=cache_user_id if is_personal_cache else None,
                     question=body.question,
                     embedding=query_embedding,
-                    response_json=response.model_dump(mode="json"),
+                    response_json=_cache_privado.payload_para_cache(response),
                     locale=_store_locale,
                     cache_version=VERSAO_DA_CACHE_SEMANTICA,
                     temporal_bucket=_temporal_bucket,
                 )
                 db.add(cache_record)
+                # Purga do prazo, pela mesma ligação (connection_id tem
+                # índice): o que passou de DIAS_DE_VIDA sai aqui.
+                await db.execute(
+                    text(
+                        "DELETE FROM semantic_cache "
+                        "WHERE connection_id = :conn_id "
+                        "AND (created_at IS NULL OR created_at < :cache_cutoff)"
+                    ),
+                    {"conn_id": connection_id, "cache_cutoff": _cache_cutoff},
+                )
                 await db.commit()
     except Exception as sc_err:
         from core.logging_utils import log_event

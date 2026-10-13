@@ -61,6 +61,6 @@ class RedshiftSource(SQLAlchemyDataSource):
             )
         engine = create_engine(dsn, future=True)
         log_event(
-            "build_redshift_datasource", {"label": label, "dsn_preview": dsn[:80]}
+            "build_redshift_datasource", {"label": label}  # nunca o DSN (credenciais)
         )
         super().__init__(engine=engine, dialect=Dialect.REDSHIFT, label=label)

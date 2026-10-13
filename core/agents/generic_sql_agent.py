@@ -7,9 +7,6 @@ from typing import Any, Dict, List, Optional, TypedDict, Callable
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
 
-# Centralized checkpoint manager
-from core.agents.checkpoint_manager import get_checkpointer
-
 from core.auth.models import UserContext  # ajuste se o caminho for outro
 from core.llm.providers import LLMProvider
 from core.data_sources.base import BaseDataSource
@@ -220,7 +217,6 @@ def build_generic_sql_graph(
     llm_orchestrator: LLMProvider,
     llm_specialist: LLMProvider,
     llm_formatter: LLMProvider,
-    checkpointer: Optional[Any] = None,
     backend_client: Optional[Any] = None,
     dispatch_map: Optional[dict] = None,
     briefing: str = "",
@@ -1500,14 +1496,19 @@ def build_generic_sql_graph(
     graph.add_edge("merger", "formatter")
     graph.add_edge("formatter", END)
 
-    app = graph.compile(checkpointer=checkpointer)
+    # SEM checkpointer persistente, de propósito. O estado do grafo leva as
+    # linhas do resultado (`data`, até 10.000; `partial_results`;
+    # `mixed_specialist_results`): um PostgresSaver gravava-as para sempre na
+    # base da PLATAFORMA, com todos os clientes misturados. A continuidade da
+    # conversa vem do `chat_history` (texto da resposta + SQL), não do estado.
+    # O estado vive só na memória deste pedido. Ver docs/dados-do-cliente.md.
+    app = graph.compile()
 
     log_event(
         "generic_sql_graph_built",
         {
             "agent_id": agent_config.id,
             "num_tables": len(agent_config.tables),
-            "checkpointer_active": checkpointer is not None,
         },
     )
 
@@ -1554,9 +1555,9 @@ def run_agent_once(
     """
     if thread_id is None:
         # No conversation_id supplied → this is a one-off query, not part of
-        # an ongoing thread.  Generate a fresh UUID so the LangGraph checkpointer
-        # never loads stale working-state (sql / answer / data) from a previous
-        # unrelated invocation.  Conversation continuity is provided by
+        # an ongoing thread.  Generate a fresh UUID (it tags logs and is echoed
+        # back to the client). There is no checkpointer, so no state is ever
+        # loaded from a previous invocation.  Conversation continuity is provided by
         # chat_history loaded from the DB, not by checkpoint reuse.
         import uuid as _uuid
 
@@ -1609,33 +1610,30 @@ def run_agent_once(
         "agent_mode": agent_mode,
     }
 
-    # Use checkpointer context manager to acquire and release connection
-    from core.agents.checkpoint_manager import get_checkpointer
-
     # Multi-agent: get backend client for strategy/signals specialists
     from core.clients.backend_client import get_backend_client
 
     _backend_client = get_backend_client()
 
-    with get_checkpointer() as checkpointer:
-        app = build_generic_sql_graph(
-            agent_config=agent_config,
-            data_source=data_source,
-            db_session_factory=db_session_factory,
-            embedding_provider=embedding_provider,
-            llm_orchestrator=llm_orchestrator,
-            llm_specialist=llm_specialist,
-            llm_formatter=llm_formatter,
-            checkpointer=checkpointer,
-            backend_client=_backend_client,
-            dispatch_map=dispatch_map,
-            briefing=briefing,
-        )
+    # Grafo sem checkpointer: o estado (com as linhas) não sai da memória
+    # deste pedido.
+    app = build_generic_sql_graph(
+        agent_config=agent_config,
+        data_source=data_source,
+        db_session_factory=db_session_factory,
+        embedding_provider=embedding_provider,
+        llm_orchestrator=llm_orchestrator,
+        llm_specialist=llm_specialist,
+        llm_formatter=llm_formatter,
+        backend_client=_backend_client,
+        dispatch_map=dispatch_map,
+        briefing=briefing,
+    )
 
-        final_state: AgentState = app.invoke(
-            state,
-            config={"configurable": {"thread_id": thread_id}},
-        )
+    final_state: AgentState = app.invoke(
+        state,
+        config={"configurable": {"thread_id": thread_id}},
+    )
 
     log_event(
         "run_agent_once_done",

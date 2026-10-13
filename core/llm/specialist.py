@@ -946,9 +946,14 @@ def run_specialist(
 
         literais_block = bloco_de_literais(_tabelas_dos_literais, question)
         if literais_block:
+            # Só o tamanho: o bloco traz valores reais das colunas do cliente.
             log_event(
                 "specialist_question_literals",
-                {"agent_id": agent_config.id, "block": literais_block[:500]},
+                {
+                    "agent_id": agent_config.id,
+                    "num_lines": len(literais_block.splitlines()),
+                    "chars": len(literais_block),
+                },
             )
     except Exception as exc:  # nunca partir o pedido
         log_event("specialist_question_literals_error", {"error": str(exc)[:200]})

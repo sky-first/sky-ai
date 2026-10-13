@@ -149,10 +149,8 @@ class DataSourceFactory:
 
             log_event(
                 "build_postgres_datasource",
-                {
-                    "connection_id": conn.id,
-                    "dsn_preview": dsn[:80],
-                },
+                # Nunca o DSN: leva utilizador e palavra-passe.
+                {"connection_id": conn.id},
             )
 
             # Determine dialect
@@ -194,7 +192,7 @@ class DataSourceFactory:
             engine = create_engine(dsn, future=True)
             log_event(
                 "build_redshift_datasource",
-                {"connection_id": conn.id, "dsn_preview": dsn[:80]},
+                {"connection_id": conn.id},  # nunca o DSN (credenciais),
             )
             return SQLAlchemyDataSource(
                 engine=engine, dialect=Dialect.REDSHIFT, label=f"redshift:{conn.id}"
@@ -222,7 +220,7 @@ class DataSourceFactory:
             engine = create_engine(dsn, future=True)
             log_event(
                 "build_databricks_datasource",
-                {"connection_id": conn.id, "dsn_preview": dsn[:80]},
+                {"connection_id": conn.id},  # nunca o DSN (credenciais),
             )
             return SQLAlchemyDataSource(
                 engine=engine, dialect=Dialect.DATABRICKS, label=f"databricks:{conn.id}"
