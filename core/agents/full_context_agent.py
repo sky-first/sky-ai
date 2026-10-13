@@ -31,6 +31,7 @@ from langchain_core.messages import HumanMessage
 from core.agents.generic_sql_agent import AgentConfig, AgentState
 from core.data_sources.base import BaseDataSource
 from core.logging_utils import log_event
+from core.privacidade.observabilidade import embrulhar_linhas
 from core.rag.embeddings import EmbeddingProvider
 from sqlalchemy.orm import Session
 
@@ -66,6 +67,16 @@ def _get_langfuse_callback(agent_id: str, user_id: str, space_id: str) -> Option
             return None
         from langfuse.callback import CallbackHandler
 
+        from core.privacidade.observabilidade import mascarar
+    except Exception:
+        logger.debug("Langfuse not available — running without observability")
+        return None
+
+    # As linhas que a ferramenta `query_table` devolve NÃO seguem para o
+    # Langfuse: a máscara troca-as por um marcador (core/privacidade/
+    # observabilidade.py). Um SDK que não aceite `mask` não liga — falha
+    # fechado: sem máscara não há observabilidade.
+    try:
         return CallbackHandler(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
@@ -74,7 +85,14 @@ def _get_langfuse_callback(agent_id: str, user_id: str, space_id: str) -> Option
             user_id=user_id,
             tags=["autonomous", "full_context"],
             metadata={"agent_id": agent_id, "space_id": space_id},
+            mask=mascarar,
         )
+    except TypeError:
+        logger.warning(
+            "Langfuse SDK sem suporte a mask — desligado para não enviar "
+            "linhas do cliente"
+        )
+        return None
     except Exception:
         logger.debug("Langfuse not available — running without observability")
         return None
@@ -400,7 +418,9 @@ def run_full_context_agent(
             rows = rows[:MAX_SQL_ROWS]
             header = " | ".join(rows[0].keys())
             lines = [" | ".join(str(v) for v in row.values()) for row in rows]
-            preview = "\n".join([header, "---"] + lines)
+            # Embrulhadas para a máscara da observabilidade as reconhecer: o
+            # modelo vê as linhas, o Langfuse não.
+            preview = embrulhar_linhas("\n".join([header, "---"] + lines))
             if truncated:
                 suffix = (
                     f"\n\n⚠️ TRUNCATED — only the first {MAX_SQL_ROWS} of {total} rows "

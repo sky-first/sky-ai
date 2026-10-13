@@ -94,23 +94,3 @@ class TestOQueONaoMudou:
         fonte = inspect.getsource(semantic_map._load_embeddings)
         for campo in ("user_id", "space_id", "crew_id"):
             assert campo in fonte, f"o filtro por {campo} desapareceu"
-
-
-@pytest.mark.parametrize(
-    "ficheiro",
-    ["api/routes/pipeline.py"],
-)
-def test_os_outros_caminhos_ficam_assinalados(ficheiro):
-    """Um aviso, não uma falha.
-
-    O `pipeline.py` abre a sessão global em três sítios. Não sei se
-    serve conteúdo de cliente — não o investiguei, e marcá-lo como
-    falha sem saber seria ruído. Este teste falha **se alguém o
-    corrigir**, e nessa altura apaga-se a linha.
-
-    Fica aqui para a dívida não desaparecer da cabeça de ninguém.
-    """
-    fonte = (RAIZ / ficheiro).read_text(encoding="utf-8")
-    assert "AsyncSessionLocal()" in fonte, (
-        f"{ficheiro} deixou de usar a sessão global — tire-o desta lista"
-    )

@@ -16,7 +16,6 @@ if not _db_url or "44.197.200.153" in _db_url or ":5433/" in _db_url:
 from api.routes import connection_query, connection_discover  # noqa: E402
 from api.routes import (
     data_ingestion,
-    pipeline,
     classificar_achado,
     widget_titles,
     knowledge_graph,
@@ -77,13 +76,8 @@ async def on_startup():
     start_audit_flusher()
     log_event("audit_flusher_started", {"message": "Audit log flusher started"})
 
-    # Initialize LangGraph Checkpoint Pool
-    from core.agents.checkpoint_manager import get_connection_pool
-
-    get_connection_pool()  # Init singleton
-    log_event(
-        "checkpoint_pool_initialized", {"message": "LangGraph checkpoint pool ready"}
-    )
+    # Sem checkpoints do LangGraph: o estado do grafo traz linhas do cliente e
+    # não se grava (docs/dados-do-cliente.md).
 
     # Detector de línguas e modelo de embeddings: carregam aqui, em segundo
     # plano, e não no primeiro pedido (12/10/2026: 64 s de 82,6 s eram isto).
@@ -103,12 +97,6 @@ async def on_shutdown():
 
     stop_audit_flusher()
     log_event("audit_flusher_stopped", {"message": "Audit log flusher stopped"})
-
-    # Close LangGraph Checkpoint Pool
-    from core.agents.checkpoint_manager import close_pool
-
-    close_pool()
-    log_event("checkpoint_pool_closed", {"message": "LangGraph checkpoint pool closed"})
 
 
 @app.get("/health", tags=["health"])
@@ -161,7 +149,7 @@ async def debug_db():
 # apenas endpoints necessários para:
 # - queries de IA por connection_id
 # - catálogo (tabelas/colunas) e refresh de metadados
-# - pipeline/ingestion (interno)
+# - ingestion (interno)
 
 # Rotas para queries e descoberta usando conexões diretamente
 # IMPORTANTE: connection_query deve vir ANTES de connection_discover e data_ingestion
@@ -170,8 +158,9 @@ app.include_router(connection_query.router)
 app.include_router(connection_discover.router)
 app.include_router(data_ingestion.router)
 
-# Rotas de pipeline
-app.include_router(pipeline.router)
+# O /pipeline (execução assíncrona com o resultado em pipeline_jobs.result)
+# foi removido a 13/10/2026: guardava 15 linhas do cliente por pedido e
+# nenhum cliente (backend, web, app) o chamava. docs/dados-do-cliente.md.
 
 # Widget routes (title suggestions)
 app.include_router(classificar_achado.router)

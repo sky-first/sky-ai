@@ -58,6 +58,6 @@ class DatabricksSource(SQLAlchemyDataSource):
             )
         engine = create_engine(dsn, future=True)
         log_event(
-            "build_databricks_datasource", {"label": label, "dsn_preview": dsn[:80]}
+            "build_databricks_datasource", {"label": label}  # nunca o DSN (credenciais)
         )
         super().__init__(engine=engine, dialect=Dialect.DATABRICKS, label=label)

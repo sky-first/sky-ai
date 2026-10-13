@@ -220,7 +220,8 @@ class EmbeddingRecord(Base):
 
 # ========== LANGGRAPH CHECKPOINTS ==========
 
-# LangGraph checkpoints are managed by core.agents.checkpoint_manager (native tables)
+# Não há. O estado do grafo leva linhas do cliente e não se grava; as tabelas
+# antigas (checkpoints*) saem com scripts/limpar_dados_do_cliente.py.
 
 
 class ChatHistory(Base):
@@ -243,7 +244,13 @@ class ChatHistory(Base):
 
 
 class PipelineJob(Base):
-    """Stores the state of asynchronous pipeline executions."""
+    """Stores the state of asynchronous pipeline executions.
+
+    SEM USO desde 13/10/2026: o router ``/pipeline`` que a escrevia foi
+    removido (guardava 15 linhas do cliente em ``result``). A tabela fica
+    porque as migrações SQL a criam; ``scripts/limpar_dados_do_cliente.py``
+    esvazia o ``result`` das linhas antigas.
+    """
 
     __tablename__ = "pipeline_jobs"
 

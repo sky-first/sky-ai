@@ -32,7 +32,11 @@ def log_event(event_type: str, payload: Dict[str, Any] | None = None) -> None:
     try:
         safe_payload: Dict[str, Any] = {}
         if payload:
-            for k, v in payload.items():
+            # Sem valores do cliente nem credenciais, em TODOS os eventos
+            # (core/privacidade/registo.py).
+            from core.privacidade.registo import limpar_payload
+
+            for k, v in limpar_payload(payload).items():
                 safe_payload[k] = _serialize_value(v)
 
         log_obj = {"event_type": event_type, **safe_payload}
