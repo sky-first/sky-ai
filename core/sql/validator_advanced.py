@@ -468,8 +468,15 @@ class AdvancedSQLValidator:
         # Agora checar wildcard
         if re.search(r"(^|[,\s])\*\s*(,|$)", select_clause):
             return True
-        if re.search(r"[A-Za-z0-9_`.\-]+\s*\.\s*\*\s*(,|$)", select_clause):
-            return True
+        # `tabela.*`: procura o `.*` e olha para o carácter antes do ponto.
+        # Era uma regex polinomial com muitos `-` seguidos (CodeQL), e o SQL
+        # chega agora também do `/rerun`. O resultado é o mesmo, em tempo linear.
+        for m2 in re.finditer(r"\.\s*\*\s*(?:,|$)", select_clause):
+            i = m2.start() - 1
+            while i >= 0 and select_clause[i].isspace():
+                i -= 1
+            if i >= 0 and (select_clause[i].isalnum() or select_clause[i] in "_`-."):
+                return True
         return False
 
     def _count_select_items(self, sql: str) -> Optional[int]:
