@@ -83,8 +83,11 @@ CHAVES_DE_SQL = frozenset(
 )
 
 _LITERAL_DE_TEXTO = re.compile(r"'(?:[^']|'')*'")
+# Âncora no "://" e comprimentos limitados: sem isto o motor tentava o
+# esquema a partir de cada letra do texto (ReDoS polinomial, CodeQL).
 _CREDENCIAL_EM_URL = re.compile(
-    r"(?P<esq>[a-zA-Z][a-zA-Z0-9+.\-]*://[^:/@\s]*):[^@\s]*@"
+    r"(?<![A-Za-z0-9+.\-])(?P<esq>[A-Za-z][A-Za-z0-9+.\-]{0,30}://[^:/@\s]{0,256})"
+    r":[^@\s]{0,1024}@"
 )
 
 
