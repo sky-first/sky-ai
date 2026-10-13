@@ -597,8 +597,10 @@ class TestUnidades:
             "The longest wait was 12.50 min."
         )
         linhas = [{"unidades_vendidas": 1250}, {"unidades_vendidas": 300}]
+        # Uma contagem do resultado leva separador desde 1000 (13/10/2026:
+        # «Tienda 01 con 4526 pedidos» → «4.526 pedidos»).
         assert corrigir_resposta("Vendeu 1250 e 300.", "pt", linhas) == (
-            "Vendeu 1250 unidades e 300 unidades."
+            "Vendeu 1.250 unidades e 300 unidades."
         )
 
     def test_regra_no_prompt(self):

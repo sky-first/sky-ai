@@ -64,6 +64,7 @@ inglês.
 from __future__ import annotations
 
 import re
+import unicodedata
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -81,8 +82,6 @@ PALAVRAS_DE_DINHEIRO = {
     "preço",
     "cost",
     "custo",
-    "value",
-    "valor",
     "salary",
     "salario",
     "salário",
@@ -96,8 +95,6 @@ PALAVRAS_DE_DINHEIRO = {
     "despesa",
     "expense",
     "billing",
-    "total",
-    "subtotal",
     "balance",
     "saldo",
     "spend",
@@ -109,7 +106,6 @@ PALAVRAS_DE_DINHEIRO = {
     "facturación",
     "faturacao",
     "faturação",
-    "importe",
     "ingresos",
     "ingreso",
     "ventas",
@@ -132,6 +128,34 @@ PALAVRAS_DE_DINHEIRO = {
     "euro",
     "euros",
 }
+
+#: Palavras que SÓ dizem dinheiro quando estão sozinhas (13/10/2026).
+#:
+#: «¿Cuáles son los 5 platos más vendidos?» deu «2.508,00 € unidades»: a
+#: coluna era ``SUM(oi.quantity) AS total_quantity`` e «total» estava na
+#: lista de cima. «Total» de quê? ``total`` e ``valor_total`` são dinheiro;
+#: ``total_quantity``, ``total_platos`` e ``total_vendido`` não dizem — e
+#: na dúvida não se põe «€». Uma coluna só destas palavras (mais as neutras
+#: de baixo) é dinheiro; uma destas ao lado de outra palavra qualquer não.
+PALAVRAS_DE_DINHEIRO_FRACAS = {
+    "total",
+    "totals",
+    "subtotal",
+    "value",
+    "valor",
+    "importe",
+}
+
+#: Palavras que não mudam o que a coluna é: ``avg_value``, ``valor_medio``,
+#: ``monthly_total`` continuam «só» valor/total.
+PALAVRAS_NEUTRAS = {
+    "avg", "average", "media", "medio", "promedio", "mean", "sum",
+    "suma", "soma", "max", "min", "maximo", "minimo", "daily", "monthly",
+    "weekly", "yearly", "annual", "mensal", "mensual", "diario", "diaria",
+    "semanal", "anual", "per", "por", "de", "do", "da", "del", "the", "of",
+    "by", "grand", "net", "neto", "liquido", "bruto", "gross", "acumulado",
+    "cumulative", "general", "geral",
+}  # fmt: skip
 
 #: Palavras de um nome de coluna que dizem «por litro». Só contam numa
 #: coluna de dinheiro: `gasoleo_eur_l` é um preço por litro, `fuel_liters`
@@ -204,6 +228,74 @@ PALAVRAS_QUE_NAO_SAO_DINHEIRO = {
     "segundos",
     "minutes",
     "minutos",
+    # 13/10/2026: «total_quantity» passava por dinheiro.
+    "quantity",
+    "quantities",
+    "quantidades",
+    "qtd",
+    "qtde",
+    "qty",
+    "cantidades",
+    "uds",
+    "cnt",
+    "n",
+    "nr",
+    "nro",
+    "nb",
+    "number",
+    "numbers",
+    "conteo",
+    "recuento",
+    "sold",
+    "vendidos",
+    "vendidas",
+    "tickets",
+    "transactions",
+    "transacciones",
+    "transacoes",
+    "visits",
+    "visitas",
+    "sessions",
+    "users",
+    "usuarios",
+    "utilizadores",
+    "products",
+    "productos",
+    "produtos",
+    "platos",
+    "pratos",
+    "dishes",
+    "comensales",
+    "covers",
+    "employees",
+    "empleados",
+    "funcionarios",
+    "stock",
+    "porcentaje",
+    "pcnt",
+    "share",
+    "secs",
+    "second",
+    "segundo",
+    "seg",
+    "segs",
+    "ms",
+    "minute",
+    "minuto",
+    "duration",
+    "duracion",
+    "duração",
+    "duracao",
+    "kg",
+    "km",
+    "litros",
+    "liters",
+    "litres",
+    "score",
+    "rating",
+    "nps",
+    "rank",
+    "ranking",
 }
 
 
@@ -218,7 +310,9 @@ def _palavras(nome: str) -> set:
     E o mesmo erro em ponto pequeno que o resto deste ficheiro trata: comparar
     texto onde se devia comparar significado.
     """
-    return set(re.split(r"[^a-z0-9]+", (nome or "").lower())) - {""}
+    # Por letra Unicode: «facturación_total» são duas palavras, não três
+    # («facturaci», «n», «total» — 13/10/2026).
+    return set(re.split(r"[\W_]+", (nome or "").lower())) - {""}
 
 
 def e_dinheiro(nome_da_coluna: str) -> bool:
@@ -233,7 +327,19 @@ def e_dinheiro(nome_da_coluna: str) -> bool:
         return False
     if p & PALAVRAS_QUE_NAO_SAO_DINHEIRO:
         return False
-    return bool(p & PALAVRAS_DE_DINHEIRO)
+    if p & PALAVRAS_DE_DINHEIRO:
+        return True
+    # Só «total», «valor», «importe»… (mais neutras): ``total``,
+    # ``valor_medio``. Ao lado de outra palavra («total_platos») não diz.
+    return bool(p & PALAVRAS_DE_DINHEIRO_FRACAS) and p <= (
+        PALAVRAS_DE_DINHEIRO_FRACAS | PALAVRAS_NEUTRAS
+    )
+
+
+def _nao_e_dinheiro_pelo_nome(nome: str) -> bool:
+    """O nome diz expressamente que NÃO é dinheiro (contagem, quantidade,
+    percentagem, duração…) — não é só «não sei»."""
+    return bool(_palavras(nome) & PALAVRAS_QUE_NAO_SAO_DINHEIRO)
 
 
 #: A moeda de omissao por lingua. Nao e adivinhacao sobre os DADOS — e sobre
@@ -245,17 +351,26 @@ MOEDA_POR_LINGUA = {"pt": "EUR", "es": "EUR", "en": "EUR"}
 SIMBOLO = {"EUR": "€", "USD": "$", "BRL": "R$", "GBP": "£"}
 
 
+def _e_dinheiro_na(coluna: str, dinheiro: Optional[Iterable[str]]) -> bool:
+    """A decisão por coluna: a de ``colunas_de_dinheiro`` quando há uma
+    (nome + métrica + descrição + linhagem do SQL), senão só pelo nome."""
+    if dinheiro is None:
+        return e_dinheiro(coluna)
+    return coluna in dinheiro
+
+
 def moeda_provavel(
     colunas: Optional[Iterable[str]],
     lingua: str,
     moeda_pedida: Optional[str] = None,
+    dinheiro: Optional[Iterable[str]] = None,
 ) -> Optional[str]:
     """A moeda a usar, ou `None` quando não há dinheiro nenhum na resposta.
 
     `moeda_pedida` ganha sempre: é a definição de quem pergunta, e uma
     definição explícita vale mais do que qualquer heurística nossa.
     """
-    if not any(e_dinheiro(c) for c in (colunas or [])):
+    if not any(_e_dinheiro_na(c, dinheiro) for c in (colunas or [])):
         return None
     if moeda_pedida:
         return moeda_pedida.upper()
@@ -384,9 +499,14 @@ def unidades_do_resultado(
     colunas: Optional[Iterable[str]],
     sql: Optional[str] = None,
     descricoes: Optional[Dict[str, str]] = None,
+    dinheiro: Optional[Iterable[str]] = None,
+    metricas: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    """``{coluna do resultado: unidade}`` — pelo nome, pela linhagem do SQL
-    e pela descrição, por esta ordem."""
+    """``{coluna do resultado: unidade}`` — pela métrica do espaço, pelo
+    nome, pela linhagem do SQL e pela descrição, por esta ordem.
+
+    ``dinheiro`` (ver ``colunas_de_dinheiro``) diz que colunas são dinheiro
+    — essas não têm unidade aqui; sem ele decide só o nome."""
     descricoes = {str(k).lower(): v for k, v in (descricoes or {}).items()}
     unidade_de: Dict[str, Optional[str]] = {}
     for nome, desc in descricoes.items():
@@ -395,8 +515,14 @@ def unidades_do_resultado(
     pelo_sql = _unidades_pelo_sql(sql, unidade_de)
     out: Dict[str, str] = {}
     for c in colunas or []:
-        if e_dinheiro(c) or _e_identificador(c):
+        if _e_dinheiro_na(c, dinheiro) or _e_identificador(c):
             continue
+        da_metrica = _unidade_da_metrica(c, metricas)
+        if da_metrica and da_metrica != "-" and not _e_moeda(da_metrica):
+            out[c] = da_metrica
+            continue
+        if da_metrica:
+            continue  # unidade da métrica desconhecida: não se adivinha outra
         u = (
             unidade_do_nome(c)
             or pelo_sql.get(str(c).lower())
@@ -405,6 +531,233 @@ def unidades_do_resultado(
         if u:
             out[c] = u
     return out
+
+
+# ── Que colunas são dinheiro (13/10/2026) ───────────────────────────────
+#
+# O nome não chega sempre: ``COUNT(*) AS total`` é uma contagem com nome de
+# dinheiro; ``SUM(quantity * unit_price) AS bruto`` é dinheiro sem nome de
+# dinheiro. A ordem, do mais explícito para o menos:
+#
+# 1. a UNIDADE da métrica do espaço («(unit: s)», «(unit: EUR)»), que é
+#    governada por alguém;
+# 2. o nome a dizer que NÃO é dinheiro (quantity, pedidos, pct, sec…);
+# 3. a linhagem do SQL a dizer que não é: contagem sem dinheiro dentro, só
+#    colunas que não são dinheiro, ou um rácio entre dois dinheiros;
+# 4. o nome a dizer que é (amount, revenue, price, ventas…);
+# 5. a descrição da coluna («Importe en €» / «Duración en segundos»);
+# 6. a linhagem a dizer que é (vem de uma coluna de dinheiro), ou um nome
+#    só de palavras fracas («total», «valor_medio»);
+# 7. senão, NÃO é dinheiro. Na dúvida não se põe «€».
+
+#: «(unit: s)» nas instruções — é como o backend escreve as métricas
+#: (``render_knowledge_for_prompt``: «- Nome [TAG] — descrição (unit: s)»).
+_METRICA_COM_UNIDADE = re.compile(
+    r"^[ \t]*[-*][ \t]*\**(?P<nome>[^\[\n—(*]+)\**[ \t]*(?:\[[^\]\n]*\])?"
+    r"[^\n]*?\(unit:[ \t]*(?P<unidade>[^)\n]+)\)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_UNIDADES_DE_MOEDA = {
+    "€": "EUR", "eur": "EUR", "euro": "EUR", "euros": "EUR",
+    "$": "USD", "usd": "USD", "dollar": "USD", "dollars": "USD",
+    "r$": "BRL", "brl": "BRL", "£": "GBP", "gbp": "GBP",
+}  # fmt: skip
+
+
+def _normalizar_unidade(bruta: str) -> Optional[str]:
+    """«EUR», «€», «€/l» → código de moeda; «s», «segundos», «%»… → a
+    unidade deste ficheiro; o resto → None."""
+    u = (bruta or "").strip().lower()
+    if not u:
+        return None
+    base = u.split("/")[0].strip()
+    if base in _UNIDADES_DE_MOEDA:
+        return _UNIDADES_DE_MOEDA[base]
+    if u in ("%", "percent", "percentage", "pct", "porcentaje", "percentagem"):
+        return "%"
+    for palavras, unidade in UNIDADES_POR_NOME:
+        if u in palavras or u == unidade:
+            return unidade
+    if u in ("s", "h", "unit"):
+        return {"unit": "un"}.get(u, u)
+    return None
+
+
+def _chave(nome: str) -> str:
+    """«Tiempo de servicio» e ``tiempo_de_servicio`` dão a mesma chave."""
+    sem_acentos = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", (nome or "").lower())
+        if not unicodedata.combining(ch)
+    )
+    return "_".join(p for p in re.split(r"[^a-z0-9]+", sem_acentos) if p)
+
+
+def unidades_das_metricas(instrucoes: Optional[str]) -> Dict[str, str]:
+    """``{nome da métrica normalizado: unidade}`` a partir das instruções.
+
+    Dinheiro sai como código de moeda («EUR»); «s», «%», «un»… como as
+    unidades deste ficheiro. Uma unidade que não se conhece («pedidos»)
+    fica «-»: diz que NÃO é dinheiro, sem acrescentar sufixo nenhum.
+    """
+    out: Dict[str, str] = {}
+    for m in _METRICA_COM_UNIDADE.finditer(instrucoes or ""):
+        chave = _chave(m.group("nome"))
+        if chave:
+            out[chave] = _normalizar_unidade(m.group("unidade")) or "-"
+    return out
+
+
+def _unidade_da_metrica(
+    coluna: str, metricas: Optional[Dict[str, str]]
+) -> Optional[str]:
+    if not metricas:
+        return None
+    return metricas.get(_chave(coluna))
+
+
+def _e_moeda(unidade: Optional[str]) -> bool:
+    return bool(unidade) and unidade in set(_UNIDADES_DE_MOEDA.values())
+
+
+def _parse_sql(sql: Optional[str]):
+    if not sql:
+        return None
+    try:
+        import sqlglot
+    except Exception:  # pragma: no cover
+        return None
+    for dialecto in ("postgres", None):
+        try:
+            return sqlglot.parse_one(sql, read=dialecto)
+        except Exception:
+            continue
+    return None
+
+
+def _dinheiro_pelo_sql(sql: Optional[str]) -> Dict[str, bool]:
+    """``{alias: é dinheiro?}`` pela linhagem do SQL — só os que se sabem."""
+    arvore = _parse_sql(sql)
+    if arvore is None:
+        return {}
+    from sqlglot import exp
+
+    out: Dict[str, bool] = {}
+
+    def e_din(nome: str) -> bool:
+        return out[nome] if nome in out else e_dinheiro(nome)
+
+    def nao_e(nome: str) -> bool:
+        if nome in out:
+            return not out[nome]
+        return _nao_e_dinheiro_pelo_nome(nome) or _e_identificador(nome)
+
+    def colunas_em(no) -> set:
+        return {c.name.lower() for c in no.find_all(exp.Column)}
+
+    aliases = list(arvore.find_all(exp.Alias))
+    for _ in range(3):  # aliases de CTE usados mais acima
+        mudou = False
+        for a in aliases:
+            nome = (a.alias or "").lower()
+            if not nome or nome in out:
+                continue
+            corpo = a.this
+            fontes = colunas_em(corpo)
+            com_dinheiro = any(e_din(f) for f in fontes)
+            contagem = any(isinstance(n, exp.Count) for n in corpo.walk())
+            # SUM(a.total) / SUM(b.total): dinheiro sobre dinheiro é um rácio.
+            racio = any(
+                any(e_din(f) for f in colunas_em(d.this))
+                and any(e_din(f) for f in colunas_em(d.expression))
+                for d in corpo.find_all(exp.Div)
+            )
+            if racio:
+                out[nome] = False
+            elif com_dinheiro:
+                out[nome] = True
+            elif contagem or (fontes and all(nao_e(f) for f in fontes)):
+                out[nome] = False
+            else:
+                continue
+            mudou = True
+        if not mudou:
+            break
+    return out
+
+
+_DESCRICAO_DINHEIRO = re.compile(
+    r"€|\beur\b|\beuros?\b|\bimporte\b|\bprecio\b|\bpre[çc]o\b|\bprice\b", re.I
+)
+_DESCRICAO_QUANTIDADE = re.compile(
+    r"\bunidades?\b|\bunits?\b|\bcantidad\b|\bquantidade\b|\bquantity\b"
+    r"|\bn[úu]mero de\b|\bnumber of\b|\bcount\b|\bconteo\b",
+    re.I,
+)
+
+
+def _dinheiro_pela_descricao(descricao: Optional[str]) -> Optional[bool]:
+    d = descricao or ""
+    if not d:
+        return None
+    if _DESCRICAO_DINHEIRO.search(d):
+        return True
+    if unidade_da_descricao(d) or _DESCRICAO_QUANTIDADE.search(d):
+        return False
+    return None
+
+
+def _classificar_colunas(
+    colunas: Optional[Iterable[str]],
+    sql: Optional[str] = None,
+    descricoes: Optional[Dict[str, str]] = None,
+    metricas: Optional[Dict[str, str]] = None,
+) -> Dict[str, Optional[bool]]:
+    """``{coluna: True (dinheiro) | False (sabe-se que não é) | None (não
+    se sabe)}``. Ver a ordem lá em cima. ``None`` conta como «não é» para
+    nunca ACRESCENTAR «€»; mas um «€» que o modelo escreveu num valor de
+    uma coluna ``None`` fica (``media`` do gasóleo é €/l e o nome não o diz).
+    """
+    descricoes = {str(k).lower(): v for k, v in (descricoes or {}).items()}
+    try:
+        pelo_sql = _dinheiro_pelo_sql(sql)
+    except Exception:
+        pelo_sql = {}
+    out: Dict[str, Optional[bool]] = {}
+    for c in colunas or []:
+        nome = str(c)
+        chave = nome.lower()
+        u = _unidade_da_metrica(nome, metricas)
+        if u:
+            out[c] = _e_moeda(u)
+        elif _e_identificador(nome) or _nao_e_dinheiro_pelo_nome(nome):
+            out[c] = False
+        elif pelo_sql.get(chave) is False:
+            out[c] = False
+        elif _palavras(nome) & PALAVRAS_DE_DINHEIRO:
+            out[c] = True
+        elif _dinheiro_pela_descricao(descricoes.get(chave)) is not None:
+            out[c] = _dinheiro_pela_descricao(descricoes.get(chave))
+        elif pelo_sql.get(chave) or e_dinheiro(nome):
+            out[c] = True
+        else:
+            out[c] = None
+    return out
+
+
+def colunas_de_dinheiro(
+    colunas: Optional[Iterable[str]],
+    sql: Optional[str] = None,
+    descricoes: Optional[Dict[str, str]] = None,
+    metricas: Optional[Dict[str, str]] = None,
+) -> set:
+    """As colunas do resultado que são dinheiro. Ver a ordem lá em cima."""
+    return {
+        c
+        for c, v in _classificar_colunas(colunas, sql, descricoes, metricas).items()
+        if v
+    }
 
 
 def descricoes_das_colunas(
@@ -447,8 +800,13 @@ def regras_de_numeros(
     colunas: Optional[Iterable[str]] = None,
     moeda_pedida: Optional[str] = None,
     unidades: Optional[Dict[str, str]] = None,
+    dinheiro: Optional[Iterable[str]] = None,
 ) -> str:
     """O bloco que entra no prompt do formatador.
+
+    ``dinheiro`` (ver ``colunas_de_dinheiro``): as colunas que são
+    dinheiro. O prompt NOMEIA-as — «this answer reports monetary values»
+    sozinho fazia o modelo pôr «€» em tudo («2.508,00 € unidades», 13/10).
 
     Escrito em inglês como o resto do prompt: misturar línguas dentro de um
     prompt faz modelos pequenos responderem na língua das instruções em vez
@@ -459,12 +817,16 @@ def regras_de_numeros(
     # feliz: e a convencao europeia, e a Sky vende-se na Europa.
     if lingua in ("pt", "es"):
         milhares, decimal, exemplo = "a dot (.)", "a comma (,)", "192.022,60"
-        exemplo_inteiro = "17"
+        exemplo_inteiro, exemplo_milhar, sem_milhar = "17", "4.526", "4526"
     else:
         milhares, decimal, exemplo = "a comma (,)", "a dot (.)", "192,022.60"
-        exemplo_inteiro = "17"
+        exemplo_inteiro, exemplo_milhar, sem_milhar = "17", "4,526", "4526"
 
-    moeda = moeda_provavel(colunas, lingua, moeda_pedida)
+    colunas = list(colunas or [])
+    if dinheiro is None:
+        dinheiro = {c for c in colunas if e_dinheiro(c)}
+    moeda = moeda_provavel(colunas, lingua, moeda_pedida, dinheiro)
+    nao_dinheiro = [c for c in colunas if c not in dinheiro and not _e_identificador(c)]
 
     linhas = [
         "",
@@ -474,6 +836,8 @@ def regras_de_numeros(
         f"- Example of a correctly written amount: {exemplo}",
         "- COUNTS (invoices, customers, orders, days) have NO decimals at all:",
         f"  write {exemplo_inteiro}, never {exemplo_inteiro},0 or {exemplo_inteiro}.0.",
+        f"  From 1000 up they carry the thousands separator: {exemplo_milhar},",
+        f"  never {sem_milhar}.",
         "- Never leave a single trailing decimal digit. It is float noise, not a",
         "  measurement.",
         "- Do NOT change any digit while reformatting. Only the separators move.",
@@ -494,9 +858,25 @@ def regras_de_numeros(
                 f"  number: {s}192,022.60",
             ]
         linhas += [
+            "- ONLY these columns are money: "
+            + ", ".join(c for c in colunas if c in dinheiro)[:400]
+            + ".",
             "- Do NOT convert between currencies. The number is already in the",
-            f"  currency above; report it as it is.",
+            "  currency above; report it as it is.",
         ]
+        if nao_dinheiro:
+            errado = (
+                f"{exemplo_milhar},00 {s} units"
+                if lingua in ("pt", "es")
+                else f"{s}{exemplo_milhar}.00 units"
+            )
+            linhas += [
+                "- These columns are NOT money (counts, quantities, units, orders,",
+                "  percentages, durations): " + ", ".join(nao_dinheiro)[:400] + ".",
+                f"  Their numbers NEVER carry {s} or any currency symbol, and whole",
+                f"  numbers carry no decimals: «{exemplo_milhar} units», never",
+                f"  «{errado}».",
+            ]
     else:
         linhas += [
             "- No monetary column was detected in this result. Do NOT attach a",
@@ -568,6 +948,7 @@ def _numero(valor: Any) -> Optional[float]:
 
 def valores_do_resultado(
     linhas: Optional[Sequence[Dict[str, Any]]],
+    colunas_dinheiro: Optional[Iterable[str]] = None,
 ) -> Tuple[List[float], List[float]]:
     """(valores de dinheiro, outros valores numéricos) do resultado.
 
@@ -589,7 +970,7 @@ def valores_do_resultado(
         ]
         if not vals:
             continue
-        if e_dinheiro(c):
+        if _e_dinheiro_na(c, colunas_dinheiro):
             dinheiro += vals
             if len(vals) > 1:
                 dinheiro += [sum(vals), sum(vals) / len(vals), min(vals), max(vals)]
@@ -600,13 +981,14 @@ def valores_do_resultado(
 
 def valores_por_litro(
     linhas: Optional[Sequence[Dict[str, Any]]],
+    colunas_dinheiro: Optional[Iterable[str]] = None,
 ) -> List[float]:
     """Os valores (e média/mínimo/máximo) das colunas de preço por litro."""
     out: List[float] = []
     if not linhas or not isinstance(linhas[0], dict):
         return out
     for c in list(linhas[0].keys()):
-        if not e_preco_por_litro(c):
+        if not e_preco_por_litro(c) or not _e_dinheiro_na(c, colunas_dinheiro):
             continue
         vals = [
             v
@@ -622,6 +1004,7 @@ def valores_por_litro(
 def valores_com_unidade(
     linhas: Optional[Sequence[Dict[str, Any]]],
     unidades: Optional[Dict[str, str]],
+    colunas_dinheiro: Optional[Iterable[str]] = None,
 ) -> Tuple[List[Tuple[float, str]], List[float]]:
     """([(valor, unidade)], [valores sem unidade]) do resultado.
 
@@ -636,7 +1019,7 @@ def valores_com_unidade(
     if not linhas or not isinstance(linhas[0], dict):
         return com, sem
     for c in list(linhas[0].keys()):
-        if _e_identificador(c) or e_dinheiro(c):
+        if _e_identificador(c) or _e_dinheiro_na(c, colunas_dinheiro):
             continue
         vals = [
             v
@@ -706,7 +1089,11 @@ def _leituras(token: str) -> List[float]:
     out: List[float] = []
     for milhares, decimal in ((".", ","), (",", ".")):  # pt/es, depois en
         inteira, _, frac = s.partition(decimal)
-        if decimal in frac:
+        # «2.508,00» lido à inglesa: «2» + «.508,00». Não é leitura — e
+        # antes rebentava com ValueError e a correcção inteira caía
+        # (formatador: texto do modelo tal e qual; streaming: mensagem de
+        # erro no lugar da resposta). 13/10/2026.
+        if decimal in frac or milhares in frac:
             continue
         grupos = inteira.split(milhares)
         # Um separador de milhares tem sempre três algarismos à direita:
@@ -724,14 +1111,20 @@ def _igual(a: float, b: float) -> bool:
 
 
 def formatar_valor(
-    valor: float, lingua: str, dinheiro: bool = False, simbolo: str = "€"
+    valor: float,
+    lingua: str,
+    dinheiro: bool = False,
+    simbolo: str = "€",
+    agrupar: bool = False,
 ) -> str:
     """Um número escrito à maneira de quem lê.
 
     pt/es: ``6.153.185,72 €``; en: ``€6,153,185.72``. Dinheiro leva sempre
     duas casas; contagens nenhuma; inteiros abaixo de 10 000 que não são
     dinheiro ficam sem separador (``2026`` é um ano tantas vezes quanto é
-    uma contagem).
+    uma contagem). ``agrupar``: o número é um valor de uma coluna do
+    resultado que não é ano nem identificador — uma contagem — e leva
+    separador desde 1000 («4.526 pedidos», 13/10/2026).
     """
     europeu = lingua in ("pt", "es")
     negativo = valor < 0
@@ -739,7 +1132,7 @@ def formatar_valor(
     if dinheiro:
         s = f"{v:,.2f}"
     elif float(v).is_integer():
-        s = f"{int(v)}" if v < 10000 else f"{int(v):,}"
+        s = f"{int(v)}" if v < 10000 and not agrupar else f"{int(v):,}"
     else:
         s = f"{v:,.2f}"
     if europeu:
@@ -818,6 +1211,8 @@ def corrigir_numeros(
     linhas: Optional[Sequence[Dict[str, Any]]] = None,
     moeda_pedida: Optional[str] = None,
     unidades: Optional[Dict[str, str]] = None,
+    colunas_dinheiro: Optional[Iterable[str]] = None,
+    colunas_nao_dinheiro: Optional[Iterable[str]] = None,
 ) -> str:
     """Reescreve os números da resposta no formato de quem lê. Ver o topo.
 
@@ -827,8 +1222,28 @@ def corrigir_numeros(
     if not texto:
         return texto
     lingua = (lingua or "en").split("-")[0].lower()
-    dinheiro, outros = valores_do_resultado(linhas)
-    com_unidade, sem_unidade = valores_com_unidade(linhas, unidades)
+    dinheiro, outros = valores_do_resultado(linhas, colunas_dinheiro)
+    com_unidade, sem_unidade = valores_com_unidade(linhas, unidades, colunas_dinheiro)
+    # Valores de colunas que se SABE que não são dinheiro (quantidade,
+    # pedidos, segundos, COUNT…): um «€» colado a um destes sai.
+    if colunas_nao_dinheiro is None:
+        colunas_nao_dinheiro = {
+            c
+            for c in (
+                linhas[0].keys() if linhas and isinstance(linhas[0], dict) else []
+            )
+            if _nao_e_dinheiro_pelo_nome(c) or c in (unidades or {})
+        }
+    nao_dinheiro_set = set(colunas_nao_dinheiro)
+    sem_euro = [
+        v
+        for r in (linhas or [])
+        if isinstance(r, dict)
+        for c, x in r.items()
+        if c in nao_dinheiro_set and not _e_identificador(c)
+        for v in [_numero(x)]
+        if v is not None
+    ]
 
     def unidade_de(r: float) -> Optional[str]:
         achadas = {u for v, u in com_unidade if _igual(r, v)}
@@ -844,7 +1259,7 @@ def corrigir_numeros(
 
     moeda = (moeda_pedida or MOEDA_POR_LINGUA.get(lingua, "EUR")).upper()
     simbolo = SIMBOLO.get(moeda, moeda)
-    por_litro = valores_por_litro(linhas)
+    por_litro = valores_por_litro(linhas, colunas_dinheiro)
 
     def dinheiro_de(v: float, m: "re.Match[str]") -> str:
         escrito = formatar_valor(v, lingua, True, simbolo)
@@ -872,17 +1287,25 @@ def corrigir_numeros(
             for v in dinheiro:
                 if _igual(r, v):
                     return dinheiro_de(v, m)
-        if not tem_moeda and com_unidade:
+        # Daqui para baixo o número NÃO é valor de dinheiro do resultado.
+        # Se é valor de uma coluna que não é dinheiro (quantidade, pedidos,
+        # segundos…), o «€» que o modelo lhe colou sai: «2.508,00 €
+        # unidades» → «2.508 unidades» (13/10/2026).
+        if com_unidade:
             for r in leituras:
                 u = unidade_de(r)
                 if u:
-                    return formatar_valor(r, lingua) + _sufixo_de_unidade(
-                        texto, m.end(), u, lingua
+                    return formatar_valor(r, lingua, agrupar=True) + (
+                        _sufixo_de_unidade(texto, m.end(), u, lingua)
                     )
         for r in leituras:
             for v in outros:
                 if _igual(r, v):
-                    return formatar_valor(v, lingua, tem_moeda, simbolo)
+                    if tem_moeda and not any(_igual(r, x) for x in sem_euro):
+                        # Coluna que não se sabe o que é, e o modelo pôs
+                        # «€»: fica (``media`` do gasóleo é €/l).
+                        return formatar_valor(v, lingua, True, simbolo)
+                    return formatar_valor(v, lingua, agrupar=True)
         # Arredondado pelo modelo («6.153.186 €») — só em valores grandes,
         # para uma contagem de 12 nunca virar o preço de 12,40 €.
         if not re.search(r"[.,]\d{1,2}$", token):
@@ -910,23 +1333,59 @@ def corrigir_resposta(
     descricoes: Optional[Dict[str, str]] = None,
     pergunta: Optional[str] = None,
     unidades: Optional[Dict[str, str]] = None,
+    instrucoes: Optional[str] = None,
+    colunas_dinheiro: Optional[Iterable[str]] = None,
+    colunas_nao_dinheiro: Optional[Iterable[str]] = None,
 ) -> str:
     """A resposta final: na segunda pessoa, entidades pelo nome e não pelo
     id, nomes próprios copiados dos dados, e números à maneira de quem lê,
-    com moeda e unidade."""
+    com moeda (só nas colunas de dinheiro) e unidade.
+
+    ``instrucoes``: o texto onde o backend põe as métricas do espaço
+    («(unit: s)») — a unidade de uma métrica ganha ao nome da coluna."""
     if not texto:
         return texto
     from core.llm.nomes import corrigir_nomes, nomear_ids
 
-    if unidades is None:
+    if colunas_dinheiro is None or unidades is None:
         colunas = (
             list(linhas[0].keys()) if linhas and isinstance(linhas[0], dict) else []
         )
-        unidades = unidades_do_resultado(colunas, sql, descricoes)
+        colunas_dinheiro, colunas_nao_dinheiro, unidades_calc = analisar_colunas(
+            colunas, sql, descricoes, instrucoes
+        )
+        if unidades is None:
+            unidades = unidades_calc
     texto = falar_com_quem_pergunta(texto)
     texto = nomear_ids(texto, linhas)
     texto = corrigir_nomes(texto, linhas, pergunta)
-    return corrigir_numeros(texto, lingua, linhas, moeda_pedida, unidades)
+    return corrigir_numeros(
+        texto,
+        lingua,
+        linhas,
+        moeda_pedida,
+        unidades,
+        colunas_dinheiro,
+        colunas_nao_dinheiro,
+    )
+
+
+def analisar_colunas(
+    colunas: Optional[Iterable[str]],
+    sql: Optional[str] = None,
+    descricoes: Optional[Dict[str, str]] = None,
+    instrucoes: Optional[str] = None,
+) -> Tuple[set, set, Dict[str, str]]:
+    """(colunas de dinheiro, colunas que se SABE que não são dinheiro,
+    ``{coluna: unidade}``) — a mesma decisão para o prompt e para a
+    correcção, no caminho escrito e no streaming."""
+    colunas = list(colunas or [])
+    metricas = unidades_das_metricas(instrucoes)
+    classes = _classificar_colunas(colunas, sql, descricoes, metricas)
+    dinheiro = {c for c, v in classes.items() if v}
+    unidades = unidades_do_resultado(colunas, sql, descricoes, dinheiro, metricas)
+    nao_dinheiro = {c for c, v in classes.items() if v is False} | set(unidades)
+    return dinheiro, nao_dinheiro, unidades
 
 
 #: O fim do texto que ainda pode ser metade de um número («6 153») ou de um
@@ -970,6 +1429,7 @@ class CorrecaoEmFluxo:
         sql: Optional[str] = None,
         descricoes: Optional[Dict[str, str]] = None,
         pergunta: Optional[str] = None,
+        instrucoes: Optional[str] = None,
     ) -> None:
         self.lingua = lingua
         self.linhas = linhas
@@ -979,7 +1439,9 @@ class CorrecaoEmFluxo:
             list(linhas[0].keys()) if linhas and isinstance(linhas[0], dict) else []
         )
         # Calculadas uma vez: o SQL não muda a meio da resposta.
-        self.unidades = unidades_do_resultado(colunas, sql, descricoes)
+        self.dinheiro, self.nao_dinheiro, self.unidades = analisar_colunas(
+            colunas, sql, descricoes, instrucoes
+        )
         self.bruto = ""
         self.enviado = ""
 
@@ -991,6 +1453,8 @@ class CorrecaoEmFluxo:
             self.moeda_pedida,
             pergunta=self.pergunta,
             unidades=self.unidades,
+            colunas_dinheiro=self.dinheiro,
+            colunas_nao_dinheiro=self.nao_dinheiro,
         )
 
     def _corte(self) -> int:
