@@ -35,6 +35,24 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Algo correu mal do nosso lado ao responder a esta pergunta — não é problema dos seus dados nem do seu acesso. O erro ficou registado. Tente de novo e avise um administrador se continuar.",
         "es": "Algo falló de nuestro lado al responder a esta pregunta — no es un problema de sus datos ni de su acceso. El error quedó registrado. Inténtelo de nuevo y avise a su administrador si continúa.",
     },
+    # Pergunta que cruza várias ligações (core/llm/merger.py). A causa é
+    # conhecida, por isso diz-se qual — nunca o TECHNICAL_ERROR genérico
+    # (produção 13/10/2026: «Algo falló…» com a fatia `stores` bloqueada).
+    "MULTI_SOURCE_PARTIAL": {
+        "en": "Note: I couldn't get the data from {faltam}, so this answer only uses {usadas}.",
+        "pt": "Nota: não consegui obter os dados de {faltam}, por isso esta resposta usa só {usadas}.",
+        "es": "Nota: no pude obtener los datos de {faltam}, así que esta respuesta usa solo {usadas}.",
+    },
+    "MULTI_SOURCE_NO_SLICES": {
+        "en": "This question needs data from several sources, and I couldn't get it from {faltam}. Try asking about each one separately.",
+        "pt": "Esta pergunta precisa de dados de várias fontes e não os consegui obter de {faltam}. Experimente perguntar sobre cada uma em separado.",
+        "es": "Esta pregunta necesita datos de varias fuentes y no pude obtenerlos de {faltam}. Pruebe a preguntar por cada una por separado.",
+    },
+    "MULTI_SOURCE_MERGE_FAILED": {
+        "en": "I got the data from {usadas}, but I couldn't combine them to answer this question. Try asking about each one separately.",
+        "pt": "Obtive os dados de {usadas}, mas não os consegui combinar para responder a esta pergunta. Experimente perguntar sobre cada uma em separado.",
+        "es": "Obtuve los datos de {usadas}, pero no pude combinarlos para responder a esta pregunta. Pruebe a preguntar por cada una por separado.",
+    },
     # O que a pessoa perguntou nao existe nos dados — dito com franqueza e
     # com uma alternativa, nunca inventado. Ver core/llm/conceito_em_falta.py.
     "MISSING_CONCEPT": {
