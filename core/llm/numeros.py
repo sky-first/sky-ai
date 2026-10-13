@@ -845,17 +845,20 @@ def regras_de_numeros(
 
     if moeda:
         s = SIMBOLO.get(moeda, moeda)
+        # Cêntimos só quando há (13/10/2026): a mesma regra da web e da app.
         if lingua in ("pt", "es"):
             linhas += [
-                f"- MONEY: this answer reports monetary values in {moeda}. Write every",
-                f"  monetary amount with EXACTLY two decimals and the symbol AFTER the",
-                f"  number, separated by a space: 192.022,60 {s}",
+                f"- MONEY: this answer reports monetary values in {moeda}. Write the",
+                "  symbol AFTER the number, separated by a space. A whole amount has",
+                f"  NO decimals: 412.300 {s}, never 412.300,00 {s}. An amount with",
+                f"  cents has EXACTLY two decimals: 1.234,50 {s}, never 1.234,5 {s}.",
             ]
         else:
             linhas += [
-                f"- MONEY: this answer reports monetary values in {moeda}. Write every",
-                f"  monetary amount with EXACTLY two decimals and the symbol BEFORE the",
-                f"  number: {s}192,022.60",
+                f"- MONEY: this answer reports monetary values in {moeda}. Write the",
+                "  symbol BEFORE the number. A whole amount has NO decimals:",
+                f"  {s}412,300, never {s}412,300.00. An amount with cents has EXACTLY",
+                f"  two decimals: {s}1,234.50, never {s}1,234.5.",
             ]
         linhas += [
             "- ONLY these columns are money: "
@@ -1119,18 +1122,28 @@ def formatar_valor(
 ) -> str:
     """Um número escrito à maneira de quem lê.
 
-    pt/es: ``6.153.185,72 €``; en: ``€6,153,185.72``. Dinheiro leva sempre
-    duas casas; contagens nenhuma; inteiros abaixo de 10 000 que não são
-    dinheiro ficam sem separador (``2026`` é um ano tantas vezes quanto é
-    uma contagem). ``agrupar``: o número é um valor de uma coluna do
-    resultado que não é ano nem identificador — uma contagem — e leva
-    separador desde 1000 («4.526 pedidos», 13/10/2026).
+    pt/es: ``6.153.185,72 €``; en: ``€6,153,185.72``. Dinheiro: cêntimos
+    só quando há — redondo sem «,00» («412.300 €»), com cêntimos sempre as
+    duas casas («1.234,50 €», nunca «1.234,5 €»); decisão do Lucas a
+    13/10/2026, a mesma regra de ``formatarNumero`` na web
+    (``sky-frontend/src/lib/numeros.ts``) e na app. Contagens nenhuma casa;
+    inteiros abaixo de 10 000 que não são dinheiro ficam sem separador
+    (``2026`` é um ano tantas vezes quanto é uma contagem). ``agrupar``: o
+    número é um valor de uma coluna do resultado que não é ano nem
+    identificador — uma contagem — e leva separador desde 1000 («4.526
+    pedidos», 13/10/2026).
     """
     europeu = lingua in ("pt", "es")
     negativo = valor < 0
     v = abs(valor)
     if dinheiro:
+        # Arredonda-se primeiro a duas casas e só depois se decide se é
+        # redondo: 1234,999 é «1.235 €». O que arredonda a zero não leva
+        # sinal («-0 €» não existe) — como na web.
         s = f"{v:,.2f}"
+        if s.endswith(".00"):
+            s = s[:-3]
+        negativo = negativo and s != "0"
     elif float(v).is_integer():
         s = f"{int(v)}" if v < 10000 and not agrupar else f"{int(v):,}"
     else:

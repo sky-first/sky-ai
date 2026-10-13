@@ -67,8 +67,13 @@ class TestAsRegrasQueVaoParaOPrompt:
         assert "192,022.60" in r
 
     def test_o_simbolo_vem_depois_em_portugues(self):
-        # `192.022,60 €`, e nao `€192.022,60`. E a convencao de quem le.
-        assert "192.022,60 €" in regras_de_numeros("pt", ["amount"])
+        # `1.234,50 €`, e nao `€1.234,50`. E a convencao de quem le.
+        # Antes fixava «192.022,60 €» (o exemplo do #290, sempre com duas
+        # casas). Desde 13/10/2026 o exemplo de dinheiro mostra os dois
+        # casos — redondo sem «,00» e com centimos — e o simbolo vem depois
+        # em ambos (ver test_dinheiro_centimos_so_quando_ha.py).
+        r = regras_de_numeros("pt", ["amount"])
+        assert "412.300 €" in r and "1.234,50 €" in r
 
     def test_proibe_a_casa_decimal_solta(self):
         """`265.221,0` — nem inteiro nem dinheiro.
