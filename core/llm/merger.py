@@ -290,6 +290,9 @@ def _generate_merger_prompt(
             "5. Handle type mismatches (e.g., cast string to int if needed) using DuckDB syntax.\n"
             "6. The data is already filtered by each source query: do not re-apply "
             "date filters with functions on columns that are not in the tables.\n"
+            "7. Join the tables ONLY on columns they share (ids such as store_id). "
+            "Never CROSS JOIN, comma-join or `ON TRUE` two of these tables: it "
+            "multiplies rows and the numbers come out wrong.\n"
         ),
     }
 
@@ -343,6 +346,89 @@ def tabelas_desconhecidas(sql: str, nomes: List[str]) -> List[str]:
             if completo not in fora:
                 fora.append(completo)
     return fora
+
+
+def _chaves_da_fatia(nome: str, columns: List[str]) -> set:
+    """Nomes de coluna por onde a fatia se pode ligar às outras.
+
+    Inclui ``<tabela_no_singular>_id`` quando a fatia tem ``id`` — para que
+    ``stores.id`` ligue a ``orders.store_id``.
+    """
+    chaves = {c.lower() for c in columns}
+    if "id" in chaves:
+        base = _nome_duckdb(nome)
+        singular = base[:-1] if base.endswith("s") else base
+        chaves.add(f"{singular}_id")
+        chaves.add(f"{base}_id")
+    return chaves
+
+
+def grupos_sem_ligacao(
+    partial_results: List[Dict[str, Any]], nomes: List[str]
+) -> List[List[str]]:
+    """Agrupa as fatias pelas colunas que partilham; >1 grupo = sem caminho.
+
+    Medido com os modelos de produção (13/10/2026, «ventas por tienda y
+    familia de producto»): ``orders`` vinha agregada por loja e
+    ``order_items`` por prato — nenhuma coluna em comum. Sem caminho de
+    junção o modelo inventava (CROSS JOIN, ou UNION com NULLs e «todas as
+    lojas com 0 €»). Decide-se SEM o modelo: não há junção possível.
+    """
+    chaves = [
+        _chaves_da_fatia(n, _colunas_e_amostra(r.get("data", []))[0])
+        for n, r in zip(nomes, partial_results)
+    ]
+    grupo = list(range(len(nomes)))
+
+    def raiz(i: int) -> int:
+        while grupo[i] != i:
+            grupo[i] = grupo[grupo[i]]
+            i = grupo[i]
+        return i
+
+    for i in range(len(nomes)):
+        for j in range(i + 1, len(nomes)):
+            if chaves[i] & chaves[j]:
+                grupo[raiz(i)] = raiz(j)
+    grupos: Dict[int, List[str]] = {}
+    for i, n in enumerate(nomes):
+        grupos.setdefault(raiz(i), []).append(n)
+    return list(grupos.values())
+
+
+def juncoes_sem_chave(sql: str, nomes: List[str]) -> List[str]:
+    """Fatias juntadas sem chave (CROSS JOIN, vírgula, ``ON TRUE``, ``ON 1=1``).
+
+    Medido com os modelos de produção (13/10/2026): sem coluna comum entre
+    as fatias, o modelo fazia ``CROSS JOIN`` e devolvia um número inventado
+    com ar de certo. Só conta quando o lado juntado é uma FATIA registada —
+    juntar a um CTE/subconsulta de uma linha (ex.: o total, para
+    percentagens) é legítimo.
+    """
+    try:
+        import sqlglot
+        from sqlglot import exp
+
+        arvore = sqlglot.parse_one(sql, read="duckdb")
+    except Exception:
+        return []
+    fatias = {n.lower() for n in nomes}
+    ctes = {c.alias_or_name.lower() for c in arvore.find_all(exp.CTE)}
+    sem_chave = []
+    for j in arvore.find_all(exp.Join):
+        alvo = j.this
+        if not isinstance(alvo, exp.Table):
+            continue
+        nome = (alvo.name or "").lower()
+        if nome not in fatias or nome in ctes:
+            continue
+        on = j.args.get("on")
+        tem_chave = bool(j.args.get("using")) or (
+            on is not None and any(True for _ in on.find_all(exp.Column))
+        )
+        if not tem_chave and nome not in sem_chave:
+            sem_chave.append(nome)
+    return sem_chave
 
 
 def _pedir_sql(llm: LLMProvider, prompt: List[Dict[str, str]]) -> str:
@@ -413,6 +499,18 @@ def run_merger(
         return state
 
     nomes = nomes_das_fatias(partial_results)
+    grupos = grupos_sem_ligacao(partial_results, nomes)
+    if len(grupos) > 1:
+        state["merge_failure"] = {
+            "kind": "merge_failed",
+            "failed": [f.get("table") for f in failed_slices],
+            "ok": [r.get("table") for r in partial_results],
+        }
+        state["debug_error"] = f"Merger: slices share no join column: {grupos}"
+        state["data"] = []
+        log_event("merger_no_join_key", {"groups": grupos})
+        return state
+
     prompt = _generate_merger_prompt(
         question, partial_results, plan, nomes=nomes, failed_slices=failed_slices
     )
@@ -432,10 +530,18 @@ def run_merger(
         erro = None
         for tentativa in range(2):
             fora = tabelas_desconhecidas(sql_query, nomes)
+            sem_chave = [] if fora else juncoes_sem_chave(sql_query, nomes)
             if fora:
                 erro = (
                     f"Unknown table(s) {fora}. The only tables that exist are "
                     f"{nomes} (no schema prefix)."
+                )
+            elif sem_chave:
+                erro = (
+                    f"Table(s) {sem_chave} joined without a key (CROSS JOIN, comma "
+                    "or ON TRUE): that multiplies rows and invents numbers. Join "
+                    "on a column the tables share; if they share none, they "
+                    "cannot be combined."
                 )
             else:
                 try:

@@ -640,3 +640,83 @@ def test_cinco_fatias_tem_nomes_distintos_no_duckdb():
     )
     assert nomes == ["orders", "orders_2", "pedidos_2026", "t_2026_ventas", "stores"]
     assert len(set(nomes)) == 5
+
+
+FATIA_ORDERS_POR_LOJA = {
+    "table": "orders",
+    "data": [{"store_id": 1, "pedidos": 10}, {"store_id": 2, "pedidos": 30}],
+    "sql": "SELECT store_id, COUNT(*) AS pedidos ...",
+    "metadata": {},
+}
+FATIA_ITENS_POR_PRATO = {
+    "table": "order_items",
+    "data": [{"product_id": 7, "unidades": 50}],
+    "sql": "SELECT product_id, SUM(quantity) AS unidades ...",
+    "metadata": {},
+}
+
+
+def test_fatias_sem_coluna_em_comum_nao_chegam_ao_modelo():
+    """Medido com os modelos de produção («ventas por tienda y familia de
+    producto», 4 tabelas em 3 ligações): orders vinha agregada por loja e
+    order_items por prato — nenhum caminho de junção. O merger fazia CROSS
+    JOIN (544.008 € inventados) ou UNION com NULLs («todas as lojas com
+    0 €»). Agora decide-se sem o modelo e diz-se que não deu para combinar."""
+    modelo = _Modelo(SQL_MERGER_3)
+    st = _merger(
+        [FATIA_STORES, FATIA_ORDERS_POR_LOJA, FATIA_ITENS_POR_PRATO, FATIA_PRODUCTS_3],
+        modelo,
+        pergunta=PERGUNTA_3,
+    )
+    assert modelo.chamadas == []
+    assert not st.get("data")
+    assert st["merge_failure"]["kind"] == "merge_failed"
+    st = _formatar({**st, "question": PERGUNTA_3})
+    assert TECHNICAL_ES not in st["answer"] and "combinar" in st["answer"]
+
+
+def test_grupos_de_ligacao_reconhecem_id_contra_tabela_id():
+    from core.llm.merger import grupos_sem_ligacao
+
+    lojas_com_id = {"table": "stores", "data": [{"id": 1, "store_name": "Centro"}]}
+    assert grupos_sem_ligacao(
+        [FATIA_ORDERS_POR_LOJA, lojas_com_id], ["orders", "stores"]
+    ) == [["orders", "stores"]]
+    assert (
+        len(
+            grupos_sem_ligacao(
+                [FATIA_ORDERS_POR_LOJA, FATIA_ITENS_POR_PRATO],
+                ["orders", "order_items"],
+            )
+        )
+        == 2
+    )
+
+
+def test_cross_join_entre_fatias_e_recusado_e_acaba_em_mensagem_honesta():
+    """Há chave (store_id), mas o modelo junta sem ela: recusado antes do
+    DuckDB, nova tentativa e, se insistir, a resposta diz que não combinou."""
+    modelo = _Modelo(
+        "```sql\nSELECT s.store_name, o.pedidos FROM stores s CROSS JOIN orders o\n```"
+    )
+    st = _merger([FATIA_ORDERS, FATIA_STORES], modelo)
+    assert len(modelo.chamadas) == 2
+    assert "without a key" in modelo.chamadas[1][-1]["content"]
+    assert not st.get("data")
+    assert st["merge_failure"]["kind"] == "merge_failed"
+    st = _formatar({**st, "question": PERGUNTA_TIENDA})
+    assert TECHNICAL_ES not in st["answer"] and "combinar" in st["answer"]
+
+
+def test_cross_join_a_um_total_de_uma_linha_continua_permitido():
+    from core.llm.merger import juncoes_sem_chave
+
+    sql = (
+        "WITH t AS (SELECT SUM(pedidos) AS total FROM orders) "
+        "SELECT s.store_name, o.pedidos * 100.0 / t.total AS pct "
+        "FROM orders o JOIN stores s USING (store_id) CROSS JOIN t"
+    )
+    assert juncoes_sem_chave(sql, ["orders", "stores"]) == []
+    assert juncoes_sem_chave("SELECT * FROM orders, stores", ["orders", "stores"]) == [
+        "stores"
+    ]
