@@ -195,3 +195,35 @@ def test_celulas_compridas_sao_cortadas():
     assert colunas == ["t"]
     assert len(linhas[0][0]) == rr.TECTO_CELULA + 1
     assert cortou is False
+
+
+# ── A regra de segurança chega como JSON (13/10/2026) ───────────────────
+#
+# O backend manda o `security_config` no corpo, como dict. A rota passava-o
+# assim ao `inject_row_filters_in_sql`, que lê `.tables`: TODAS as
+# reexecuções com regra davam 500 em produção e a fonte aparecia sem dados.
+
+
+def test_com_regra_de_seguranca_em_json_as_linhas_vem_filtradas(cliente):
+    r = _pedir(
+        cliente,
+        "SELECT regiao, total FROM vendas.encomendas LIMIT 50",
+        {LIG: ["encomendas"]},
+        security_config={
+            "tables": {"vendas.encomendas": {"row_filter": "regiao = 'Norte'"}},
+            "global_blocked_columns": [],
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert "regiao = 'Norte'" in cliente.fonte.sql_recebido[-1]
+
+
+def test_regra_que_bloqueia_uma_coluna_leva_403(cliente):
+    r = _pedir(
+        cliente,
+        "SELECT regiao, total FROM vendas.encomendas LIMIT 50",
+        {LIG: ["encomendas"]},
+        security_config={"global_blocked_columns": ["total"]},
+    )
+    assert r.status_code == 403, r.text
+    assert cliente.fonte.sql_recebido == []
