@@ -230,7 +230,6 @@ class LangChainChatOpenAIProvider:
             raise
 
 
-
 # ── Bedrock: 10 pedidos/min e o «Too many requests» ─────────────────────
 #
 # 14/10/2026: as quotas do Claude na conta de produção ficaram em 5–6 M
@@ -300,9 +299,13 @@ def _converse_com_repeticao():
     directamente, por isso a repetição tem de viver no próprio modelo.
     """
     global _CLASSE_CONVERSE
-    if _CLASSE_CONVERSE is not None:
-        return _CLASSE_CONVERSE
-    from langchain_aws import ChatBedrockConverse  # type: ignore
+    import langchain_aws  # type: ignore
+
+    ChatBedrockConverse = langchain_aws.ChatBedrockConverse
+    # A cache é por classe-base: quem substitui ``langchain_aws.ChatBedrockConverse``
+    # (os testes, sem AWS) recebe uma subclasse da substituta.
+    if _CLASSE_CONVERSE is not None and _CLASSE_CONVERSE[0] is ChatBedrockConverse:
+        return _CLASSE_CONVERSE[1]
 
     class ChatBedrockConverseComRepeticao(ChatBedrockConverse):
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
@@ -345,8 +348,8 @@ def _converse_com_repeticao():
                     _dormir(espera)
                     tentativa += 1
 
-    _CLASSE_CONVERSE = ChatBedrockConverseComRepeticao
-    return _CLASSE_CONVERSE
+    _CLASSE_CONVERSE = (ChatBedrockConverse, ChatBedrockConverseComRepeticao)
+    return ChatBedrockConverseComRepeticao
 
 
 class BedrockChatProvider:

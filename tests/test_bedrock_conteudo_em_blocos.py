@@ -80,7 +80,10 @@ class TestTextoDaResposta:
             (None, ""),
             (SimpleNamespace(content="a"), "a"),
             (SimpleNamespace(content=None), ""),
-            (SimpleNamespace(content=["solto", {"type": "text", "text": "b"}]), "solto\nb"),
+            (
+                SimpleNamespace(content=["solto", {"type": "text", "text": "b"}]),
+                "solto\nb",
+            ),
             ({"role": "assistant", "content": "c"}, "c"),
             (SimpleNamespace(content=[{"type": "image", "source": {}}]), ""),
         ],
@@ -103,9 +106,7 @@ def test_orquestrador_react_com_blocos_escolhe_a_tabela(monkeypatch):
 
     class _Agente:
         def invoke(self, _entrada, config=None):
-            return {
-                "messages": [AIMessage(content=_em_blocos("gasolineras_precio"))]
-            }
+            return {"messages": [AIMessage(content=_em_blocos("gasolineras_precio"))]}
 
     monkeypatch.setattr(lp, "create_react_agent", lambda *a, **k: _Agente())
 
@@ -307,7 +308,8 @@ def test_o_react_tambem_repete_no_limite(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "codigo", ["ValidationException", "AccessDeniedException", "ResourceNotFoundException"]
+    "codigo",
+    ["ValidationException", "AccessDeniedException", "ResourceNotFoundException"],
 )
 def test_outros_erros_sobem_logo(monkeypatch, codigo):
     esperas = []
