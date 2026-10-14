@@ -1387,6 +1387,13 @@ def run_specialist(
                 if state.get("contrato_da_fatia")
                 else ""
             )
+            # Nova tentativa de uma fatia multi-fonte que falhou na validação
+            # ou na execução (core/llm/multi_fonte.executar_fatias).
+            + (
+                f"\n\n{state['feedback_da_fatia']}\n"
+                if state.get("feedback_da_fatia")
+                else ""
+            )
             + (f"{join_guidance}" if use_multiple_tables else "")
             + f"{aggregation_guidance}"
             "Generate only the SQL query (starting with the TITLE comment) or IMPOSSIBLE: <reason>."
@@ -1735,6 +1742,13 @@ def run_specialist(
         # 1. Extract SQL
         raw_sql = _parse_specialist_output(raw, primary_table)
         generated_title, sql = _extract_title_from_sql(raw_sql)
+        # Prosa depois do SQL («Note: ... the join step matches ...») ia para
+        # o validador e para a base. Produção 14/10/2026: «Table 'step' is not
+        # allowed» e a fatia products perdida. Só corta prosa, nunca SQL.
+        if sql:
+            from core.sql.tabelas import cortar_prosa_final
+
+            sql = cortar_prosa_final(sql, current_dialect.value)
 
         # 2. Auto-Limit & Fixes
         if settings.use_local_models and sql and "LIMIT" not in sql.upper():

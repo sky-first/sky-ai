@@ -90,13 +90,25 @@ class AdvancedSQLValidator:
         if not self._is_select_statement(statement):
             return False, "Only SELECT statements are allowed"
 
-        # Extrair e validar tabelas
-        tables = self._extract_tables(statement)
+        # Extrair e validar tabelas. Primeiro pela árvore do sqlglot: vê TODAS
+        # as tabelas (dentro de CTEs e subconsultas também), sabe o que é um
+        # CTE e não lê comentários nem prosa como tabelas («join step» →
+        # «Table 'step'», produção 14/10/2026). Se o sqlglot não interpretar o
+        # SQL, a regex de sempre, sobre o SQL sem comentários nem literais.
+        from core.sql.tabelas import tabelas_fisicas
+
+        tables = tabelas_fisicas(sql, dialect)
+        ctes: Set[str] = set()
+        if tables is None:
+            from core.logging_utils import log_event
+
+            log_event("sql_validator_regex_fallback", {"dialect": dialect})
+            regex_stmt = sqlparse.parse(self._sem_comentarios_nem_literais(sql))[0]
+            tables = self._extract_tables(regex_stmt)
+            # Extrair CTEs (Common Table Expressions) para ignorá-las na validação
+            ctes = self._extract_ctes(regex_stmt)
         if not tables:
             return False, "No tables found in query"
-
-        # Extrair CTEs (Common Table Expressions) para ignorá-las na validação
-        ctes = self._extract_ctes(statement)
 
         for raw_table in tables:
             # Se for uma CTE definida na própria query, ignorar validação
@@ -194,6 +206,12 @@ class AdvancedSQLValidator:
             return False, "SQL contains dangerous operations"
 
         return True, None
+
+    @staticmethod
+    def _sem_comentarios_nem_literais(sql: str) -> str:
+        """Tira literais ('...') e comentários (-- ...): nenhum deles é tabela."""
+        s = re.sub(r"'(?:[^']|'')*'", "''", sql or "")
+        return re.sub(r"--[^\n]*", "", s)
 
     def _is_select_statement(self, statement: Statement) -> bool:
         """Verifica se é SELECT (rápido) ou WITH (CTE)"""

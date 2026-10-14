@@ -349,6 +349,17 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
         "city, per day); the join step matches them to the client's entities. When "
         "the question says 'X or Y' (origin or destination), keep the key itself "
         "(the city), not a pair.",
+        # Produção 14/10/2026: a fatia `products` (Cocina) escreveu um JOIN a
+        # uma subconsulta sobre a própria tabela e uma frase depois do SQL;
+        # chumbou no validador e a resposta saiu sem a família de produto.
+        "10. A table of THIS database that only describes entities (products, "
+        "stores, customers, employees) comes WHOLE: its key and only the descriptive "
+        "columns the question needs (e.g. id, name, family), with no JOIN, no "
+        "subquery, no GROUP BY and no filter based on another table (a period in the "
+        "question never applies to it). The join step keeps only the entities that "
+        "match.",
+        "11. Output only the SQL after the TITLE line: no explanations, notes or "
+        "plain text after the SQL.",
     ]
     return "\n".join(linhas)
 
@@ -358,6 +369,68 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
 
 def _rotulo_da_fonte(src: Any, cid: str) -> str:
     return str(getattr(src, "label", "") or cid or "principal")
+
+
+def feedback_da_fatia(sql: Optional[str], erro: str) -> str:
+    """O que a nova tentativa de uma fatia recebe: o SQL que falhou e porquê."""
+    return (
+        "PREVIOUS ATTEMPT FAILED - this is your second and last attempt.\n"
+        f"The SQL you wrote:\n{(sql or '(no SQL)')[:1500]}\n"
+        f"was rejected with this error:\n{str(erro)[:400]}\n"
+        "Write a corrected query for THIS slice: a single SELECT/WITH statement "
+        "that reads only the tables of this database, keeps the join key columns "
+        "and follows the slice contract. Output the SQL only (after the TITLE "
+        "line): no explanations, notes or plain text after the SQL."
+    )
+
+
+def _correr_com_nova_tentativa(
+    run_specialist: Callable,
+    fatia: Fatia,
+    st: Dict[str, Any],
+    agent_config: Any,
+    src: Any,
+    llm: Any,
+) -> Dict[str, Any]:
+    """Corre a fatia; se falhar por erro de validação/execução, mais UMA vez
+    com o erro como feedback ao especialista.
+
+    Produção 14/10/2026: a fatia ``products`` chumbou no validador («Table
+    'step' is not allowed») e foi dada como perdida à primeira — a resposta
+    saiu sem a família de produto. Um ``IMPOSSIBLE`` não é erro (o guardrail
+    tem a sua própria nova tentativa) e uma excepção (fonte em baixo) também
+    não: nesses casos não se tenta outra vez.
+    """
+    r = run_specialist(dict(st), agent_config, src, llm)
+    if r.get("data") or r.get("impossible_reason") or not r.get("error"):
+        return r
+    log_event(
+        "multi_fonte_fatia_nova_tentativa",
+        {
+            "connection_id": fatia.connection_id,
+            "tables": fatia.rotulos,
+            "error": str(r.get("error"))[:300],
+        },
+    )
+    st2 = dict(st)
+    st2["feedback_da_fatia"] = feedback_da_fatia(r.get("sql"), r.get("error"))
+    try:
+        r2 = run_specialist(st2, agent_config, src, llm)
+    except Exception as exc:
+        log_event(
+            "multi_fonte_fatia_nova_tentativa_erro",
+            {"connection_id": fatia.connection_id, "error": str(exc)[:300]},
+        )
+        return r
+    log_event(
+        "multi_fonte_fatia_nova_tentativa_resultado",
+        {
+            "connection_id": fatia.connection_id,
+            "has_data": bool(r2.get("data")),
+            "error": r2.get("error"),
+        },
+    )
+    return r2
 
 
 def executar_fatias(
@@ -406,7 +479,15 @@ def executar_fatias(
         max_workers=min(max(len(tarefas), 1), 5)
     ) as ex:
         futuros = {
-            ex.submit(run_specialist, st, agent_config, src, llm): (f, src)
+            ex.submit(
+                _correr_com_nova_tentativa,
+                run_specialist,
+                f,
+                st,
+                agent_config,
+                src,
+                llm,
+            ): (f, src)
             for (f, st, src) in tarefas
         }
         for fut in concurrent.futures.as_completed(futuros):
