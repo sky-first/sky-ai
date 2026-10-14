@@ -335,8 +335,12 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
         "8. A property of a whole entity that THIS database stores as several rows "
         "(a route made of sections, an order made of lines) must hold for ALL its rows "
         "('the route has no toll' = every section toll-free). GROUP BY the entity key "
-        "and return the property with bool_and()/bool_or()/MIN()/MAX(); never filter "
-        "the rows with WHERE, which keeps an entity when only some of its rows match.",
+        "exactly as the other databases know it (the join key columns, e.g. origin and "
+        "destination), NOT by finer columns of yours (section, corridor, segment id), "
+        "and return the property as a column computed with bool_and()/bool_or()/MIN()/"
+        "MAX(). Do not filter on it (no WHERE on the rows, no HAVING): a row filter "
+        "keeps an entity when only some of its rows match, and the join step needs "
+        "the flag to apply the condition itself.",
         # P10: a fatia pública usava gasolineras_rota como lista de rotas e o
         # merger só via 5 das 7 rotas do cliente.
         "9. Never stand in for an entity that lives in another database (do not use "

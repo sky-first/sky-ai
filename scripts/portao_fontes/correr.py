@@ -361,6 +361,7 @@ def correr(
     arquitectura: str = "nova",
     com_formatter: bool = False,
     vezes: int = 1,
+    so: Optional[List[str]] = None,
 ):
     from scripts.portao_fontes.fixtures import Ambiente
     from scripts.portao_fontes.perguntas import PERGUNTAS
@@ -369,6 +370,8 @@ def correr(
     llms = _llms(llm, arquitectura)
     saida = []
     for p in PERGUNTAS:
+        if so and p.id not in so:
+            continue
         for _ in range(vezes):
             _CONTAGEM.clear()
             _ESPERAS.clear()
@@ -406,9 +409,11 @@ def main() -> None:
     ap.add_argument("--arquitectura", choices=("nova", "antiga"), default="nova")
     ap.add_argument("--formatter", action="store_true")
     ap.add_argument("--vezes", type=int, default=1)
+    ap.add_argument("--so", default="", help="só estas perguntas: P3,P6")
     ap.add_argument("--json", action="store_true", help="uma linha JSON por pergunta")
     a = ap.parse_args()
-    res = correr(a.llm, a.arquitectura, a.formatter, a.vezes)
+    so = [x.strip() for x in a.so.split(",") if x.strip()] or None
+    res = correr(a.llm, a.arquitectura, a.formatter, a.vezes, so)
     for r in res:
         if a.json:
             print(json.dumps(r, ensure_ascii=False, default=str))
