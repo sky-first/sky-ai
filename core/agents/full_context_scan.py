@@ -30,6 +30,7 @@ worker composes it with the real brain + provider.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 import re
@@ -186,7 +187,7 @@ async def run_full_context_scan(
             fallback_reason=f"llm_error:{type(exc).__name__}",
         )
 
-    parsed = _parse_scan_json(resp.content)
+    parsed = _parse_scan_json(texto_da_resposta(resp))
     if parsed is None:
         return FullContextResult(
             narrative=[

@@ -8,6 +8,7 @@ regulatory changes, competitor moves, and business context events
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -145,7 +146,7 @@ def run_events_specialist(
     # Call LLM
     try:
         response = llm.invoke(messages)
-        answer = response.content if hasattr(response, "content") else str(response)
+        answer = texto_da_resposta(response)
     except Exception as e:
         logger.error(f"Events specialist LLM error: {e}")
         answer = f"I found event data but encountered an error analyzing it: {e}"

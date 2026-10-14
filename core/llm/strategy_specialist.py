@@ -8,6 +8,7 @@ strategy API and uses the LLM to synthesize a natural language answer.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -198,7 +199,7 @@ def run_strategy_specialist(
     # Call LLM
     try:
         response = llm.invoke(messages)
-        answer = response.content if hasattr(response, "content") else str(response)
+        answer = texto_da_resposta(response)
     except Exception as e:
         logger.error(f"Strategy specialist LLM error: {e}")
         answer = f"I found strategy data but encountered an error analyzing it: {e}"

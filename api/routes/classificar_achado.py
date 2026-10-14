@@ -32,6 +32,7 @@ Perguntar ao modelo o que é aquilo só produziria uma etiqueta com ar de
 verdade.
 """
 
+from core.llm.conteudo import texto_da_resposta
 import json as _json
 import logging
 from typing import Optional
@@ -193,7 +194,7 @@ async def classificar(pedido: PedidoDeClassificacao) -> Classificacao:
                 {"role": "user", "content": contexto},
             ]
         )
-        bruto = getattr(resposta, "content", None) or str(resposta)
+        bruto = texto_da_resposta(resposta)
     except Exception as exc:  # noqa: BLE001
         logger.warning("classificar_achado falhou: %s", exc)
         log_event("classificar_achado_erro", {"error": str(exc)[:200]})

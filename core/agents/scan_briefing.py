@@ -19,6 +19,7 @@ main query flow is never interrupted.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from dataclasses import dataclass, field
@@ -105,7 +106,7 @@ async def extract_chat_topics(
                 from langchain_core.messages import HumanMessage
 
                 resp = chat_model.invoke([HumanMessage(content=prompt)])
-                raw = resp.content if hasattr(resp, "content") else str(resp)
+                raw = texto_da_resposta(resp)
             elif hasattr(chat_model, "predict"):
                 raw = chat_model.predict(prompt)
             else:

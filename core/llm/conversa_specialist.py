@@ -40,6 +40,7 @@ os dados desta pessoa. É o que o Lucas pediu — não matar a iteração.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import logging
 from typing import Any, Dict
 
@@ -142,7 +143,7 @@ def run_conversa_specialist(state: Dict[str, Any], llm: Any) -> Dict[str, Any]:
                 {"role": "user", "content": pergunta},
             ]
         )
-        texto = (getattr(resposta, "content", None) or str(resposta)).strip()
+        texto = (texto_da_resposta(resposta)).strip()
     except Exception:
         # Nao se propaga: uma saudacao que rebenta e pior do que uma
         # saudacao generica. O erro fica nos registos.

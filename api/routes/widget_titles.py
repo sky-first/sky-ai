@@ -1,3 +1,4 @@
+from core.llm.conteudo import texto_da_resposta
 import logging
 import json as _json
 from typing import Any, Dict, List, Optional
@@ -147,7 +148,7 @@ async def suggest_widget_title(request: SuggestTitleRequest):
 
         # Chamar LLM
         resp = llm.invoke([system_msg, user_msg])
-        title = getattr(resp, "content", "").strip()
+        title = texto_da_resposta(resp).strip()
 
         # Limpar título: remover aspas, prefixos comuns, etc.
         title = title.strip('"').strip("'").strip()
@@ -297,7 +298,7 @@ async def generate_infographic(request: GenerateInfographicRequest):
         user_msg = {"role": "user", "content": user_content}
 
         resp = llm.invoke([system_msg, user_msg])
-        raw = getattr(resp, "content", "").strip()
+        raw = texto_da_resposta(resp).strip()
 
         # Clean markdown fences if present
         if raw.startswith("```"):

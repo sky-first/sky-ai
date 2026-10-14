@@ -6,6 +6,7 @@ Reads spaces, crews, users, and AI history from the backend.
 """
 
 from __future__ import annotations
+from core.llm.conteudo import texto_da_resposta
 import logging
 from typing import Any, Dict, List
 from core.llm._brain_prompt import prepend_brain_context
@@ -113,7 +114,7 @@ def run_people_specialist(
             ]
         )
         state["answer"] = (
-            response.content if hasattr(response, "content") else str(response)
+            texto_da_resposta(response)
         )
     except Exception as e:
         logger.error(f"People specialist error: {e}")

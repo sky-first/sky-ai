@@ -19,6 +19,7 @@ Arquitetura dos Agentes:
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 from core.llm.lingua_da_resposta import (
     NOME_DA_LINGUA,
     lingua_da_resposta,
@@ -2040,7 +2041,7 @@ async def chat_bootstrap(
                 {"role": "user", "content": user},
             ]
         )
-        parsed = _safe_json_loads(getattr(resp, "content", "") or "")
+        parsed = _safe_json_loads(texto_da_resposta(resp))
         if not isinstance(parsed, dict):
             return _fallback_bootstrap(lang=lang, max_suggestions=body.max_suggestions)
 
@@ -6718,7 +6719,7 @@ async def validate_sql(
                     # 4. Chamar LLM
                     llm_formatter = create_llm_formatter()
                     response = llm_formatter.invoke([system_msg, user_msg])
-                    explanation = getattr(response, "content", "") or ""
+                    explanation = texto_da_resposta(response)
                 except Exception as e:
                     log_event(
                         "validate_sql_explanation_error",

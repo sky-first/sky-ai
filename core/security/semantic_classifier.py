@@ -7,6 +7,7 @@ sem depender de palavras-chave específicas de domínio e sem acoplamento
 com a biblioteca da OpenAI.
 """
 
+from core.llm.conteudo import texto_da_resposta
 import hashlib
 import json
 from typing import Tuple, Optional, Literal, Any
@@ -146,7 +147,7 @@ Rules:
         response = llm_provider.invoke(messages)
 
         # Provedores retornam objeto com .content (str)
-        content = getattr(response, "content", str(response)).strip().upper()
+        content = texto_da_resposta(response).strip().upper()
 
         category_text = content
         confidence = 0.9
