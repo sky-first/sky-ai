@@ -1,6 +1,7 @@
 # core/llm/providers.py
 from __future__ import annotations
 
+import contextvars
 import os
 
 from typing import Protocol, List, Dict, Any, AsyncIterator, Iterator
@@ -61,6 +62,34 @@ class LLMProvider(Protocol):
 _LIMITE_DE_ESPERA = float(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
 
+#: Rota e papel da chamada em curso — postos pelo ``LLMDoCaminhoMultiFonte``
+#: (core/llm/fornecedor_multi_fonte.py) à volta de cada chamada do caminho
+#: multi-fonte. Fora dele: rota «global», papel desconhecido. Um contextvar
+#: (e não um atributo) porque as fatias correm em threads: cada chamada
+#: põe-no e lê-o na sua própria thread.
+_ROTA_DA_CHAMADA: "contextvars.ContextVar[tuple]" = contextvars.ContextVar(
+    "rota_da_chamada_llm", default=("global", None)
+)
+
+
+def tokens_da_resposta(resposta: Any) -> Dict[str, Any]:
+    """``{input_tokens, output_tokens}`` de uma resposta LangChain (ou {})."""
+    um = getattr(resposta, "usage_metadata", None) or {}
+    if not um:
+        meta = getattr(resposta, "response_metadata", None) or {}
+        tu = meta.get("token_usage") or meta.get("usage") or {}
+        um = {
+            "input_tokens": tu.get("prompt_tokens") or tu.get("inputTokens"),
+            "output_tokens": tu.get("completion_tokens") or tu.get("outputTokens"),
+        }
+    out = {}
+    for k in ("input_tokens", "output_tokens"):
+        v = um.get(k) if isinstance(um, dict) else None
+        if isinstance(v, int):
+            out[k] = v
+    return out
+
+
 class _Cronometro:
     """Mede UMA chamada ao modelo e escreve ``llm_call_timing``.
 
@@ -68,11 +97,25 @@ class _Cronometro:
     especialista dizia quanto tinha demorado. Toda a chamada a um fornecedor
     passa por aqui — invoke e stream, sucesso e erro — com o modelo, quem a
     fez (módulo.função), o tamanho do prompt e o tempo.
+
+    14/10/2026 (opção B): também o ``provider`` (bedrock/openai/ollama), a
+    ``rota`` (global ou multi_fonte), o ``papel`` no caminho multi-fonte e os
+    tokens de entrada/saída quando a resposta os traz — para se saber o
+    custo real de cada caminho a partir dos registos.
     """
 
-    def __init__(self, model: str, messages: Any, modo: str = "invoke") -> None:
+    def __init__(
+        self,
+        model: str,
+        messages: Any,
+        modo: str = "invoke",
+        provider: str | None = None,
+    ) -> None:
         self.model = model
         self.modo = modo
+        self.provider = provider
+        self.rota, self.papel = _ROTA_DA_CHAMADA.get()
+        self.tokens: Dict[str, Any] = {}
         try:
             self.prompt_chars = sum(
                 len(str(m.get("content") or "")) if isinstance(m, dict) else len(str(m))
@@ -89,6 +132,15 @@ class _Cronometro:
         self.ok = False
         self._t0 = 0.0
 
+    def contar(self, resposta: Any) -> None:
+        """Guarda os tokens da resposta (invoke) ou do último pedaço (stream)."""
+        try:
+            t = tokens_da_resposta(resposta)
+            if t:
+                self.tokens = t
+        except Exception:
+            pass
+
     def __enter__(self) -> "_Cronometro":
         import time
 
@@ -102,15 +154,23 @@ class _Cronometro:
         try:
             from latency_timing import registar_tempo
 
-            registar_tempo(
-                "llm_call_timing",
-                ms,
-                detalhe=f"llm:{self.caller}",
+            campos: Dict[str, Any] = dict(
                 model=self.model,
+                provider=self.provider,
+                rota=self.rota,
                 caller=self.caller,
                 mode=self.modo,
                 prompt_chars=self.prompt_chars,
                 ok=exc_type is None,
+            )
+            if self.papel:
+                campos["papel"] = self.papel
+            campos.update(self.tokens)
+            registar_tempo(
+                "llm_call_timing",
+                ms,
+                detalhe=f"llm:{self.caller}",
+                **campos,
             )
         except Exception:
             pass
@@ -175,10 +235,14 @@ class LangChainChatOpenAIProvider:
         lc_msgs = self._convert_messages(messages)
         try:
             from latency_timing import timed_span
+
             with timed_span("llm_call", node="openai"), _Cronometro(
-                getattr(self._chat, "model_name", "unknown"), messages
-            ):
+                getattr(self._chat, "model_name", "unknown"),
+                messages,
+                provider="openai",
+            ) as cron:
                 resp = self._chat.invoke(lc_msgs)
+                cron.contar(resp)
             log_event(
                 "llm_invoke_success",
                 {
@@ -206,9 +270,13 @@ class LangChainChatOpenAIProvider:
         lc_msgs = self._convert_messages(messages)
         try:
             with _Cronometro(
-                getattr(self._chat, "model_name", "unknown"), messages, "stream"
-            ):
+                getattr(self._chat, "model_name", "unknown"),
+                messages,
+                "stream",
+                provider="openai",
+            ) as cron:
                 for chunk in self._chat.stream(lc_msgs):
+                    cron.contar(chunk)
                     if hasattr(chunk, "content") and chunk.content:
                         yield chunk.content
             log_event(
@@ -241,7 +309,15 @@ class LangChainChatOpenAIProvider:
 # como antes.
 
 #: Códigos de erro da Bedrock que querem dizer «espera e repete».
-_CODIGOS_DE_LIMITE = {"ThrottlingException", "TooManyRequestsException"}
+#: 14/10/2026 (portão da opção B): o Haiku pelo perfil eu.* respondeu
+#: ``ServiceUnavailableException`` («Bedrock is unable to process your
+#: request») depois das 4 repetições rápidas do botocore. É transitório e a
+#: Bedrock manda repetir — com a mesma espera crescente do limite.
+_CODIGOS_DE_LIMITE = {
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailableException",
+}
 
 #: Quantas vezes se repete depois da primeira tentativa.
 _LIMITE_REPETICOES = int(os.getenv("BEDROCK_THROTTLE_MAX_RETRIES", "5"))
@@ -426,10 +502,12 @@ class BedrockChatProvider:
         lc_msgs = self._convert_messages(messages)
         try:
             from latency_timing import timed_span
+
             with timed_span("llm_call", node="bedrock"), _Cronometro(
-                self.base_model_id, messages
-            ):
+                self.base_model_id, messages, provider="bedrock"
+            ) as cron:
                 resp = self._chat.invoke(lc_msgs)
+                cron.contar(resp)
             log_event(
                 "bedrock_invoke_success",
                 {"model": self.model_name, "num_messages": len(messages)},
@@ -449,8 +527,11 @@ class BedrockChatProvider:
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         lc_msgs = self._convert_messages(messages)
         try:
-            with _Cronometro(self.base_model_id, messages, "stream"):
+            with _Cronometro(
+                self.base_model_id, messages, "stream", provider="bedrock"
+            ) as cron:
                 for chunk in self._chat.stream(lc_msgs):
+                    cron.contar(chunk)
                     if hasattr(chunk, "content") and chunk.content:
                         # ChatBedrockConverse may emit content as a list of
                         # content blocks (text + tool calls). Normalise to a
@@ -550,8 +631,9 @@ class OllamaProvider:
         try:
             # Invoke ChatOllama directly (it handles prompting)
             from latency_timing import timed_span
+
             with timed_span("llm_call", node="ollama"), _Cronometro(
-                self.model_name, messages
+                self.model_name, messages, provider="ollama"
             ):
                 resp = self._chat.invoke(lc_msgs)
 
@@ -588,7 +670,7 @@ class OllamaProvider:
         lc_msgs = self._convert_messages(messages)
 
         try:
-            with _Cronometro(self.model_name, messages, "stream"):
+            with _Cronometro(self.model_name, messages, "stream", provider="ollama"):
                 for chunk in self._chat.stream(lc_msgs):
                     if chunk.content:
                         yield chunk.content

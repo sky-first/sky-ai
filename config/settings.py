@@ -180,6 +180,50 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ===== PROVIDER PRÓPRIO DO CAMINHO MULTI-FONTE (opção B, 14/10/2026) =====
+    # Só para perguntas que vão pelo caminho multi-ligação novo (flag
+    # MULTI_FONTE_POR_LIGACAO / _TENANTS activa para o cliente E o
+    # orquestrador a escolher tabelas de 2+ ligações). Tudo o resto continua
+    # no AI_PROVIDER global. Vazio = comportamento de sempre.
+    #
+    #   MULTI_FONTE_PROVIDER=bedrock          (único valor suportado)
+    #   MULTI_FONTE_MODEL_SPECIALIST / _MERGER / _FORMATTER — vazio = o
+    #       medido no portão (Sonnet 4.6 / Sonnet 4.6 / Haiku 4.5).
+    #   MULTI_FONTE_MODEL_ORCHESTRATOR — vazio = o orquestrador GLOBAL decide
+    #       (é ele que diz se a pergunta é multi-fonte). Definido = o
+    #       orquestrador dos clientes da flag passa também para este modelo,
+    #       em TODAS as perguntas de dados desses clientes.
+    #
+    # Ver core/llm/fornecedor_multi_fonte.py.
+    multi_fonte_provider: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("MULTI_FONTE_PROVIDER", "multi_fonte_provider"),
+    )
+    multi_fonte_model_orchestrator: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MULTI_FONTE_MODEL_ORCHESTRATOR", "multi_fonte_model_orchestrator"
+        ),
+    )
+    multi_fonte_model_specialist: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MULTI_FONTE_MODEL_SPECIALIST", "multi_fonte_model_specialist"
+        ),
+    )
+    multi_fonte_model_merger: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MULTI_FONTE_MODEL_MERGER", "multi_fonte_model_merger"
+        ),
+    )
+    multi_fonte_model_formatter: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MULTI_FONTE_MODEL_FORMATTER", "multi_fonte_model_formatter"
+        ),
+    )
+
     # ===== EMBEDDING CONFIGURATION =====
     # Provider is independent of AI_PROVIDER — chat can stay on the
     # mantle proxy while embeddings go straight to Bedrock via boto3.
@@ -208,9 +252,7 @@ class Settings(BaseSettings):
     # muito pior em português).
     embedding_model_local: str = Field(
         default="intfloat/multilingual-e5-large",
-        validation_alias=AliasChoices(
-            "LOCAL_EMBEDDING_MODEL", "embedding_model_local"
-        ),
+        validation_alias=AliasChoices("LOCAL_EMBEDDING_MODEL", "embedding_model_local"),
     )
     # Onde o modelo local fica em cache. Deve apontar para um volume em
     # produção, senão cada arranque do pod volta a descarregar o modelo

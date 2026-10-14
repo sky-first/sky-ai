@@ -104,6 +104,12 @@ class AgentState(TypedDict, total=False):
     # Flag MULTI_FONTE_POR_LIGACAO(_TENANTS) activa neste pedido: o merger usa
     # o prompt com pistas de junção e a correcção do erro do DuckDB.
     multi_fonte_por_ligacao: Optional[bool]
+    # Opção B (14/10/2026): fornecedor próprio do caminho multi-fonte
+    # (MULTI_FONTE_PROVIDER) quando este pedido foi por ele — fatias, merger
+    # e formatador usam-no. As falhas desse fornecedor ficam aqui e a
+    # resposta passa a MULTI_SOURCE_MODEL_* (core/llm/fornecedor_multi_fonte).
+    multi_fonte_provider: Optional[str]
+    falhas_modelo_multi_fonte: Optional[List[Dict[str, Any]]]
 
     # Common fields
     sql: Optional[str]
@@ -119,12 +125,14 @@ class AgentState(TypedDict, total=False):
     answer: Optional[str]
 
     # Decisão de período temporal (node: periodo_decision)
-    periodo_modo: Optional[str]    # "nao_temporal" | "normal" | "fallback" | "lacuna" | "sem_dados"
+    periodo_modo: Optional[
+        str
+    ]  # "nao_temporal" | "normal" | "fallback" | "lacuna" | "sem_dados"
     periodo_pedido: Optional[str]  # período que o usuário pediu (legível)
-    periodo_usado: Optional[str]   # período que será de fato usado
-    periodo_aviso: Optional[str]   # aviso a prepender na resposta (modo fallback)
-    periodo_from: Optional[str]    # ISO date para filtro SQL — início
-    periodo_to: Optional[str]      # ISO date para filtro SQL — fim
+    periodo_usado: Optional[str]  # período que será de fato usado
+    periodo_aviso: Optional[str]  # aviso a prepender na resposta (modo fallback)
+    periodo_from: Optional[str]  # ISO date para filtro SQL — início
+    periodo_to: Optional[str]  # ISO date para filtro SQL — fim
     periodo_coluna: Optional[str]  # coluna de data usada para MIN/MAX
 
     # Mixed dispatch: raw specialist results saved for mixed_merger_node
@@ -224,6 +232,14 @@ SessionFactory = Callable[[], Session]
 # ==================== GRAFO GENÉRICO (LangGraph) ====================
 
 
+class _FalhaMultiFonte(Exception):
+    """O fornecedor do caminho multi-fonte falhou (planeador misto)."""
+
+    def __init__(self, falhas: List[Dict[str, Any]]) -> None:
+        super().__init__("modelo do caminho multi-fonte indisponível")
+        self.falhas = list(falhas) or [{"tipo": "outro"}]
+
+
 def escolher_llm_do_merger(
     por_ligacao: bool,
     llm_orq: LLMProvider,
@@ -280,6 +296,87 @@ def build_generic_sql_graph(
 
     _por_ligacao = multi_fonte_por_ligacao_ativo()
 
+    # Opção B: com MULTI_FONTE_PROVIDER definido, o caminho multi-fonte novo
+    # (só ele) usa esse fornecedor. Sem a flag para o cliente, ou sem a
+    # config, None — e tudo corre no provider global, como antes.
+    from core.llm.fornecedor_multi_fonte import fornecedor_configurado
+
+    _mf_provider = fornecedor_configurado() if _por_ligacao else None
+
+    def _llm_mf(
+        papel: str, falhas: List[Dict[str, Any]], temperature: float = 0.0
+    ) -> Optional[LLMProvider]:
+        """LLM do papel no caminho multi-fonte (None = papel sem modelo próprio).
+
+        Uma falha a construí-lo fica em ``falhas`` (e devolve None): quem
+        chama verifica ``falhas`` antes de seguir — nunca cai no global.
+        """
+        if _mf_provider is None:
+            return None
+        from core.llm.fornecedor_multi_fonte import classificar_falha, criar_llm
+
+        try:
+            return criar_llm(papel, falhas, temperature=temperature)
+        except Exception as e:  # noqa: BLE001
+            falha = {
+                "papel": papel,
+                "provider": _mf_provider,
+                "tipo": classificar_falha(e),
+                "erro": f"{type(e).__name__}: {str(e)[:200]}",
+            }
+            falhas.append(falha)
+            log_event("multi_fonte_llm_falhou", falha)
+            return None
+
+    def _modelo_indisponivel(
+        state: AgentState, falhas: List[Dict[str, Any]]
+    ) -> AgentState:
+        """Marca o pedido: o modelo do caminho multi-fonte falhou."""
+        from core.llm.fornecedor_multi_fonte import tipo_principal
+
+        anteriores = list(state.get("falhas_modelo_multi_fonte") or [])
+        state["falhas_modelo_multi_fonte"] = anteriores + list(falhas)
+        state["merge_failure"] = {
+            "kind": "model_unavailable",
+            "tipo": tipo_principal(falhas),
+            "failed": [],
+            "ok": [],
+        }
+        state["data"] = []
+        state["partial_results"] = []
+        log_event(
+            "multi_fonte_modelo_indisponivel",
+            {
+                "provider": _mf_provider,
+                "tipo": tipo_principal(falhas),
+                "papeis": sorted({f.get("papel") or "?" for f in falhas}),
+            },
+        )
+        return state
+
+    def _ja_indisponivel(state: AgentState) -> bool:
+        mf = state.get("merge_failure") or {}
+        return mf.get("kind") == "model_unavailable"
+
+    def _orquestrador_indisponivel(
+        state: AgentState, falhas: List[Dict[str, Any]]
+    ) -> AgentState:
+        """O orquestrador multi-fonte falhou: resposta honesta e fim."""
+        from core.llm.fornecedor_multi_fonte import (
+            mensagem_modelo_indisponivel,
+            tipo_principal,
+        )
+
+        _modelo_indisponivel(state, falhas)
+        state["chosen_tables"] = None
+        state["chosen_table"] = None
+        state["is_multi_source"] = False
+        lang = (state.get("detected_language") or state.get("locale") or "en").lower()[
+            :2
+        ]
+        state["answer"] = mensagem_modelo_indisponivel(tipo_principal(falhas), lang)
+        return state
+
     def _llm_do_merger(
         por_ligacao: bool, llm_orq: LLMProvider, llm_esp: LLMProvider
     ) -> LLMProvider:
@@ -304,6 +401,16 @@ def build_generic_sql_graph(
         else:
             dynamic_llm = llm_orchestrator
 
+        # Opção B: com MULTI_FONTE_MODEL_ORCHESTRATOR, o orquestrador dos
+        # clientes da flag corre no fornecedor multi-fonte (ainda não se sabe
+        # se a pergunta vai ser multi-fonte). Sem ele, decide o global.
+        falhas_orq: List[Dict[str, Any]] = []
+        llm_orq_mf = _llm_mf("orchestrator", falhas_orq)
+        if llm_orq_mf is not None:
+            dynamic_llm = llm_orq_mf
+        elif falhas_orq:
+            return _orquestrador_indisponivel(state, falhas_orq)
+
         db: Session = db_session_factory()
         try:
             new_state = run_orchestrator(
@@ -315,6 +422,8 @@ def build_generic_sql_graph(
             )
         finally:
             db.close()
+        if falhas_orq:
+            return _orquestrador_indisponivel(new_state, falhas_orq)
 
         # W7 — emit a user-readable step so the transparency panel doesn't
         # collapse to "Safety checks passed" for SQL questions.
@@ -344,7 +453,10 @@ def build_generic_sql_graph(
     def periodo_decision_node(state: AgentState) -> AgentState:
         """Resolve temporal period: detect boundary, classify, apply fallback policy."""
         from core.llm.periodo_decision import run_periodo_decision
-        return run_periodo_decision(state=state, agent_config=agent_config, data_source=data_source)
+
+        return run_periodo_decision(
+            state=state, agent_config=agent_config, data_source=data_source
+        )
 
     def specialist_node(state: AgentState) -> AgentState:
         """
@@ -499,6 +611,14 @@ def build_generic_sql_graph(
                             if (creativity is not None or length is not None)
                             else llm_specialist
                         )
+                        # Opção B: orquestrador próprio só com
+                        # MULTI_FONTE_MODEL_ORCHESTRATOR (ver orchestrator_node).
+                        falhas_orq_mx: List[Dict[str, Any]] = []
+                        orch_mf = _llm_mf("orchestrator", falhas_orq_mx)
+                        if orch_mf is not None:
+                            orch_llm = orch_mf
+                        elif falhas_orq_mx:
+                            raise _FalhaMultiFonte(falhas_orq_mx)
                         db = db_session_factory()
                         try:
                             orch_result = run_orchestrator(
@@ -508,6 +628,8 @@ def build_generic_sql_graph(
                                 db=db,
                                 embedding_provider=embedding_provider,
                             )
+                            if falhas_orq_mx:
+                                raise _FalhaMultiFonte(falhas_orq_mx)
                             # Multi-source: run each chosen table against its own
                             # data source (via dispatch_map), then merge with DuckDB
                             # when 2+ tabular results are available. Without this,
@@ -515,6 +637,25 @@ def build_generic_sql_graph(
                             # hit the primary data_source and silently drop all other
                             # connections' data.
                             tbl_names = orch_result.get("chosen_tables") or []
+                            # Opção B no planeador misto: o mesmo fornecedor
+                            # para fatias, merger e formatador desta parte.
+                            falhas_mx: List[Dict[str, Any]] = []
+                            llm_fmt_mx = dynamic_llm
+                            llm_merger_mx = None
+                            if (
+                                orch_result.get("is_multi_source")
+                                and len(tbl_names) > 1
+                                and _mf_provider is not None
+                            ):
+                                spec_llm = _llm_mf("specialist", falhas_mx)
+                                llm_merger_mx = _llm_mf("merger", falhas_mx)
+                                llm_fmt_mx = _llm_mf("formatter", falhas_mx)
+                                if falhas_mx or None in (
+                                    spec_llm,
+                                    llm_merger_mx,
+                                    llm_fmt_mx,
+                                ):
+                                    raise _FalhaMultiFonte(falhas_mx)
                             if (
                                 orch_result.get("is_multi_source")
                                 and len(tbl_names) > 1
@@ -558,6 +699,8 @@ def build_generic_sql_graph(
                                     )
                                 # 0, 1 ou 2+ fatias: o merger decide (passa a
                                 # única directa, junta 2+, ou diz o que falhou).
+                                if falhas_mx:
+                                    raise _FalhaMultiFonte(falhas_mx)
                                 merged = _run_merger(
                                     {
                                         **orch_result,
@@ -565,13 +708,18 @@ def build_generic_sql_graph(
                                         "failed_slices": failed_slices,
                                     },
                                     agent_config,
-                                    _llm_do_merger(_por_ligacao, orch_llm, spec_llm),
+                                    llm_merger_mx
+                                    or _llm_do_merger(_por_ligacao, orch_llm, spec_llm),
                                 )
+                                if falhas_mx:
+                                    raise _FalhaMultiFonte(falhas_mx)
                                 result = _run_fmt(
                                     state=merged,
                                     agent_config=agent_config,
-                                    llm=dynamic_llm,
+                                    llm=llm_fmt_mx,
                                 )
+                                if falhas_mx:
+                                    raise _FalhaMultiFonte(falhas_mx)
                             else:
                                 sql_result = _run_sql(
                                     state=orch_result,
@@ -600,6 +748,28 @@ def build_generic_sql_graph(
                         "error": result.get("error"),
                         "strategy_data": result.get("strategy_data"),
                         "signals_data": result.get("signals_data"),
+                    }
+                except _FalhaMultiFonte as fmf:
+                    from core.llm.fornecedor_multi_fonte import (
+                        mensagem_modelo_indisponivel,
+                        tipo_principal,
+                    )
+
+                    log_event(
+                        "multi_fonte_modelo_indisponivel",
+                        {
+                            "provider": _mf_provider,
+                            "tipo": tipo_principal(fmf.falhas),
+                            "specialist": name,
+                        },
+                    )
+                    lang = (state.get("detected_language") or "en").lower()[:2]
+                    return {
+                        "answer": mensagem_modelo_indisponivel(
+                            tipo_principal(fmf.falhas), lang
+                        ),
+                        "data": [],
+                        "error": None,
                     }
                 except Exception as exc:
                     log_event(
@@ -704,6 +874,17 @@ def build_generic_sql_graph(
                     else llm_specialist
                 )
 
+                # Opção B: daqui para a frente o pedido é multi-fonte — fatias,
+                # reparações, merger e formatador no fornecedor próprio.
+                falhas_esp: List[Dict[str, Any]] = []
+                if _mf_provider is not None:
+                    state["multi_fonte_provider"] = _mf_provider
+                    state["multi_fonte_por_ligacao"] = True
+                    llm_esp_mf = _llm_mf("specialist", falhas_esp)
+                    if llm_esp_mf is None:
+                        return _modelo_indisponivel(state, falhas_esp)
+                    dynamic_llm = llm_esp_mf
+
                 results, fontes_pub, failed_slices = executar_fatias(
                     state,
                     agent_config,
@@ -717,6 +898,10 @@ def build_generic_sql_graph(
                 state["multi_fonte_por_ligacao"] = True
                 state["partial_results"] = results
                 state["failed_slices"] = failed_slices
+                if falhas_esp:
+                    # Uma fatia sem modelo é uma resposta incompleta: não se
+                    # junta meia pergunta — diz-se que o modelo falhou.
+                    return _modelo_indisponivel(state, falhas_esp)
                 return state
             # ── SQL mode: parallel SQL execution ─────────────────────────────
             from core.llm.specialist import run_specialist
@@ -757,6 +942,19 @@ def build_generic_sql_graph(
         - Consolidates partial_results using Python/Pandas
         """
         from core.llm.merger import run_merger
+
+        if state.get("multi_fonte_provider"):
+            # Opção B: merger (e a sua correcção) no fornecedor multi-fonte.
+            if _ja_indisponivel(state):
+                return state
+            falhas_m: List[Dict[str, Any]] = []
+            llm_m = _llm_mf("merger", falhas_m)
+            if llm_m is None:
+                return _modelo_indisponivel(state, falhas_m)
+            novo = run_merger(state, agent_config, llm_m)
+            if falhas_m:
+                return _modelo_indisponivel(novo, falhas_m)
+            return novo
 
         # Modelo do merger: ver _llm_do_merger (caminho novo → especialista).
         return run_merger(
@@ -883,11 +1081,41 @@ def build_generic_sql_graph(
         else:
             dynamic_llm = llm_formatter
 
+        falhas_f: List[Dict[str, Any]] = []
+        if state.get("multi_fonte_provider") and not _ja_indisponivel(state):
+            # Opção B: o formatador do pedido multi-fonte no fornecedor próprio.
+            from core.llm.factory import _convert_creativity_to_temperature
+
+            llm_f = _llm_mf(
+                "formatter",
+                falhas_f,
+                temperature=_convert_creativity_to_temperature(creativity),
+            )
+            if llm_f is None:
+                _modelo_indisponivel(state, falhas_f)
+            else:
+                dynamic_llm = llm_f
+
         new_state = run_formatter(
             state=state,
             agent_config=agent_config,
             llm=dynamic_llm,
         )
+        if falhas_f and not _ja_indisponivel(new_state):
+            # Os dados vieram e ficam; a frase é que não — diz-se porquê, na
+            # língua da resposta, em vez do texto genérico do formatador.
+            from core.llm.fornecedor_multi_fonte import (
+                mensagem_modelo_indisponivel,
+                tipo_principal,
+            )
+
+            new_state["falhas_modelo_multi_fonte"] = (
+                list(new_state.get("falhas_modelo_multi_fonte") or []) + falhas_f
+            )
+            new_state["answer"] = mensagem_modelo_indisponivel(
+                tipo_principal(falhas_f),
+                (new_state.get("detected_language") or "en").lower()[:2],
+            )
         # W7 — last step in the SQL flow: the formatter built the
         # natural-language answer the user actually sees.
         steps = list(new_state.get("reasoning_steps") or [])
@@ -1340,13 +1568,19 @@ def build_generic_sql_graph(
     from latency_timing import timed as _timed
 
     # Register all nodes — core pipeline nodes wrapped with @timed for latency measurement
-    graph.add_node("intent_classifier", _timed("intent_classifier")(intent_classifier_node))
+    graph.add_node(
+        "intent_classifier", _timed("intent_classifier")(intent_classifier_node)
+    )
     graph.add_node("full_context", full_context_node)
     graph.add_node("brain_retrieval", _timed("brain_retrieval")(brain_retrieval_node))
     graph.add_node("orchestrator", _timed("orchestrator")(orchestrator_node))
-    graph.add_node("periodo_decision", _timed("periodo_decision")(periodo_decision_node))
+    graph.add_node(
+        "periodo_decision", _timed("periodo_decision")(periodo_decision_node)
+    )
     graph.add_node("specialist", _timed("specialist")(specialist_node))
-    graph.add_node("parallel_specialist", _timed("parallel_specialist")(parallel_specialist_node))
+    graph.add_node(
+        "parallel_specialist", _timed("parallel_specialist")(parallel_specialist_node)
+    )
     graph.add_node("merger", _timed("merger")(merger_node))
     graph.add_node("formatter", _timed("formatter")(formatter_node))
     graph.add_node("knowledge_specialist", knowledge_specialist_node)

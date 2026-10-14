@@ -89,6 +89,7 @@ def _emit(kind: str, name: str, node: str | None, duration_ms: float) -> None:
 def timed(node_name: str):
     def decorator(fn):
         if asyncio.iscoroutinefunction(fn):
+
             @functools.wraps(fn)
             async def awrapper(*args, **kwargs):
                 start = time.perf_counter()
@@ -96,6 +97,7 @@ def timed(node_name: str):
                     return await fn(*args, **kwargs)
                 finally:
                     _emit("node", node_name, None, (time.perf_counter() - start) * 1000)
+
             return awrapper
 
         @functools.wraps(fn)
@@ -105,6 +107,7 @@ def timed(node_name: str):
                 return fn(*args, **kwargs)
             finally:
                 _emit("node", node_name, None, (time.perf_counter() - start) * 1000)
+
         return wrapper
 
     return decorator
@@ -175,6 +178,7 @@ def iniciar_pedido() -> dict:
         "llm_calls": 0,
         "llm_ms": 0.0,
         "llm": [],
+        "llm_tokens": {},
     }
     _pedido.set(acc)
     return acc
@@ -217,14 +221,36 @@ def registar_tempo(
         if evento == "llm_call_timing":
             acc["llm_calls"] += 1
             acc["llm_ms"] += ms
+            # Tokens por rota/fornecedor/modelo, sem o tecto das 20 linhas.
+            chave = "{}|{}|{}".format(
+                campos.get("rota") or "global",
+                campos.get("provider") or "?",
+                campos.get("model") or "?",
+            )
+            soma = acc.setdefault("llm_tokens", {}).setdefault(
+                chave, {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+            )
+            soma["calls"] += 1
+            soma["input_tokens"] += int(campos.get("input_tokens") or 0)
+            soma["output_tokens"] += int(campos.get("output_tokens") or 0)
             if len(acc["llm"]) < 20:
-                acc["llm"].append(
-                    {
-                        "caller": campos.get("caller"),
-                        "model": campos.get("model"),
-                        "ms": round(ms),
-                    }
-                )
+                linha = {
+                    "caller": campos.get("caller"),
+                    "model": campos.get("model"),
+                    "ms": round(ms),
+                }
+                # Opção B (14/10/2026): de que fornecedor e caminho veio a
+                # chamada, e quantos tokens — o custo real por pergunta.
+                for k in (
+                    "provider",
+                    "rota",
+                    "papel",
+                    "input_tokens",
+                    "output_tokens",
+                ):
+                    if campos.get(k) is not None:
+                        linha[k] = campos[k]
+                acc["llm"].append(linha)
     except Exception:
         pass
 
@@ -232,7 +258,13 @@ def registar_tempo(
 class medir:
     """``with medir("rag_timing", etapa="rag"):`` — mede e regista."""
 
-    def __init__(self, evento: str, etapa: str | None = None, detalhe: str | None = None, **campos):
+    def __init__(
+        self,
+        evento: str,
+        etapa: str | None = None,
+        detalhe: str | None = None,
+        **campos,
+    ):
         self.evento = evento
         self.etapa = etapa
         self.detalhe = detalhe
@@ -263,16 +295,22 @@ def resumo_do_pedido() -> dict | None:
     if acc is None:
         return None
     total = (time.perf_counter() - acc["inicio"]) * 1000
-    etapas = {k: round(v) for k, v in sorted(acc["etapas"].items(), key=lambda kv: -kv[1])}
+    etapas = {
+        k: round(v) for k, v in sorted(acc["etapas"].items(), key=lambda kv: -kv[1])
+    }
     contado = sum(acc["etapas"].values())
     return {
         "total_ms": round(total),
         "breakdown_ms": etapas,
         "unaccounted_ms": round(max(0.0, total - contado)),
-        "detail_ms": {k: round(v) for k, v in sorted(acc["detalhe"].items(), key=lambda kv: -kv[1])},
+        "detail_ms": {
+            k: round(v)
+            for k, v in sorted(acc["detalhe"].items(), key=lambda kv: -kv[1])
+        },
         "llm_calls": acc["llm_calls"],
         "llm_ms": round(acc["llm_ms"]),
         "llm": list(acc["llm"]),
+        "llm_tokens": {k: dict(v) for k, v in (acc.get("llm_tokens") or {}).items()},
     }
 
 
