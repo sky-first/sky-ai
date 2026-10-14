@@ -172,6 +172,12 @@ async def _invalidar_cache_semantico(db, connection_id: str) -> int:
         return 0
 
 
+async def _catalogo_difere(db, connection_id: str) -> bool:
+    from core.ingestion.podar import catalogo_difere_do_indice
+
+    return await catalogo_difere_do_indice(db, connection_id)
+
+
 async def _discover_tables_sync(db: AsyncSession, connection_id: str) -> dict:
     """
     Discovery is a no-op here: catalog is owned by the backend and already stored in DB.
@@ -281,6 +287,11 @@ async def discover_tables(
                     # recente para reaproveitar — há uma descoberta que nunca
                     # correu, ou que correu para outra base.
                     and (row["linhas"] or 0) > 0
+                    # Fonte pública marcada/desmarcada: o backend sincroniza e
+                    # pede a descoberta logo a seguir. Com o conjunto de
+                    # tabelas diferente, saltar deixava a nova fora e a
+                    # removida dentro (core/ingestion/podar.py).
+                    and not await _catalogo_difere(db, connection_id)
                 ):
                     log_event(
                         "discover_skipped_recent",
@@ -376,6 +387,12 @@ async def discover_tables(
                 ) as bg_db:
                     try:
                         await _discover_tables_sync(bg_db, connection_id=connection_id)
+                        # Tabelas que saíram do catálogo (fonte pública
+                        # desligada, permissão retirada) saem do índice em
+                        # TODOS os âmbitos — ver core/ingestion/podar.py.
+                        from core.ingestion.podar import podar_tabelas_removidas
+
+                        await podar_tabelas_removidas(bg_db, connection_id)
                         if auto_generate_embeddings:
                             try:
                                 # Ingerir metadados na tabela table_metadata (se necessário)
@@ -491,6 +508,14 @@ async def discover_tables(
 
         result = await _discover_tables_sync(db, connection_id=connection_id)
         result["space_id"] = space_id
+
+        # Tabelas que saíram do catálogo saem do índice (metadados,
+        # embeddings e cache semântica), em todos os âmbitos.
+        from core.ingestion.podar import podar_tabelas_removidas
+
+        result["tabelas_removidas"] = (
+            await podar_tabelas_removidas(db, connection_id)
+        )["removidas"]
 
         # Gerar embeddings automaticamente se solicitado
         if auto_generate_embeddings:

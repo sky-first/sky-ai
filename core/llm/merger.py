@@ -17,14 +17,16 @@ Produção, 13/10/2026 — tenant sandbox, «¿Qué tienda tuvo más pedidos el
 
 from __future__ import annotations
 
-from core.llm.conteudo import texto_da_resposta
+import json
 import re
+import unicodedata
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
 from core.logging_utils import log_event
 from core.data_manager.duck_engine import DuckEngine
+from core.llm.conteudo import texto_da_resposta
 
 # ── Fatias: o que correu e o que falhou ────────────────────────────────
 
@@ -312,15 +314,15 @@ def _generate_merger_prompt(
 
 
 def _extract_sql_code(text: str) -> str:
-    """Extracts code from ```sql ... ``` blocks."""
+    """Extracts code from ```sql ... ``` blocks (or an unlabelled ``` block)."""
     match = re.search(r"```sql\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    # Fallback: if no markdown, just return text if it starts with select
-    cleaned = text.strip()
-    if cleaned.lower().startswith("select"):
-        return cleaned
-    return cleaned
+    match = re.search(r"```\s*(.*?)```", text, re.DOTALL)
+    if match and re.match(r"\s*(select|with)\b", match.group(1), re.I):
+        return match.group(1).strip()
+    # Fallback: sem markdown, o texto tal como veio (o DuckDB decide).
+    return text.strip()
 
 
 def tabelas_desconhecidas(sql: str, nomes: List[str]) -> List[str]:
@@ -438,11 +440,11 @@ def _pedir_sql(llm: LLMProvider, prompt: List[Dict[str, str]]) -> str:
     return _extract_sql_code(text_response)
 
 
-def run_merger(
+def _run_merger_por_tabela(
     state: AgentState, agent_config: AgentConfig, llm: LLMProvider
 ) -> AgentState:
     """
-    Merger Node:
+    Merger Node (caminho de sempre, uma fatia por tabela — #289):
     - Consolidates partial_results from multiple Specialists.
     - Uses LLM to generate DuckDB SQL (tables named after the logical tables).
     - Executes the SQL using DuckEngine, with one retry on a wrong table/SQL.
@@ -606,3 +608,347 @@ def run_merger(
             engine.close()
 
     return state
+
+
+# ══ Caminho novo: uma fatia por LIGAÇÃO (flag MULTI_FONTE_POR_LIGACAO) ══
+#
+# Conjuntos registados como ``dataset_N`` (cada um pode juntar várias tabelas
+# da mesma ligação), pistas de junção vistas nos DADOS, descrições das
+# colunas e uma correcção com o erro do DuckDB. Ver core/llm/multi_fonte.py.
+
+# Linhas de amostra por conjunto no prompt. Duas não chegavam para o modelo
+# ver que uma cidade vem 'BADAJOZ' de um lado e 'Badajoz' do outro, nem que
+# uma data vem como instante (2026-09-01T06:00:00+00:00) e a outra como dia.
+AMOSTRA = 5
+
+
+def _sem_acentos(s: str) -> str:
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFKD", s or "")
+        if not unicodedata.combining(c)
+    ).lower()
+
+
+def _colunas_e_amostra_n(rows: Any) -> Tuple[List[str], int, List[Dict[str, Any]]]:
+    try:
+        import pyarrow as pa
+
+        if isinstance(rows, pa.Table):
+            return rows.column_names, rows.num_rows, rows.slice(0, AMOSTRA).to_pylist()
+    except ImportError:  # pragma: no cover
+        pass
+    rows = rows or []
+    cols = list(rows[0].keys()) if rows else []
+    return cols, len(rows), rows[:AMOSTRA]
+
+
+_SINONIMOS = (
+    {"origin", "origem", "origen"},
+    {"destination", "destino"},
+    {"city", "cidade", "ciudad", "origin", "origem", "destination", "destino"},
+    {"date", "data", "fecha", "dia", "day"},
+    {"province", "provincia"},
+    {"country", "pais"},
+)
+
+
+def _parece_instante(v: Any) -> bool:
+    import datetime as _dt
+
+    if isinstance(v, _dt.datetime):
+        return True
+    return isinstance(v, str) and bool(re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:", v))
+
+
+def _parece_dia(v: Any) -> bool:
+    import datetime as _dt
+
+    if isinstance(v, _dt.date) and not isinstance(v, _dt.datetime):
+        return True
+    return isinstance(v, str) and bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", v))
+
+
+def pistas_entre_conjuntos(
+    resumos: List[Tuple[str, List[str], List[Dict[str, Any]]]],
+) -> List[str]:
+    """Pistas de junção entre ``dataset_i``, vistas nos DADOS (não no esquema).
+
+    Mesmo nome, sinónimo entre línguas, instante × dia (CAST AS DATE) e texto
+    com maiúsculas/acentos diferentes dos dois lados (comparar normalizado).
+    """
+    pistas: List[str] = []
+    for i in range(len(resumos)):
+        for j in range(i + 1, len(resumos)):
+            ai, ci, si = resumos[i]
+            aj, cj, sj = resumos[j]
+            for x in ci:
+                for y in cj:
+                    nx, ny = _sem_acentos(x), _sem_acentos(y)
+                    mesmo = nx == ny
+                    sin = any(nx in g and ny in g for g in _SINONIMOS)
+                    if not (mesmo or sin):
+                        continue
+                    vx = next((r.get(x) for r in si if r.get(x) is not None), None)
+                    vy = next((r.get(y) for r in sj if r.get(y) is not None), None)
+                    expr_x, expr_y = f"{ai}.{x}", f"{aj}.{y}"
+                    nota = ""
+                    if _parece_instante(vx) and _parece_dia(vy):
+                        expr_x = f"CAST({ai}.{x} AS DATE)"
+                        expr_y = f"CAST({aj}.{y} AS DATE)"
+                        nota = " (one side is a timestamp, the other a day)"
+                    elif _parece_dia(vx) and _parece_instante(vy):
+                        expr_x = f"CAST({ai}.{x} AS DATE)"
+                        expr_y = f"CAST({aj}.{y} AS DATE)"
+                        nota = " (one side is a timestamp, the other a day)"
+                    elif (
+                        isinstance(vx, str)
+                        and isinstance(vy, str)
+                        and not (_parece_dia(vx) or _parece_instante(vx))
+                    ):
+                        expr_x = f"lower(strip_accents({ai}.{x}))"
+                        expr_y = f"lower(strip_accents({aj}.{y}))"
+                        nota = " (text: compare case- and accent-insensitively)"
+                    elif _parece_dia(vx) and _parece_dia(vy):
+                        expr_x = f"CAST({ai}.{x} AS DATE)"
+                        expr_y = f"CAST({aj}.{y} AS DATE)"
+                    p = f"{expr_x} = {expr_y}{nota}"
+                    if p not in pistas:
+                        pistas.append(p)
+    return pistas[:12]
+
+
+# Regras de raciocínio que o modelo errava no portão (14/10/2026, Sonnet
+# 4.6, P3/P6/P10) — gerais, valem para qualquer par de fontes. As mesmas
+# regras vão no contrato da fatia (core/llm/multi_fonte.py): quando a fatia
+# já filtrou mal, o merger já não tem as linhas para corrigir.
+REGRAS_DE_RACIOCINIO = (
+    "10. OR across columns: when the question asks for a match in one column OR "
+    "another (origin or destination, sender or receiver), match the key against "
+    "EITHER column (`b.key IN (a.col1, a.col2)` or EXISTS) and count each item once "
+    "(COUNT(DISTINCT id)). Require ALL columns only when the question says 'and' / "
+    "'both'.\n"
+    "11. Geographic level: rows of a wider area (national rows with region NULL, a "
+    "country total such as 'ESPAÑA') are NOT rows of a narrower area, and the other "
+    "way round. Use exactly the level the question names: 'a regional holiday of X' "
+    "is a row whose region is X, not a national holiday. When datasets use "
+    "different levels (city vs province vs region), map the cities to their "
+    "province/region explicitly.\n"
+    "12. A property of a whole entity stored as several rows (a route made of "
+    "several sections, an order made of lines) holds only if it holds for ALL its "
+    "rows ('the route has no toll' = every section is toll-free -> bool_and), or "
+    "for ANY row when the question says so (bool_or). Aggregate per entity first; "
+    "never keep an entity because one of its rows matches.\n"
+    "13. Count and sum over the client's own entities (its routes, trips, "
+    "vehicles). A public dataset that also lists routes or places only describes "
+    "them; never let it decide which of the client's entities exist.\n"
+)
+
+
+def _generate_merger_prompt_por_ligacao(
+    question: str,
+    partial_results: List[Dict[str, Any]],
+    plan: str,
+    failed_slices: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, str]]:
+    """
+    Creates the prompt for the Merger agent.
+    Describes the partial data (tables) and asks for DuckDB SQL.
+    """
+
+    data_summary = []
+    resumos: List[Tuple[str, List[str], List[Dict[str, Any]]]] = []
+    for i, res in enumerate(partial_results):
+        meta = res.get("metadata", {}) or {}
+        alias = f"dataset_{i+1}"
+        columns, row_count, sample_data = _colunas_e_amostra_n(res.get("data", []))
+        resumos.append((alias, columns, sample_data))
+        descricoes = meta.get("descricoes") or {}
+        col_txt = []
+        for c in columns:
+            d = str(descricoes.get(c) or "").strip()
+            col_txt.append(f"{c} — {d[:100]}" if d else c)
+        summary = (
+            f"--- TABLE '{alias}' ---\n"
+            f"Original Source: {meta.get('source', 'Unknown')}\n"
+            f"Source tables: {res.get('table') or 'Unknown'}\n"
+            f"Title: {meta.get('title', 'Unknown')}\n"
+            f"Columns: {columns}\n"
+            + (
+                "Column meaning:\n  - " + "\n  - ".join(col_txt) + "\n"
+                if descricoes
+                else ""
+            )
+            + (
+                f"Row Count: {row_count} (WARNING: hit the row limit, may be TRUNCATED)\n"
+                if meta.get("possivelmente_cortada")
+                else f"Row Count: {row_count} (the table is COMPLETE, not a sample)\n"
+            )
+            + f"Sample Data (first {min(AMOSTRA, row_count)} rows): "
+            f"{json.dumps(sample_data, default=str, ensure_ascii=False)}\n"
+            + (
+                f"SQL that produced it: {str(res.get('sql'))[:600]}\n"
+                if res.get("sql")
+                else ""
+            )
+        )
+        data_summary.append(summary)
+
+    data_block = "\n".join(data_summary)
+    pistas = pistas_entre_conjuntos(resumos)
+    pistas_block = (
+        "Likely join keys (verify against the samples):\n- "
+        + "\n- ".join(pistas)
+        + "\n\n"
+        if pistas
+        else ""
+    )
+
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are a Data Engineer Expert specializing in DuckDB SQL.\n"
+            "You have multiple in-memory tables loaded with data from different sources.\n"
+            "Your task is to write a single DuckDB SQL query to join/aggregate these tables to answer the user's question.\n\n"
+            "Technical Requirements:\n"
+            "1. Use the table names provided (e.g., `dataset_1`, `dataset_2`).\n"
+            "2. Ensure all column names referenced actually exist in the tables.\n"
+            "3. Output ONLY the valid SQL query (inside ```sql ... ```). No explanations.\n"
+            "4. Start with `SELECT` or `WITH`.\n"
+            "5. Handle type mismatches (e.g., cast string to int if needed) using DuckDB syntax.\n"
+            "6. Text keys may differ in case/accents between sources ('BADAJOZ' vs 'Badajoz'): "
+            "compare with lower(strip_accents(x)).\n"
+            "7. A timestamp and a calendar day join with CAST(ts AS DATE) = CAST(day AS DATE).\n"
+            "8. Pre-aggregate each dataset to the join grain before joining, so measures are not "
+            "multiplied by the join (fan-out).\n"
+            "9. The final result must be small and answer the question directly (the final "
+            "number(s), or one row per item the question asks for).\n"
+            + REGRAS_DE_RACIOCINIO
+        ),
+    }
+
+    missing_block = ""
+    if failed_slices:
+        faltam = ", ".join(f"`{f.get('table')}`" for f in failed_slices)
+        missing_block = (
+            f"NOT AVAILABLE (these slices failed and are NOT loaded): {faltam}. "
+            "Do not reference them.\n\n"
+        )
+
+    user_msg = {
+        "role": "user",
+        "content": (
+            f"User Question: {question}\n\n"
+            f"Plan Context: {plan}\n\n"
+            f"Available Tables (DuckDB):\n{data_block}\n\n"
+            f"{pistas_block}"
+            f"{missing_block}"
+            "Generate the DuckDB SQL query."
+        ),
+    }
+
+    return [system_msg, user_msg]
+
+
+def _run_merger_por_ligacao(
+    state: AgentState, agent_config: AgentConfig, llm: LLMProvider
+) -> AgentState:
+    """Merger do caminho novo (flag MULTI_FONTE_POR_LIGACAO).
+
+    - 0 ou 1 conjuntos: nada a juntar — igual ao caminho de sempre (passa a
+      única fatia directa, ou diz que fontes falharam; nunca pede ao modelo
+      que invente a que falta).
+    - 2+: prompt com descrições, pistas de junção e regras de raciocínio;
+      com um erro do DuckDB, UMA correcção com a mensagem de erro.
+    """
+    question = state.get("question", "")
+    partial_results = state.get("partial_results", []) or []
+    failed_slices = state.get("failed_slices") or []
+    plan = state.get("plan", "")
+
+    if len(partial_results) <= 1:
+        return _run_merger_por_tabela(state, agent_config, llm)
+
+    log_event(
+        "merger_start",
+        {
+            "agent_id": agent_config.id,
+            "num_datasets": len(partial_results),
+            "failed_slices": [f.get("table") for f in failed_slices],
+            "question": question[:100],
+            "path": "por_ligacao",
+        },
+    )
+
+    prompt = _generate_merger_prompt_por_ligacao(
+        question, partial_results, plan, failed_slices=failed_slices
+    )
+    try:
+        sql_query = _pedir_sql(llm, prompt)
+    except Exception as e:
+        state["error"] = f"Merger LLM generation failed: {str(e)}"
+        return state
+
+    engine = None
+    try:
+        engine = DuckEngine()
+        for i, res in enumerate(partial_results):
+            engine.register_data(f"dataset_{i+1}", res.get("data", []))
+
+        try:
+            final_data = engine.execute(sql_query)
+        except Exception as primeiro:
+            log_event(
+                "merger_execution_retry",
+                {"error": str(primeiro)[:300], "sql": sql_query[:600]},
+            )
+            correcao = prompt + [
+                {"role": "assistant", "content": f"```sql\n{sql_query}\n```"},
+                {
+                    "role": "user",
+                    "content": (
+                        f"DuckDB rejected that query:\n{str(primeiro)[:600]}\n\n"
+                        "Fix it. Use only the columns listed for each dataset. "
+                        "Output ONLY the corrected SQL inside ```sql ... ```."
+                    ),
+                },
+            ]
+            sql_query = _pedir_sql(llm, correcao)
+            final_data = engine.execute(sql_query)
+
+        state["data"] = final_data
+        state["generated_title"] = (
+            f"Consolidated Report ({len(partial_results)} Sources)"
+        )
+        state["sql"] = sql_query
+        log_event("merger_success", {"final_rows": len(final_data), "sql": sql_query})
+    except Exception as e:
+        # As partes vieram, a junção é que não: dizê-lo (MULTI_SOURCE_*).
+        state["merge_failure"] = {
+            "kind": "merge_failed",
+            "failed": [f.get("table") for f in failed_slices],
+            "ok": [r.get("table") for r in partial_results],
+        }
+        state["debug_error"] = f"Merger DuckDB execution failed: {e}"
+        state["data"] = []
+        log_event("merger_execution_error", {"error": str(e), "sql": sql_query})
+    finally:
+        if engine:
+            engine.close()
+
+    return state
+
+
+def run_merger(
+    state: AgentState, agent_config: AgentConfig, llm: LLMProvider
+) -> AgentState:
+    """Merger multi-fonte.
+
+    Com a flag ``MULTI_FONTE_POR_LIGACAO(_TENANTS)`` activa no pedido (o nó
+    marca ``state["multi_fonte_por_ligacao"]``): conjuntos por ligação,
+    pistas de junção, regras de raciocínio e uma correcção com o erro do
+    DuckDB. Sem ela, o merger de sempre (uma fatia por tabela, #289).
+    """
+    if state.get("multi_fonte_por_ligacao"):
+        return _run_merger_por_ligacao(state, agent_config, llm)
+    return _run_merger_por_tabela(state, agent_config, llm)

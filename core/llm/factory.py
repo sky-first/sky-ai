@@ -112,6 +112,44 @@ def create_llm_specialist(
     )
 
 
+def modelo_do_merger_definido() -> bool:
+    """``BEDROCK_MODEL_MERGER`` / ``LLM_MODEL_MERGER`` definido para o provider activo."""
+    if settings.use_bedrock:
+        return bool((settings.llm_model_merger_bedrock or "").strip())
+    if settings.use_local_models:
+        return False
+    return bool((settings.llm_model_merger or "").strip())
+
+
+def create_llm_merger() -> LLMProvider:
+    """LLM do merger multi-fonte (o SQL DuckDB que junta as fatias).
+
+    ``BEDROCK_MODEL_MERGER`` (bedrock) ou ``LLM_MODEL_MERGER`` (openai); sem
+    eles, o modelo do especialista. O grafo só chama isto quando o modelo
+    está definido — sem ele usa a instância que já tem (ver
+    ``generic_sql_agent._llm_do_merger``).
+    """
+    if settings.use_bedrock:
+        from core.llm.providers import BedrockChatProvider
+
+        return BedrockChatProvider(
+            model=(settings.llm_model_merger_bedrock or "").strip()
+            or settings.llm_model_specialist_bedrock,
+            region=settings.bedrock_region,
+            temperature=0.0,
+            inference_profile_arn=_tenant_bedrock_profile_arn(),
+        )
+    if settings.use_local_models:
+        return create_llm_specialist()
+    from core.llm.providers import LangChainChatOpenAIProvider
+
+    return LangChainChatOpenAIProvider(
+        model=(settings.llm_model_merger or "").strip()
+        or settings.llm_model_specialist,
+        temperature=0.0,
+    )
+
+
 def create_llm_formatter(
     creativity: Optional[int] = None, length: Optional[int] = None
 ) -> LLMProvider:

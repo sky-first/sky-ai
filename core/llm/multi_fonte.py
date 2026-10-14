@@ -1,0 +1,494 @@
+# -*- coding: utf-8 -*-
+"""Perguntas que cruzam várias ligações: uma fatia por LIGAÇÃO, não por tabela.
+
+Portão da Fase 0 das «Fontes do sistema» (desenho §3.7, decisão 4): perguntas
+mistas — dados do cliente × dados públicos — passam pelo caminho multi-ligação
+(``dispatch_map`` + merger DuckDB). A avaliação com as 10 perguntas do Anexo C
+(``scripts/portao_fontes``) mostrou três defeitos estruturais, todos daqui:
+
+1. **Uma fatia por tabela.** «Litros de Setembro em Badajoz–Madrid» precisa de
+   ``ops.trips`` JOIN ``ops.routes`` — duas tabelas da MESMA ligação. Partido
+   por tabela, cada metade era pedida sozinha: a de ``trips`` não sabe que rota
+   é Badajoz–Madrid e a de ``routes`` não tem litros. O JOIN que o Postgres do
+   cliente faz em 1 ms ficava a cargo do merger, sobre fatias já cortadas.
+   Agora as tabelas escolhidas agrupam-se por ligação e cada ligação recebe
+   UMA sub-pergunta com todas as suas tabelas: o SQL nativo junta o que é da
+   mesma base, e o merger só junta o que não pode ser junto de outra forma.
+2. **A fatia não sabia com que ia ser cruzada.** O especialista via a pergunta
+   inteira e só as suas tabelas; agregava tudo (``SUM(fuel_litres)``) e deitava
+   fora a chave (a data, a cidade) de que o merger precisava. Agora recebe o
+   «contrato da fatia»: que outras fontes há, as colunas delas e as chaves
+   prováveis de junção — devolve as linhas ao grão da chave.
+3. **LIMIT 100.** O prompt do especialista exige ``LIMIT 100`` (uma tabela) ou
+   ``150`` (várias). Uma fatia ao grão do dia (365 linhas num ano) era cortada
+   em silêncio e o merger somava 100 dias. Para fatias o tecto é o do
+   validador (5000) — ver ``LIMITE_DA_FATIA``.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import os
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+from core.logging_utils import log_event
+
+# ── Flag ──────────────────────────────────────────────────────────────────
+#
+# O caminho multi-ligação serve TODOS os clientes. Até o portão ser medido
+# com os modelos de produção, a fatia por ligação (e o contrato, o LIMIT 5000,
+# o merger novo e a reparação de fan-out) só liga para quem a flag disser:
+#
+#   MULTI_FONTE_POR_LIGACAO=true            → todos os clientes
+#   MULTI_FONTE_POR_LIGACAO_TENANTS=sandbox → só estes slugs (vírgulas)
+#
+# Sem nenhuma das duas, o caminho de sempre (uma fatia por tabela), intacto.
+_VERDADE = {"1", "true", "yes", "on", "sim"}
+
+
+def multi_fonte_por_ligacao_ativo(slug: Optional[str] = None) -> bool:
+    if (os.environ.get("MULTI_FONTE_POR_LIGACAO") or "").strip().lower() in _VERDADE:
+        return True
+    clientes = {
+        s.strip()
+        for s in (os.environ.get("MULTI_FONTE_POR_LIGACAO_TENANTS") or "").split(",")
+        if s.strip()
+    }
+    if not clientes:
+        return False
+    if slug is None:
+        try:
+            from core.tenant_context import current_tenant
+
+            slug = current_tenant().slug
+        except Exception:
+            return False
+    return slug in clientes
+
+
+# O tecto do AdvancedSQLValidator (max_limit=5000). Uma fatia tem de caber
+# inteira no merger: cortá-la dá números errados sem aviso.
+LIMITE_DA_FATIA = 5000
+
+# Colunas que aparecem em quase todas as tabelas e não são chave de nada.
+_COLUNAS_GENERICAS = {
+    "id",
+    "fonte",
+    "licenca",
+    "nota",
+    "descricao",
+    "description",
+    "name",
+    "nome",
+    "created_at",
+    "updated_at",
+    "actualizado_em",
+    "visto_em",
+    "calculado_em",
+    "estado",
+    "status",
+    "lat",
+    "lon",
+    "versao",
+}
+
+# Sinónimos entre as línguas das bases (a sementeira é em inglês, o mundo em
+# português). Grupo → nomes de coluna que querem dizer o mesmo.
+_SINONIMOS: Tuple[Tuple[str, ...], ...] = (
+    ("origin", "origem", "origen", "cidade", "ciudad", "city"),
+    ("destination", "destino", "cidade", "ciudad", "city"),
+    ("province", "provincia", "província"),
+    ("country", "pais", "país"),
+    ("road", "carretera", "estrada", "corredor"),
+    ("municipality", "municipio", "município", "localidad"),
+)
+
+_RE_DATA = re.compile(r"\b(date|data|fecha|dia|day)\b", re.I)
+_TIPOS_DATA = ("date",)
+_TIPOS_TEMPO = ("timestamp", "datetime", "timestamptz")
+
+
+def _sem_acentos(s: str) -> str:
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFKD", s or "")
+        if not unicodedata.combining(c)
+    ).lower()
+
+
+def _rotulo(t: Any) -> str:
+    return getattr(t, "display_name", None) or getattr(t, "logical_name", "")
+
+
+def _colunas(t: Any) -> List[Dict[str, Any]]:
+    cols = getattr(t, "columns", None) or []
+    out = []
+    for c in cols:
+        if isinstance(c, dict):
+            out.append(c)
+        else:  # objectos com atributos
+            out.append(
+                {
+                    "name": getattr(c, "name", ""),
+                    "type": getattr(c, "type", "") or getattr(c, "data_type", ""),
+                    "description": getattr(c, "description", "") or "",
+                }
+            )
+    return out
+
+
+@dataclass
+class Fatia:
+    """As tabelas escolhidas de UMA ligação."""
+
+    connection_id: str
+    tabelas: List[Any] = field(default_factory=list)
+    rotulo_fonte: str = ""
+
+    @property
+    def rotulos(self) -> List[str]:
+        return [_rotulo(t) for t in self.tabelas]
+
+    @property
+    def fisicas(self) -> List[str]:
+        return [t.physical_name for t in self.tabelas]
+
+
+def agrupar_por_ligacao(
+    escolhidas: Sequence[str], agent_config: Any, dispatch_map: Optional[dict] = None
+) -> List[Fatia]:
+    """Agrupa as tabelas escolhidas pela ligação a que pertencem, por ordem."""
+    por_ligacao: Dict[str, Fatia] = {}
+    for nome in escolhidas or []:
+        t = next((x for x in agent_config.tables if _rotulo(x) == nome), None)
+        if t is None:
+            continue
+        cid = str(getattr(t, "data_connection_id", "") or "")
+        if cid not in por_ligacao:
+            src = (dispatch_map or {}).get(cid)
+            por_ligacao[cid] = Fatia(
+                connection_id=cid,
+                rotulo_fonte=str(getattr(src, "label", "") or cid or "principal"),
+            )
+        if t not in por_ligacao[cid].tabelas:
+            por_ligacao[cid].tabelas.append(t)
+    return list(por_ligacao.values())
+
+
+# ── chaves de junção ──────────────────────────────────────────────────────
+
+
+def _grupo(nome: str) -> Optional[int]:
+    n = _sem_acentos(nome)
+    for i, g in enumerate(_SINONIMOS):
+        if n in g:
+            return i
+    return None
+
+
+def _e_data(col: Dict[str, Any]) -> bool:
+    tipo = str(col.get("type") or "").lower()
+    return any(k in tipo for k in _TIPOS_DATA) and not any(
+        k in tipo for k in _TIPOS_TEMPO
+    )
+
+
+def _e_tempo(col: Dict[str, Any]) -> bool:
+    tipo = str(col.get("type") or "").lower()
+    return any(k in tipo for k in _TIPOS_TEMPO)
+
+
+def _referencias(desc: str) -> List[str]:
+    """«= ops.routes.origin» / «FK gasolineras_precio.id_estacion» → colunas."""
+    out = []
+    for m in re.finditer(
+        r"(?:=|FK)\s*([a-z_][\w]*(?:\.[a-z_][\w]*){1,2})", desc or "", re.I
+    ):
+        out.append(m.group(1).lower())
+    return out
+
+
+def pistas_de_juncao(a: Sequence[Any], b: Sequence[Any]) -> List[str]:
+    """Pares de colunas prováveis para juntar as tabelas ``a`` com as ``b``.
+
+    Por ordem de confiança: referência documentada na descrição da coluna
+    («= ops.routes.origin», como o esquema ``mundo`` escreve), mesmo nome,
+    sinónimo entre línguas (origin ~ origem), e data civil × instante
+    (``CAST(departed_at AS DATE) = data``). Cada par de colunas aparece uma
+    vez; cada coluna de data recebe só o PRIMEIRO instante de cada tabela
+    (a ordem das colunas é a do esquema: ``departed_at`` antes de
+    ``arrived_at``) — doze variantes da mesma data afogavam o resto.
+    """
+    documentadas: List[str] = []
+    nomes: List[str] = []
+    datas: List[str] = []
+    vistos: set = set()
+
+    def add(lista: List[str], x: str, y: str, texto: str) -> None:
+        chave = frozenset((x.lower(), y.lower()))
+        if chave in vistos:
+            return
+        vistos.add(chave)
+        lista.append(texto)
+
+    for ta in a:
+        for tb in b:
+            ca, cb = _colunas(ta), _colunas(tb)
+            na, nb = _rotulo(ta), _rotulo(tb)
+            fa = str(getattr(ta, "physical_name", na)).lower()
+            fb = str(getattr(tb, "physical_name", nb)).lower()
+            # 1) referências documentadas
+            for cols_x, tab_x, tab_y, cols_y, fis_y in (
+                (ca, na, nb, cb, fb),
+                (cb, nb, na, ca, fa),
+            ):
+                for c in cols_x:
+                    for ref in _referencias(str(c.get("description") or "")):
+                        alvo_tab, _, alvo_col = ref.rpartition(".")
+                        if fis_y.endswith(alvo_tab.split(".")[-1]) and any(
+                            str(y.get("name")).lower() == alvo_col for y in cols_y
+                        ):
+                            x, y = f"{tab_x}.{c.get('name')}", f"{tab_y}.{alvo_col}"
+                            add(documentadas, x, y, f"{x} = {y}")
+            # 2) mesmo nome / 3) sinónimo
+            for c in ca:
+                xn = str(c.get("name") or "")
+                if not xn or _sem_acentos(xn) in _COLUNAS_GENERICAS:
+                    continue
+                for d in cb:
+                    yn = str(d.get("name") or "")
+                    if not yn or _sem_acentos(yn) in _COLUNAS_GENERICAS:
+                        continue
+                    x, y = f"{na}.{xn}", f"{nb}.{yn}"
+                    if _sem_acentos(xn) == _sem_acentos(yn):
+                        add(nomes, x, y, f"{x} = {y}")
+                    elif _grupo(xn) is not None and _grupo(xn) == _grupo(yn):
+                        add(
+                            nomes, x, y, f"{x} = {y} (same meaning, different language)"
+                        )
+            # 4) data civil × instante (um instante por tabela)
+            for cols_x, tab_x, cols_y, tab_y in ((ca, na, cb, nb), (cb, nb, ca, na)):
+                instante = next((d for d in cols_y if _e_tempo(d)), None)
+                if instante is None:
+                    continue
+                for c in cols_x:
+                    if _e_data(c):
+                        x, y = (
+                            f"{tab_x}.{c.get('name')}",
+                            f"{tab_y}.{instante.get('name')}",
+                        )
+                        add(datas, x, y, f"{x} = CAST({y} AS DATE) (day grain)")
+    return (documentadas + nomes + datas)[:12]
+
+
+def _resumo_tabela(t: Any, max_cols: int = 25) -> str:
+    cols = []
+    for c in _colunas(t)[:max_cols]:
+        nome = c.get("name")
+        tipo = c.get("type") or ""
+        desc = str(c.get("description") or "").strip()
+        cols.append(f"{nome} {tipo}".strip() + (f" — {desc[:80]}" if desc else ""))
+    return f"  • {_rotulo(t)} ({getattr(t, 'physical_name', '')}): " + "; ".join(cols)
+
+
+def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
+    """O que a fatia tem de devolver para o merger a conseguir cruzar."""
+    outras_tabs = [t for f in outras for t in f.tabelas]
+    linhas = [
+        "MULTI-SOURCE SLICE CONTRACT (mandatory):",
+        f"This query is ONE slice of a question that spans {len(outras) + 1} separate "
+        "databases. You only see the tables of THIS database. A later step (DuckDB, in "
+        "memory) joins your result with the results of the other databases:",
+    ]
+    for f in outras:
+        for t in f.tabelas:
+            linhas.append(_resumo_tabela(t))
+    pistas = pistas_de_juncao(fatia.tabelas, outras_tabs)
+    if pistas:
+        linhas.append("Likely join keys between your tables and theirs:")
+        linhas += [f"  - {p}" for p in pistas]
+    linhas += [
+        "Rules for this slice:",
+        "1. Do NOT answer the whole question and do NOT refuse it: return what THIS "
+        "database contributes (its measures, filtered by what belongs to it).",
+        "2. KEEP the join key columns in the SELECT, unchanged in meaning (city names, "
+        "dates as DATE, ids). Without them the other databases cannot be matched.",
+        "3. Pre-aggregate at the join-key grain (GROUP BY the key columns) instead of "
+        "returning raw rows; e.g. litres per route, trips per day.",
+        "4. Apply the filters that belong to THIS database (period, route, vehicle "
+        "class...). Never filter on values that only exist in the other databases.",
+        "5. You MAY join the tables of THIS database with each other, but use only "
+        "the ones the question needs.",
+        f"6. End with LIMIT {LIMITE_DA_FATIA} (not 100): the slice must arrive whole.",
+        # Portão 14/10/2026 (P6): «festivo regional de Extremadura» trazia também
+        # os nacionais (regiao IS NULL) — 32 viagens em vez de 6.
+        "7. Geographic level: use exactly the level the question names. Rows of a "
+        "wider area (national rows with region NULL, a country total) are NOT rows of "
+        "a narrower one: 'a regional holiday of X' is region = X only, never "
+        "'region = X OR region IS NULL'. Include national rows only when the question "
+        "asks for them ('national or regional', 'any holiday').",
+        # P3: «rota sem portagem» filtrava troços (gratuita = TRUE) e deixava
+        # passar Lisboa–Madrid, que tem um troço pago.
+        "8. A property of a whole entity that THIS database stores as several rows "
+        "(a route made of sections, an order made of lines) must hold for ALL its rows "
+        "('the route has no toll' = every section toll-free). GROUP BY the entity key "
+        "and return the property with bool_and()/bool_or()/MIN()/MAX(); never filter "
+        "the rows with WHERE, which keeps an entity when only some of its rows match.",
+        # P10: a fatia pública usava gasolineras_rota como lista de rotas e o
+        # merger só via 5 das 7 rotas do cliente.
+        "9. Never stand in for an entity that lives in another database (do not use "
+        "a list of routes, places or products from THIS database as if it were the "
+        "client's list). Return your facts at the grain of the shared key (e.g. per "
+        "city, per day); the join step matches them to the client's entities. When "
+        "the question says 'X or Y' (origin or destination), keep the key itself "
+        "(the city), not a pair.",
+    ]
+    return "\n".join(linhas)
+
+
+# ── execução ──────────────────────────────────────────────────────────────
+
+
+def _rotulo_da_fonte(src: Any, cid: str) -> str:
+    return str(getattr(src, "label", "") or cid or "principal")
+
+
+def executar_fatias(
+    state: Dict[str, Any],
+    agent_config: Any,
+    escolhidas: Sequence[str],
+    dispatch_map: Optional[dict],
+    data_source: Any,
+    llm: Any,
+    run_specialist: Optional[Callable] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Uma sub-pergunta por ligação, em paralelo.
+
+    Devolve ``(partial_results, fontes_publicas, failed_slices)``. Cada
+    parcial leva a ligação, as tabelas e as descrições das colunas — o merger
+    usa-as para explicar ao modelo o que cada conjunto é e como se junta.
+    ``failed_slices`` (``[{table, reason}]``, como no caminho de sempre) diz
+    que ligações não trouxeram dados: o merger não as inventa e a resposta
+    di-lo (MULTI_SOURCE_PARTIAL / MULTI_SOURCE_*).
+    """
+    if run_specialist is None:
+        from core.llm.specialist import run_specialist as _rs
+
+        run_specialist = _rs
+
+    fatias = agrupar_por_ligacao(escolhidas, agent_config, dispatch_map)
+    tarefas = []
+    for f in fatias:
+        outras = [o for o in fatias if o is not f]
+        st = dict(state)
+        st["chosen_tables"] = f.rotulos
+        st["chosen_tables_physical"] = f.fisicas
+        st["chosen_table"] = f.rotulos[0]
+        st["chosen_table_physical"] = f.fisicas[0]
+        st["join_relationships"] = None
+        st["multi_source_subquery"] = True
+        st["contrato_da_fatia"] = contrato_da_fatia(f, outras)
+        st["is_multi_source"] = False
+        src = (dispatch_map or {}).get(f.connection_id) or data_source
+        tarefas.append((f, st, src))
+
+    resultados: List[Dict[str, Any]] = []
+    fontes: List[Dict[str, Any]] = []
+    falhadas: List[Dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(max(len(tarefas), 1), 5)
+    ) as ex:
+        futuros = {
+            ex.submit(run_specialist, st, agent_config, src, llm): (f, src)
+            for (f, st, src) in tarefas
+        }
+        for fut in concurrent.futures.as_completed(futuros):
+            f, src = futuros[fut]
+            try:
+                r = fut.result()
+            except Exception as exc:  # uma fonte em baixo não deita a resposta
+                log_event(
+                    "multi_fonte_fatia_erro",
+                    {"connection_id": f.connection_id, "error": str(exc)[:300]},
+                )
+                falhadas.append(
+                    {
+                        "table": ", ".join(f.rotulos),
+                        "connection_id": f.connection_id,
+                        "reason": str(exc)[:300],
+                    }
+                )
+                continue
+            log_event(
+                "multi_source_subquery_result",
+                {
+                    "connection_id": f.connection_id,
+                    "tables": f.rotulos,
+                    "has_data": bool(r.get("data")),
+                    "rows": len(r.get("data") or []),
+                    "sql": (r.get("sql") or "")[:300],
+                    "error": r.get("error"),
+                    "impossible_reason": r.get("impossible_reason"),
+                },
+            )
+            if r.get("fontes_publicas"):
+                fontes += list(r["fontes_publicas"])
+            if not r.get("data"):
+                if r.get("impossible_reason"):
+                    motivo = str(r.get("impossible_reason"))
+                elif r.get("error"):
+                    motivo = str(r.get("error"))
+                elif r.get("sql"):
+                    motivo = "query ran and returned 0 rows"
+                else:
+                    motivo = "no SQL was produced"
+                falhadas.append(
+                    {
+                        "table": ", ".join(f.rotulos),
+                        "connection_id": f.connection_id,
+                        "reason": motivo[:300],
+                    }
+                )
+                continue
+            # Uma fatia que bate no tecto pode estar cortada: o merger tem de
+            # o saber (e a resposta também) em vez de somar um subconjunto
+            # como se fosse tudo.
+            cortada = len(r["data"]) >= LIMITE_DA_FATIA
+            if cortada:
+                log_event(
+                    "multi_fonte_fatia_no_limite",
+                    {"connection_id": f.connection_id, "rows": len(r["data"])},
+                )
+            resultados.append(
+                {
+                    "table": ", ".join(f.rotulos),
+                    "tables": f.rotulos,
+                    "connection_id": f.connection_id,
+                    "data": r["data"],
+                    "sql": r.get("sql"),
+                    "metadata": {
+                        "source": _rotulo_da_fonte(src, f.connection_id),
+                        "title": r.get("generated_title"),
+                        "dialect": str(
+                            getattr(getattr(src, "dialect", None), "value", "") or ""
+                        ),
+                        "descricoes": {
+                            str(c.get("name")): str(c.get("description") or "")
+                            for t in f.tabelas
+                            for c in _colunas(t)
+                            if c.get("description")
+                        },
+                        "possivelmente_cortada": cortada,
+                    },
+                }
+            )
+    # ordem estável (a do agrupamento), para o merger e para os testes
+    ordem = {f.connection_id: i for i, f in enumerate(fatias)}
+    resultados.sort(key=lambda r: ordem.get(r["connection_id"], 99))
+    falhadas.sort(key=lambda r: ordem.get(r["connection_id"], 99))
+    from core.llm.fontes_publicas import juntar
+
+    return resultados, juntar(fontes), falhadas

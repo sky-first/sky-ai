@@ -6159,6 +6159,18 @@ async def _stream_connection_query(
                 if resto:
                     yield f"data: {json.dumps({'type': 'chunk', 'content': resto})}\n\n"
                 accumulated_answer = _correcao.texto
+                # Dados públicos: fonte e hora do dado, sempre (regra da
+                # licença) — o mesmo texto que o run_formatter acrescenta.
+                if final_state.get("fontes_publicas"):
+                    from core.llm.fontes_publicas import linha_de_citacao
+
+                    _citacao = linha_de_citacao(
+                        final_state.get("fontes_publicas"), _stream_lang
+                    )
+                    if _citacao and _citacao not in accumulated_answer:
+                        _pedaco = f"\n\n{_citacao}"
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': _pedaco})}\n\n"
+                        accumulated_answer += _pedaco
             except Exception as e:
                 # Fallback se streaming falhar
                 fallback = "Error formatting the response with the AI. Data was queried successfully, but I could not generate a summary."
@@ -6192,6 +6204,8 @@ async def _stream_connection_query(
                 "title": final_state.get("generated_title"),
                 "num_rows": len(data),
                 "error": None,
+                # Selo «Fonte: MITECO, 13:05» na web e na app.
+                "fontes_publicas": final_state.get("fontes_publicas") or None,
             }
 
             yield f"data: {json.dumps({'type': 'meta', 'meta': meta, 'data_sample': formatted_sample, 'recommended_widget_type': recommended_widget_type})}\n\n"
