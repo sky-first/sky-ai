@@ -10,6 +10,7 @@ from core.agents.generic_sql_agent import AgentState, AgentConfig
 from core.llm.providers import LLMProvider
 from core.i18n.i18n import detect_language, get_message, resolve_language
 from core.logging_utils import log_event
+from core.llm.fornecedor_multi_fonte import mensagem_modelo_indisponivel
 from config.settings import settings
 from core.llm.prompts.formatter_prompts import (
     build_formatter_prompt,
@@ -635,7 +636,13 @@ def run_formatter(
     # combinação falhou — não o TECHNICAL_ERROR genérico (13/10/2026).
     merge_failure = state.get("merge_failure")
     if merge_failure and not data:
-        if merge_failure.get("kind") == "merge_failed":
+        if merge_failure.get("kind") == "model_unavailable":
+            # O modelo do caminho multi-fonte falhou (opção B): honesto, e
+            # sem chamar o modelo outra vez (core/llm/fornecedor_multi_fonte).
+            state["answer"] = mensagem_modelo_indisponivel(
+                merge_failure.get("tipo"), lang
+            )
+        elif merge_failure.get("kind") == "merge_failed":
             state["answer"] = get_message(
                 "MULTI_SOURCE_MERGE_FAILED",
                 lang,

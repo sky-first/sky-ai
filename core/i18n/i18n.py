@@ -53,6 +53,20 @@ MESSAGES: Dict[str, Dict[str, str]] = {
         "pt": "Obtive os dados de {usadas}, mas não os consegui combinar para responder a esta pergunta. Experimente perguntar sobre cada uma em separado.",
         "es": "Obtuve los datos de {usadas}, pero no pude combinarlos para responder a esta pregunta. Pruebe a preguntar por cada una por separado.",
     },
+    # O modelo próprio do caminho multi-fonte (MULTI_FONTE_PROVIDER, opção B)
+    # falhou: limite de pedidos esgotado, falha do fornecedor, ou sem
+    # permissão. Nunca se responde com o modelo global — dá números errados
+    # neste caminho (core/llm/fornecedor_multi_fonte.py).
+    "MULTI_SOURCE_MODEL_BUSY": {
+        "en": "This question combines several data sources, and the AI model that answers this kind of question is overloaded right now. I won't answer with a different model because it could give you wrong numbers. Please try again in a minute.",
+        "pt": "Esta pergunta cruza várias fontes de dados e o modelo de IA que responde a este tipo de pergunta está sobrecarregado neste momento. Não respondo com outro modelo porque podia dar-lhe números errados. Tente de novo daqui a um minuto.",
+        "es": "Esta pregunta cruza varias fuentes de datos y el modelo de IA que responde a este tipo de preguntas está saturado en este momento. No respondo con otro modelo porque podría darle cifras erróneas. Inténtelo de nuevo dentro de un minuto.",
+    },
+    "MULTI_SOURCE_MODEL_DENIED": {
+        "en": "This question combines several data sources, and the AI model that answers this kind of question isn't available to this workspace (missing permission on our side). I won't answer with a different model because it could give you wrong numbers. The error has been logged — please tell your administrator.",
+        "pt": "Esta pergunta cruza várias fontes de dados e o modelo de IA que responde a este tipo de pergunta não está disponível para este espaço (falta uma permissão do nosso lado). Não respondo com outro modelo porque podia dar-lhe números errados. O erro ficou registado — avise um administrador.",
+        "es": "Esta pregunta cruza varias fuentes de datos y el modelo de IA que responde a este tipo de preguntas no está disponible para este espacio (falta un permiso por nuestra parte). No respondo con otro modelo porque podría darle cifras erróneas. El error quedó registrado: avise a su administrador.",
+    },
     # O que a pessoa perguntou nao existe nos dados — dito com franqueza e
     # com uma alternativa, nunca inventado. Ver core/llm/conceito_em_falta.py.
     "MISSING_CONCEPT": {

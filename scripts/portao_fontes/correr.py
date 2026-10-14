@@ -20,6 +20,12 @@ Uso (a partir de sky-poc-ai/, com o venv):
     AI_PROVIDER=bedrock AWS_PROFILE=sky-production BEDROCK_MODEL_ORCHESTRATOR=... \
       python -m scripts.portao_fontes.correr --llm bedrock --formatter --vezes 2
 
+    # Opção B: orquestrador global + resto no MULTI_FONTE_PROVIDER
+    # (MULTI_FONTE_MODEL_ORCHESTRATOR definido = orquestrador também Claude)
+    AI_PROVIDER=openai OPENAI_BASE_URL=... MULTI_FONTE_PROVIDER=bedrock \
+      AWS_PROFILE=sky-production python -m scripts.portao_fontes.correr \
+      --llm multi_fonte --formatter --vezes 2
+
 O merger usa o modelo do merger do grafo (``create_llm_merger``): o
 especialista, salvo ``BEDROCK_MODEL_MERGER`` / ``LLM_MODEL_MERGER``. Com
 ``--json`` cada linha leva tokens por modelo, segundos e esperas do limite
@@ -122,6 +128,23 @@ def _llms(qual: str, arquitectura: str):
 
         o = Oraculo(arquitectura)
         return o, o, o, o
+    if qual == "multi_fonte":
+        # Opção B, como o grafo a monta: orquestrador GLOBAL (AI_PROVIDER, ou
+        # MULTI_FONTE_MODEL_ORCHESTRATOR se definido) e o resto do pedido no
+        # MULTI_FONTE_PROVIDER (core/llm/fornecedor_multi_fonte.py).
+        from core.llm.factory import create_llm_orchestrator
+        from core.llm.fornecedor_multi_fonte import criar_llm
+
+        _instrumentar()
+        if not os.getenv("MULTI_FONTE_PROVIDER"):
+            raise SystemExit("--llm multi_fonte precisa de MULTI_FONTE_PROVIDER")
+        llm_o = criar_llm("orchestrator") or create_llm_orchestrator()
+        return (
+            llm_o,
+            criar_llm("specialist"),
+            criar_llm("merger"),
+            criar_llm("formatter", temperature=0.2),
+        )
     if qual == "openai" or os.getenv("BEDROCK_MODEL_ORCHESTRATOR"):
         # A MESMA fábrica de produção: AI_PROVIDER, OPENAI_BASE_URL e
         # LLM_MODEL_* (ou BEDROCK_MODEL_*) vêm do ambiente (em produção,
@@ -404,7 +427,9 @@ def correr(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--llm", choices=("oraculo", "openai", "bedrock"), default="oraculo"
+        "--llm",
+        choices=("oraculo", "openai", "bedrock", "multi_fonte"),
+        default="oraculo",
     )
     ap.add_argument("--arquitectura", choices=("nova", "antiga"), default="nova")
     ap.add_argument("--formatter", action="store_true")
