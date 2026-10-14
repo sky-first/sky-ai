@@ -663,9 +663,37 @@ def _tabela_proibida(sql_text: str, forbidden_tables) -> Optional[str]:
     return None
 
 
+# «IMPOSSIBLE» numa linha que não é a primeira. Medido a 14/10/2026 com Haiku
+# como especialista de fatia: «-- TITLE: …\nIMPOSSIBLE: …» (ou prosa antes)
+# não era reconhecido — o texto seguia para a extracção de SQL e morria no
+# validador, sem a segunda tentativa nem o motivo.
+_RE_LINHA_IMPOSSIBLE = re.compile(r"^[\s>*#`\-]*IMPOSSIBLE\b\**", re.I | re.M)
+_RE_LINHA_SQL = re.compile(r"^\s*(?:```(?:sql)?\s*)?(?:select|with)\b", re.I | re.M)
+
+
+def normalizar_impossible(texto: str) -> str:
+    """Põe «IMPOSSIBLE: motivo» no início quando vem noutra linha qualquer.
+
+    Só quando a resposta não traz SQL: com um SELECT/WITH numa linha, o
+    fluxo normal decide (pode ser SQL válido com um comentário a falar de
+    impossibilidades).
+    """
+    if not texto or re.match(r"^\s*IMPOSSIBLE", texto, re.I):
+        return texto
+    m = _RE_LINHA_IMPOSSIBLE.search(texto)
+    if not m or _RE_LINHA_SQL.search(texto):
+        return texto
+    return "IMPOSSIBLE" + texto[m.end() :]
+
+
 def _bloco_da_fatia(state: Dict[str, Any], physical_names: List[str]) -> str:
     """Instrução para UMA fatia de uma pergunta multi-fonte (vazio fora disso)."""
     if not state.get("multi_source_subquery"):
+        return ""
+    if state.get("contrato_da_fatia"):
+        # Caminho novo (flag MULTI_FONTE_POR_LIGACAO): o contrato da fatia
+        # (core/llm/multi_fonte.py) substitui este bloco — fatia por ligação,
+        # pode juntar as tabelas da mesma base e diz as chaves de junção.
         return ""
     irmas = state.get("multi_source_sibling_tables") or []
     outras = (
@@ -1253,13 +1281,28 @@ def run_specialist(
     # pior resultado possivel num produto que vende respostas sobre dados.
     honesty_guidance = _honestidade_e_lingua(state)
 
+    # Uma fatia de uma pergunta multi-ligação tem de chegar INTEIRA ao merger:
+    # com «LIMIT 100» uma fatia ao grão do dia (365 linhas) era cortada em
+    # silêncio e o merger somava 100 dias. O tecto é o do validador.
+    # Só no caminho novo (flag MULTI_FONTE_POR_LIGACAO): é ele que manda o
+    # contrato da fatia. Sem contrato, as fatias de sempre (LIMIT 100/150).
+    _fatia = bool(state.get("multi_source_subquery") and state.get("contrato_da_fatia"))
+    if _fatia:
+        from core.llm.multi_fonte import LIMITE_DA_FATIA as _lim_multi
+
+        _lim_unica = _lim_multi
+    else:
+        _lim_multi, _lim_unica = 150, 100
+
     if use_multiple_tables:
         system_msg = _build_secure_system_prompt(
             physical_names=physical_names,
-            max_limit=150,
+            max_limit=_lim_multi,
             max_columns=50,
             use_multiple_tables=True,
-            security_rules=security_rules_str.format(max_limit=150, max_columns=50),
+            security_rules=security_rules_str.format(
+                max_limit=_lim_multi, max_columns=50
+            ),
             dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
@@ -1281,10 +1324,12 @@ def run_specialist(
     else:
         system_msg = _build_secure_system_prompt(
             physical_names=physical_names,
-            max_limit=100,
+            max_limit=_lim_unica,
             max_columns=10,
             use_multiple_tables=False,
-            security_rules=security_rules_str.format(max_limit=100, max_columns=10),
+            security_rules=security_rules_str.format(
+                max_limit=_lim_unica, max_columns=10
+            ),
             dialect=current_dialect,
             use_local_models=settings.use_local_models,
         )
@@ -1337,6 +1382,11 @@ def run_specialist(
             f"{context_block}"
             f"{sql_instructions_block}"
             f"{security_instructions_block}"
+            + (
+                f"\n\n{state['contrato_da_fatia']}\n"
+                if state.get("contrato_da_fatia")
+                else ""
+            )
             + (f"{join_guidance}" if use_multiple_tables else "")
             + f"{aggregation_guidance}"
             "Generate only the SQL query (starting with the TITLE comment) or IMPOSSIBLE: <reason>."
@@ -1382,7 +1432,7 @@ def run_specialist(
     # === Trata IMPOSSIBLE ===
     content = texto_da_resposta(raw)
 
-    content_clean = content.strip()
+    content_clean = normalizar_impossible(content.strip())
 
     # Log da resposta bruta do LLM
     log_event(
@@ -1488,9 +1538,9 @@ def run_specialist(
         }
         try:
             retry_raw = llm.invoke([system_msg, retry_user_msg])
-            retry_content = (
-                texto_da_resposta(retry_raw)
-            ).strip()
+            retry_content = normalizar_impossible(
+                texto_da_resposta(retry_raw).strip()
+            )
             if not re.match(r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE):
                 content_clean = retry_content
                 # Downstream SQL extraction parses `raw`, not content_clean, so
@@ -1577,9 +1627,9 @@ def run_specialist(
                         feedback,
                     ]
                 )
-                retry_content = (
-                    texto_da_resposta(retry_raw)
-                ).strip()
+                retry_content = normalizar_impossible(
+                    texto_da_resposta(retry_raw).strip()
+                )
                 if retry_content and not re.match(
                     r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE
                 ):
@@ -1773,7 +1823,15 @@ def run_specialist(
                         f"User question:\n{question}\n\n"
                         f"Table schema(s):\n{schema_text}\n"
                         f"{context_block}"
-                        f"\n\nYour previous SQL risks fan-out (row multiplication):\n{sql}\n"
+                        # Uma fatia multi-ligação continua a ser uma fatia na
+                        # reparação: sem o contrato o modelo voltava a
+                        # responder à pergunta inteira (ou recusava).
+                        + (
+                            f"\n\n{state['contrato_da_fatia']}\n"
+                            if state.get("contrato_da_fatia")
+                            else ""
+                        )
+                        + f"\n\nYour previous SQL risks fan-out (row multiplication):\n{sql}\n"
                         f"{fanout.fix_hint}\n"
                         "Return ONLY the corrected SQL: a single '-- TITLE: ...' "
                         "line then a SELECT/WITH statement."
@@ -1791,7 +1849,16 @@ def run_specialist(
                         x.code == "AGGREGATE_FANOUT"
                         for x in analyze_sql(repaired_sql, current_dialect.value)
                     )
-                    if repaired_sql and not still_fanout:
+                    # Só se troca SQL por SQL: um «IMPOSSIBLE: …» ou prosa na
+                    # reparação substituía uma consulta válida por lixo, e a
+                    # pergunta morria em «Only SELECT queries are allowed».
+                    _e_sql = bool(
+                        re.match(r"\s*(select|with)\b", repaired_sql or "", re.I)
+                    )
+                    # Atrás da mesma flag: sem contrato da fatia, como antes.
+                    if not state.get("contrato_da_fatia"):
+                        _e_sql = True
+                    if repaired_sql and _e_sql and not still_fanout:
                         log_event(
                             "semantic_fanout_repaired",
                             {"agent_id": agent_config.id},
@@ -2077,6 +2144,25 @@ def run_specialist(
             state["data"] = [_coerce_row(row) for row in rows]
         else:
             state["data"] = rows
+
+    # Dados públicos (ligação sky-world): fonte, licença e hora do dado das
+    # tabelas que o SQL usou — a resposta tem de as citar (regra da licença).
+    try:
+        from core.data_sources.sky_world import e_fonte_do_sistema, nome_da_tabela
+
+        if e_fonte_do_sistema(data_source) and isinstance(final_query, str):
+            _sql_baixo = final_query.lower()
+            _usadas = [
+                t.physical_name
+                for t in effective_tables
+                if re.search(
+                    r"\b" + re.escape(nome_da_tabela(t.physical_name)) + r"\b",
+                    _sql_baixo,
+                )
+            ] or [t.physical_name for t in effective_tables]
+            state["fontes_publicas"] = data_source.atribuicao(_usadas)
+    except Exception as _e:  # nunca partir uma resposta por isto
+        log_event("specialist_atribuicao_falhou", {"error": str(_e)[:300]})
 
     real_num_rows = 0
     if hasattr(rows, "num_rows"):  # Arrow Table

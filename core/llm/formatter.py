@@ -944,6 +944,17 @@ def run_formatter(
             + f"\n\n{answer}"
         )
 
+    # Dados públicos (ligação «Dados públicos»): fonte e hora do dado, sempre
+    # — regra da licença (MITECO, DGT/NAP, BOE…). Determinístico: o modelo
+    # esquecia-se. Ver core/llm/fontes_publicas.py.
+    if state.get("fontes_publicas"):
+        try:
+            from core.llm.fontes_publicas import acrescentar_citacao
+
+            answer = acrescentar_citacao(answer, state.get("fontes_publicas"), lang)
+        except Exception as _e:  # nunca partir uma resposta por causa disto
+            log_event("formatter_citacao_falhou", {"error": str(_e)[:300]})
+
     state["answer"] = answer
     state["last_suggestions"] = followup_suggestions
 

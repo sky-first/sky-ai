@@ -123,6 +123,8 @@ class Settings(BaseSettings):
     llm_model_specialist: str = "gpt-4o"
     llm_model_formatter: str = "gpt-4o-mini"
     llm_model_default: str = "gpt-4o"
+    # LLM_MODEL_MERGER — ver llm_model_merger_bedrock (vazio = o de omissão).
+    llm_model_merger: Optional[str] = None
 
     # ===== BEDROCK CONFIGURATION (ACTIVE IF AI_PROVIDER="bedrock") =====
     # Credentials are picked up via IRSA when running on EKS — boto3
@@ -165,6 +167,16 @@ class Settings(BaseSettings):
         default="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
         validation_alias=AliasChoices(
             "BEDROCK_MODEL_FORMATTER", "llm_model_formatter_bedrock"
+        ),
+    )
+    # Modelo do merger multi-fonte (SQL DuckDB que junta as fatias). Vazio =
+    # o do especialista no caminho novo (MULTI_FONTE_POR_LIGACAO) e o do
+    # orquestrador no de sempre. Medido a 14/10/2026: com Haiku no
+    # orquestrador o merger perdia perguntas do portão — juntar fatias é SQL.
+    llm_model_merger_bedrock: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "BEDROCK_MODEL_MERGER", "llm_model_merger_bedrock"
         ),
     )
 

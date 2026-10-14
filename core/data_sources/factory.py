@@ -60,6 +60,15 @@ class DataSourceFactory:
         if ds_type in ("rest-api", "rest_api", "restapi", "graphql", "http"):
             ds_type = "api"
 
+        # ── «Dados públicos» (fontes do sistema) ─────────────────────
+        # Postgres só-leitura em `sky_world`, com a credencial do cliente
+        # por referência ao segredo e a atribuição das fontes (licença e
+        # hora do dado) que a resposta tem de citar. Ver sky_world.py.
+        from core.data_sources import sky_world as _sky_world
+
+        if ds_type in _sky_world.CONECTORES_SKY_WORLD:
+            return _sky_world.construir(str(conn.id), cfg_dict)
+
         if ds_type == "bigquery":
             # Espera em config:
             # {

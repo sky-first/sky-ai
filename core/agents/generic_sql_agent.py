@@ -95,6 +95,15 @@ class AgentState(TypedDict, total=False):
     # Junção impossível com causa conhecida: {kind, failed, ok}. O formatter
     # diz que fontes faltaram em vez do «Algo falló» genérico.
     merge_failure: Optional[Dict[str, Any]]
+    # Fatia de uma pergunta multi-ligação: o que as outras ligações têm e as
+    # chaves de junção (core/llm/multi_fonte.py::contrato_da_fatia).
+    contrato_da_fatia: Optional[str]
+    # Dados públicos (ligação sky-world) usados na resposta: fonte, licença e
+    # hora do dado — citados de forma determinística (core/llm/fontes_publicas).
+    fontes_publicas: Optional[List[Dict[str, Any]]]
+    # Flag MULTI_FONTE_POR_LIGACAO(_TENANTS) activa neste pedido: o merger usa
+    # o prompt com pistas de junção e a correcção do erro do DuckDB.
+    multi_fonte_por_ligacao: Optional[bool]
 
     # Common fields
     sql: Optional[str]
@@ -215,6 +224,30 @@ SessionFactory = Callable[[], Session]
 # ==================== GRAFO GENÉRICO (LangGraph) ====================
 
 
+def escolher_llm_do_merger(
+    por_ligacao: bool,
+    llm_orq: LLMProvider,
+    llm_esp: LLMProvider,
+    llm_merger: Optional[LLMProvider] = None,
+) -> LLMProvider:
+    """Modelo que escreve o SQL do merger (DuckDB).
+
+    Medido a 14/10/2026: com Haiku no orquestrador o merger (que corria no
+    modelo do orquestrador) perdia P7 e P9 do portão — juntar fatias é
+    raciocínio de SQL, não encaminhamento. Ordem: ``llm_merger`` passado ao
+    grafo; ``BEDROCK_MODEL_MERGER`` / ``LLM_MODEL_MERGER`` se definidos;
+    senão o especialista no caminho novo (flag MULTI_FONTE_POR_LIGACAO) e o
+    orquestrador no caminho de sempre (sem a flag nada muda em produção).
+    """
+    if llm_merger is not None:
+        return llm_merger
+    from core.llm.factory import create_llm_merger, modelo_do_merger_definido
+
+    if modelo_do_merger_definido():
+        return create_llm_merger()
+    return llm_esp if por_ligacao else llm_orq
+
+
 def build_generic_sql_graph(
     agent_config: AgentConfig,
     data_source: BaseDataSource,
@@ -225,6 +258,7 @@ def build_generic_sql_graph(
     llm_formatter: LLMProvider,
     backend_client: Optional[Any] = None,
     dispatch_map: Optional[dict] = None,
+    llm_merger: Optional[LLMProvider] = None,
     briefing: str = "",
 ):
     """
@@ -239,6 +273,17 @@ def build_generic_sql_graph(
 
     Cada nó fecha sobre suas dependências (agent_config, data_source, LLMs, etc.).
     """
+    # Perguntas multi-ligação: uma fatia por LIGAÇÃO (core/llm/multi_fonte.py)
+    # só para os clientes da flag. Decidido aqui, no contexto do pedido (o
+    # cliente vem do contextvar), e fechado nos nós.
+    from core.llm.multi_fonte import multi_fonte_por_ligacao_ativo
+
+    _por_ligacao = multi_fonte_por_ligacao_ativo()
+
+    def _llm_do_merger(
+        por_ligacao: bool, llm_orq: LLMProvider, llm_esp: LLMProvider
+    ) -> LLMProvider:
+        return escolher_llm_do_merger(por_ligacao, llm_orq, llm_esp, llm_merger)
 
     def orchestrator_node(state: AgentState) -> AgentState:
         """
@@ -474,23 +519,43 @@ def build_generic_sql_graph(
                                 orch_result.get("is_multi_source")
                                 and len(tbl_names) > 1
                             ):
-                                from core.llm.merger import (
-                                    executar_fatias_por_tabela,
-                                    run_merger as _run_merger,
-                                )
+                                from core.llm.merger import run_merger as _run_merger
 
-                                partial_results, failed_slices = (
-                                    executar_fatias_por_tabela(
-                                        orch_result,
-                                        agent_config,
-                                        tbl_names,
-                                        dispatch_map,
-                                        data_source,
-                                        spec_llm,
-                                        _run_sql,
-                                        max_workers=4,
+                                if _por_ligacao:
+                                    orch_result["multi_fonte_por_ligacao"] = True
+                                    from core.llm.multi_fonte import executar_fatias
+
+                                    # Uma sub-pergunta por LIGAÇÃO (não por tabela), com o
+                                    # contrato da fatia; ver core/llm/multi_fonte.py.
+                                    partial_results, _fontes_pub, failed_slices = (
+                                        executar_fatias(
+                                            orch_result,
+                                            agent_config,
+                                            tbl_names,
+                                            dispatch_map,
+                                            data_source,
+                                            spec_llm,
+                                            run_specialist=_run_sql,
+                                        )
                                     )
-                                )
+                                    orch_result["fontes_publicas"] = _fontes_pub
+                                else:
+                                    from core.llm.merger import (
+                                        executar_fatias_por_tabela,
+                                    )
+
+                                    partial_results, failed_slices = (
+                                        executar_fatias_por_tabela(
+                                            orch_result,
+                                            agent_config,
+                                            tbl_names,
+                                            dispatch_map,
+                                            data_source,
+                                            spec_llm,
+                                            _run_sql,
+                                            max_workers=4,
+                                        )
+                                    )
                                 # 0, 1 ou 2+ fatias: o merger decide (passa a
                                 # única directa, junta 2+, ou diz o que falhou).
                                 merged = _run_merger(
@@ -500,7 +565,7 @@ def build_generic_sql_graph(
                                         "failed_slices": failed_slices,
                                     },
                                     agent_config,
-                                    orch_llm,
+                                    _llm_do_merger(_por_ligacao, orch_llm, spec_llm),
                                 )
                                 result = _run_fmt(
                                     state=merged,
@@ -616,6 +681,43 @@ def build_generic_sql_graph(
             return state
 
         else:
+            # Atrás de MULTI_FONTE_POR_LIGACAO(_TENANTS): sem a flag, o
+            # caminho de sempre (uma fatia por tabela), sem uma vírgula mudada.
+            if _por_ligacao:
+                # ── SQL mode: uma sub-pergunta por LIGAÇÃO ───────────────────────
+                # Agrupar por ligação deixa o SQL nativo juntar o que é da mesma
+                # base (trips × routes) e o contrato da fatia diz ao especialista
+                # que chaves manter para o merger. Ver core/llm/multi_fonte.py.
+                from core.llm.specialist import run_specialist
+                from core.llm.factory import create_llm_specialist
+                from core.llm.multi_fonte import executar_fatias
+
+                chosen_tables = state.get("chosen_tables", [])
+                if not chosen_tables:
+                    return state
+
+                creativity = state.get("creativity")
+                length = state.get("length")
+                dynamic_llm = (
+                    create_llm_specialist(creativity=creativity, length=length)
+                    if (creativity is not None or length is not None)
+                    else llm_specialist
+                )
+
+                results, fontes_pub, failed_slices = executar_fatias(
+                    state,
+                    agent_config,
+                    chosen_tables,
+                    dispatch_map,
+                    data_source,
+                    dynamic_llm,
+                    run_specialist=run_specialist,
+                )
+                state["fontes_publicas"] = fontes_pub
+                state["multi_fonte_por_ligacao"] = True
+                state["partial_results"] = results
+                state["failed_slices"] = failed_slices
+                return state
             # ── SQL mode: parallel SQL execution ─────────────────────────────
             from core.llm.specialist import run_specialist
             from core.llm.factory import create_llm_specialist
@@ -656,9 +758,16 @@ def build_generic_sql_graph(
         """
         from core.llm.merger import run_merger
 
-        # Use the orchestrator LLM (smart model) for merger
-        # If dynamic config exists, we might want to create one, but for now reuse orchestrator
-        return run_merger(state, agent_config, llm_orchestrator)
+        # Modelo do merger: ver _llm_do_merger (caminho novo → especialista).
+        return run_merger(
+            state,
+            agent_config,
+            _llm_do_merger(
+                bool(state.get("multi_fonte_por_ligacao")),
+                llm_orchestrator,
+                llm_specialist,
+            ),
+        )
 
     def mixed_merger_node(state: AgentState) -> AgentState:
         """
@@ -700,7 +809,11 @@ def build_generic_sql_graph(
         if tabular and not contextual:
             if len(tabular) >= 2 and _has_relationship(list(tabular.values())):
                 state["partial_results"] = list(tabular.values())
-                return run_merger(state, agent_config, llm_orchestrator)
+                return run_merger(
+                    state,
+                    agent_config,
+                    _llm_do_merger(False, llm_orchestrator, llm_specialist),
+                )
             elif len(tabular) >= 2:
                 # Multiple tabular results but no join — textual narrative
                 state["answer"] = run_organizer(
@@ -737,7 +850,11 @@ def build_generic_sql_graph(
                 )
             if len(tabular) >= 2 and _has_relationship(list(tabular.values())):
                 state["partial_results"] = list(tabular.values())
-                return run_merger(state, agent_config, llm_orchestrator)
+                return run_merger(
+                    state,
+                    agent_config,
+                    _llm_do_merger(False, llm_orchestrator, llm_specialist),
+                )
             else:
                 res = next(iter(tabular.values()))
                 state["data"] = res.get("data", [])
