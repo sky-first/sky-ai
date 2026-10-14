@@ -10,6 +10,7 @@ the backend's connector registry to understand what each API can do.
 """
 
 from __future__ import annotations
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -130,7 +131,7 @@ def run_api_specialist(
                 {"role": "user", "content": prepend_brain_context(question, state)},
             ]
         )
-        spec_text = response.content if hasattr(response, "content") else str(response)
+        spec_text = texto_da_resposta(response)
 
         # Parse the JSON spec from the LLM response
         # Extract JSON from markdown code blocks if present
@@ -208,7 +209,7 @@ def run_api_specialist(
                 {"role": "user", "content": prepend_brain_context(question, state)},
             ]
         )
-        answer = response.content if hasattr(response, "content") else str(response)
+        answer = texto_da_resposta(response)
     except Exception as e:
         answer = (
             f"API returned data but I couldn't summarize it: {response_preview[:500]}"

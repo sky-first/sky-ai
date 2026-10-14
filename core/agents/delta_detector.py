@@ -34,6 +34,7 @@ in. That's what makes it testable without a full stack.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import hashlib
 import json
 import logging
@@ -193,7 +194,7 @@ class LLMDeltaStrategy:
                 fallback_reason=f"llm_error:{type(exc).__name__}",
             )
 
-        parsed = _parse_delta_json(resp.content)
+        parsed = _parse_delta_json(texto_da_resposta(resp))
         if parsed is None:
             return DeltaResult(
                 kind="material",

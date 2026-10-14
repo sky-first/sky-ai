@@ -1,3 +1,4 @@
+from core.llm.conteudo import texto_da_resposta
 import asyncio
 import json
 import sys
@@ -52,7 +53,7 @@ async def generate_examples_from_schema(
     print(f"🤖 Gerando {n_examples} exemplos com GPT-4o...")
     try:
         response = llm.invoke([{"role": "user", "content": prompt}])
-        content = response.content.strip()
+        content = texto_da_resposta(response).strip()
 
         # Limpeza básica de markdown code block se houver
         if content.startswith("```json"):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 from datetime import datetime
 from dataclasses import dataclass
@@ -1555,7 +1556,7 @@ def generate_structured_insight(
                 {"role": "user", "content": user_prompt},
             ]
         )
-        content = getattr(resp, "content", "") or ""
+        content = texto_da_resposta(resp)
 
         parsed = _safe_json_loads(content)
         if not parsed:

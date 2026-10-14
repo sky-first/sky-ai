@@ -25,6 +25,7 @@ diagnosticar problemas sem nunca guardar conteúdo.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -158,7 +159,7 @@ async def answer_document(payload: DemoDocumentQuestion) -> DemoDocumentAnswer:
         logger.warning("demo_answer_document_failed: %s", exc)
         return DemoDocumentAnswer(answer="", insufficient=True)
 
-    answer = getattr(result, "content", None) or str(result)
+    answer = texto_da_resposta(result)
     answer = answer.strip()
 
     # Sinal grosseiro de que o modelo se escusou. Serve para o ecrã

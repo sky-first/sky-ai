@@ -1,6 +1,7 @@
 # core/llm/formatter.py
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 from typing import Dict, Any, List, Optional
 import json
 import re
@@ -525,9 +526,7 @@ def _invoke_llm(llm: LLMProvider, system_msg: dict, user_msg: dict) -> str:
     Chama o LLM e sempre retorna string de conteúdo.
     """
     raw = llm.invoke([system_msg, user_msg])
-    if hasattr(raw, "content"):
-        return (raw.content or "").strip()
-    return str(raw or "").strip()
+    return texto_da_resposta(raw).strip()
 
 
 def _stream_llm(llm: LLMProvider, system_msg: dict, user_msg: dict):

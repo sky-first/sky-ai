@@ -8,6 +8,28 @@ from typing import Protocol, List, Dict, Any, AsyncIterator, Iterator
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from core.logging_utils import log_event
+from core.llm.conteudo import texto_do_conteudo
+
+
+def _com_conteudo_em_texto(resposta: Any) -> Any:
+    """Cumpre o contrato do fornecedor: ``.content`` é ``str``.
+
+    A Converse devolve uma lista de blocos quando a resposta traz raciocínio
+    ou mais de um bloco. Fica só o texto; o resto da mensagem
+    (``usage_metadata``, ``response_metadata``, ``tool_calls``) mantém-se.
+    """
+    conteudo = getattr(resposta, "content", None)
+    if conteudo is None or isinstance(conteudo, str):
+        return resposta
+    texto = texto_do_conteudo(conteudo)
+    try:
+        return resposta.model_copy(update={"content": texto})
+    except Exception:  # noqa: BLE001 — objecto sem pydantic
+        try:
+            resposta.content = texto
+        except Exception:  # noqa: BLE001
+            pass
+        return resposta
 
 
 class LLMProvider(Protocol):
@@ -208,6 +230,125 @@ class LangChainChatOpenAIProvider:
             raise
 
 
+
+# ── Bedrock: 10 pedidos/min e o «Too many requests» ─────────────────────
+#
+# 14/10/2026: as quotas do Claude na conta de produção ficaram em 5–6 M
+# tokens/min mas SÓ 10 pedidos/min por modelo. Uma pergunta faz 3 a 6
+# chamadas (orquestrador, especialista por fatia, merger, formatador): à
+# segunda pergunta seguida a Converse responde ``ThrottlingException`` e a
+# pergunta morria. Espera-se e tenta-se outra vez — SÓ nesse erro. Um
+# ValidationException, um AccessDenied ou um modelo inexistente sobem logo,
+# como antes.
+
+#: Códigos de erro da Bedrock que querem dizer «espera e repete».
+_CODIGOS_DE_LIMITE = {"ThrottlingException", "TooManyRequestsException"}
+
+#: Quantas vezes se repete depois da primeira tentativa.
+_LIMITE_REPETICOES = int(os.getenv("BEDROCK_THROTTLE_MAX_RETRIES", "5"))
+#: Primeira espera (s); dobra a cada repetição até ao tecto.
+_ESPERA_INICIAL = float(os.getenv("BEDROCK_THROTTLE_BASE_SECONDS", "2"))
+_ESPERA_MAXIMA = float(os.getenv("BEDROCK_THROTTLE_MAX_SECONDS", "20"))
+
+
+def _dormir(segundos: float) -> None:  # substituível nos testes
+    import time
+
+    time.sleep(segundos)
+
+
+def e_limite_da_bedrock(erro: BaseException) -> bool:
+    """O erro é a Bedrock a dizer «demasiados pedidos»?"""
+    resposta = getattr(erro, "response", None)
+    if isinstance(resposta, dict):
+        codigo = (resposta.get("Error") or {}).get("Code")
+        if codigo in _CODIGOS_DE_LIMITE:
+            return True
+    return type(erro).__name__ in _CODIGOS_DE_LIMITE
+
+
+def _espera(tentativa: int) -> float:
+    import random
+
+    teto = min(_ESPERA_MAXIMA, _ESPERA_INICIAL * (2**tentativa))
+    # «full jitter» limitado a metade: pedidos paralelos (fatias) não
+    # acordam todos no mesmo segundo.
+    return teto * random.uniform(0.5, 1.0)
+
+
+def _registar_repeticao(modelo: str, tentativa: int, espera: float, erro) -> None:
+    log_event(
+        "bedrock_throttled_retry",
+        {
+            "model": modelo,
+            "attempt": tentativa + 1,
+            "max_retries": _LIMITE_REPETICOES,
+            "wait_seconds": round(espera, 2),
+            "error": str(erro)[:200],
+        },
+    )
+
+
+_CLASSE_CONVERSE = None
+
+
+def _converse_com_repeticao():
+    """``ChatBedrockConverse`` que repete no limite de pedidos.
+
+    É uma subclasse (e não um ``.with_retry``) para manter ``bind_tools``: o
+    orquestrador ReAct e o full-context agent falam com o ``_chat``
+    directamente, por isso a repetição tem de viver no próprio modelo.
+    """
+    global _CLASSE_CONVERSE
+    if _CLASSE_CONVERSE is not None:
+        return _CLASSE_CONVERSE
+    from langchain_aws import ChatBedrockConverse  # type: ignore
+
+    class ChatBedrockConverseComRepeticao(ChatBedrockConverse):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            tentativa = 0
+            while True:
+                try:
+                    return super()._generate(
+                        messages, stop=stop, run_manager=run_manager, **kwargs
+                    )
+                except Exception as e:  # noqa: BLE001
+                    if not e_limite_da_bedrock(e) or tentativa >= _LIMITE_REPETICOES:
+                        raise
+                    espera = _espera(tentativa)
+                    _registar_repeticao(self.model_id, tentativa, espera, e)
+                    _dormir(espera)
+                    tentativa += 1
+
+        def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+            tentativa = 0
+            while True:
+                emitiu = False
+                try:
+                    for pedaco in super()._stream(
+                        messages, stop=stop, run_manager=run_manager, **kwargs
+                    ):
+                        emitiu = True
+                        yield pedaco
+                    return
+                except Exception as e:  # noqa: BLE001
+                    # Depois do primeiro pedaço já não se repete: quem lê
+                    # receberia o início da resposta duas vezes.
+                    if (
+                        emitiu
+                        or not e_limite_da_bedrock(e)
+                        or tentativa >= _LIMITE_REPETICOES
+                    ):
+                        raise
+                    espera = _espera(tentativa)
+                    _registar_repeticao(self.model_id, tentativa, espera, e)
+                    _dormir(espera)
+                    tentativa += 1
+
+    _CLASSE_CONVERSE = ChatBedrockConverseComRepeticao
+    return _CLASSE_CONVERSE
+
+
 class BedrockChatProvider:
     """
     Provider for Anthropic Claude on AWS Bedrock.
@@ -235,8 +376,6 @@ class BedrockChatProvider:
         max_tokens: int | None = None,
         inference_profile_arn: str | None = None,
     ) -> None:
-        from langchain_aws import ChatBedrockConverse  # type: ignore
-
         # Bedrock's ``model`` parameter accepts either a model id
         # (``eu.anthropic.claude-…``) or any inference-profile ARN.
         # When the caller hands us an ARN we use it verbatim and keep
@@ -252,7 +391,7 @@ class BedrockChatProvider:
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        self._chat = ChatBedrockConverse(**kwargs)
+        self._chat = _converse_com_repeticao()(**kwargs)
         log_event(
             "bedrock_provider_init",
             {
@@ -292,7 +431,7 @@ class BedrockChatProvider:
                 "bedrock_invoke_success",
                 {"model": self.model_name, "num_messages": len(messages)},
             )
-            return resp
+            return _com_conteudo_em_texto(resp)
         except Exception as e:
             log_event(
                 "bedrock_invoke_error",
@@ -314,12 +453,9 @@ class BedrockChatProvider:
                         # content blocks (text + tool calls). Normalise to a
                         # plain string so the contract matches the other
                         # providers.
-                        if isinstance(chunk.content, str):
-                            yield chunk.content
-                        elif isinstance(chunk.content, list):
-                            for block in chunk.content:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    yield block.get("text", "")
+                        texto = texto_do_conteudo(chunk.content)
+                        if texto:
+                            yield texto
             log_event(
                 "bedrock_stream_success",
                 {"model": self.model_name, "num_messages": len(messages)},

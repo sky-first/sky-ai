@@ -22,6 +22,7 @@ Observability:
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import logging
 import re
 from typing import Any, Optional
@@ -509,7 +510,7 @@ def run_full_context_agent(
             {"messages": [HumanMessage(content=user_prompt)]},
             config=invoke_config,
         )
-        answer = result["messages"][-1].content
+        answer = texto_da_resposta(result["messages"][-1])
 
         # Count tool calls (ToolMessage = one completed tool invocation)
         tool_calls = sum(

@@ -17,6 +17,7 @@ language answer from the curated catalog.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import logging
 from typing import Any, Dict, List
 
@@ -315,7 +316,7 @@ def run_knowledge_specialist(
 
     try:
         response = llm.invoke(messages)
-        answer = response.content if hasattr(response, "content") else str(response)
+        answer = texto_da_resposta(response)
         steps.append(
             {"kind": "format", "summary": "Composed the answer from the catalog."}
         )

@@ -1,6 +1,7 @@
 # core/llm/orchestrator.py
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 from typing import List, Optional, Dict, Any
 import re
 import traceback
@@ -381,7 +382,7 @@ def _extract_table_choice(raw_llm_response, tables: List[TableSchema]) -> str:
         text = raw_llm_response
     else:
         # LangChain/OpenAI style: objeto com .content
-        text = getattr(raw_llm_response, "content", "") or ""
+        text = texto_da_resposta(raw_llm_response)
 
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
@@ -414,7 +415,7 @@ def _extract_multiple_table_choices(
     if isinstance(raw_llm_response, str):
         text = raw_llm_response
     else:
-        text = getattr(raw_llm_response, "content", "") or ""
+        text = texto_da_resposta(raw_llm_response)
 
     text = text.strip().lower()
     text = re.sub(r"[\"'`]", "", text)
@@ -613,7 +614,7 @@ def _detect_confirmation(
 
     try:
         raw = llm.invoke([system_msg, user_msg])
-        content = raw.content if hasattr(raw, "content") else str(raw)
+        content = texto_da_resposta(raw)
         parsed = re.search(r"\{.*\}", content, re.DOTALL)
         if not parsed:
             return False, -1
@@ -1336,7 +1337,9 @@ def run_orchestrator(
                     "callbacks": [_TemposDoReAct(str(_modelo))],
                 },
             )
-            final_msg_content = result["messages"][-1].content
+            # Converse (AI_PROVIDER=bedrock) devolve uma lista de blocos
+            # (raciocínio + texto); só o texto conta — ver core/llm/conteudo.
+            final_msg_content = texto_da_resposta(result["messages"][-1])
 
             # Salvar o rationale (Chain of Thought) no state para streaming futuro
             state["plan"] = final_msg_content
@@ -1493,7 +1496,7 @@ def run_orchestrator(
         try:
             raw = llm.invoke([system_msg, user_msg])
             print(
-                f"DEBUG ORCHESTRATOR LEGACY RAW: {raw.content if hasattr(raw, 'content') else raw}"
+                f"DEBUG ORCHESTRATOR LEGACY RAW: {texto_da_resposta(raw)}"
             )
         except Exception as e:
             state["answer"] = (
@@ -1692,7 +1695,7 @@ def run_orchestrator(
             return state
 
         if chosen_logical == "IMPOSSIBLE":
-            content_clean = raw.content if hasattr(raw, "content") else str(raw)
+            content_clean = texto_da_resposta(raw)
             reason = re.sub(
                 r"^\s*IMPOSSIBLE:?\s*", "", content_clean, flags=re.IGNORECASE
             ).strip()

@@ -1,6 +1,7 @@
 # core/llm/specialist.py
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import re
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -418,10 +419,7 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
     - vem com bloco ```sql
     - vem com prefixos/explicações
     """
-    if hasattr(raw, "content"):
-        text = raw.content or ""
-    else:
-        text = str(raw or "")
+    text = texto_da_resposta(raw)
 
     if not text or not text.strip():
         return ""
@@ -437,7 +435,7 @@ def _parse_specialist_output(raw, table: TableSchema) -> str:
     # Tentar extrair de ```json ... ``` se existir
     json_match = re.search(
         r"```json(.*?)```",
-        raw.content if hasattr(raw, "content") else str(raw or ""),
+        texto_da_resposta(raw),
         re.DOTALL,
     )
     if json_match:
@@ -1382,10 +1380,7 @@ def run_specialist(
         return state
 
     # === Trata IMPOSSIBLE ===
-    if hasattr(raw, "content"):
-        content = raw.content or ""
-    else:
-        content = str(raw or "")
+    content = texto_da_resposta(raw)
 
     content_clean = content.strip()
 
@@ -1494,7 +1489,7 @@ def run_specialist(
         try:
             retry_raw = llm.invoke([system_msg, retry_user_msg])
             retry_content = (
-                getattr(retry_raw, "content", None) or str(retry_raw)
+                texto_da_resposta(retry_raw)
             ).strip()
             if not re.match(r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE):
                 content_clean = retry_content
@@ -1583,7 +1578,7 @@ def run_specialist(
                     ]
                 )
                 retry_content = (
-                    getattr(retry_raw, "content", None) or str(retry_raw)
+                    texto_da_resposta(retry_raw)
                 ).strip()
                 if retry_content and not re.match(
                     r"^\s*IMPOSSIBLE", retry_content, re.IGNORECASE
@@ -1787,7 +1782,7 @@ def run_specialist(
                 try:
                     repair_raw = llm.invoke([system_msg, repair_msg])
                     repair_txt = (
-                        getattr(repair_raw, "content", None) or str(repair_raw)
+                        texto_da_resposta(repair_raw)
                     ).strip()
                     _, repaired_sql = _extract_title_from_sql(
                         _strip_sql_fences(repair_txt)
@@ -1903,7 +1898,7 @@ def run_specialist(
             try:
                 trunc_raw = llm.invoke([trunc_system, trunc_user])
                 trunc_sql = (
-                    getattr(trunc_raw, "content", None) or str(trunc_raw)
+                    texto_da_resposta(trunc_raw)
                 ).strip()
                 trunc_sql = re.sub(
                     r"^```(?:sql)?\n?", "", trunc_sql, flags=re.IGNORECASE
@@ -1989,7 +1984,7 @@ def run_specialist(
                     ),
                 }
                 fix_raw = llm.invoke([fix_system, fix_user])
-                fix_sql = (getattr(fix_raw, "content", None) or str(fix_raw)).strip()
+                fix_sql = (texto_da_resposta(fix_raw)).strip()
                 fix_sql = re.sub(r"^```(?:sql)?\n?", "", fix_sql, flags=re.IGNORECASE)
                 fix_sql = re.sub(r"\n?```$", "", fix_sql).strip()
                 if fix_sql and "SELECT" in fix_sql.upper():

@@ -7,6 +7,7 @@ with source attribution and confidence.
 """
 
 from __future__ import annotations
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from typing import Any, Dict, List
@@ -127,7 +128,7 @@ def run_organizer(
                 {"role": "user", "content": question},
             ]
         )
-        answer = response.content if hasattr(response, "content") else str(response)
+        answer = texto_da_resposta(response)
     except Exception as e:
         logger.error(f"Organizer LLM error: {e}")
         # Fallback: concatenate specialist answers

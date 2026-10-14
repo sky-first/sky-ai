@@ -17,6 +17,7 @@ Produção, 13/10/2026 — tenant sandbox, «¿Qué tienda tuvo más pedidos el
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -433,7 +434,7 @@ def juncoes_sem_chave(sql: str, nomes: List[str]) -> List[str]:
 
 def _pedir_sql(llm: LLMProvider, prompt: List[Dict[str, str]]) -> str:
     response = llm.invoke(prompt)
-    text_response = response.content if hasattr(response, "content") else str(response)
+    text_response = texto_da_resposta(response)
     return _extract_sql_code(text_response)
 
 

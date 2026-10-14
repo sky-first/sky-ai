@@ -13,6 +13,7 @@ them when filling in the brain — removing the blank-page problem.
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -87,7 +88,7 @@ def suggest_okrs_from_datasets(
             from langchain_core.messages import HumanMessage
 
             resp = chat_model.invoke([HumanMessage(content=prompt)])
-            raw = resp.content if hasattr(resp, "content") else str(resp)
+            raw = texto_da_resposta(resp)
         elif hasattr(chat_model, "predict"):
             raw = chat_model.predict(prompt)
         else:

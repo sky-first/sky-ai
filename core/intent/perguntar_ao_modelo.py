@@ -61,6 +61,7 @@ O desenho completo e o modelo de ameaça estão em
 
 from __future__ import annotations
 
+from core.llm.conteudo import texto_da_resposta
 import logging
 from typing import Any, Optional
 
@@ -124,7 +125,7 @@ def _ler_a_resposta(bruto: Any) -> Optional[bool]:
     palavras. E por isso que uma injeccao bem sucedida no modelo nao
     consegue mais do que trocar o encaminhamento.
     """
-    texto = (getattr(bruto, "content", None) or str(bruto or "")).strip().upper()
+    texto = (texto_da_resposta(bruto)).strip().upper()
     if not texto:
         return None
 

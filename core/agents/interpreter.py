@@ -9,6 +9,7 @@ This replaces the simple intent classifier for "mixed" questions.
 """
 
 from __future__ import annotations
+from core.llm.conteudo import texto_da_resposta
 import json
 import logging
 from dataclasses import dataclass, field
@@ -91,7 +92,7 @@ def create_query_plan(question: str, llm: Any) -> QueryPlan:
                 {"role": "user", "content": question},
             ]
         )
-        text = response.content if hasattr(response, "content") else str(response)
+        text = texto_da_resposta(response)
 
         # Extract JSON
         if "```json" in text:
