@@ -25,6 +25,7 @@ from api.routes import (
 from api.routes import semantic_map, space_seed  # noqa: E402
 from api.routes import scan_schedule  # noqa: E402
 from api.routes import reexecutar_sql  # noqa: E402
+from api.routes import retencao  # noqa: E402
 from core.logging_utils import log_event
 
 app = FastAPI(
@@ -193,6 +194,10 @@ app.include_router(space_seed.router)
 
 # Scan schedule — PUT/GET/DELETE /spaces/{id}/scan-schedule + POST trigger (items 23-24)
 app.include_router(scan_schedule.router)
+
+# RGPD (15/10/2026) — retenção de 12 meses da auditoria, pedida por base pela
+# tarefa diária do backend. Ver api/routes/retencao.py.
+app.include_router(retencao.router)
 
 
 @app.middleware("http")

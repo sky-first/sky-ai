@@ -356,6 +356,18 @@ class Settings(BaseSettings):
         description="Comma-separated UUIDs of demo connections whose embeddings are shared (space_id=NULL).",
     )
 
+    # RGPD (15/10/2026): retenção dos registos de auditoria deste serviço
+    # (query_audit_log, prompt_security_audit, security_alerts). Mais velho
+    # do que isto apaga, numa passagem diária pedida pelo beat do backend.
+    # Ver core/privacidade/retencao.py.
+    retencao_auditoria_dias: int = Field(
+        default=365,
+        validation_alias=AliasChoices(
+            "RETENCAO_AUDITORIA_DIAS", "retencao_auditoria_dias"
+        ),
+        description="Dias de retenção da auditoria do sky-ai (mínimo 30).",
+    )
+
     # Security
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"
