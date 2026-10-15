@@ -487,11 +487,31 @@ def contrato_da_fatia(
         "no HAVING on your measures): return every entity with ALL the measures of "
         "THIS database that enter the comparison (costs: fixed cost, workshop cost, "
         "hours × cost per hour…; revenue), aggregated per join key.",
+        # Produção 16/10/2026, «¿Cuáles son los 10 productos más vendidos este
+        # año?» (Alimentación): order_lines.lot_id → lots.id → products. A
+        # fatia do armazém devolveu «SUM(lots.quantity) GROUP BY product_id
+        # WHERE received_on este ano» — sem o id do lote, o merger não tinha
+        # ponte entre as vendas (por lote) e o catálogo e respondeu «Lote 81:
+        # 5.790 unidades», ou somou as quantidades RECEBIDAS como se fossem
+        # vendidas.
+        "15. A table of THIS database that another database points at (their lot_id "
+        "= your lots.id) and that itself points at a third one (your product_id = "
+        "their products.id) is the BRIDGE between them: return it at its own grain — "
+        "one row per id, with its foreign keys (e.g. id AS lot_id, product_id) and "
+        "only the descriptive columns the question needs. No GROUP BY by one of its "
+        "foreign keys, and no period filter on its own dates: the period in the "
+        "question belongs to the facts (the orders), not to the bridge. Its own "
+        "measures (quantity received, stock) are NOT the measure the question asks "
+        "for (units sold) unless the question names them.",
+        "16. Never pick a top-N (ORDER BY … LIMIT 10) in a slice whose rows the join "
+        "step still has to combine or regroup (per lot when the question asks per "
+        "product): the ranking is decided AFTER the join. Keep LIMIT "
+        f"{LIMITE_DA_FATIA}.",
     ]
     if definicoes:
         # 15/10/2026: «fuera de plazo» contado sem a tolerância do cliente.
         linhas += [
-            "14. The BUSINESS DEFINITIONS below are how this company computes its "
+            "17. The BUSINESS DEFINITIONS below are how this company computes its "
             "terms. When the question uses one of them ('fuera de plazo', 'no se "
             "paga', 'vacío'…), the condition is exactly the one in the definition — "
             "never a simpler version (e.g. 'late' is NOT arrived > planned when the "
@@ -505,6 +525,181 @@ def contrato_da_fatia(
             definicoes,
         ]
     return "\n".join(linhas)
+
+
+# ── o que a fatia devolveu: defeitos que o merger já não consegue corrigir ─
+#
+# As regras 12, 15 e 16 do contrato são pedidos ao modelo; nem sempre as
+# cumpre (produção 16/10/2026, «10 productos más vendidos»: a fatia do
+# armazém agregou por product_id e deitou fora o id do lote; a do comercial
+# cortou em LIMIT 10 lotes antes de se saber que produtos eram). O merger
+# fica sem a ponte e responde por lote — ou com a medida errada — e alterna
+# de pedido para pedido. Estes defeitos vêem-se no RESULTADO, sem LLM: as
+# colunas que a fatia devolveu e as que as outras devolveram.
+
+_LIMIT_FINAL = re.compile(r"\bLIMIT\s+(\d+)\s*;?\s*$", re.IGNORECASE)
+
+
+def _colunas_do_resultado(dados: Any) -> List[str]:
+    if isinstance(dados, list) and dados and isinstance(dados[0], dict):
+        return [str(c) for c in dados[0].keys()]
+    return []
+
+
+def _nome_curto(t: Any) -> Tuple[str, str]:
+    return (
+        _sem_acentos(str(_rotulo(t) or "")).split(".")[-1],
+        _sem_acentos(str(getattr(t, "physical_name", "") or ""))
+        .split(".")[-1]
+        .strip('"`[]'),
+    )
+
+
+def _identifica(coluna: str, tabela: Any, fk: str) -> bool:
+    """A coluna do resultado é o id desta tabela? (``id``, a própria chave
+    estrangeira que a aponta, ou ``<entidade>_id`` da tabela)."""
+    c = _sem_acentos(coluna)
+    if c in {"id", _sem_acentos(fk)}:
+        return True
+    rotulo, fisica = _nome_curto(tabela)
+    return c.endswith("_id") and _e_a_tabela(c[:-3], rotulo, fisica)
+
+
+def defeitos_da_fatia(
+    fatia: Fatia,
+    resultado: Dict[str, Any],
+    outros: Sequence[Tuple[Fatia, Dict[str, Any]]],
+) -> List[str]:
+    """Porque é que o resultado desta fatia não deixa o merger juntar, ou []."""
+    defeitos: List[str] = []
+    colunas = _colunas_do_resultado(resultado.get("data"))
+    if not colunas:
+        return defeitos
+    # (a) outra fatia devolveu «x_id» que aponta para uma tabela DESTA, e
+    # esta não devolveu o id dessa tabela: não há com que juntar.
+    vistos: set = set()
+    for _outra, r_outra in outros:
+        for c in _colunas_do_resultado(r_outra.get("data")):
+            cn = _sem_acentos(c)
+            if not cn.endswith("_id"):
+                continue
+            for t in fatia.tabelas:
+                rotulo, fisica = _nome_curto(t)
+                if not _e_a_tabela(cn[:-3], rotulo, fisica):
+                    continue
+                if any(_identifica(x, t, c) for x in colunas):
+                    continue
+                # Só é PONTE perdida se a fatia usou a tabela como ponte:
+                # devolveu uma chave estrangeira DELA (lots.product_id) sem o
+                # id. Uma tabela-irmã que a fatia nem usou (drivers, ao lado
+                # de vehicles) não conta — exigir-lhe o id fazia o modelo
+                # cruzar vehicles × drivers (8 × 6 = 48 linhas, prova 16/10).
+                fks_de_t = {
+                    _sem_acentos(str(col.get("name") or ""))
+                    for col in _colunas(t)
+                    if _sem_acentos(str(col.get("name") or "")).endswith("_id")
+                }
+                if not fks_de_t & {_sem_acentos(x) for x in colunas}:
+                    continue
+                if (cn, rotulo) in vistos:
+                    continue
+                vistos.add((cn, rotulo))
+                defeitos.append(
+                    f"another database returned {c} (= your {_rotulo(t)}.id), but your "
+                    f"result has no {_rotulo(t)} id column (it returned {colunas}): the "
+                    f"join step cannot link the two. Return one row per {_rotulo(t)}.id "
+                    f"(SELECT id AS {c}, plus its other foreign keys as columns) — no "
+                    "GROUP BY by another column, no period filter on its own dates "
+                    "(rules 12 and 15)."
+                )
+    # (b) top-N cortado antes da junção.
+    if outros:
+        m = _LIMIT_FINAL.search(str(resultado.get("sql") or "").strip())
+        if m:
+            n = int(m.group(1))
+            linhas = len(resultado.get("data") or [])
+            if n < LIMITE_DA_FATIA and linhas >= n:
+                defeitos.append(
+                    f"your query ended with LIMIT {n} and returned exactly {linhas} "
+                    "rows: the slice was cut before the other databases were joined, "
+                    "and the ranking is only known after the join. Return every row "
+                    f"at the join-key grain and end with LIMIT {LIMITE_DA_FATIA} "
+                    "(rule 16)."
+                )
+    return defeitos
+
+
+def _corrigir_fatias_com_defeito(
+    resultados: List[Dict[str, Any]],
+    por_ligacao: Dict[str, Tuple[Fatia, Dict[str, Any], Any]],
+    agent_config: Any,
+    llm: Any,
+    run_specialist: Callable,
+) -> List[Dict[str, Any]]:
+    """UMA nova tentativa, em paralelo, para cada fatia com defeito; fica a
+    nova só se trouxer linhas e menos defeitos."""
+    pares = [(por_ligacao[r["connection_id"]][0], r) for r in resultados]
+    a_corrigir = []
+    for i, (f, r) in enumerate(pares):
+        outros = [p for j, p in enumerate(pares) if j != i]
+        defeitos = defeitos_da_fatia(f, r, outros)
+        if defeitos:
+            a_corrigir.append((i, f, r, outros, defeitos))
+    if not a_corrigir:
+        return resultados
+
+    def _de_novo(item):
+        i, f, r, outros, defeitos = item
+        _, st, src = por_ligacao[f.connection_id]
+        log_event(
+            "multi_fonte_fatia_com_defeito",
+            {
+                "connection_id": f.connection_id,
+                "tables": f.rotulos,
+                "defeitos": [d[:200] for d in defeitos],
+                "sql": str(r.get("sql") or "")[:300],
+            },
+        )
+        st2 = dict(st)
+        st2["feedback_da_fatia"] = feedback_da_fatia(r.get("sql"), " ".join(defeitos))
+        try:
+            novo = run_specialist(st2, agent_config, src, llm)
+        except Exception as exc:  # noqa: BLE001 — fica a primeira
+            log_event(
+                "multi_fonte_fatia_correcao_erro",
+                {"connection_id": f.connection_id, "error": str(exc)[:300]},
+            )
+            return i, None
+        if not novo.get("data"):
+            return i, None
+        restantes = defeitos_da_fatia(f, novo, outros)
+        aceite = len(restantes) < len(defeitos)
+        log_event(
+            "multi_fonte_fatia_correcao",
+            {
+                "connection_id": f.connection_id,
+                "aceite": aceite,
+                "rows": len(novo.get("data") or []),
+                "sql": str(novo.get("sql") or "")[:300],
+            },
+        )
+        return i, (novo if aceite else None)
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(len(a_corrigir), 5)
+    ) as ex:
+        for i, novo in ex.map(_de_novo, a_corrigir):
+            if novo is None:
+                continue
+            r = dict(resultados[i])
+            r["data"] = novo["data"]
+            r["sql"] = novo.get("sql")
+            meta = dict(r.get("metadata") or {})
+            meta["title"] = novo.get("generated_title") or meta.get("title")
+            meta["possivelmente_cortada"] = len(novo["data"]) >= LIMITE_DA_FATIA
+            r["metadata"] = meta
+            resultados[i] = r
+    return resultados
 
 
 # ── execução ──────────────────────────────────────────────────────────────
@@ -602,6 +797,7 @@ def executar_fatias(
     fatias = agrupar_por_ligacao(escolhidas, agent_config, dispatch_map)
     definicoes = definicoes_do_espaco(state.get("instructions"), state.get("question"))
     tarefas = []
+    por_ligacao: Dict[str, Tuple[Fatia, Dict[str, Any], Any]] = {}
     for f in fatias:
         outras = [o for o in fatias if o is not f]
         st = dict(state)
@@ -615,6 +811,7 @@ def executar_fatias(
         st["is_multi_source"] = False
         src = (dispatch_map or {}).get(f.connection_id) or data_source
         tarefas.append((f, st, src))
+        por_ligacao[f.connection_id] = (f, st, src)
 
     resultados: List[Dict[str, Any]] = []
     fontes: List[Dict[str, Any]] = []
@@ -717,6 +914,10 @@ def executar_fatias(
     # ordem estável (a do agrupamento), para o merger e para os testes
     ordem = {f.connection_id: i for i, f in enumerate(fatias)}
     resultados.sort(key=lambda r: ordem.get(r["connection_id"], 99))
+    if len(resultados) >= 2:
+        resultados = _corrigir_fatias_com_defeito(
+            resultados, por_ligacao, agent_config, llm, run_specialist
+        )
     falhadas.sort(key=lambda r: ordem.get(r["connection_id"], 99))
     from core.llm.fontes_publicas import juntar
 
