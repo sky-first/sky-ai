@@ -580,6 +580,53 @@ def unidade_da_descricao(descricao: Optional[str]) -> Optional[str]:
     return None
 
 
+#: Funções de posição: ``RANK() OVER (ORDER BY SUM(quantity) DESC) AS
+#: posicion`` é um lugar numa ordenação (1, 2, 3…), não unidades nem euros
+#: — mas a coluna do ORDER BY da janela fazia-a herdar «un» (ou «€») e o «1»
+#: da posição saía «1 unidades» (15/10/2026).
+_FUNCOES_DE_POSICAO = (
+    "RowNumber", "Rank", "DenseRank", "Ntile", "PercentRank", "CumeDist",
+)  # fmt: skip
+
+
+def _e_posicao(no) -> bool:
+    """Se a expressão tem uma função de posição (``RANK() OVER …``)."""
+    from sqlglot import exp
+
+    tipos = tuple(t for t in (getattr(exp, n, None) for n in _FUNCOES_DE_POSICAO) if t)
+    for janela in no.find_all(exp.Window):
+        f = janela.this
+        if (tipos and isinstance(f, tipos)) or (
+            isinstance(f, exp.Anonymous)
+            and str(f.name).upper()
+            in {
+                "ROW_NUMBER",
+                "RANK",
+                "DENSE_RANK",
+                "NTILE",
+                "PERCENT_RANK",
+                "CUME_DIST",
+            }
+        ):
+            return True
+    return False
+
+
+def _colunas_do_valor(no) -> set:
+    """As colunas de onde vem o VALOR da expressão — sem as que só ordenam
+    ou partem uma janela (``OVER (PARTITION BY … ORDER BY …)``)."""
+    from sqlglot import exp
+
+    fora = set()
+    for janela in no.find_all(exp.Window):
+        for parte in (janela.args.get("partition_by") or []) + [
+            janela.args.get("order")
+        ]:
+            if parte is not None:
+                fora |= {id(c) for c in parte.find_all(exp.Column)}
+    return {c.name.lower() for c in no.find_all(exp.Column) if id(c) not in fora}
+
+
 def _unidades_pelo_sql(
     sql: Optional[str], unidade_de: Dict[str, Optional[str]]
 ) -> Dict[str, str]:
@@ -619,9 +666,9 @@ def _unidades_pelo_sql(
             if not nome or nome in herdadas:
                 continue
             corpo = a.this
-            if any(isinstance(n, mudam) for n in corpo.walk()):
+            if any(isinstance(n, mudam) for n in corpo.walk()) or _e_posicao(corpo):
                 continue
-            fontes = {c.name.lower() for c in corpo.find_all(exp.Column)}
+            fontes = _colunas_do_valor(corpo)
             unidades = {
                 conhecidas.get(f) or unidade_do_nome(f) or herdadas.get(f)
                 for f in fontes
@@ -803,7 +850,12 @@ def _dinheiro_pelo_sql(sql: Optional[str]) -> Dict[str, bool]:
             if not nome or nome in out:
                 continue
             corpo = a.this
-            fontes = colunas_em(corpo)
+            if _e_posicao(corpo):
+                # «RANK() OVER (ORDER BY SUM(amount))»: uma posição, nunca €.
+                out[nome] = False
+                mudou = True
+                continue
+            fontes = _colunas_do_valor(corpo)
             com_dinheiro = any(e_din(f) for f in fontes)
             contagem = any(isinstance(n, exp.Count) for n in corpo.walk())
             # SUM(a.total) / SUM(b.total): dinheiro sobre dinheiro é um rácio.
@@ -1104,6 +1156,27 @@ _MOEDA_REPETIDA = re.compile(
 )
 
 _PERCENTAGEM = re.compile(r"^\s?%")
+
+
+#: Um número de lista em markdown: no início da linha (com indentação ou
+#: negrito opcionais), seguido de «.» ou «)» e de espaço ou do fim do texto.
+#: «1. Viñedos del Duero…» saía «1 unidades. Viñedos…» (15/10/2026): o «1»
+#: da numeração casava com um valor de uma coluna com unidade e levava a
+#: palavra. Um marcador de lista nunca é um valor — não se lhe toca.
+_ANTES_DO_MARCADOR = re.compile(r"^[ \t]*(?:[*_]{1,2})?$")
+_DEPOIS_DO_MARCADOR = re.compile(r"^[.)](?:[*_]{1,2})?(?:\s|$)")
+
+
+def _e_marcador_de_lista(texto: str, m: "re.Match[str]") -> bool:
+    if m.group("pre") or m.group("pos"):
+        return False
+    if not re.fullmatch(r"\d{1,3}", m.group("n")):
+        return False
+    inicio_da_linha = texto.rfind("\n", 0, m.start()) + 1
+    return bool(
+        _ANTES_DO_MARCADOR.match(texto[inicio_da_linha : m.start()])
+        and _DEPOIS_DO_MARCADOR.match(texto[m.end("n") :])
+    )
 
 
 def _e_identificador(nome: str) -> bool:
@@ -1479,6 +1552,8 @@ def corrigir_numeros(
     def trocar(m: "re.Match[str]") -> str:
         token = m.group("n")
         if _PERCENTAGEM.match(texto[m.end("n") :]):
+            return m.group(0)
+        if _e_marcador_de_lista(texto, m):
             return m.group(0)
         tem_moeda = bool(m.group("pre") or m.group("pos"))
         leituras = _leituras(token)

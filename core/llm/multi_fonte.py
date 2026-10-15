@@ -334,7 +334,71 @@ def _resumo_tabela(t: Any, max_cols: int = 25) -> str:
     return f"  • {_rotulo(t)} ({getattr(t, 'physical_name', '')}): " + "; ".join(cols)
 
 
-def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
+# ── As definições da casa (15/10/2026) ───────────────────────────────────
+#
+# O backend põe nas instruções as métricas e o glossário do espaço
+# («# Trusted metrics», «# Glossary»). Só o orquestrador e o formatador as
+# liam: quem ESCREVE o SQL — as fatias e o merger — nunca as via. Resultado
+# no sandbox «Logística y Transporte», 15/10:
+#
+#   * «¿Qué rutas tienen el mayor porcentaje de portes fuera de plazo?» —
+#     a fatia de Operaciones contou «arrived_at > planned_arrival», sem a
+#     tolerância do cliente (que vive em Carga): Porto→Madrid 94,38 %
+#     quando a métrica «Portes fuera de plazo» dá 64,3 %, e 18 rotas acima
+#     de 55 % quando a verdade é ≤ 6,9 %;
+#   * «¿Qué vehículos no se pagan?» — a fatia de Operaciones devolveu
+#     portagens por rota em vez das viagens, e o merger acabou a filtrar
+#     «fixed_cost_month = 0»: 0 linhas e «todos generan una aportación
+#     positiva», quando a métrica dá 03-GH-19 com −15.936 €.
+
+_SECCAO_DE_CONHECIMENTO = re.compile(
+    r"^#[ \t]*(?:Trusted metrics|Glossary)[^\n]*\n(.*?)(?=^#|\Z)",
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
+)
+
+
+def _tokens_de(texto: str) -> set:
+    return {
+        t for t in re.split(r"[^\w]+", _sem_acentos(texto or "").lower()) if len(t) >= 4
+    }
+
+
+def definicoes_do_espaco(
+    instrucoes: Optional[str], pergunta: Optional[str] = None, limite: int = 3500
+) -> str:
+    """As métricas e os termos do glossário do espaço, para quem escreve SQL.
+
+    Só as linhas das secções de métricas e de glossário (o resto das
+    instruções são pedidos de estilo). Se não couberem todas em ``limite``
+    caracteres, primeiro as que partilham palavras com a pergunta; a ordem
+    original mantém-se."""
+    linhas: List[str] = []
+    for bloco in _SECCAO_DE_CONHECIMENTO.findall(instrucoes or ""):
+        for linha in bloco.splitlines():
+            linha = linha.strip()
+            if linha.startswith(("-", "*")) and len(linha) > 3:
+                linhas.append(linha)
+    if not linhas:
+        return ""
+    if sum(len(x) + 1 for x in linhas) > limite:
+        da_pergunta = _tokens_de(pergunta or "")
+        ordem = sorted(
+            range(len(linhas)),
+            key=lambda i: (-len(_tokens_de(linhas[i]) & da_pergunta), i),
+        )
+        escolhidas, total = set(), 0
+        for i in ordem:
+            if total + len(linhas[i]) + 1 > limite:
+                continue
+            escolhidas.add(i)
+            total += len(linhas[i]) + 1
+        linhas = [linhas[i] for i in sorted(escolhidas)]
+    return "\n".join(linhas)
+
+
+def contrato_da_fatia(
+    fatia: Fatia, outras: Sequence[Fatia], definicoes: str = ""
+) -> str:
     """O que a fatia tem de devolver para o merger a conseguir cruzar."""
     outras_tabs = [t for f in outras for t in f.tabelas]
     linhas = [
@@ -424,6 +488,22 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
         "THIS database that enter the comparison (costs: fixed cost, workshop cost, "
         "hours × cost per hour…; revenue), aggregated per join key.",
     ]
+    if definicoes:
+        # 15/10/2026: «fuera de plazo» contado sem a tolerância do cliente.
+        linhas += [
+            "14. The BUSINESS DEFINITIONS below are how this company computes its "
+            "terms. When the question uses one of them ('fuera de plazo', 'no se "
+            "paga', 'vacío'…), the condition is exactly the one in the definition — "
+            "never a simpler version (e.g. 'late' is NOT arrived > planned when the "
+            "definition adds the client's tolerance). If the definition needs a column "
+            "that lives in another database (the client's tolerance, the revenue, the "
+            "workshop cost), do NOT decide the condition here and do NOT compute a "
+            "partial version of it: return its inputs from THIS database (timestamps, "
+            "measures, the ids that link to the other databases) at the key grain, and "
+            "the join step applies the definition.",
+            "BUSINESS DEFINITIONS (from the space's trusted metrics and glossary):",
+            definicoes,
+        ]
     return "\n".join(linhas)
 
 
@@ -520,6 +600,7 @@ def executar_fatias(
         run_specialist = _rs
 
     fatias = agrupar_por_ligacao(escolhidas, agent_config, dispatch_map)
+    definicoes = definicoes_do_espaco(state.get("instructions"), state.get("question"))
     tarefas = []
     for f in fatias:
         outras = [o for o in fatias if o is not f]
@@ -530,7 +611,7 @@ def executar_fatias(
         st["chosen_table_physical"] = f.fisicas[0]
         st["join_relationships"] = None
         st["multi_source_subquery"] = True
-        st["contrato_da_fatia"] = contrato_da_fatia(f, outras)
+        st["contrato_da_fatia"] = contrato_da_fatia(f, outras, definicoes)
         st["is_multi_source"] = False
         src = (dispatch_map or {}).get(f.connection_id) or data_source
         tarefas.append((f, st, src))
