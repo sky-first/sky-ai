@@ -211,7 +211,12 @@ def test_linhas_antigas_na_cache_nunca_sao_servidas():
 
 
 def test_acerto_sem_linhas_nao_toca_na_fonte():
-    guardado = cache_semantico.payload_para_cache(_resposta([]))
+    # Linhas bloqueadas pelo PII: o SQL trouxe 1 linha (num_rows=1), mas a
+    # resposta saiu sem amostra. (Uma resposta de 0 linhas já não é servida
+    # — tests/test_cache_semantica_definicoes.py.)
+    bloqueada = _resposta([])
+    bloqueada.meta.num_rows = 1
+    guardado = cache_semantico.payload_para_cache(bloqueada)
     db = _BaseFalsa(acerto=(guardado, 0.99))
     fonte = _FonteFalsa(linhas=LINHAS_NOVAS)
 

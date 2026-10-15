@@ -322,6 +322,12 @@ class SemanticCacheRecord(Base):
     # Cache rows without this field (version < 2) are skipped by version=2 lookups.
     temporal_bucket = Column(String(20), nullable=True)
 
+    # Impressão digital das definições do espaço que chegaram no pedido
+    # (métricas, glossário, instruções, regras de acesso). Mudar uma
+    # definição muda a chave: a resposta antiga deixa de ser servida.
+    # core/cache_semantica.py · db/migrations/008_impressao_das_definicoes_na_cache.sql
+    context_fingerprint = Column(String(64), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
