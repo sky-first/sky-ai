@@ -102,6 +102,11 @@ unnamed subject is their business, not the world.
 A time period on its own (this month, the quarter, last week, today) is not
 a world topic. It is {_EMPRESA}.
 
+A question about the things a company owns, sells or runs — its vehicles,
+products, stock, stores, routes, trips, suppliers, machines — or about which
+of them earn, lose, cost or "pay for themselves", is {_EMPRESA}, in any
+language ("¿qué vehículos no se pagan?", "que produtos não vendem?").
+
 Answer with exactly one word: {_EMPRESA} or {_MUNDO}.
 
 If you are not sure, answer {_EMPRESA}. Being wrong towards {_EMPRESA}

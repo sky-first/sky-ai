@@ -1167,6 +1167,103 @@ PII_REQUEST_PATTERNS: List[Tuple[re.Pattern, PIISeverity, PIIType]] = [
 ]
 
 
+# ==================== PALAVRA-CHAVE É PALAVRA INTEIRA ====================
+#
+# Visto em produção a 14/10/2026: «¿Qué referencias no han tenido ni una
+# sola venta?» → «No puedo mostrar este resultado porque contiene datos
+# personales sensibles». Nenhum dado pessoal: eram vinhos.
+#
+# Os padrões com palavra-chave escreviam-se `\b(tin|tax\s+id|…)\s*:?\s*…`
+# — com `\b` à ESQUERDA e nada à direita. Com IGNORECASE, «Vino **tin**to
+# Reserva 12» é «tin» + «to» + valor, e saía como número fiscal (BLOCK).
+# «**nin**guna» saía como National Insurance Number; «**rg**…», «**aba**…»,
+# «**pps**…», «**auth**or» iam pelo mesmo caminho. Qualquer resposta em
+# espanhol ou português com estas sílabas no início de uma palavra era
+# recusada.
+#
+# A correcção é no sítio onde todos passam: a palavra-chave tem de acabar
+# numa fronteira de palavra. E, nos documentos (NIF, DNI, passaporte, conta,
+# cartão…), o valor que vem a seguir tem de ter pelo menos um algarismo —
+# «el DNI de cada empleado» não é um DNI; «DNI: 12345678Z» é, e continua a
+# ser bloqueado.
+
+#: Tipos em que o valor a seguir à palavra-chave é um número de documento.
+_TIPOS_COM_ALGARISMO = frozenset(
+    {
+        PIIType.ID_NUMBER,
+        PIIType.TAX_ID,
+        PIIType.SSN,
+        PIIType.PASSPORT,
+        PIIType.DRIVER_LICENSE,
+        PIIType.BANK_ACCOUNT,
+        PIIType.CREDIT_CARD,
+    }
+)
+
+#: Depois da palavra-chave: separadores, «número/number» opcional e depois
+#: um algarismo (com até 3 letras de prefixo: ES, A, X…) ou um código BIC
+#: em maiúsculas (BBPIPTPL), que é o único documento daqui sem algarismos.
+_TEM_ALGARISMO_A_SEGUIR = (
+    r"(?=\W{0,3}(?:number|n[uú]mero|numéro|n\.?º)?\W{0,3}"
+    r"(?:[A-Za-z]{0,3}[\s\-]?\d|(?-i:[A-Z]{6}[A-Z0-9]{2})\b))"
+)
+
+
+def _fim_do_primeiro_grupo(fonte: str, inicio: int) -> int:
+    """Índice logo a seguir ao `)` que fecha o grupo aberto em `inicio`."""
+    profundidade = 0
+    i = inicio
+    em_classe = False
+    while i < len(fonte):
+        c = fonte[i]
+        if c == "\\":
+            i += 2
+            continue
+        if em_classe:
+            if c == "]":
+                em_classe = False
+        elif c == "[":
+            em_classe = True
+        elif c == "(":
+            profundidade += 1
+        elif c == ")":
+            profundidade -= 1
+            if profundidade == 0:
+                return i + 1
+        i += 1
+    return -1
+
+
+def palavra_chave_inteira(
+    pattern: re.Pattern, pii_type: Optional[PIIType] = None
+) -> re.Pattern:
+    """Fecha a palavra-chave inicial de um padrão `\\b(kw1|kw2)…` com `\\b`.
+
+    Padrões que não começam por um grupo de palavras-chave ficam iguais.
+    """
+    fonte = pattern.pattern
+    if not fonte.startswith(r"\b("):
+        return pattern
+    fim = _fim_do_primeiro_grupo(fonte, 2)
+    if fim < 0:
+        return pattern
+    resto = fonte[fim:]
+    # Já fechada, ou o grupo é opcional/repetido (`(…)?`, `(…)+`): fica igual.
+    if resto.startswith(r"\b") or resto[:1] in ("?", "*", "+", "{"):
+        return pattern
+    meio = r"\b"
+    if pii_type in _TIPOS_COM_ALGARISMO:
+        meio += _TEM_ALGARISMO_A_SEGUIR
+    return re.compile(fonte[:fim] + meio + resto, pattern.flags)
+
+
+def _fechar_palavras_chave(
+    lista: List[Tuple[re.Pattern, PIISeverity, PIIType]],
+) -> None:
+    for i, (pattern, severity, pii_type) in enumerate(lista):
+        lista[i] = (palavra_chave_inteira(pattern, pii_type), severity, pii_type)
+
+
 # ==================== CONSOLIDAÇÃO DE TODOS OS PADRÕES ====================
 
 # Lista consolidada de todos os padrões PII, organizados por severidade
@@ -1204,6 +1301,7 @@ for pattern_list in [
     STRUCTURED_DATA_PATTERNS,
     CONTEXTUAL_PII_PATTERNS,
 ]:
+    _fechar_palavras_chave(pattern_list)
     for pattern, severity, pii_type in pattern_list:
         ALL_PII_PATTERNS[severity].append((pattern, severity, pii_type))
 

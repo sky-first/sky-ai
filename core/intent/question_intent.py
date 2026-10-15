@@ -453,6 +453,45 @@ def termos_do_catalogo(tables) -> frozenset:
     return frozenset(x for x in termos if x)
 
 
+#: Uma linha de métrica («- Ingreso por kilómetro [ORG] — … (unit: EUR/km)»)
+#: ou de glossário («- **Vacío de retorno** [ORG-CERTIFIED] — …») no bloco de
+#: conhecimento que o backend junta às instruções
+#: (``render_knowledge_for_prompt``). Só o NOME conta — a definição é prosa.
+_LINHA_DE_CONHECIMENTO = re.compile(
+    r"^[ \t]*[-*][ \t]+(?:\*\*(?P<termo>[^*\n]+)\*\*|(?P<metrica>[^\[\n—]+?))"
+    r"[ \t]*(?:\[[^\]\n]*\])?[ \t]*(?:—|$)",
+    re.MULTILINE,
+)
+
+
+def termos_do_conhecimento(instrucoes) -> frozenset:
+    """As palavras dos nomes das métricas e dos termos do glossário do espaço.
+
+    Produção 14/10/2026, «Logística y Transporte»: «¿Qué vehículos no se
+    pagan?» foi para a CONVERSA («No dispongo de esa lista… ¿Te gustaría…?»).
+    As tabelas chamam-se ``vehicles``/``trips`` — em inglês — e a pergunta
+    não tinha nenhum verbo de negócio; o classificador do modelo, que não vê
+    o catálogo, chamou-lhe «mundo». Mas o espaço tem a métrica «Aportación
+    por vehículo» e o termo «Vacío de retorno»: o vocabulário da casa está
+    no conhecimento, na língua de quem pergunta. Comparado localmente, como o
+    catálogo — nunca entra no prompt do classificador.
+    """
+    termos: set = set()
+    # Só as secções de métricas e de glossário: o resto das instruções são
+    # pedidos de quem configurou o espaço («- Responde en dos frases»), não
+    # vocabulário de dados.
+    seccoes = re.findall(
+        r"^#[ \t]*(?:Trusted metrics|Glossary)[^\n]*\n(.*?)(?=^#|\n[ \t]*\n|\Z)",
+        instrucoes or "",
+        flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    for m in _LINHA_DE_CONHECIMENTO.finditer("\n".join(seccoes)):
+        nome = (m.group("termo") or m.group("metrica") or "").strip()
+        if nome and len(nome) <= 80:
+            termos |= _tokens(nome, 5)
+    return frozenset(x for x in termos if x)
+
+
 def toca_no_catalogo(question: str, catalog_terms) -> bool:
     """A pergunta fala de alguma coisa que esta ligação tem."""
     if not question or not catalog_terms:

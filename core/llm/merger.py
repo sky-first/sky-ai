@@ -742,6 +742,14 @@ REGRAS_DE_RACIOCINIO = (
     "13. Count and sum over the client's own entities (its routes, trips, "
     "vehicles). A public dataset that also lists routes or places only describes "
     "them; never let it decide which of the client's entities exist.\n"
+    # Produção 14/10/2026: «¿Qué clientes dejan más por kilómetro?» — sem
+    # trip_id numa das fatias, o merger repartiu os km «por proporção» e
+    # respondeu com números inventados como se fossem medidos.
+    "14. Never estimate, apportion or distribute a measure 'proportionally' (by "
+    "share of trips, of rows, of totals) to make up for a missing join key: a "
+    "made-up number presented as measured is worse than no number. When the keys "
+    "ARE there, join on them and aggregate to what the question asks (e.g. per "
+    "route), as rule 9 says.\n"
 )
 
 

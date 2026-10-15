@@ -3400,7 +3400,11 @@ async def load_agent_config_from_connection(
 #: que corrige a resposta esconde a correcção.
 #:
 #: 2 → chave com temporal_bucket. 3 → unidades, rótulos, completude (12/10).
-VERSAO_DA_CACHE_SEMANTICA = 3
+#: 4 → €/km, «unidades» na língua da resposta, falso positivo de dados
+#: pessoais e perguntas de negócio que iam para a conversa (14/10): a
+#: resposta de conversa a «¿Qué vehículos no se pagan?» estava guardada com
+#: similaridade 1,0 e seria servida depois da correcção.
+VERSAO_DA_CACHE_SEMANTICA = 4
 
 
 def resolve_temporal_bucket(question: str) -> str:

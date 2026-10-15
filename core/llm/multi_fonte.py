@@ -211,6 +211,20 @@ def _referencias(desc: str) -> List[str]:
     return out
 
 
+def _e_a_tabela(entidade: str, rotulo: str, fisica: str) -> bool:
+    """«trip» é a tabela ``trips`` / ``ops.trips``; «category» é ``categories``."""
+    if not entidade:
+        return False
+    nomes = {
+        _sem_acentos(str(rotulo or "")).split(".")[-1],
+        _sem_acentos(str(fisica or "")).split(".")[-1].strip('"`[]'),
+    }
+    formas = {entidade, entidade + "s", entidade + "es"}
+    if entidade.endswith("y"):
+        formas.add(entidade[:-1] + "ies")
+    return bool(nomes & formas)
+
+
 def pistas_de_juncao(a: Sequence[Any], b: Sequence[Any]) -> List[str]:
     """Pares de colunas prováveis para juntar as tabelas ``a`` com as ``b``.
 
@@ -253,6 +267,32 @@ def pistas_de_juncao(a: Sequence[Any], b: Sequence[Any]) -> List[str]:
                         ):
                             x, y = f"{tab_x}.{c.get('name')}", f"{tab_y}.{alvo_col}"
                             add(documentadas, x, y, f"{x} = {y}")
+            # 1b) chave estrangeira pela convenção de nomes: «trip_id» de
+            # ``shipments`` é o «id» de ``trips``. Produção 14/10/2026: «id»
+            # está nas colunas genéricas e por isso esta chave NUNCA era
+            # sugerida — a fatia de ``ops`` agregava por rota, a de
+            # ``freight`` por cliente, e o merger ficava sem nada com que as
+            # cruzar: «gasóleo en vacío» recusado, «€ por km» estimado por
+            # proporção (números inventados).
+            for cols_x, tab_x, cols_y, tab_y, fis_y in (
+                (ca, na, cb, nb, fb),
+                (cb, nb, ca, na, fa),
+            ):
+                if not any(
+                    _sem_acentos(str(y.get("name") or "")) == "id" for y in cols_y
+                ):
+                    continue
+                for c in cols_x:
+                    xn = _sem_acentos(str(c.get("name") or ""))
+                    if xn.endswith("_id") and _e_a_tabela(xn[:-3], tab_y, fis_y):
+                        x, y = f"{tab_x}.{c.get('name')}", f"{tab_y}.id"
+                        add(
+                            documentadas,
+                            x,
+                            y,
+                            f"{x} = {y} (foreign key: keep {c.get('name')} / "
+                            f"the {tab_y} id in the SELECT)",
+                        )
             # 2) mesmo nome / 3) sinónimo
             for c in ca:
                 xn = str(c.get("name") or "")
@@ -360,6 +400,29 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
         "match.",
         "11. Output only the SQL after the TITLE line: no explanations, notes or "
         "plain text after the SQL.",
+        # Produção 14/10/2026: «¿Cuánto gasóleo quemamos en vacío?» — a fatia
+        # de viagens agrupou por rota e deitou fora o id da viagem; o merger
+        # não conseguia saber que viagens não tinham porte. «¿Qué clientes
+        # dejan más por kilómetro?» — a fatia de portes agrupou por cliente
+        # sem trip_id e o merger repartiu os km por proporção.
+        "12. When a likely join key is a foreign key (x_id = other_table.id), that "
+        "key IS the grain: keep it in the SELECT and GROUP BY it (or return one row "
+        "per key), never only by a coarser attribute (route, client, month). A "
+        "coarser GROUP BY destroys the link and the join step can no longer match "
+        "rows, nor find the ones that have NO match in the other database (e.g. trips "
+        "without any shipment). When another database points AT your table "
+        "(their trip_id = your trips.id), your own id is a join key too: return one "
+        "row per id (with your other foreign keys, e.g. vehicle_id, as columns) "
+        "instead of grouping by one of your foreign keys.",
+        # Prova 15/10/2026, «¿Qué vehículos no se pagan?»: a fatia da frota
+        # filtrava «fixed_cost_month = 0» e a dos portes «revenue = 0» — cada
+        # uma tentou decidir sozinha uma condição que compara as duas.
+        "13. A condition that compares measures living in different databases "
+        "(revenue vs cost, 'pays for itself', 'loses money', margin, 'more than') "
+        "can only be decided by the join step. Never filter on it here (no WHERE, "
+        "no HAVING on your measures): return every entity with ALL the measures of "
+        "THIS database that enter the comparison (costs: fixed cost, workshop cost, "
+        "hours × cost per hour…; revenue), aggregated per join key.",
     ]
     return "\n".join(linhas)
 
