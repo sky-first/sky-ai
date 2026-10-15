@@ -410,7 +410,19 @@ def contrato_da_fatia(fatia: Fatia, outras: Sequence[Fatia]) -> str:
         "per key), never only by a coarser attribute (route, client, month). A "
         "coarser GROUP BY destroys the link and the join step can no longer match "
         "rows, nor find the ones that have NO match in the other database (e.g. trips "
-        "without any shipment).",
+        "without any shipment). When another database points AT your table "
+        "(their trip_id = your trips.id), your own id is a join key too: return one "
+        "row per id (with your other foreign keys, e.g. vehicle_id, as columns) "
+        "instead of grouping by one of your foreign keys.",
+        # Prova 15/10/2026, «¿Qué vehículos no se pagan?»: a fatia da frota
+        # filtrava «fixed_cost_month = 0» e a dos portes «revenue = 0» — cada
+        # uma tentou decidir sozinha uma condição que compara as duas.
+        "13. A condition that compares measures living in different databases "
+        "(revenue vs cost, 'pays for itself', 'loses money', margin, 'more than') "
+        "can only be decided by the join step. Never filter on it here (no WHERE, "
+        "no HAVING on your measures): return every entity with ALL the measures of "
+        "THIS database that enter the comparison (costs: fixed cost, workshop cost, "
+        "hours × cost per hour…; revenue), aggregated per join key.",
     ]
     return "\n".join(linhas)
 

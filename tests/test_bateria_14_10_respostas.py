@@ -380,6 +380,16 @@ def test_o_contrato_da_fatia_manda_agrupar_pela_chave_estrangeira():
     assert "shipments.trip_id = trips.id" in contrato
     assert "foreign key" in contrato and "that key IS the grain" in contrato
     assert "without any shipment" in contrato
+    # a tabela apontada (trips.id) devolve uma linha por id
+    assert "return one row per id" in contrato
+    # «no se pagan»: a comparação custo × receita é do passo de junção
+    assert "can only be decided by the join step" in contrato
+
+
+def test_o_merger_nao_reparte_por_proporcao():
+    from core.llm.merger import REGRAS_DE_RACIOCINIO
+
+    assert "Never estimate, apportion or distribute" in REGRAS_DE_RACIOCINIO
 
 
 def test_entidade_com_plural_em_ies():
