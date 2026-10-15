@@ -3404,7 +3404,18 @@ async def load_agent_config_from_connection(
 #: pessoais e perguntas de negócio que iam para a conversa (14/10): a
 #: resposta de conversa a «¿Qué vehículos no se pagan?» estava guardada com
 #: similaridade 1,0 e seria servida depois da correcção.
-VERSAO_DA_CACHE_SEMANTICA = 4
+#: 5 → chave com a impressão digital das definições do espaço e sem
+#: respostas de 0 linhas/negativas (16/10): «¿Qué vehículos no se pagan?»
+#: continuou a receber «No hay vehículos que no se paguen…» (gravada com a
+#: v4, antes de o glossário mudar) depois do #297 — ver core/cache_semantica.py.
+VERSAO_DA_CACHE_SEMANTICA = 5
+
+#: Similaridade mínima para servir uma resposta guardada. «¿Qué vehículos no
+#: se pagan?» × «¿Qué camiones no se pagan?» dá 0,958: numa frota de camiões
+#: é a mesma pergunta, e servir a mesma resposta está certo — o defeito de
+#: 16/10 era a resposta guardada (negativa e anterior às definições), não o
+#: limiar. Negativas já não se guardam (core/cache_semantica.py).
+LIMIAR_DE_SIMILARIDADE = 0.95
 
 
 def resolve_temporal_bucket(question: str) -> str:
@@ -3509,6 +3520,7 @@ async def query_connection(
     query_embedding = None
     try:
         from core.llm.factory import create_embedding_provider
+        from core import cache_semantica as _regras_da_cache
         from core.privacidade import cache_semantico as _cache_privado
         from db.models import SemanticCacheRecord
         from sqlalchemy import text
@@ -3558,6 +3570,9 @@ async def query_connection(
             )
             _temporal_bucket = resolve_temporal_bucket(body.question or "")
             _CACHE_VERSION = VERSAO_DA_CACHE_SEMANTICA
+            # O que o espaço define (métricas, glossário, instruções, acesso):
+            # mudar uma definição muda a chave (core/cache_semantica.py).
+            _impressao = _regras_da_cache.impressao_das_definicoes(body)
 
             if active_cache_crew:
                 # Collaborative: match records cached for this specific crew.
@@ -3573,8 +3588,9 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND context_fingerprint = :context_fingerprint
                     AND created_at >= :cache_cutoff
-                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    AND (1 - (embedding <=> :query_emb)) >= :limiar
                     ORDER BY similarity DESC
                     LIMIT 1
                 """
@@ -3588,7 +3604,9 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "context_fingerprint": _impressao,
                         "cache_cutoff": _cache_cutoff,
+                        "limiar": LIMIAR_DE_SIMILARIDADE,
                     },
                 )
             elif is_personal_cache and cache_user_id:
@@ -3603,8 +3621,9 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND context_fingerprint = :context_fingerprint
                     AND created_at >= :cache_cutoff
-                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    AND (1 - (embedding <=> :query_emb)) >= :limiar
                     ORDER BY similarity DESC
                     LIMIT 1
                 """
@@ -3617,7 +3636,9 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "context_fingerprint": _impressao,
                         "cache_cutoff": _cache_cutoff,
+                        "limiar": LIMIAR_DE_SIMILARIDADE,
                     },
                 )
             else:
@@ -3632,8 +3653,9 @@ async def query_connection(
                     AND locale = :locale
                     AND cache_version = :cache_version
                     AND temporal_bucket = :temporal_bucket
+                    AND context_fingerprint = :context_fingerprint
                     AND created_at >= :cache_cutoff
-                    AND (1 - (embedding <=> :query_emb)) >= 0.95
+                    AND (1 - (embedding <=> :query_emb)) >= :limiar
                     ORDER BY similarity DESC
                     LIMIT 1
                 """
@@ -3646,7 +3668,9 @@ async def query_connection(
                         "locale": request_locale,
                         "cache_version": _CACHE_VERSION,
                         "temporal_bucket": _temporal_bucket,
+                        "context_fingerprint": _impressao,
                         "cache_cutoff": _cache_cutoff,
+                        "limiar": LIMIAR_DE_SIMILARIDADE,
                     },
                 )
 
@@ -3673,17 +3697,25 @@ async def query_connection(
                     _cache_privado.sem_linhas(cached_json)
                 )
                 linhas_repostas: Optional[list] = []
-                if _cache_privado.precisa_de_linhas(cached_json):
+                if _regras_da_cache.e_negativa_ou_vazia(cached_json):
+                    # «No hay…» guardado antes desta regra: nunca se serve.
+                    linhas_repostas = None
+                    log_event(
+                        "semantic_cache_hit_discarded",
+                        {"connection_id": connection_id, "reason": "negative_answer"},
+                    )
+                elif _cache_privado.precisa_de_linhas(cached_json):
                     linhas_repostas = await _cache_privado.repor_linhas(
                         db, connection_id, cached_response.meta.sql
                     )
                 if linhas_repostas is None:
                     # Sem as linhas não se serve a resposta (o gráfico ou a
                     # tabela ficariam vazios): segue como falha de cache.
-                    log_event(
-                        "semantic_cache_hit_discarded",
-                        {"connection_id": connection_id, "reason": "rerun_failed"},
-                    )
+                    if not _regras_da_cache.e_negativa_ou_vazia(cached_json):
+                        log_event(
+                            "semantic_cache_hit_discarded",
+                            {"connection_id": connection_id, "reason": "rerun_failed"},
+                        )
                 else:
                     cached_response.data_sample = linhas_repostas
                     # Last-mile: apply format transform + infer widget type
@@ -3757,7 +3789,18 @@ async def query_connection(
                 "I'm sorry, but I only support questions" in response.answer
                 or unsupported_language_message()[:30] in response.answer
             )
-            if response.answer and not _is_blocked:
+            _payload = _cache_privado.payload_para_cache(response)
+            _nao_guardar = _regras_da_cache.motivo_para_nao_guardar(
+                response, bool(_payload.get(_cache_privado.LINHAS_OMITIDAS))
+            )
+            if _nao_guardar and response.answer and not _is_blocked:
+                from core.logging_utils import log_event
+
+                log_event(
+                    "semantic_cache_store_skipped",
+                    {"connection_id": connection_id, "reason": _nao_guardar},
+                )
+            if response.answer and not _is_blocked and not _nao_guardar:
                 cache_record = SemanticCacheRecord(
                     connection_id=connection_id,
                     space_id=body.space_id,
@@ -3768,10 +3811,11 @@ async def query_connection(
                     user_id=cache_user_id if is_personal_cache else None,
                     question=body.question,
                     embedding=query_embedding,
-                    response_json=_cache_privado.payload_para_cache(response),
+                    response_json=_payload,
                     locale=_store_locale,
                     cache_version=VERSAO_DA_CACHE_SEMANTICA,
                     temporal_bucket=_temporal_bucket,
+                    context_fingerprint=_impressao,
                 )
                 db.add(cache_record)
                 # Purga do prazo, pela mesma ligação (connection_id tem
