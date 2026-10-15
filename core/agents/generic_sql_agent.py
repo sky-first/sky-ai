@@ -1165,14 +1165,21 @@ def build_generic_sql_graph(
             return state
 
         has_tables = len(agent_config.tables) > 0
-        from core.intent.question_intent import termos_do_catalogo
+        from core.intent.question_intent import (
+            termos_do_catalogo,
+            termos_do_conhecimento,
+        )
 
         intent = classify_question_intent(
             # O catálogo desta ligação: uma pergunta que fala de uma tabela
             # que existe vai aos dados, mesmo que o assunto pareça «do mundo»
             # (feriados, combustível, trânsito). Comparado localmente — nunca
-            # entra no prompt do modelo.
-            catalog_terms=termos_do_catalogo(agent_config.tables),
+            # entra no prompt do modelo. E o vocabulário do espaço (métricas
+            # e glossário, na língua de quem pergunta): «vehículos» não casa
+            # com a tabela ``vehicles``, mas casa com «Aportación por
+            # vehículo» (14/10/2026).
+            catalog_terms=termos_do_catalogo(agent_config.tables)
+            | termos_do_conhecimento(state.get("instructions")),
             question=state.get("question", ""),
             has_data_sources=has_tables,
             # O modelo so e chamado quando a pergunta nao tem sinal
