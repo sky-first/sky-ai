@@ -750,6 +750,28 @@ REGRAS_DE_RACIOCINIO = (
     "made-up number presented as measured is worse than no number. When the keys "
     "ARE there, join on them and aggregate to what the question asks (e.g. per "
     "route), as rule 9 says.\n"
+    # Produção 15/10/2026, «¿Qué rutas incumplen el plazo del cliente?»: o
+    # merger fez INNER JOIN das viagens com a lista das que falharam e contou
+    # ambas — «total» = «falhadas», 100 % em todas as 20 rotas.
+    "15. A share or percentage per group: the denominator counts ALL the rows of "
+    "the group. Start from the dataset that has every entity and LEFT JOIN the "
+    "condition (or COUNT(*) FILTER (WHERE condition)); an INNER JOIN to the rows "
+    "that already meet the condition makes every share 100 %.\n"
+    # «¿Qué vehículos no se pagan?»: a resposta saiu de UM conjunto com um
+    # filtro inventado («fixed_cost_month = 0»).
+    "16. A comparison between measures of different datasets (revenue vs cost, "
+    "'pays for itself', 'loses money', 'late' against a tolerance stored elsewhere) "
+    "needs ALL the datasets that carry those measures: never answer it from one "
+    "dataset with a filter of your own.\n"
+)
+
+#: As definições da casa no prompt do merger (15/10/2026).
+REGRA_DAS_DEFINICOES = (
+    "17. BUSINESS DEFINITIONS (below, from the space's trusted metrics and glossary) "
+    "are how this company computes its terms. When the question uses one of them, "
+    "apply exactly that condition and those components (e.g. 'fuera de plazo' = "
+    "delivered after the promised time PLUS the client's tolerance; 'no se paga' = "
+    "revenue below the vehicle's full cost), never a simpler version.\n"
 )
 
 
@@ -758,6 +780,7 @@ def _generate_merger_prompt_por_ligacao(
     partial_results: List[Dict[str, Any]],
     plan: str,
     failed_slices: Optional[List[Dict[str, Any]]] = None,
+    definicoes: str = "",
 ) -> List[Dict[str, str]]:
     """
     Creates the prompt for the Merger agent.
@@ -832,8 +855,14 @@ def _generate_merger_prompt_por_ligacao(
             "9. The final result must be small and answer the question directly (the final "
             "number(s), or one row per item the question asks for).\n"
             + REGRAS_DE_RACIOCINIO
+            + (REGRA_DAS_DEFINICOES if definicoes else "")
         ),
     }
+    definicoes_block = (
+        f"BUSINESS DEFINITIONS (mandatory, rule 17):\n{definicoes}\n\n"
+        if definicoes
+        else ""
+    )
 
     missing_block = ""
     if failed_slices:
@@ -850,6 +879,7 @@ def _generate_merger_prompt_por_ligacao(
             f"Plan Context: {plan}\n\n"
             f"Available Tables (DuckDB):\n{data_block}\n\n"
             f"{pistas_block}"
+            f"{definicoes_block}"
             f"{missing_block}"
             "Generate the DuckDB SQL query."
         ),
@@ -888,8 +918,14 @@ def _run_merger_por_ligacao(
         },
     )
 
+    from core.llm.multi_fonte import definicoes_do_espaco
+
     prompt = _generate_merger_prompt_por_ligacao(
-        question, partial_results, plan, failed_slices=failed_slices
+        question,
+        partial_results,
+        plan,
+        failed_slices=failed_slices,
+        definicoes=definicoes_do_espaco(state.get("instructions"), question),
     )
     try:
         sql_query = _pedir_sql(llm, prompt)
@@ -924,6 +960,39 @@ def _run_merger_por_ligacao(
             sql_query = _pedir_sql(llm, correcao)
             final_data = engine.execute(sql_query)
 
+        # Um resultado que corre mas não pode estar certo: UMA revisão com o
+        # porquê. Se a revisão falhar ou continuar suspeita, fica o primeiro
+        # (excepto se o primeiro vinha vazio e a revisão trouxe linhas).
+        suspeita = resultado_suspeito(final_data, len(partial_results))
+        if suspeita:
+            log_event(
+                "merger_resultado_suspeito",
+                {"motivo": suspeita[:200], "sql": sql_query[:600]},
+            )
+            revisao = prompt + [
+                {"role": "assistant", "content": f"```sql\n{sql_query}\n```"},
+                {
+                    "role": "user",
+                    "content": (
+                        f"That query ran, but the result cannot be right: {suspeita}\n\n"
+                        "Re-read the question, the business definitions and rules "
+                        "15-17, and write the corrected query. Output ONLY the SQL "
+                        "inside ```sql ... ```."
+                    ),
+                },
+            ]
+            try:
+                sql_2 = _pedir_sql(llm, revisao)
+                dados_2 = engine.execute(sql_2)
+                aceite = not resultado_suspeito(dados_2, len(partial_results)) or (
+                    not final_data and bool(dados_2)
+                )
+                if aceite:
+                    sql_query, final_data = sql_2, dados_2
+                log_event("merger_revisao", {"rows": len(dados_2), "aceite": aceite})
+            except Exception as e2:
+                log_event("merger_revisao_erro", {"error": str(e2)[:300]})
+
         state["data"] = final_data
         state["generated_title"] = (
             f"Consolidated Report ({len(partial_results)} Sources)"
@@ -945,6 +1014,58 @@ def _run_merger_por_ligacao(
             engine.close()
 
     return state
+
+
+#: Colunas que são uma parte de um todo («breach_pct», «late_pct», «% fuera»).
+_COLUNA_DE_PARTE = re.compile(
+    r"(?:^|_)(?:pct|percent|percentage|porcentaje|percentagem|share|ratio|rate)(?:_|$)"
+    r"|%",
+    re.IGNORECASE,
+)
+
+
+def resultado_suspeito(dados: Any, n_conjuntos: int) -> Optional[str]:
+    """Porque é que um resultado do merger não pode estar certo, ou None.
+
+    * 0 linhas com 2+ conjuntos que TÊM linhas: quase sempre um filtro
+      inventado ou uma junção pela chave errada (15/10/2026: «¿Qué vehículos
+      no se pagan?» → «WHERE fixed_cost_month = 0», 0 linhas, e a resposta
+      dizia que todos se pagavam).
+    * Uma percentagem que dá 100 em TODAS as linhas (2+): o denominador foi
+      cortado pelo numerador (INNER JOIN às que falham) — «las 20 rutas
+      incumplen el plazo en el 100 %» (15/10/2026).
+    """
+    if n_conjuntos < 2:
+        return None
+    if not dados:
+        return (
+            "it returned 0 rows although every dataset has rows. A filter that is "
+            "not in the question or in the business definitions, a comparison made "
+            "with only one dataset, or a join on the wrong key empties the result."
+        )
+    if len(dados) < 2 or not isinstance(dados[0], dict):
+        return None
+    for c in dados[0].keys():
+        if not _COLUNA_DE_PARTE.search(str(c)):
+            continue
+        vals: List[float] = []
+        for r in dados:
+            try:
+                vals.append(float(r.get(c)))
+            except (TypeError, ValueError, AttributeError):
+                vals = []
+                break
+        if vals and (
+            all(abs(v - 100) < 1e-9 for v in vals)
+            or all(abs(v - 1) < 1e-9 for v in vals)
+        ):
+            return (
+                f"column {c} is 100 % in every one of the {len(vals)} rows: the "
+                "denominator only counted the rows that meet the condition (INNER "
+                "JOIN or WHERE before counting). Count ALL the rows of each group and "
+                "LEFT JOIN the condition (rule 15)."
+            )
+    return None
 
 
 def run_merger(

@@ -25,7 +25,13 @@ REGRA_ZERO_LINHAS = (
     "'I am unable', 'sorry', 'no puedo', 'lo siento', 'lamentablemente', "
     "'não posso', 'lamento'. Do not suggest a permission, access or "
     "data-availability problem, and do not ask the user to rephrase. This "
-    "overrides any instruction to say the data is insufficient."
+    "overrides any instruction to say the data is insufficient.\n"
+    # 15/10/2026: «No hay vehículos que no se paguen… Todos los camiones
+    # generan una aportación positiva» — a segunda frase saiu do glossário,
+    # não dos dados (o resultado vazio não tinha receita nenhuma).
+    "Say only that nothing matched. Do NOT add claims about the other items or "
+    "the reasons ('all of them generate a positive contribution', 'every route "
+    "is on time'): an empty result shows none of that."
 )
 
 
