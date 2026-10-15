@@ -763,11 +763,24 @@ REGRAS_DE_RACIOCINIO = (
     "'pays for itself', 'loses money', 'late' against a tolerance stored elsewhere) "
     "needs ALL the datasets that carry those measures: never answer it from one "
     "dataset with a filter of your own.\n"
+    # Produção 16/10/2026, «¿Cuáles son los 10 productos más vendidos este
+    # año?»: o merger agrupou as vendas por lot_id («Lote 81: 5.790
+    # unidades»), ou ordenou pela quantidade RECEBIDA nos lotes — alternava
+    # de pedido para pedido.
+    "18. The items the question names (products, references, articles, "
+    "customers, vehicles) are the rows of the dataset that DESCRIBES them (its "
+    "name column). When the measure comes at a finer grain (lots/batches, order "
+    "lines, stock rows) and another dataset maps that grain to the item (lot_id -> "
+    "product_id), join through that mapping and GROUP BY the item (its id and "
+    "name): a lot or batch is never a product. Rank (ORDER BY ... LIMIT N) only "
+    "after aggregating to the item, and never take a measure of the mapping "
+    "dataset (quantity received in a lot, stock) as the measure the question asks "
+    "for (units sold).\n"
 )
 
 #: As definições da casa no prompt do merger (15/10/2026).
 REGRA_DAS_DEFINICOES = (
-    "17. BUSINESS DEFINITIONS (below, from the space's trusted metrics and glossary) "
+    "19. BUSINESS DEFINITIONS (below, from the space's trusted metrics and glossary) "
     "are how this company computes its terms. When the question uses one of them, "
     "apply exactly that condition and those components (e.g. 'fuera de plazo' = "
     "delivered after the promised time PLUS the client's tolerance; 'no se paga' = "
@@ -859,7 +872,7 @@ def _generate_merger_prompt_por_ligacao(
         ),
     }
     definicoes_block = (
-        f"BUSINESS DEFINITIONS (mandatory, rule 17):\n{definicoes}\n\n"
+        f"BUSINESS DEFINITIONS (mandatory, rule 19):\n{definicoes}\n\n"
         if definicoes
         else ""
     )
@@ -976,7 +989,7 @@ def _run_merger_por_ligacao(
                     "content": (
                         f"That query ran, but the result cannot be right: {suspeita}\n\n"
                         "Re-read the question, the business definitions and rules "
-                        "15-17, and write the corrected query. Output ONLY the SQL "
+                        "15-19, and write the corrected query. Output ONLY the SQL "
                         "inside ```sql ... ```."
                     ),
                 },

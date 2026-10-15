@@ -176,7 +176,7 @@ def test_merger_recebe_as_definicoes_e_as_regras_15_a_17():
     sistema, user = llm.mensagens[0][0]["content"], llm.mensagens[0][1]["content"]
     assert "15. A share or percentage per group" in sistema
     assert "16. A comparison between measures of different datasets" in sistema
-    assert "17. BUSINESS DEFINITIONS" in sistema
+    assert "19. BUSINESS DEFINITIONS" in sistema
     assert "BUSINESS DEFINITIONS (mandatory" in user
     assert "más la tolerancia del cliente" in user
 
