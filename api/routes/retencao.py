@@ -68,9 +68,12 @@ async def retencao(request: Request, dry_run: bool = Query(True)):
                 dias=int(settings.retencao_auditoria_dias),
                 a_serio=not dry_run,
             )
-    except ValueError as exc:
+    except ValueError:
+        # Prazo de retenção abaixo do mínimo no ambiente. Mensagem fixa: o
+        # texto da excepção não sai para fora (CodeQL).
         return JSONResponse(
-            status_code=422, content={"erro": str(exc), "base": ctx.slug}
+            status_code=422,
+            content={"erro": "retencao_demasiado_curta", "base": ctx.slug},
         )
 
     logger.info(
